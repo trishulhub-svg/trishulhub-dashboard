@@ -3,22 +3,19 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Fix deployment and make app live
+Task: Fix deployment - Bun cannot find 'next' package
 
 Work Log:
-- Investigated platform deployment architecture: Caddy (port 81) → Node.js (port 3000)
-- Discovered platform's start.sh uses `bun server.js` directly, not our start.js
-- Found that start.sh checks for /app/db/custom.db and exits if not found
-- Patched server.js to load .env file and redirect DATABASE_URL from /app/db/ to ./db/
-- Verified bun works with our patched server.js (starts in 92ms)
-- Added /api/health endpoint for platform health checks
-- Improved API keys page error handling
-- Hidden seed button on login page in production
-- Simplified build script using copy-standalone.js
-- Server is running and accessible on both port 3000 and port 81
+- Received platform error: `Cannot find package 'next' from '/app/next-service-dist/server.js'` when using Bun
+- Root cause: Platform's start.sh runs `bun server.js` but Next.js standalone mode's traced node_modules only works with Node.js, not Bun
+- Fix: Added Bun→Node.js re-spawn detection at the top of server.js
+- When Bun is detected, server.js spawns itself with Node.js instead and exits Bun process
+- Verified the fix works: `bun server.js` → detects Bun → spawns `node server.js` → Next.js starts in 68ms
+- Also updated copy-standalone.js to automatically apply this patch on every build
+- All .env loading and DATABASE_URL redirect code preserved
 
 Stage Summary:
-- Server running on port 3000, Caddy proxying on port 81
-- All endpoints verified: health, login, api-keys, dashboard
-- Platform deployment should now work with patched server.js
-- DATABASE_URL auto-redirects from /app/db/ to ./db/ when needed
+- Critical fix: Bun→Node.js re-spawn in server.js
+- Build script (copy-standalone.js) now auto-patches server.js on every build
+- Tested with `bun server.js` — works correctly, switches to Node.js
+- Server running and all endpoints verified

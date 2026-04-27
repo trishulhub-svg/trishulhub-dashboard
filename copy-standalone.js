@@ -65,17 +65,37 @@ try {
     fs.copyFileSync(startScript, path.join(standalone, 'start.js'));
   }
 
-  // 7. Patch server.js to load .env and handle DATABASE_URL redirection
-  console.log('  Patching server.js with .env loader...');
+  // 7. Patch server.js — add Bun→Node re-spawn, .env loader, and DATABASE_URL redirect
+  console.log('  Patching server.js for platform compatibility...');
   const serverJsPath = path.join(standalone, 'server.js');
   if (fs.existsSync(serverJsPath)) {
     let serverJs = fs.readFileSync(serverJsPath, 'utf8');
 
     // Only patch if not already patched
-    if (!serverJs.includes('Load .env file')) {
-      const envLoader = `const fs = require('fs')
-// Load .env file (platform may not auto-load it)
-const envPath = require('path').join(__dirname, '.env')
+    if (!serverJs.includes('Re-spawn with Node.js')) {
+      const patchCode = `const fs = require('fs')
+
+// ━━ CRITICAL: Re-spawn with Node.js if running under Bun ━━
+// Next.js standalone mode requires Node.js - Bun cannot resolve
+// the traced node_modules dependencies correctly.
+if (process.execPath.includes('bun') || (typeof Bun !== 'undefined')) {
+  console.log('Detected Bun runtime. Switching to Node.js for Next.js compatibility...')
+  const { spawn } = require('child_process')
+  const child = spawn('node', [__filename], {
+    stdio: 'inherit',
+    env: process.env,
+    cwd: process.cwd()
+  })
+  child.on('close', (code) => process.exit(code || 0))
+  child.on('error', (err) => {
+    console.error('Failed to spawn Node.js:', err)
+    process.exit(1)
+  })
+  return
+}
+
+// ━━ Load .env file (platform may not auto-load it) ━━
+const envPath = path.join(__dirname, '.env')
 if (fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, 'utf8')
   envContent.split('\\n').forEach(line => {
@@ -90,7 +110,8 @@ if (fs.existsSync(envPath)) {
   })
   console.log('Loaded .env from:', envPath)
 }
-// Handle DATABASE_URL - redirect /app/db/ to ./db/ if needed
+
+// ━━ Handle DATABASE_URL - redirect /app/db/ to ./db/ if needed ━━
 if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('/app/db/')) {
   const appDbPath = process.env.DATABASE_URL.replace('file:', '')
   if (!fs.existsSync(appDbPath)) {
@@ -100,34 +121,19 @@ if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('/app/db/')) {
 }
 `;
 
-      // Insert after the first require('path') line
+      // Replace the first two lines (const path + const dir) with patched version
       serverJs = serverJs.replace(
-        "const path = require('path')",
-        "const path = require('path')\n" + envLoader
+        "const path = require('path')\n",
+        "const path = require('path')\n" + patchCode + "\n"
       );
       fs.writeFileSync(serverJsPath, serverJs);
-      console.log('  ✅ server.js patched');
+      console.log('  ✅ server.js patched (Bun→Node, .env, DATABASE_URL)');
     } else {
       console.log('  ℹ️ server.js already patched');
     }
   }
 
-  // 8. Create /app/db/ directory and copy database there for platform compatibility
-  console.log('  Setting up /app/db/ for platform compatibility...');
-  try {
-    const appDbDir = '/app/db';
-    if (!fs.existsSync(appDbDir)) {
-      fs.mkdirSync(appDbDir, { recursive: true });
-    }
-    if (fs.existsSync(dbFile)) {
-      fs.copyFileSync(dbFile, path.join(appDbDir, 'custom.db'));
-      console.log('  ✅ Database copied to /app/db/custom.db');
-    }
-  } catch (err) {
-    console.log('  ⚠️ Cannot create /app/db/ (permissions), will rely on .env redirect');
-  }
-
-  // 9. Generate Prisma client inside standalone
+  // 8. Generate Prisma client inside standalone
   console.log('  Generating Prisma client in standalone...');
   try {
     execSync('npx prisma generate', {
