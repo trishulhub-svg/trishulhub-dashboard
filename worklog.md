@@ -100,3 +100,32 @@ Stage Summary:
 - Build script copies db, public, static, and prisma to standalone folder
 - .env: relative DATABASE_URL, production NEXTAUTH_URL, HOSTNAME, PORT
 - App needs to be redeployed on the platform for changes to take effect
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix API Keys page client-side exception error
+
+Work Log:
+- Analyzed screenshot showing "Application error: a client-side exception has occurred" at /dashboard/api-keys
+- Found multiple issues causing the crash:
+  1. GET /api/api-keys endpoint had NO try/catch - if Prisma throws, the route crashes
+  2. fetchKeys() didn't handle non-OK responses - could set keys to error object instead of array
+  3. JSON.parse(key.assignedAgents) could crash on invalid JSON
+  4. Number methods (.toFixed) could crash on null/undefined values
+  5. No error state in the UI - errors were silently ignored
+- Fixed backend: Added try/catch to ALL API route handlers (GET, PUT, DELETE)
+- Fixed frontend: 
+  - Added proper error handling in fetchKeys (handles non-array responses, network errors)
+  - Added error state with retry button UI
+  - Added safe parseAssignedAgents() helper with try/catch
+  - Used Number() conversion for budget/spend to prevent NaN
+  - Wrapped key card rendering in try/catch as safety net
+  - Used Math.min(usagePercent, 100) for Progress component
+  - Used nullish coalescing (??) instead of || for _count access
+- Build verified: compiles successfully, both pages return 200
+
+Stage Summary:
+- API Keys page is now crash-proof with comprehensive error handling
+- Backend API routes all have try/catch error handling
+- Frontend gracefully shows error message with retry button instead of crashing
