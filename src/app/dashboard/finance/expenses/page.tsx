@@ -33,7 +33,7 @@ export default function ExpensesPage() {
 
   const fetchExpenses = useCallback(async () => {
     try {
-      const res = await fetch("/api/expenses");
+      const res = await fetch("/api/expenses", { credentials: 'include' });
       if (res.ok) setExpenses(await res.json());
     } catch (err) {
       console.error(err);
@@ -60,6 +60,7 @@ export default function ExpensesPage() {
       const res = await fetch("/api/expenses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -74,7 +75,7 @@ export default function ExpensesPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/expenses?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
       toast.success("Expense deleted");
       fetchExpenses();
     } catch {

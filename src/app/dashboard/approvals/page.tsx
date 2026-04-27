@@ -18,7 +18,7 @@ export default function ApprovalsPage() {
 
   const fetchApprovals = useCallback(async () => {
     try {
-      const res = await fetch("/api/approvals");
+      const res = await fetch("/api/approvals", { credentials: 'include' });
       if (res.ok) setApprovals(await res.json());
     } catch (err) {
       console.error(err);
@@ -41,6 +41,7 @@ export default function ApprovalsPage() {
       await fetch("/api/approvals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
 

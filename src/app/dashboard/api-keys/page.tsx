@@ -64,7 +64,12 @@ export default function ApiKeysPage() {
   const fetchKeys = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch("/api/api-keys");
+      const res = await fetch("/api/api-keys", { credentials: 'include' });
+      if (res.status === 401) {
+        // Session expired, redirect to login
+        window.location.href = "/login";
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         // Ensure data is an array (API might return error object)
@@ -105,6 +110,7 @@ export default function ApiKeysPage() {
     try {
       const res = await fetch("/api/api-keys", {
         method: "POST",
+        credentials: 'include',
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: formProvider,
@@ -136,7 +142,7 @@ export default function ApiKeysPage() {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this API key?")) return;
     try {
-      const res = await fetch(`/api/api-keys?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/api-keys?id=${id}`, { method: "DELETE", credentials: 'include' });
       if (res.ok) {
         toast.success("API key deleted");
         fetchKeys();
@@ -152,7 +158,7 @@ export default function ApiKeysPage() {
   const handleTestKey = async (id: string) => {
     setTestingKey(id);
     try {
-      const res = await fetch(`/api/api-keys/test?id=${id}`);
+      const res = await fetch(`/api/api-keys/test?id=${id}`, { credentials: 'include' });
       const data = await res.json();
       if (res.ok && data.valid) {
         toast.success("API key is valid and working!");

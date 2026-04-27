@@ -53,10 +53,10 @@ export default function ProjectDetailPage() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, taskRes, agentRes, userRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`),
-        fetch(`/api/tasks?projectId=${projectId}`),
-        fetch("/api/agents"),
-        fetch("/api/team"),
+        fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
+        fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
+        fetch("/api/agents", { credentials: 'include' }),
+        fetch("/api/team", { credentials: 'include' }),
       ]);
 
       if (projRes.ok) {
@@ -96,6 +96,7 @@ export default function ProjectDetailPage() {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -113,6 +114,7 @@ export default function ProjectDetailPage() {
       await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ id: taskId, status: newStatus }),
       });
       toast.success(`Task moved to ${newStatus.replace("_", " ")}`);
@@ -124,7 +126,7 @@ export default function ProjectDetailPage() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+      await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: 'include' });
       toast.success("Task deleted");
       fetchData();
     } catch {

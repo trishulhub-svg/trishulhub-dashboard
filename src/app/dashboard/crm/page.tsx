@@ -124,7 +124,7 @@ export default function CRMPage() {
 
   const fetchLeads = useCallback(async () => {
     try {
-      const res = await fetch("/api/leads");
+      const res = await fetch("/api/leads", { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setLeads(data);
@@ -164,6 +164,7 @@ export default function CRMPage() {
       await fetch("/api/leads", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ id: leadId, status: newStatus }),
       });
       toast.success(`Lead moved to ${newStatus}`);
@@ -191,6 +192,7 @@ export default function CRMPage() {
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -209,6 +211,7 @@ export default function CRMPage() {
       await fetch("/api/leads", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ id: selectedLead.id, ...data }),
       });
       toast.success("Lead updated");

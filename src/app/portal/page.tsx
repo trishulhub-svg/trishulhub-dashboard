@@ -15,9 +15,9 @@ export default function PortalDashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, invRes, ticketRes] = await Promise.all([
-        fetch("/api/projects"),
-        fetch("/api/invoices"),
-        fetch("/api/support"),
+        fetch("/api/projects", { credentials: 'include' }),
+        fetch("/api/invoices", { credentials: 'include' }),
+        fetch("/api/support", { credentials: 'include' }),
       ]);
       const projects = projRes.ok ? await projRes.json() : [];
       const invoices = invRes.ok ? await invRes.json() : [];

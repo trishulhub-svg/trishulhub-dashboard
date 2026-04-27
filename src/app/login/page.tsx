@@ -143,7 +143,7 @@ export default function LoginPage() {
         <Button variant="outline" className="w-full" onClick={async () => {
           setLoading(true);
           try {
-            await fetch("/api/seed", { method: "POST" });
+            await fetch("/api/seed", { method: "POST", credentials: 'include' });
             toast.success("Database seeded! You can now sign in.");
           } catch {
             toast.error("Failed to seed database");

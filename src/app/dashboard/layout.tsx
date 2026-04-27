@@ -164,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch("/api/notifications?userId=" + userId);
+        const res = await fetch("/api/notifications?userId=" + userId, { credentials: 'include' });
         if (res.ok && !cancelled) {
           const data = await res.json();
           const unread = data.filter((n: { isRead: boolean }) => !n.isRead).length;

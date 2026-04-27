@@ -28,8 +28,8 @@ export default function PortalProjectDetailPage() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, taskRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`),
-        fetch(`/api/tasks?projectId=${projectId}`),
+        fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
+        fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
       ]);
       if (projRes.ok) {
         const projects = await projRes.json();

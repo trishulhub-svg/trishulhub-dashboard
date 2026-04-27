@@ -19,7 +19,7 @@ export default function PortalInvoicesPage() {
 
   const fetchInvoices = useCallback(async () => {
     try {
-      const res = await fetch("/api/invoices");
+      const res = await fetch("/api/invoices", { credentials: 'include' });
       if (res.ok) setInvoices(await res.json());
     } catch (err) {
       console.error(err);

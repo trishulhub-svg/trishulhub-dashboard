@@ -15,7 +15,7 @@ export default function PortalProjectsPage() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch("/api/projects");
+      const res = await fetch("/api/projects", { credentials: 'include' });
       if (res.ok) setProjects(await res.json());
     } catch (err) {
       console.error(err);

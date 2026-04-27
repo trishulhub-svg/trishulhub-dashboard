@@ -30,9 +30,9 @@ export default function TeamPage() {
   const fetchData = useCallback(async () => {
     try {
       const [userRes, leaveRes, attendRes] = await Promise.all([
-        fetch("/api/team"),
-        fetch("/api/team?type=leaves"),
-        fetch("/api/team?type=attendance"),
+        fetch("/api/team", { credentials: 'include' }),
+        fetch("/api/team?type=leaves", { credentials: 'include' }),
+        fetch("/api/team?type=attendance", { credentials: 'include' }),
       ]);
       if (userRes.ok) setUsers(await userRes.json());
       if (leaveRes.ok) setLeaves(await leaveRes.json());
@@ -53,6 +53,7 @@ export default function TeamPage() {
       await fetch("/api/team", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ type: "leave", id, status }),
       });
       toast.success(`Leave ${status.toLowerCase()}`);

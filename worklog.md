@@ -129,3 +129,23 @@ Stage Summary:
 - API Keys page is now crash-proof with comprehensive error handling
 - Backend API routes all have try/catch error handling
 - Frontend gracefully shows error message with retry button instead of crashing
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix deployment health check failure and API Keys page error
+
+Work Log:
+- Diagnosed health check failure on port 81 - Caddy reverse proxy forwards to port 3000
+- Discovered standalone server doesn't auto-load .env files in production
+- Created custom start.js that manually loads .env before starting server
+- Added .env copy to build script
+- Added credentials: 'include' to ALL fetch() calls across 15+ dashboard/portal pages
+- Added 401 error handling with redirect to login on API Keys page
+- Rebuilt project and tested standalone server - starts in 64ms
+- Updated build script to copy standalone-start.js to .next/standalone/start.js
+
+Stage Summary:
+- Server now starts in ~64ms and loads .env correctly
+- All API calls now include credentials for proper cookie handling through Caddy proxy
+- Build script properly copies start.js, .env, db, prisma, public, static to standalone folder
+- Files modified: package.json, start.sh, standalone-start.js (new), 15+ page components

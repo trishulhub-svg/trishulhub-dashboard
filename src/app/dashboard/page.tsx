@@ -33,7 +33,7 @@ export default function DashboardPage() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await fetch("/api/dashboard");
+      const res = await fetch("/api/dashboard", { credentials: 'include' });
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -52,7 +52,7 @@ export default function DashboardPage() {
   // Seed database if empty
   useEffect(() => {
     if (!loading && !data) {
-      fetch("/api/seed", { method: "POST" }).then(() => fetchDashboard());
+      fetch("/api/seed", { method: "POST", credentials: 'include' }).then(() => fetchDashboard());
     }
   }, [loading, data, fetchDashboard]);
 

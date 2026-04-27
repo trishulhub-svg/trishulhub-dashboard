@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && mkdir -p .next/standalone/db && cp -r db/custom.db .next/standalone/db/ && mkdir -p .next/standalone/prisma && cp prisma/schema.prisma .next/standalone/prisma/ && cd .next/standalone && npx prisma generate",
-    "start": "NODE_ENV=production node .next/standalone/server.js",
+    "build": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && mkdir -p .next/standalone/db && cp db/custom.db .next/standalone/db/ && mkdir -p .next/standalone/prisma && cp prisma/schema.prisma .next/standalone/prisma/ && cp .env .next/standalone/.env && cp standalone-start.js .next/standalone/start.js && cd .next/standalone && npx prisma generate && cd ../..",
+    "start": "NODE_ENV=production node .next/standalone/start.js",
     "postinstall": "prisma generate",
-    "dev:start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
+    "dev:start": "NODE_ENV=production node .next/standalone/start.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

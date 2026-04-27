@@ -33,7 +33,7 @@ export default function PortalSupportPage() {
 
   const fetchTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/support");
+      const res = await fetch("/api/support", { credentials: 'include' });
       if (res.ok) setTickets(await res.json());
     } catch (err) {
       console.error(err);
@@ -61,6 +61,7 @@ export default function PortalSupportPage() {
       const res = await fetch("/api/support", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -80,6 +81,7 @@ export default function PortalSupportPage() {
       await fetch("/api/support", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({
           id: selectedTicket.id,
           message: replyText,

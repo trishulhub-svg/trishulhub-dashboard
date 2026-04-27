@@ -16,7 +16,7 @@ sleep 1
 
 # Start the server with increased memory limit
 # Node.js default heap is ~1.5GB which is too small for this app
-NODE_OPTIONS='--max-old-space-size=4096' nohup node node_modules/.bin/next start -p 3000 >> /tmp/trishulhub.log 2>&1 &
+NODE_OPTIONS='--max-old-space-size=4096' nohup node .next/standalone/start.js >> /tmp/trishulhub.log 2>&1 &
 disown
 
 echo "Waiting for server to start..."

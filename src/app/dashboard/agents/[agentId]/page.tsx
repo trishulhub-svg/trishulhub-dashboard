@@ -57,7 +57,7 @@ export default function AgentChatPage() {
 
   const fetchAgent = useCallback(async () => {
     try {
-      const res = await fetch("/api/agents");
+      const res = await fetch("/api/agents", { credentials: 'include' });
       if (res.ok) {
         const agents = await res.json();
         const found = (agents as Record<string, unknown>[]).find((a) => a.id === agentId);
@@ -90,6 +90,7 @@ export default function AgentChatPage() {
       const res = await fetch("/api/agents/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({
           agentId,
           message: userMessage.content,
@@ -144,6 +145,7 @@ export default function AgentChatPage() {
       const res = await fetch("/api/agents", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ id: agentId, ...data }),
       });
       if (res.ok) {

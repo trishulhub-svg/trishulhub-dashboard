@@ -42,8 +42,8 @@ export default function ProjectsPage() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, clientRes] = await Promise.all([
-        fetch("/api/projects"),
-        fetch("/api/clients"),
+        fetch("/api/projects", { credentials: 'include' }),
+        fetch("/api/clients", { credentials: 'include' }),
       ]);
       if (projRes.ok) setProjects(await projRes.json());
       if (clientRes.ok) setClients(await clientRes.json());
@@ -73,6 +73,7 @@ export default function ProjectsPage() {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {

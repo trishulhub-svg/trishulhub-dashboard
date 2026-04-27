@@ -39,9 +39,9 @@ export default function InvoicesPage() {
   const fetchData = useCallback(async () => {
     try {
       const [invRes, clientRes, projRes] = await Promise.all([
-        fetch("/api/invoices"),
-        fetch("/api/clients"),
-        fetch("/api/projects"),
+        fetch("/api/invoices", { credentials: 'include' }),
+        fetch("/api/clients", { credentials: 'include' }),
+        fetch("/api/projects", { credentials: 'include' }),
       ]);
       if (invRes.ok) setInvoices(await invRes.json());
       if (clientRes.ok) setClients(await clientRes.json());
@@ -81,6 +81,7 @@ export default function InvoicesPage() {
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -98,6 +99,7 @@ export default function InvoicesPage() {
       await fetch("/api/invoices", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({ id, status }),
       });
       toast.success(`Invoice marked as ${status}`);
