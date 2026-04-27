@@ -39,7 +39,38 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { id } = await req.json()
+  // Support both query param and JSON body for the ID
+  let id: string | null = null
+
+  // Try query param first
+  const urlId = req.nextUrl.searchParams.get("id")
+  if (urlId) {
+    id = urlId
+  } else {
+    // Try JSON body
+    try {
+      const body = await req.json()
+      id = body.id
+    } catch {
+      // No body
+    }
+  }
+
+  if (!id) {
+    return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
+  }
+
+  // First, unlink any agents using this key
+  await db.agent.updateMany({
+    where: { apiKeyId: id },
+    data: { apiKeyId: null },
+  })
+
+  // Delete usage logs for this key first (foreign key constraint)
+  await db.apiUsageLog.deleteMany({
+    where: { apiKeyId: id },
+  })
+
   await db.apiKey.delete({ where: { id } })
   return NextResponse.json({ success: true })
 }

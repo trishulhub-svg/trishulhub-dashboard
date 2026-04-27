@@ -108,8 +108,21 @@ export default function AgentChatPage() {
         if (data.conversationId) setConversationId(data.conversationId);
       } else {
         const error = await res.json();
-        toast.error(error.error || "Failed to get response");
-        setMessages((prev) => prev.slice(0, -1));
+        const errorMsg = error.error || "Failed to get response";
+        toast.error(errorMsg, { duration: 6000 });
+        // If it's an API key error, add a system message
+        if (errorMsg.includes("API key") || errorMsg.includes("No active API key")) {
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            {
+              role: "system" as const,
+              content: "⚠️ No valid API key found. Please go to Settings > API Keys and add a valid OpenRouter API key to use this agent.",
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        } else {
+          setMessages((prev) => prev.slice(0, -1));
+        }
       }
     } catch {
       toast.error("Network error. Please try again.");
@@ -224,15 +237,23 @@ export default function AgentChatPage() {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-center"}`}
               >
                 <div
                   className={`max-w-[80%] rounded-lg p-3 ${
                     msg.role === "user"
                       ? "bg-primary text-primary-foreground"
+                      : msg.role === "system"
+                      ? "bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"
                       : "bg-muted"
                   }`}
                 >
+                  {msg.role === "system" ? (
+                    <div className="text-sm text-yellow-800 dark:text-yellow-200 whitespace-pre-wrap break-words">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <>
                   {msg.role !== "user" && (
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={`h-3.5 w-3.5 ${agentConfig?.color}`} />
@@ -242,6 +263,8 @@ export default function AgentChatPage() {
                   <div className="text-sm whitespace-pre-wrap break-words">
                     {msg.content}
                   </div>
+                  </>
+                  )}
                   {msg.role === "assistant" && (
                     <div className="flex gap-1 mt-2 pt-2 border-t border-border/50">
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(msg.content); toast.success("Copied!"); }}>

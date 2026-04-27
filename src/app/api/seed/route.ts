@@ -31,21 +31,21 @@ export async function POST() {
       data: { name: "Rahul Sharma", email: "rahul@example.com", password: hashedPassword, role: "CLIENT" },
     })
 
-    // Create API Key
+    // Create API Key (placeholder - user needs to add their real key)
     const apiKey = await db.apiKey.create({
       data: {
         provider: "OPENROUTER",
-        keyName: "OpenRouter Primary",
+        keyName: "OpenRouter Primary (Placeholder - Add your real key)",
         keyValue: "sk-or-v1-placeholder-add-your-key",
         monthlyBudget: 18.0,
         currentSpend: 0,
-        status: "ACTIVE",
+        status: "ERROR", // Mark as ERROR so agents don't try to use the placeholder
         priority: 1,
-        assignedAgents: '["DEV","CLIENT_HUNTER","FINANCE","PROJECT_MANAGER","HR","CONTENT","SUPPORT"]',
+        assignedAgents: '[]',
       },
     })
 
-    // Create Agents
+    // Create Agents (no apiKeyId linked since the placeholder is ERROR)
     const agents = await Promise.all([
       db.agent.create({
         data: {
@@ -55,7 +55,6 @@ export async function POST() {
           model: "openai/gpt-4o-mini",
           systemPrompt: "You are an expert web developer for TrishulHub. You write clean, responsive HTML, CSS, JavaScript, and PHP code. When given a project requirement, you generate complete, working code. When given a screenshot with feedback, you analyze the image and fix the issues. Always include comments in your code. Format code in markdown code blocks.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -66,7 +65,6 @@ export async function POST() {
           model: "openai/gpt-4o-mini",
           systemPrompt: "You are an expert sales agent for TrishulHub, a web development company. Your job is to find businesses that need websites and reach out to them. When given a type of business or location, you suggest lead criteria and search strategies. When given a lead, you write personalized cold emails that reference specific details about their business. Keep emails short (under 150 words), professional, and focused on the value TrishulHub provides. Always end with a clear call to action.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -77,7 +75,6 @@ export async function POST() {
           model: "openai/gpt-4o-mini",
           systemPrompt: "You are a financial assistant for TrishulHub. You generate professional invoices, track payments, create financial reports, and send payment reminders. Always calculate amounts accurately and format financial data clearly. When creating invoices, include all necessary details: client name, project, line items, subtotal, tax, total, and due date.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -88,7 +85,6 @@ export async function POST() {
           model: "openai/gpt-4o-mini",
           systemPrompt: "You are a project manager for TrishulHub. You break down projects into tasks, set realistic deadlines, track progress, and ensure nothing is missed. When given a project description, you create a detailed task breakdown with estimated hours, dependencies, and assigned team members. Always be organized and thorough.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -99,7 +95,6 @@ export async function POST() {
           model: "meta-llama/llama-3.3-70b-instruct:free",
           systemPrompt: "You are an HR coordinator for TrishulHub. You track attendance, manage leave requests, monitor workload, and help with team coordination. You are organized and proactive about alerting management to potential issues like team overload or deadline risks. Keep responses concise and actionable.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -110,7 +105,6 @@ export async function POST() {
           model: "openai/gpt-4o-mini",
           systemPrompt: "You are a content writer for TrishulHub. You write website copy, social media posts, blog articles, email templates, and case studies. Your writing is professional, engaging, and optimized for SEO. You adapt your tone based on the platform and audience. For Instagram, keep it casual with emojis. For LinkedIn, keep it professional. For websites, focus on clarity and conversion.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
       db.agent.create({
@@ -121,7 +115,6 @@ export async function POST() {
           model: "meta-llama/llama-3.3-70b-instruct:free",
           systemPrompt: "You are a customer support agent for TrishulHub. You help clients with questions about their websites, hosting, domains, and general issues. You are friendly, patient, and thorough. If you cannot resolve an issue, you suggest escalating it to a human team member. Common answers: hosting is on Hostinger, domains are managed by TrishulHub, site access is via the client portal.",
           status: "IDLE",
-          apiKeyId: apiKey.id,
         },
       }),
     ])

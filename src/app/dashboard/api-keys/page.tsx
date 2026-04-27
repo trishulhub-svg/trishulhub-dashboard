@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Plus, Trash2, Key, AlertTriangle,
+  Plus, Trash2, Key, AlertTriangle, CheckCircle2, Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ export default function ApiKeysPage() {
   const [keys, setKeys] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [testingKey, setTestingKey] = useState<string | null>(null);
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -64,9 +65,12 @@ export default function ApiKeysPage() {
         body: JSON.stringify(data),
       });
       if (res.ok) {
-        toast.success("API key added");
+        toast.success("API key added successfully");
         setAddOpen(false);
         fetchKeys();
+      } else {
+        const errorData = await res.json().catch(() => ({ error: "Failed to add API key" }));
+        toast.error(errorData.error || "Failed to add API key");
       }
     } catch {
       toast.error("Failed to add API key");
@@ -75,15 +79,36 @@ export default function ApiKeysPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/api-keys?id=${id}`, { method: "DELETE" });
-      toast.success("API key deleted");
-      fetchKeys();
+      const res = await fetch(`/api/api-keys?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("API key deleted");
+        fetchKeys();
+      } else {
+        const data = await res.json().catch(() => ({ error: "Failed to delete" }));
+        toast.error(data.error || "Failed to delete");
+      }
     } catch {
       toast.error("Failed to delete");
     }
   };
 
-  const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+  const handleTestKey = async (id: string) => {
+    setTestingKey(id);
+    try {
+      const res = await fetch(`/api/api-keys/test?id=${id}`);
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        toast.success("API key is valid and working!");
+      } else {
+        toast.error(data.error || "API key is invalid or not working");
+      }
+      fetchKeys(); // Refresh to show updated status
+    } catch {
+      toast.error("Failed to test API key");
+    } finally {
+      setTestingKey(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -138,8 +163,8 @@ export default function ApiKeysPage() {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Assigned Agents (JSON array)</Label>
-                <Input name="assignedAgents" defaultValue='["DEV","CONTENT"]' className="font-mono text-xs" />
+                <Label className="text-xs">Assigned Agents (JSON array, or [] for all)</Label>
+                <Input name="assignedAgents" defaultValue='[]' className="font-mono text-xs" />
               </div>
               <Button type="submit" className="w-full">Add Key</Button>
             </form>
@@ -213,7 +238,21 @@ export default function ApiKeysPage() {
                   <span>{key._count?.usageLogs || 0}</span>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-500 h-7"
+                    onClick={() => handleTestKey(key.id)}
+                    disabled={testingKey === key.id}
+                  >
+                    {testingKey === key.id ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                    )}
+                    Test
+                  </Button>
                   <Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => handleDelete(key.id)}>
                     <Trash2 className="h-3 w-3 mr-1" /> Delete
                   </Button>
@@ -223,6 +262,24 @@ export default function ApiKeysPage() {
           );
         })}
       </div>
+
+      {keys.length === 0 && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Key className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No API Keys Added</h3>
+            <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
+              Add your OpenRouter API key to start using AI agents. Get your key from{" "}
+              <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                openrouter.ai/keys
+              </a>
+            </p>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Your First Key
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

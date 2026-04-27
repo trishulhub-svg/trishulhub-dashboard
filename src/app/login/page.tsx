@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,9 +46,14 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center gap-3 mb-6">
-            <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M24 4L28 20H24L28 44L20 24H24L20 4H24Z" fill="hsl(25, 80%, 50%)" stroke="hsl(25, 80%, 40%)" strokeWidth="1"/>
-            </svg>
+            <Image
+              src="/512logo.png"
+              alt="TrishulHub"
+              width={56}
+              height={56}
+              className="rounded-xl"
+              priority
+            />
             <h1 className="text-3xl font-bold text-primary">TrishulHub</h1>
           </div>
           <h2 className="text-xl font-semibold">AI Agent Dashboard</h2>
@@ -90,54 +96,9 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <Button variant="outline" className="w-full" onClick={async () => { setLoading(true); await fetch("/api/seed", { method: "POST" }); toast.success("Database seeded! Use credentials below."); setLoading(false); }} disabled={loading}>
+        <Button variant="outline" className="w-full" onClick={async () => { setLoading(true); await fetch("/api/seed", { method: "POST" }); toast.success("Database seeded! You can now sign in."); setLoading(false); }} disabled={loading}>
           Seed Database (First Time Only)
         </Button>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Demo Accounts</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Super Admin:</span>
-              <button
-                onClick={() => { setEmail("taroon@trishulhub.in"); setPassword("password123"); }}
-                className="text-primary hover:underline font-mono text-xs"
-              >
-                taroon@trishulhub.in
-              </button>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Admin:</span>
-              <button
-                onClick={() => { setEmail("pruthvi@trishulhub.in"); setPassword("password123"); }}
-                className="text-primary hover:underline font-mono text-xs"
-              >
-                pruthvi@trishulhub.in
-              </button>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Developer:</span>
-              <button
-                onClick={() => { setEmail("kiran@trishulhub.in"); setPassword("password123"); }}
-                className="text-primary hover:underline font-mono text-xs"
-              >
-                kiran@trishulhub.in
-              </button>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Developer:</span>
-              <button
-                onClick={() => { setEmail("akshat@trishulhub.in"); setPassword("password123"); }}
-                className="text-primary hover:underline font-mono text-xs"
-              >
-                akshat@trishulhub.in
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground pt-1">Password for all: password123</p>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

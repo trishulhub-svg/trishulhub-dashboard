@@ -22,18 +22,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
-    // Get active API key
+    // Get active API key - check agent's assigned key first
     let apiKey = agent.apiKeyId
       ? await db.apiKey.findUnique({ where: { id: agent.apiKeyId } })
       : null
 
+    // If no key assigned, or key is not active, find any active key
     if (!apiKey || apiKey.status !== "ACTIVE") {
-      // Try to find any active API key
-      apiKey = await db.apiKey.findFirst({ where: { status: "ACTIVE" }, orderBy: { priority: "asc" } })
+      // Try to find a key that is active AND assigned to this agent type
+      const allActiveKeys = await db.apiKey.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: { priority: "asc" },
+      })
+
+      // First try: find a key specifically assigned to this agent type
+      apiKey = allActiveKeys.find((k) => {
+        try {
+          const assigned = JSON.parse(k.assignedAgents || "[]")
+          return assigned.length === 0 || assigned.includes(agent.type)
+        } catch {
+          return true // If parse fails, consider it available for all
+        }
+      }) || null
+
+      // Auto-assign this key to the agent for future requests
+      if (apiKey) {
+        await db.agent.update({
+          where: { id: agentId },
+          data: { apiKeyId: apiKey.id },
+        })
+      }
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: "No active API key available. Please add an API key in Settings." }, { status: 400 })
+      return NextResponse.json({ error: "No active API key available. Please add a valid API key in Settings > API Keys." }, { status: 400 })
     }
 
     // Build messages
@@ -57,6 +79,11 @@ export async function POST(req: NextRequest) {
 
     try {
       const result = await callOpenRouter(chatMessages, model, apiKey.keyValue)
+
+      // If successful, mark key as ACTIVE (in case it was previously ERROR)
+      if (apiKey.status === "ERROR") {
+        await db.apiKey.update({ where: { id: apiKey.id }, data: { status: "ACTIVE" } })
+      }
 
       // Calculate cost
       const cost = estimateCost(model, result.inputTokens, result.outputTokens)
@@ -91,6 +118,24 @@ export async function POST(req: NextRequest) {
       })
     } catch (apiError: any) {
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+
+      // If it's an auth error, mark the API key as ERROR status
+      const errorMsg = apiError.message || ""
+      if (errorMsg.includes("401") || errorMsg.includes("Unauthorized") || errorMsg.includes("User not found")) {
+        await db.apiKey.update({
+          where: { id: apiKey.id },
+          data: { status: "ERROR" },
+        })
+        // Unlink agent from this key so it finds a new one next time
+        await db.agent.update({
+          where: { id: agentId },
+          data: { apiKeyId: null },
+        })
+        return NextResponse.json({
+          error: "API key is invalid or expired. The key has been marked as ERROR. Please add a valid API key in Settings > API Keys and try again."
+        }, { status: 500 })
+      }
+
       return NextResponse.json({ error: `AI API error: ${apiError.message}` }, { status: 500 })
     }
   } catch (error: any) {

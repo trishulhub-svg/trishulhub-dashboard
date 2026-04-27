@@ -7,6 +7,7 @@ import {
   LayoutDashboard, FolderKanban, FileText, HeadphonesIcon,
   LogOut, Menu,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -91,18 +92,26 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
                 <div className="flex items-center gap-2 mb-4">
-                  <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
-                    <path d="M24 4L28 20H24L28 44L20 24H24L20 4H24Z" fill="hsl(25, 80%, 50%)" />
-                  </svg>
+                  <Image
+                    src="/200px.png"
+                    alt="TrishulHub"
+                    width={24}
+                    height={24}
+                    className="rounded"
+                  />
                   <span className="font-bold text-primary">TrishulHub</span>
                 </div>
                 <NavItems pathname={pathname} onNavigate={handleNavigate} />
               </SheetContent>
             </Sheet>
             <div className="flex items-center gap-2">
-              <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
-                <path d="M24 4L28 20H24L28 44L20 24H24L20 4H24Z" fill="hsl(25, 80%, 50%)" />
-              </svg>
+              <Image
+                src="/200px.png"
+                alt="TrishulHub"
+                width={24}
+                height={24}
+                className="rounded"
+              />
               <h1 className="font-bold text-primary hidden sm:block">TrishulHub</h1>
             </div>
             <div className="hidden md:flex items-center gap-1">
@@ -116,7 +125,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 {userName.split(" ").map((n) => n[0]).join("")}
               </AvatarFallback>
             </Avatar>
-            <Button variant="ghost" size="icon" onClick={() => signOut({ callbackUrl: "/login" })}>
+            <Button variant="ghost" size="icon" onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
               <LogOut className="h-4 w-4" />
             </Button>
           </div>

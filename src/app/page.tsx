@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/hooks/use-session";
+import Image from "next/image";
 
 export default function HomePage() {
   const { data: session, status } = useSession();
@@ -25,9 +26,14 @@ export default function HomePage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center space-y-4">
         <div className="flex items-center justify-center gap-3">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M24 4L28 20H24L28 44L20 24H24L20 4H24Z" fill="hsl(25, 80%, 50%)" stroke="hsl(25, 80%, 40%)" strokeWidth="1"/>
-          </svg>
+          <Image
+            src="/200px.png"
+            alt="TrishulHub"
+            width={48}
+            height={48}
+            className="rounded-lg"
+            priority
+          />
           <h1 className="text-3xl font-bold text-primary">TrishulHub</h1>
         </div>
         <p className="text-muted-foreground">AI Agent Dashboard</p>

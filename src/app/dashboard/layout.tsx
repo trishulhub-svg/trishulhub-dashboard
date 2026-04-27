@@ -22,6 +22,7 @@ import {
   HeadphonesIcon,
   Menu,
 } from "lucide-react";
+import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -80,9 +81,14 @@ function SidebarContent({
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
-        <svg width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M24 4L28 20H24L28 44L20 24H24L20 4H24Z" fill="hsl(25, 80%, 50%)" stroke="hsl(25, 80%, 40%)" strokeWidth="1"/>
-        </svg>
+        <Image
+          src="/200px.png"
+          alt="TrishulHub"
+          width={28}
+          height={28}
+          className="rounded"
+          priority
+        />
         {!collapsed && (
           <div>
             <h1 className="font-bold text-sidebar-primary text-lg leading-tight">TrishulHub</h1>
@@ -295,7 +301,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Settings className="mr-2 h-4 w-4" /> Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+                <DropdownMenuItem onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
                   <LogOut className="mr-2 h-4 w-4" /> Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
