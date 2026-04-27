@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ━━ User & Auth ━━
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  password      String
+  role          String   @default("DEVELOPER") // SUPER_ADMIN, ADMIN, DEVELOPER, CLIENT
+  avatar        String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agentConversations AgentConversation[]
+  sentInvoices      Invoice[]
+  leaveRequests     LeaveRequest[]
+  attendanceRecords Attendance[]
+  notifications     Notification[]
+}
+
+// ━━ API Keys ━━
+model ApiKey {
+  id            String   @id @default(cuid())
+  provider      String   // OPENROUTER, ZAI, OTHER
+  keyName       String
+  keyValue      String
+  monthlyBudget Float    @default(18.0)
+  currentSpend  Float    @default(0)
+  status        String   @default("ACTIVE") // ACTIVE, EXHAUSTED, ERROR
+  priority      Int      @default(1)
+  assignedAgents String  @default("[]") // JSON array of agent types
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  usageLogs ApiUsageLog[]
+  agents   Agent[]
+}
+
+// ━━ AI Agents ━━
+model Agent {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
+  description String
+  model       String   @default("openai/gpt-4o-mini")
+  systemPrompt String
+  status      String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
+  apiKeyId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiKey      ApiKey?   @relation(fields: [apiKeyId], references: [id])
+  conversations AgentConversation[]
+  usageLogs   ApiUsageLog[]
+}
+
+// ━━ Clients ━━
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  company   String?
+  website   String?
+  status    String   @default("ACTIVE") // ACTIVE, INACTIVE
+  userId    String?  // linked portal user
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects  Project[]
+  invoices  Invoice[]
+  leads     Lead[]
+  tickets   SupportTicket[]
+}
+
+// ━━ Projects ━━
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  clientId    String
+  status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
+  progress    Int      @default(0)
+  deadline    DateTime?
+  budget      Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client      Client   @relation(fields: [clientId], references: [id])
+  tasks       Task[]
+  invoices    Invoice[]
+}
+
+// ━━ Tasks ━━
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  assignedTo  String?  // userId or agentId
+  assigneeType String  @default("HUMAN") // HUMAN, AI
+  status      String   @default("TODO") // TODO, IN_PROGRESS, REVIEW, DONE
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  deadline    DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+// ━━ Invoices ━━
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  clientId      String
+  projectId     String?
+  items         String   @default("[]") // JSON array of line items
+  subtotal      Float    @default(0)
+  tax           Float    @default(0)
+  total         Float    @default(0)
+  status        String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE
+  dueDate       DateTime?
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  client        Client   @relation(fields: [clientId], references: [id])
+  project       Project? @relation(fields: [projectId], references: [id])
+  sentBy        User?    @relation(fields: [sentById], references: [id])
+  sentById      String?
+}
+
+// ━━ CRM / Leads ━━
+model Lead {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  company     String?
+  website     String?
+  phone       String?
+  source      String   @default("MANUAL") // MANUAL, AI_FOUND, REFERRAL, SOCIAL_MEDIA
+  score       Int      @default(0)
+  status      String   @default("NEW") // NEW, CONTACTED, INTERESTED, PROPOSAL, NEGOTIATING, WON, LOST
+  notes       String?
+  clientId    String?  // converted to client
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client      Client?  @relation(fields: [clientId], references: [id])
+  emails      LeadEmail[]
+}
+
+model LeadEmail {
+  id        String   @id @default(cuid())
+  leadId    String
+  subject   String
+  body      String
+  direction String   @default("OUTBOUND") // OUTBOUND, INBOUND
+  status    String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, SENT, FAILED
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  lead      Lead     @relation(fields: [leadId], references: [id])
+}
+
+// ━━ Agent Conversations ━━
+model AgentConversation {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  title     String?
+  messages  String   @default("[]") // JSON array of messages
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ API Usage Tracking ━━
+model ApiUsageLog {
+  id           String   @id @default(cuid())
+  apiKeyId     String
+  agentId      String?
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  cost         Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  apiKey       ApiKey   @relation(fields: [apiKeyId], references: [id])
+  agent        Agent?   @relation(fields: [agentId], references: [id])
+}
+
+// ━━ Support Tickets ━━
+model SupportTicket {
+  id          String   @id @default(cuid())
+  clientId    String
+  subject     String
+  description String
+  status      String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  assignedTo  String?  // userId
+  resolution  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client      Client   @relation(fields: [clientId], references: [id])
+  messages    TicketMessage[]
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  senderId  String?  // userId or null for AI
+  senderType String  @default("HUMAN") // HUMAN, AI
+  message   String
+  createdAt DateTime @default(now())
+
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id])
+}
+
+// ━━ HR ━━
+model LeaveRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   @default("CASUAL") // CASUAL, SICK, PAID
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  checkIn   DateTime?
+  checkOut  DateTime?
+  status    String   @default("PRESENT") // PRESENT, ABENT, HALF_DAY, LEAVE
+  notes     String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ Notifications ━━
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, WARNING, ERROR, SUCCESS
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ Expenses ━━
+model Expense {
+  id          String   @id @default(cuid())
+  category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, OTHER
+  description String
+  amount      Float
+  date        DateTime
+  receiptUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
