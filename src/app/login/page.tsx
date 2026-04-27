@@ -140,18 +140,20 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <Button variant="outline" className="w-full" onClick={async () => {
-          setLoading(true);
-          try {
-            await fetch("/api/seed", { method: "POST", credentials: 'include' });
-            toast.success("Database seeded! You can now sign in.");
-          } catch {
-            toast.error("Failed to seed database");
-          }
-          setLoading(false);
-        }} disabled={loading}>
-          Seed Database (First Time Only)
-        </Button>
+        {process.env.NODE_ENV !== 'production' && (
+          <Button variant="outline" className="w-full" onClick={async () => {
+            setLoading(true);
+            try {
+              await fetch("/api/seed", { method: "POST", credentials: 'include' });
+              toast.success("Database seeded! You can now sign in.");
+            } catch {
+              toast.error("Failed to seed database");
+            }
+            setLoading(false);
+          }} disabled={loading}>
+            Seed Database (First Time Only)
+          </Button>
+        )}
       </div>
     </div>
   );

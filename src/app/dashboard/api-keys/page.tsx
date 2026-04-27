@@ -67,7 +67,9 @@ export default function ApiKeysPage() {
       const res = await fetch("/api/api-keys", { credentials: 'include' });
       if (res.status === 401) {
         // Session expired, redirect to login
-        window.location.href = "/login";
+        setKeys([]);
+        setError("Your session has expired. Please sign in again.");
+        setTimeout(() => { window.location.href = "/login"; }, 1500);
         return;
       }
       if (res.ok) {
@@ -81,14 +83,21 @@ export default function ApiKeysPage() {
           setError(data.error || "Unexpected response from server");
         }
       } else {
-        const errorData = await res.json().catch(() => ({ error: "Failed to fetch API keys" }));
+        let errorMsg = "Failed to fetch API keys";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          // Response wasn't JSON - use default error
+          errorMsg = `Server error (${res.status}). Please try again.`;
+        }
         setKeys([]);
-        setError(errorData.error || "Failed to fetch API keys");
+        setError(errorMsg);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Fetch error:", err);
       setKeys([]);
-      setError("Network error. Please check your connection.");
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
