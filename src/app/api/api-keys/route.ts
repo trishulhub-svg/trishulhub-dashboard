@@ -12,14 +12,36 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user || (session.user as any).role === "CLIENT") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user || (session.user as any).role === "CLIENT") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
-  const data = await req.json()
-  const key = await db.apiKey.create({ data })
-  return NextResponse.json(key)
+    const body = await req.json()
+
+    // Validate required fields
+    if (!body.keyName || !body.keyValue) {
+      return NextResponse.json({ error: "Key Name and API Key Value are required" }, { status: 400 })
+    }
+
+    const key = await db.apiKey.create({
+      data: {
+        provider: body.provider || "OPENROUTER",
+        keyName: body.keyName,
+        keyValue: body.keyValue,
+        monthlyBudget: body.monthlyBudget || 18,
+        currentSpend: 0,
+        status: body.status || "ACTIVE",
+        priority: body.priority || 1,
+        assignedAgents: body.assignedAgents || "[]",
+      },
+    })
+    return NextResponse.json(key)
+  } catch (error: any) {
+    console.error("API Key POST error:", error)
+    return NextResponse.json({ error: error.message || "Failed to create API key" }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {

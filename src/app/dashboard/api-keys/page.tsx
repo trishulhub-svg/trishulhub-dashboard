@@ -30,6 +30,22 @@ export default function ApiKeysPage() {
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [testingKey, setTestingKey] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Form state (needed because shadcn Select doesn't work with native FormData)
+  const [formProvider, setFormProvider] = useState("OPENROUTER");
+  const [formKeyName, setFormKeyName] = useState("");
+  const [formKeyValue, setFormKeyValue] = useState("");
+  const [formBudget, setFormBudget] = useState("18");
+  const [formPriority, setFormPriority] = useState("1");
+
+  const resetForm = () => {
+    setFormProvider("OPENROUTER");
+    setFormKeyName("");
+    setFormKeyValue("");
+    setFormBudget("18");
+    setFormPriority("1");
+  };
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -46,38 +62,48 @@ export default function ApiKeysPage() {
     fetchKeys();
   }, [fetchKeys]);
 
-  const handleAddKey = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const data = {
-      provider: form.get("provider") as string,
-      keyName: form.get("keyName") as string,
-      keyValue: form.get("keyValue") as string,
-      monthlyBudget: parseFloat(form.get("monthlyBudget") as string) || 10,
-      priority: parseInt(form.get("priority") as string) || 1,
-      assignedAgents: form.get("assignedAgents") as string || "[]",
-    };
 
+    if (!formKeyName.trim() || !formKeyValue.trim()) {
+      toast.error("Key Name and API Key Value are required");
+      return;
+    }
+
+    setSaving(true);
     try {
       const res = await fetch("/api/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          provider: formProvider,
+          keyName: formKeyName.trim(),
+          keyValue: formKeyValue.trim(),
+          monthlyBudget: parseFloat(formBudget) || 18,
+          priority: parseInt(formPriority) || 1,
+          assignedAgents: "[]",
+          status: "ACTIVE",
+        }),
       });
+
       if (res.ok) {
         toast.success("API key added successfully");
         setAddOpen(false);
+        resetForm();
         fetchKeys();
       } else {
         const errorData = await res.json().catch(() => ({ error: "Failed to add API key" }));
         toast.error(errorData.error || "Failed to add API key");
       }
     } catch {
-      toast.error("Failed to add API key");
+      toast.error("Network error. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this API key?")) return;
     try {
       const res = await fetch(`/api/api-keys?id=${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -102,7 +128,7 @@ export default function ApiKeysPage() {
       } else {
         toast.error(data.error || "API key is invalid or not working");
       }
-      fetchKeys(); // Refresh to show updated status
+      fetchKeys();
     } catch {
       toast.error("Failed to test API key");
     } finally {
@@ -126,7 +152,7 @@ export default function ApiKeysPage() {
           <h1 className="text-2xl font-bold">API Keys</h1>
           <p className="text-muted-foreground text-sm">Manage API keys, budgets, and failover</p>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Key</Button>
           </DialogTrigger>
@@ -135,7 +161,7 @@ export default function ApiKeysPage() {
             <form onSubmit={handleAddKey} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Provider *</Label>
-                <Select name="provider" required>
+                <Select value={formProvider} onValueChange={setFormProvider}>
                   <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="OPENROUTER">OpenRouter</SelectItem>
@@ -146,27 +172,52 @@ export default function ApiKeysPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Key Name *</Label>
-                <Input name="keyName" required placeholder="e.g., OpenRouter Primary" />
+                <Input
+                  value={formKeyName}
+                  onChange={(e) => setFormKeyName(e.target.value)}
+                  required
+                  placeholder="e.g., OpenRouter Primary"
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">API Key Value *</Label>
-                <Input name="keyValue" required type="password" placeholder="sk-or-v1-..." />
+                <Input
+                  value={formKeyValue}
+                  onChange={(e) => setFormKeyValue(e.target.value)}
+                  required
+                  type="password"
+                  placeholder="sk-or-v1-..."
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Monthly Budget (USD)</Label>
-                  <Input name="monthlyBudget" type="number" defaultValue="18" step="0.01" />
+                  <Input
+                    type="number"
+                    value={formBudget}
+                    onChange={(e) => setFormBudget(e.target.value)}
+                    step="0.01"
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Priority</Label>
-                  <Input name="priority" type="number" defaultValue="1" />
+                  <Input
+                    type="number"
+                    value={formPriority}
+                    onChange={(e) => setFormPriority(e.target.value)}
+                  />
                 </div>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Assigned Agents (JSON array, or [] for all)</Label>
-                <Input name="assignedAgents" defaultValue='[]' className="font-mono text-xs" />
-              </div>
-              <Button type="submit" className="w-full">Add Key</Button>
+              <Button type="submit" className="w-full" disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  "Add Key"
+                )}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>

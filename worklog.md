@@ -23,3 +23,30 @@ Stage Summary:
 - Issue 3 (ID/password on homescreen): Removed Demo Accounts card from login page
 - Issue 5 (Logout localhost): Changed signOut to use redirect:false + manual navigation
 - All fixes verified and app running successfully
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix API key addition issue and login not loading issue
+
+Work Log:
+- Discovered API key POST was returning 500 "attempt to write a readonly database"
+- Root cause: SQLite database file had 644 permissions, needed 666
+- Fixed DB permissions with chmod 666 on custom.db and chmod 777 on db/ directory
+- Discovered shadcn Select component doesn't submit values with native FormData
+- Rebuilt API Keys page to use React state instead of FormData for all form fields
+- Fixed API key POST route to explicitly map fields with validation and error handling
+- Discovered Node.js running out of memory (default heap too small for Next.js 16)
+- Added NODE_OPTIONS='--max-old-space-size=4096' to server startup
+- Regenerated Prisma client which was missing generated files
+- Fixed homepage redirect to use router.replace instead of router.push
+- Fixed login page to check session state and redirect if already authenticated
+- Updated favicon from logo.svg to 200px.png
+- Removed standalone output from next.config.ts for dev compatibility
+- Created start.sh script for proper server startup
+
+Stage Summary:
+- API key CRUD (Create, Read, Delete) all verified working
+- Login and session verified working  
+- Root causes: (1) SQLite permissions, (2) Select form state, (3) Node.js memory, (4) Prisma client generation
+- All fixes tested end-to-end via curl

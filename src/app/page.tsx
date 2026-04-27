@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "@/hooks/use-session";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 
 export default function HomePage() {
@@ -11,14 +11,16 @@ export default function HomePage() {
 
   useEffect(() => {
     if (status === "loading") return;
+
     if (session) {
-      if ((session.user as { role?: string })?.role === "CLIENT") {
-        router.push("/portal");
+      const role = (session.user as { role?: string })?.role;
+      if (role === "CLIENT") {
+        router.replace("/portal");
       } else {
-        router.push("/dashboard");
+        router.replace("/dashboard");
       }
     } else {
-      router.push("/login");
+      router.replace("/login");
     }
   }, [session, status, router]);
 

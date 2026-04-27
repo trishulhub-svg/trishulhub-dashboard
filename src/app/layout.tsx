@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   description: "AI-powered agent management platform for web development SaaS",
   keywords: ["TrishulHub", "AI Agents", "Web Development", "SaaS"],
   icons: {
-    icon: "/logo.svg",
+    icon: "/200px.png",
   },
 };
 

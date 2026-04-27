@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { data: session, status } = useSession();
+
+  // If already logged in, redirect
+  if (status === "authenticated" && session) {
+    const role = (session.user as { role?: string })?.role;
+    if (role === "CLIENT") {
+      router.replace("/portal");
+    } else {
+      router.replace("/dashboard");
+    }
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,8 +43,11 @@ export default function LoginPage() {
         toast.error("Invalid credentials. Please try again.");
       } else {
         toast.success("Login successful!");
-        router.push("/dashboard");
-        router.refresh();
+        // Small delay to let session propagate
+        setTimeout(() => {
+          router.replace("/dashboard");
+          router.refresh();
+        }, 500);
       }
     } catch {
       toast.error("Something went wrong. Please try again.");
@@ -76,6 +91,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                 />
               </div>
               <div className="space-y-2">
@@ -87,6 +103,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
@@ -96,7 +113,16 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <Button variant="outline" className="w-full" onClick={async () => { setLoading(true); await fetch("/api/seed", { method: "POST" }); toast.success("Database seeded! You can now sign in."); setLoading(false); }} disabled={loading}>
+        <Button variant="outline" className="w-full" onClick={async () => {
+          setLoading(true);
+          try {
+            await fetch("/api/seed", { method: "POST" });
+            toast.success("Database seeded! You can now sign in.");
+          } catch {
+            toast.error("Failed to seed database");
+          }
+          setLoading(false);
+        }} disabled={loading}>
           Seed Database (First Time Only)
         </Button>
       </div>
