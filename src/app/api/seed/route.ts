@@ -31,21 +31,7 @@ export async function POST() {
       data: { name: "Rahul Sharma", email: "rahul@example.com", password: hashedPassword, role: "CLIENT" },
     })
 
-    // Create API Key (placeholder - user needs to add their real key)
-    const apiKey = await db.apiKey.create({
-      data: {
-        provider: "OPENROUTER",
-        keyName: "OpenRouter Primary (Placeholder - Add your real key)",
-        keyValue: "sk-or-v1-placeholder-add-your-key",
-        monthlyBudget: 18.0,
-        currentSpend: 0,
-        status: "ERROR", // Mark as ERROR so agents don't try to use the placeholder
-        priority: 1,
-        assignedAgents: '[]',
-      },
-    })
-
-    // Create Agents (no apiKeyId linked since the placeholder is ERROR)
+    // No placeholder API key - user adds their real key from the API Keys page
     const agents = await Promise.all([
       db.agent.create({
         data: {

@@ -50,3 +50,29 @@ Stage Summary:
 - Login and session verified working  
 - Root causes: (1) SQLite permissions, (2) Select form state, (3) Node.js memory, (4) Prisma client generation
 - All fixes tested end-to-end via curl
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix API key addition issue and login page not loading
+
+Work Log:
+- Analyzed uploaded screenshot showing deployment error at trishulhubai.space-z.ai
+- Investigated API keys frontend page, backend endpoint, login page, and auth config
+- Identified 5 issues and fixed all of them:
+  1. API Keys GET endpoint was missing _count (usageLogs, agents) - Fixed by adding include with _count
+  2. Login page had no loading state during session check - Added loading spinner
+  3. Login page handleSubmit always redirected to /dashboard even for CLIENT users - Fixed to use useEffect redirect based on role
+  4. Select dropdown z-index inside Dialog was z-50 (same as dialog overlay) - Increased to z-[9999]
+  5. Placeholder API key with ERROR status was confusing - Removed from database and seed endpoint
+- Updated NEXTAUTH_URL from localhost:3000 to production URL
+- Added NEXTAUTH_SECRET to .env file
+- Build succeeds, all E2E tests pass
+
+Stage Summary:
+- API key CRUD operations work correctly (tested POST, GET with _count, DELETE)
+- Login page now shows loading spinner during session check
+- Login redirects CLIENT users to /portal (was incorrectly going to /dashboard)
+- Select dropdowns now appear above Dialog overlays
+- No more confusing placeholder API keys in seed data
+- NEXTAUTH_URL set to production URL: https://trishulhubai.space-z.ai

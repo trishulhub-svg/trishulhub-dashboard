@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -18,14 +18,41 @@ export default function LoginPage() {
   const { data: session, status } = useSession();
 
   // If already logged in, redirect
-  if (status === "authenticated" && session) {
-    const role = (session.user as { role?: string })?.role;
-    if (role === "CLIENT") {
-      router.replace("/portal");
-    } else {
-      router.replace("/dashboard");
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      const role = (session.user as { role?: string })?.role;
+      if (role === "CLIENT") {
+        router.replace("/portal");
+      } else {
+        router.replace("/dashboard");
+      }
     }
-    return null;
+  }, [status, session, router]);
+
+  // Show loading spinner while checking session
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex items-center gap-3">
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render the login form if already authenticated
+  if (status === "authenticated" && session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex items-center gap-3">
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+          <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
+        </div>
+      </div>
+    );
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,17 +68,17 @@ export default function LoginPage() {
 
       if (result?.error) {
         toast.error("Invalid credentials. Please try again.");
+        setLoading(false);
       } else {
         toast.success("Login successful!");
-        // Small delay to let session propagate
+        // Wait for session to update, then redirect based on role
+        // The useEffect above will handle the redirect once session is updated
         setTimeout(() => {
-          router.replace("/dashboard");
           router.refresh();
-        }, 500);
+        }, 300);
       }
     } catch {
       toast.error("Something went wrong. Please try again.");
-    } finally {
       setLoading(false);
     }
   };

@@ -7,7 +7,14 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const keys = await db.apiKey.findMany({ orderBy: { priority: "asc" } })
+  const keys = await db.apiKey.findMany({
+    orderBy: { priority: "asc" },
+    include: {
+      _count: {
+        select: { usageLogs: true, agents: true },
+      },
+    },
+  })
   return NextResponse.json(keys)
 }
 
