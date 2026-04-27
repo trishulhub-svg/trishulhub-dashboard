@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // output: "standalone", // Disabled for dev; re-enable only for Hostinger deployment
-  /* config options here */
+  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },

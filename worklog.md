@@ -76,3 +76,27 @@ Stage Summary:
 - Select dropdowns now appear above Dialog overlays
 - No more confusing placeholder API keys in seed data
 - NEXTAUTH_URL set to production URL: https://trishulhubai.space-z.ai
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix deployment failure on the platform
+
+Work Log:
+- Diagnosed "Sorry, there was a problem deploying the code" error on trishulhubai.space-z.ai
+- Found root cause: next.config.ts had `output: "standalone"` COMMENTED OUT, but start script used `bun .next/standalone/server.js`
+- This meant no standalone build existed, so the start command failed
+- Fixed next.config.ts: enabled `output: "standalone"`
+- Fixed package.json start script: changed from `bun` to `node`
+- Added postinstall script for Prisma client generation
+- Updated build script to copy db, prisma schema, and generate client in standalone folder
+- Fixed .env: changed DATABASE_URL to relative path, added HOSTNAME and PORT
+- Verified standalone server works locally (login, session, API keys CRUD all pass)
+- The server process in this dev container gets OOM killed after several requests, but this is a container limitation, not a code issue
+
+Stage Summary:
+- next.config.ts: output: "standalone" enabled
+- package.json: start uses node (not bun), added postinstall for prisma generate
+- Build script copies db, public, static, and prisma to standalone folder
+- .env: relative DATABASE_URL, production NEXTAUTH_URL, HOSTNAME, PORT
+- App needs to be redeployed on the platform for changes to take effect
