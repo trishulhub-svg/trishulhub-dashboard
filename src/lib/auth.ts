@@ -14,20 +14,25 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const user = await db.user.findUnique({
-          where: { email: credentials.email },
-        })
+        try {
+          const user = await db.user.findUnique({
+            where: { email: credentials.email },
+          })
 
-        if (!user || !user.isActive) return null
+          if (!user || !user.isActive) return null
 
-        const isValid = await bcrypt.compare(credentials.password, user.password)
-        if (!isValid) return null
+          const isValid = await bcrypt.compare(credentials.password, user.password)
+          if (!isValid) return null
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          }
+        } catch (error) {
+          console.error("[auth] Authorize error:", error)
+          return null
         }
       },
     }),
@@ -47,27 +52,6 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
-    // Fix NEXTAUTH_URL mismatch - redirect to the correct domain
-    async redirect({ url, baseUrl }) {
-      // If the url is relative, prepend the baseUrl
-      if (url.startsWith("/")) return baseUrl + url
-      // If the url is on the same domain, allow it
-      try {
-        const urlObj = new URL(url)
-        const baseObj = new URL(baseUrl)
-        if (urlObj.hostname === baseObj.hostname) return url
-      } catch {}
-      // If url is on a different domain (e.g., localhost vs actual domain),
-      // redirect to the same path on the actual domain
-      try {
-        const urlObj = new URL(url)
-        const baseObj = new URL(baseUrl)
-        // Replace the origin but keep the path
-        return baseObj.origin + urlObj.pathname + urlObj.search
-      } catch {
-        return baseUrl
-      }
-    },
   },
   pages: {
     signIn: "/login",
@@ -76,9 +60,8 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
   },
-  secret: process.env.NEXTAUTH_SECRET || "trishulhub-secret-key-change-in-production",
-  // Trust the proxy - required for Vercel and reverse proxy deployments
-  // This ensures NextAuth sees the correct https:// protocol
+  secret: process.env.NEXTAUTH_SECRET,
+  // Required for Vercel - auto-detects the host from request headers
   trustHost: true,
 } as NextAuthOptions
 
