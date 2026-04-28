@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { callOpenRouter, estimateCost, getVisionModel } from "@/lib/ai/openrouter"
+import { callAI, estimateCost, getVisionModel } from "@/lib/ai/openrouter"
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,41 +11,88 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { agentId, message, fileUrls } = await req.json()
+    const userId = (session.user as any).id
+    const { agentId, message, chatId, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
     }
 
-    // Get agent
-    const agent = await db.agent.findUnique({ where: { id: agentId } })
+    // Check user has access to this agent
+    const userRole = (session.user as any).role
+    if (userRole !== "SUPER_ADMIN") {
+      const access = await db.userAgentAccess.findFirst({
+        where: { userId, agentId }
+      })
+      if (!access?.canChat) {
+        return NextResponse.json({ error: "You don't have access to this agent" }, { status: 403 })
+      }
+    }
+
+    // Get agent with role config
+    const agent = await db.agent.findUnique({
+      where: { id: agentId },
+      include: { roleConfig: true }
+    })
     if (!agent) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
-    // Get active API key - check agent's assigned key first
+    // Get or create chat
+    let chat
+    if (chatId) {
+      chat = await db.chat.findUnique({
+        where: { id: chatId },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" }
+          }
+        }
+      })
+      if (!chat || chat.userId !== userId) {
+        return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+      }
+    } else {
+      // Create new chat
+      chat = await db.chat.create({
+        data: {
+          agentId,
+          userId,
+          title: message.substring(0, 50) + (message.length > 50 ? "..." : ""),
+          status: "ACTIVE",
+        },
+        include: { messages: true }
+      })
+    }
+
+    // Save user message
+    await db.chatMessage.create({
+      data: {
+        chatId: chat.id,
+        role: "user",
+        content: message,
+      }
+    })
+
+    // Get active API key
     let apiKey = agent.apiKeyId
       ? await db.apiKey.findUnique({ where: { id: agent.apiKeyId } })
       : null
 
-    // If no key assigned, or key is not active, find any active key
     if (!apiKey || apiKey.status !== "ACTIVE") {
-      // Try to find a key that is active AND assigned to this agent type
       const allActiveKeys = await db.apiKey.findMany({
         where: { status: "ACTIVE" },
         orderBy: { priority: "asc" },
       })
 
-      // First try: find a key specifically assigned to this agent type
       apiKey = allActiveKeys.find((k) => {
         try {
           const assigned = JSON.parse(k.assignedAgents || "[]")
           return assigned.length === 0 || assigned.includes(agent.type)
         } catch {
-          return true // If parse fails, consider it available for all
+          return true
         }
       }) || null
 
-      // Auto-assign this key to the agent for future requests
       if (apiKey) {
         await db.agent.update({
           where: { id: agentId },
@@ -55,30 +102,52 @@ export async function POST(req: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: "No active API key available. Please add a valid API key in Settings > API Keys." }, { status: 400 })
+      return NextResponse.json({
+        error: "No active API key available. Please add a valid API key in Settings > API Keys.",
+        chatId: chat.id,
+      }, { status: 400 })
     }
 
-    // Build messages
-    const contentParts: any[] = [{ type: "text", text: message }]
-    if (fileUrls && fileUrls.length > 0) {
-      for (const url of fileUrls) {
-        contentParts.push({ type: "image_url", image_url: { url } })
-      }
-    }
+    // Build messages array with conversation history
+    const systemPrompt = agent.roleConfig?.rolePrompt || agent.systemPrompt
 
-    const hasImages = fileUrls && fileUrls.length > 0
-    const model = hasImages ? getVisionModel(agent.model) : agent.model
-
-    const chatMessages = [
-      { role: "system" as const, content: agent.systemPrompt },
-      { role: "user" as const, content: hasImages ? contentParts : message },
+    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: systemPrompt }
     ]
+
+    // Add conversation history (last 20 messages for context)
+    const historyMessages = chat.messages.slice(-20)
+    for (const msg of historyMessages) {
+      chatMessages.push({
+        role: msg.role as "user" | "assistant" | "system",
+        content: msg.content,
+      })
+    }
+
+    // Add current user message
+    const hasImages = fileUrls && fileUrls.length > 0
+    if (hasImages) {
+      // For vision, we need to handle content parts differently
+      const contentParts: any[] = [{ type: "text", text: message }]
+      if (fileUrls) {
+        for (const url of fileUrls) {
+          contentParts.push({ type: "image_url", image_url: { url } })
+        }
+      }
+      // Skip adding duplicate user message since we already saved it
+      // For vision models, we need to use the content parts format
+      chatMessages.push({ role: "user", content: message })
+    } else {
+      chatMessages.push({ role: "user", content: message })
+    }
+
+    const model = hasImages ? getVisionModel(agent.model) : agent.model
 
     // Update agent status
     await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
 
     try {
-      const result = await callOpenRouter(chatMessages, model, apiKey.keyValue)
+      const result = await callAI(chatMessages, model, apiKey.keyValue, apiKey.provider)
 
       // If successful, mark key as ACTIVE (in case it was previously ERROR)
       if (apiKey.status === "ERROR") {
@@ -86,7 +155,21 @@ export async function POST(req: NextRequest) {
       }
 
       // Calculate cost
-      const cost = estimateCost(model, result.inputTokens, result.outputTokens)
+      const cost = estimateCost(result.model, result.inputTokens, result.outputTokens)
+
+      // Save assistant message
+      const assistantMsg = await db.chatMessage.create({
+        data: {
+          chatId: chat.id,
+          role: "assistant",
+          content: result.content,
+          metadata: JSON.stringify({
+            tokens: { input: result.inputTokens, output: result.outputTokens },
+            cost,
+            model: result.model,
+          }),
+        }
+      })
 
       // Log usage
       await db.apiUsageLog.create({
@@ -115,28 +198,32 @@ export async function POST(req: NextRequest) {
         outputTokens: result.outputTokens,
         cost,
         model: result.model,
+        chatId: chat.id,
+        messageId: assistantMsg.id,
       })
     } catch (apiError: any) {
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
 
-      // If it's an auth error, mark the API key as ERROR status
       const errorMsg = apiError.message || ""
       if (errorMsg.includes("401") || errorMsg.includes("Unauthorized") || errorMsg.includes("User not found")) {
         await db.apiKey.update({
           where: { id: apiKey.id },
           data: { status: "ERROR" },
         })
-        // Unlink agent from this key so it finds a new one next time
         await db.agent.update({
           where: { id: agentId },
           data: { apiKeyId: null },
         })
         return NextResponse.json({
-          error: "API key is invalid or expired. The key has been marked as ERROR. Please add a valid API key in Settings > API Keys and try again."
+          error: "API key is invalid or expired. Please add a valid API key in Settings > API Keys.",
+          chatId: chat.id,
         }, { status: 500 })
       }
 
-      return NextResponse.json({ error: `AI API error: ${apiError.message}` }, { status: 500 })
+      return NextResponse.json({
+        error: `AI API error: ${apiError.message}`,
+        chatId: chat.id,
+      }, { status: 500 })
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

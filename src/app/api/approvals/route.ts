@@ -1,70 +1,190 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { db } from "@/lib/db"
 
-// Get items waiting for approval (tasks with status REVIEW, leads with AI_FOUND source, etc.)
-export async function GET() {
+// GET /api/approvals - List approvals (pending by default)
+export async function GET(req: NextRequest) {
   try {
-    // Get tasks in REVIEW status
-    const reviewTasks = await db.task.findMany({
-      where: { status: "REVIEW", assigneeType: "AI" },
-      include: { project: true },
-    });
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
-    // Get conversations that might need approval
-    const conversations = await db.agentConversation.findMany({
-      where: { status: "ACTIVE" },
-      include: { agent: true },
-      take: 20,
-      orderBy: { updatedAt: "desc" },
-    });
+    const { searchParams } = new URL(req.url)
+    const status = searchParams.get("status") || "PENDING"
+    const type = searchParams.get("type")
+    const agentId = searchParams.get("agentId")
 
-    const approvals = [
-      ...reviewTasks.map((t) => ({
-        id: t.id,
-        type: "TASK_REVIEW" as const,
-        agentName: t.agent?.name || "Unknown Agent",
-        title: t.title,
-        description: t.description || "",
-        output: t.description || "Task completed, awaiting review",
-        createdAt: t.updatedAt,
-        projectId: t.projectId,
-        projectName: t.project.name,
-      })),
-    ];
+    const where: any = {}
+    if (status) where.status = status
+    if (type) where.type = type
+    if (agentId) where.agentId = agentId
 
-    return NextResponse.json(approvals);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch approvals" }, { status: 500 });
+    const approvals = await db.approval.findMany({
+      where,
+      include: {
+        agent: { select: { id: true, name: true, type: true } },
+        approvedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
+    return NextResponse.json(approvals)
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
+// POST /api/approvals - Create an approval request
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const userId = (session.user as any).id
+    const { type, requesterType, agentId, title, description, data } = await req.json()
+
+    if (!type || !title) {
+      return NextResponse.json({ error: "Type and title are required" }, { status: 400 })
+    }
+
+    const approval = await db.approval.create({
+      data: {
+        type,
+        requesterType: requesterType || "HUMAN",
+        requesterId: userId,
+        agentId: agentId || null,
+        title,
+        description: description || null,
+        data: JSON.stringify(data || {}),
+        status: "PENDING",
+      },
+      include: {
+        agent: { select: { id: true, name: true, type: true } },
+      }
+    })
+
+    // Notify all admins/super_admins about new approval request
+    const admins = await db.user.findMany({
+      where: {
+        role: { in: ["SUPER_ADMIN", "ADMIN"] },
+        isActive: true,
+      }
+    })
+
+    for (const admin of admins) {
+      await db.notification.create({
+        data: {
+          userId: admin.id,
+          title: "New Approval Request",
+          message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
+          type: "APPROVAL",
+          link: "/dashboard/approvals",
+          metadata: JSON.stringify({ approvalId: approval.id, type }),
+        }
+      })
+    }
+
+    return NextResponse.json(approval, { status: 201 })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+// PATCH /api/approvals - Approve, reject, or request improvement
 export async function PATCH(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { id, action, reason } = body;
-
-    if (!id || !action) {
-      return NextResponse.json({ error: "id and action required" }, { status: 400 });
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (action === "approve") {
-      const task = await db.task.update({
-        where: { id },
-        data: { status: "DONE", completedAt: new Date() },
-      });
-      return NextResponse.json({ success: true, task });
+    const userId = (session.user as any).id
+    const { id, status, feedback } = await req.json()
+
+    if (!id || !status) {
+      return NextResponse.json({ error: "ID and status are required" }, { status: 400 })
     }
 
-    if (action === "reject") {
-      const task = await db.task.update({
-        where: { id },
-        data: { status: "IN_PROGRESS" },
-      });
-      return NextResponse.json({ success: true, task, reason });
+    if (!["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"].includes(status)) {
+      return NextResponse.json({ error: "Invalid status. Must be APPROVED, REJECTED, or NEEDS_IMPROVEMENT" }, { status: 400 })
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to process approval" }, { status: 500 });
+    const approval = await db.approval.findUnique({
+      where: { id },
+      include: { agent: true }
+    })
+
+    if (!approval) {
+      return NextResponse.json({ error: "Approval not found" }, { status: 404 })
+    }
+
+    const updated = await db.approval.update({
+      where: { id },
+      data: {
+        status,
+        feedback: feedback || null,
+        approvedById: userId,
+      },
+      include: {
+        agent: { select: { id: true, name: true, type: true } },
+        approvedBy: { select: { id: true, name: true } },
+      }
+    })
+
+    // If approval was requested by a human, notify them
+    if (approval.requesterType === "HUMAN" && approval.requesterId) {
+      await db.notification.create({
+        data: {
+          userId: approval.requesterId,
+          title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
+          message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${feedback ? ` Feedback: ${feedback}` : ""}`,
+          type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
+          link: "/dashboard/approvals",
+          metadata: JSON.stringify({ approvalId: id }),
+        }
+      })
+    }
+
+    // If it was an AI agent that requested approval, update agent status
+    if (approval.requesterType === "AI" && approval.agentId) {
+      if (status === "APPROVED") {
+        await db.agent.update({
+          where: { id: approval.agentId },
+          data: { status: "IDLE" }
+        })
+      } else if (status === "NEEDS_IMPROVEMENT") {
+        await db.agent.update({
+          where: { id: approval.agentId },
+          data: { status: "RUNNING" }
+        })
+        // Notify the agent's chat users
+        const chats = await db.chat.findMany({
+          where: { agentId: approval.agentId, status: "ACTIVE" },
+          take: 1,
+        })
+        if (chats[0]) {
+          await db.chatMessage.create({
+            data: {
+              chatId: chats[0].id,
+              role: "system",
+              content: `[Approval Feedback] Your request "${approval.title}" needs improvement. Feedback: ${feedback || "No specific feedback provided. Please revise and resubmit."}`,
+            }
+          })
+        }
+      } else if (status === "REJECTED") {
+        await db.agent.update({
+          where: { id: approval.agentId },
+          data: { status: "IDLE" }
+        })
+      }
+    }
+
+    return NextResponse.json(updated)
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

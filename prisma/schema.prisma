@@ -14,22 +14,27 @@ model User {
   email         String   @unique
   password      String
   role          String   @default("DEVELOPER") // SUPER_ADMIN, ADMIN, DEVELOPER, CLIENT
+  department    String?  // DEV, SALES, FINANCE, HR, CONTENT, SUPPORT, MANAGEMENT
   avatar        String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   agentConversations AgentConversation[]
-  sentInvoices      Invoice[]
-  leaveRequests     LeaveRequest[]
-  attendanceRecords Attendance[]
-  notifications     Notification[]
+  chats              Chat[]
+  sentInvoices       Invoice[]
+  leaveRequests      LeaveRequest[]
+  attendanceRecords  Attendance[]
+  notifications      Notification[]
+  scheduledTasks     ScheduledTask[]
+  agentAccess        UserAgentAccess[]
+  approvalActions    Approval[]       @relation("ApprovalActions")
 }
 
 // ━━ API Keys ━━
 model ApiKey {
   id            String   @id @default(cuid())
-  provider      String   // OPENROUTER, ZAI, OTHER
+  provider      String   // OPENROUTER, ZAI, GOOGLE_AI, OTHER
   keyName       String
   keyValue      String
   monthlyBudget Float    @default(18.0)
@@ -46,20 +51,157 @@ model ApiKey {
 
 // ━━ AI Agents ━━
 model Agent {
-  id          String   @id @default(cuid())
-  name        String
-  type        String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
-  description String
-  model       String   @default("openai/gpt-4o-mini")
+  id           String   @id @default(cuid())
+  name         String
+  type         String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
+  description  String
+  model        String   @default("openai/gpt-4o-mini")
   systemPrompt String
-  status      String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
-  apiKeyId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status       String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
+  apiKeyId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  apiKey      ApiKey?   @relation(fields: [apiKeyId], references: [id])
-  conversations AgentConversation[]
-  usageLogs   ApiUsageLog[]
+  apiKey          ApiKey?            @relation(fields: [apiKeyId], references: [id])
+  conversations   AgentConversation[]
+  chats           Chat[]
+  usageLogs       ApiUsageLog[]
+  roleConfig      AgentRoleConfig?
+  userAccess      UserAgentAccess[]
+  scheduledTasks  ScheduledTask[]
+  sentMessages    CrossAgentMessage[] @relation("FromAgent")
+  receivedMessages CrossAgentMessage[] @relation("ToAgent")
+  approvals       Approval[]
+}
+
+// ━━ Agent Role Configuration ━━
+model AgentRoleConfig {
+  id               String  @id @default(cuid())
+  agentId          String  @unique
+  rolePrompt       String  // Enhanced role-specific system prompt
+  quickActions     String  @default("[]") // JSON: [{id, label, prompt}]
+  specialCommands  String  @default("[]") // JSON: [{id, label, prompt, icon}]
+  features         String  @default("{}") // JSON: {webSearch, autoTask, crossAgent, approvalRequired, ...}
+  autoWorkflows    String  @default("[]") // JSON: [{id, name, trigger, actions}]
+  suggestedPrompts String  @default("[]") // JSON: [{id, label, prompt}] - role-specific suggestion prompts
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Chat System ━━
+model Chat {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  title     String   @default("New Chat")
+  isShared  Boolean  @default(false) // Can be accessed by other agents
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent          Agent            @relation(fields: [agentId], references: [id])
+  user           User             @relation(fields: [userId], references: [id])
+  messages       ChatMessage[]
+  crossMessages  CrossAgentMessage[]
+
+  @@index([agentId, userId])
+  @@index([userId, status])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      String   // user, assistant, system
+  content   String
+  metadata  String?  // JSON: {tokens, cost, model, attachments, approvalId}
+  createdAt DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
+// ━━ User-Agent Access (RBAC) ━━
+model UserAgentAccess {
+  id         String  @id @default(cuid())
+  userId     String
+  agentId    String
+  canChat    Boolean @default(true)
+  canView    Boolean @default(true)
+  canApprove Boolean @default(false)
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+}
+
+// ━━ Scheduled Tasks ━━
+model ScheduledTask {
+  id          String    @id @default(cuid())
+  agentId     String
+  userId      String
+  title       String
+  description String?
+  dueDate     DateTime
+  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
+  progress    Int       @default(0) // 0-100
+  priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  result      String?   // AI output / result of the task
+  notifyAt    DateTime? // When to notify
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([dueDate])
+}
+
+// ━━ Approval System ━━
+model Approval {
+  id             String   @id @default(cuid())
+  type           String   // TASK, INVOICE, EMAIL, QUOTATION, PROJECT_PLAN, CODE_REVIEW, LEAD_OUTREACH, CONTENT_PIECE
+  requesterType  String   // AI, HUMAN
+  requesterId    String?  // agentId or userId
+  agentId        String?
+  title          String
+  description    String?  // Summary of what needs approval
+  data           String   @default("{}") // JSON: the item needing approval
+  status         String   @default("PENDING") // PENDING, APPROVED, REJECTED, NEEDS_IMPROVEMENT
+  feedback       String?  // Why rejected or what to improve
+  approvedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agent       Agent?  @relation(fields: [agentId], references: [id])
+  approvedBy  User?   @relation("ApprovalActions", fields: [approvedById], references: [id])
+
+  @@index([status])
+  @@index([requesterType])
+  @@index([agentId])
+}
+
+// ━━ Cross-Agent Communication ━━
+model CrossAgentMessage {
+  id          String   @id @default(cuid())
+  fromAgentId String
+  toAgentId   String
+  chatId      String?  // Optional link to a chat
+  message     String
+  type        String   // INFO, REQUEST, RESULT, ALERT
+  status      String   @default("PENDING") // PENDING, PROCESSED, IGNORED
+  createdAt   DateTime @default(now())
+
+  fromAgent Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
+  toAgent   Agent  @relation("ToAgent", fields: [toAgentId], references: [id])
+  chat      Chat?  @relation(fields: [chatId], references: [id])
+
+  @@index([toAgentId, status])
+  @@index([fromAgentId])
 }
 
 // ━━ Clients ━━
@@ -173,7 +315,7 @@ model LeadEmail {
   lead      Lead     @relation(fields: [leadId], references: [id])
 }
 
-// ━━ Agent Conversations ━━
+// ━━ Agent Conversations (Legacy - kept for migration) ━━
 model AgentConversation {
   id        String   @id @default(cuid())
   agentId   String
@@ -241,6 +383,7 @@ model LeaveRequest {
   reason      String?
   status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
   approvedBy  String?
+  feedback    String?  // Reason for rejection or notes
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -253,7 +396,7 @@ model Attendance {
   date      DateTime
   checkIn   DateTime?
   checkOut  DateTime?
-  status    String   @default("PRESENT") // PRESENT, ABENT, HALF_DAY, LEAVE
+  status    String   @default("PRESENT") // PRESENT, ABSENT, HALF_DAY, LEAVE
   notes     String?
   createdAt DateTime @default(now())
 
@@ -266,12 +409,16 @@ model Notification {
   userId    String
   title     String
   message   String
-  type      String   @default("INFO") // INFO, WARNING, ERROR, SUCCESS
+  type      String   @default("INFO") // INFO, WARNING, ERROR, SUCCESS, TASK, APPROVAL, AGENT
   isRead    Boolean  @default(false)
   link      String?
+  metadata  String?  // JSON: additional data (taskId, approvalId, agentId, etc.)
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
 }
 
 // ━━ Expenses ━━
