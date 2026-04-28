@@ -3,19 +3,24 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Fix deployment - Bun cannot find 'next' package
+Task: Fix deployment - Bun runtime incompatibility with Next.js standalone
 
 Work Log:
-- Received platform error: `Cannot find package 'next' from '/app/next-service-dist/server.js'` when using Bun
-- Root cause: Platform's start.sh runs `bun server.js` but Next.js standalone mode's traced node_modules only works with Node.js, not Bun
-- Fix: Added Bun→Node.js re-spawn detection at the top of server.js
-- When Bun is detected, server.js spawns itself with Node.js instead and exits Bun process
-- Verified the fix works: `bun server.js` → detects Bun → spawns `node server.js` → Next.js starts in 68ms
-- Also updated copy-standalone.js to automatically apply this patch on every build
-- All .env loading and DATABASE_URL redirect code preserved
+- Received platform error: `Cannot find package 'next'` when platform runs `bun server.js`
+- Root cause: Bun uses its global module cache (/home/z/.bun/install/cache/) instead of local node_modules, resolving wrong Next.js version (16.2.4 vs 16.1.3) and missing traced dependencies
+- Also found that `spawn()` was blocked on platform ("operation not permitted"), so initial Bun→Node re-spawn failed
+- Fix: Restructured server.js into wrapper + _server_real.js:
+  - server.js: Detects Bun, uses execFileSync('node', ...) to re-execute with Node.js
+  - _server_real.js: Original Next.js server code with .env loader and DATABASE_URL redirect
+  - Sets NODE_PATH to local node_modules for correct module resolution
+  - Falls back to spawn() if execFileSync fails
+- Fixed DATABASE_URL to use absolute path (path.join(__dirname, 'db', 'custom.db')) instead of relative
+- Verified all 7 tests pass with `bun server.js` + platform environment simulation
+- Updated copy-standalone.js to apply this fix automatically on every build
 
 Stage Summary:
-- Critical fix: Bun→Node.js re-spawn in server.js
-- Build script (copy-standalone.js) now auto-patches server.js on every build
-- Tested with `bun server.js` — works correctly, switches to Node.js
-- Server running and all endpoints verified
+- ALL 7/7 TESTS PASSED with platform simulation
+- Bun→Node.js transition works via execFileSync
+- Full auth flow works: Login → Session → API Keys → Dashboard
+- Port 81 (Caddy proxy) works
+- Ready for platform deployment
