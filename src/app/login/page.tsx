@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
+  const [setupLogs, setSetupLogs] = useState<string[]>([]);
   const router = useRouter();
   const { data: session, status } = useSession();
 
@@ -33,13 +34,14 @@ export default function LoginPage() {
 
   // Check if database has users
   useEffect(() => {
-    fetch("/api/seed")
+    fetch("/api/setup")
       .then(r => r.json())
       .then(data => {
-        if (data.skipped) {
+        if (data.status === "already_setup" || data.status === "success") {
           setDbReady(true);
-        } else if (data.message && data.message.includes("success")) {
-          setDbReady(true);
+        } else if (data.status === "error" && data.logs) {
+          // Setup endpoint ran but DB doesn't exist yet
+          setDbReady(false);
         } else {
           setDbReady(false);
         }
@@ -75,22 +77,29 @@ export default function LoginPage() {
     );
   }
 
-  const handleSeed = async () => {
+  const handleSetup = async () => {
     setSeeding(true);
+    setSetupLogs(["Starting setup..."]);
     try {
-      const res = await fetch("/api/seed", { method: "POST", credentials: 'include' });
+      const res = await fetch("/api/setup", { method: "POST", credentials: 'include' });
       const data = await res.json();
-      if (data.skipped) {
+
+      if (data.logs) {
+        setSetupLogs(data.logs);
+      }
+
+      if (data.status === "success") {
+        toast.success("Database set up successfully! You can now sign in.");
+        setDbReady(true);
+      } else if (data.status === "already_setup") {
         toast.success("Database already set up! You can sign in.");
         setDbReady(true);
       } else if (data.error) {
         toast.error("Setup failed: " + data.error);
-      } else {
-        toast.success("Database set up successfully! You can now sign in.");
-        setDbReady(true);
       }
-    } catch {
+    } catch (err: any) {
       toast.error("Failed to set up database. Please try again.");
+      setSetupLogs(prev => [...prev, "Network error: " + (err.message || "Unknown")]);
     }
     setSeeding(false);
   };
@@ -146,20 +155,27 @@ export default function LoginPage() {
             <CardHeader>
               <CardTitle className="text-orange-700 dark:text-orange-400">First Time Setup</CardTitle>
               <CardDescription className="text-orange-600 dark:text-orange-300">
-                The database needs to be set up before you can sign in. Click below to create the default admin user and sample data.
+                The database needs to be set up before you can sign in. Click the button below — it will create the database, tables, and default admin user automatically.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <Button
                 className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-                onClick={handleSeed}
+                onClick={handleSetup}
                 disabled={seeding}
               >
-                {seeding ? "Setting up database..." : "Setup Database & Create Admin User"}
+                {seeding ? "Setting up database... (please wait)" : "Setup Database & Create Admin User"}
               </Button>
-              <p className="text-xs text-orange-500 mt-2 text-center">
-                This creates: 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
+              <p className="text-xs text-orange-500 text-center">
+                This creates: database file, all tables, 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
               </p>
+              {setupLogs.length > 0 && (
+                <div className="mt-2 p-2 bg-white/50 dark:bg-black/20 rounded text-xs font-mono max-h-40 overflow-y-auto space-y-1">
+                  {setupLogs.map((log, i) => (
+                    <div key={i} className="text-orange-700 dark:text-orange-300">{log}</div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -202,15 +218,8 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Always show setup link at bottom */}
-        {dbReady === true && (
-          <p className="text-center text-xs text-muted-foreground">
-            First time? Visit{" "}
-            <a href="/api/seed" className="underline text-primary hover:text-primary/80">
-              /api/seed
-            </a>{" "}
-            to set up the database.
-          </p>
+        {dbReady === null && (
+          <p className="text-center text-xs text-muted-foreground">Checking database status...</p>
         )}
       </div>
     </div>
