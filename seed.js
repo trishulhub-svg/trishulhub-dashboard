@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
 
 async function seed() {
+  // Use local SQLite for seeding (the app uses Turso via adapter)
   const prisma = new PrismaClient();
 
   try {

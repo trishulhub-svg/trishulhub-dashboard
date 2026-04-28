@@ -77,9 +77,8 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET || "trishulhub-secret-key-change-in-production",
-  // Trust the proxy - Hostinger uses reverse proxy (Apache/Nginx → Node)
+  // Trust the proxy - required for Vercel and reverse proxy deployments
   // This ensures NextAuth sees the correct https:// protocol
-  trustHost: true,
-}
+} as NextAuthOptions
 
 export default NextAuth(authOptions)

@@ -103,13 +103,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
     }
 
-    const task = await db.scheduledTask.findUnique({ where: { id } })
-    if (!task) {
+    const existingTask = await db.scheduledTask.findUnique({ where: { id } })
+    if (!existingTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
     // Only the task owner or admin can update
-    if (task.userId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (existingTask.userId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
@@ -125,7 +125,7 @@ export async function PATCH(req: NextRequest) {
     if (progress !== undefined) data.progress = progress
     if (result !== undefined) data.result = result
 
-    const updated = await db.scheduledTask.update({
+    const task = await db.scheduledTask.update({
       where: { id },
       data,
       include: {
@@ -147,7 +147,7 @@ export async function PATCH(req: NextRequest) {
       })
     }
 
-    return NextResponse.json(updated)
+    return NextResponse.json(task)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

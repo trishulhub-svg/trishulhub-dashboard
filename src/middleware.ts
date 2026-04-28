@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-// This middleware auto-detects the correct NEXTAUTH_URL from request headers
-// On Hostinger, the app runs behind a reverse proxy (Nginx/Apache → Node.js)
-// Without this, NEXTAUTH_URL stays as localhost:3000 which breaks auth redirects
+// Auto-detect the correct NEXTAUTH_URL from request headers
+// Works on both Vercel (x-forwarded-host) and Hostinger (reverse proxy)
 export function middleware(request: NextRequest) {
   const forwardedHost = request.headers.get("x-forwarded-host")
   const forwardedProto = request.headers.get("x-forwarded-proto")
@@ -26,9 +25,9 @@ export function middleware(request: NextRequest) {
   return NextResponse.next()
 }
 
-// Run on all API routes and dashboard pages
+// Run on all routes except static assets
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!_next/static|_next/image|favicon.ico|public|200px\\.png).*)",
   ],
 }

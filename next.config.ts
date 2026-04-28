@@ -1,11 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  typescript: {
-    ignoreBuildErrors: true,
+  // Vercel handles serverless deployment automatically
+  // No need for standalone output on Vercel
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**",
+      },
+    ],
   },
-  reactStrictMode: false,
+  // Allow Prisma to work in Vercel serverless functions
+  serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client"],
 };
 
 export default nextConfig;

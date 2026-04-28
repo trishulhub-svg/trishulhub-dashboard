@@ -1456,7 +1456,7 @@ function RightPanel({
     <>
       {/* Panel header */}
       <div className="p-3 border-b">
-        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as typeof rightTab)}>
+        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent")}>
           <TabsList className="w-full h-8">
             <TabsTrigger value="features" className="text-xs flex-1">
               <Zap className="h-3 w-3 mr-1" /> Features

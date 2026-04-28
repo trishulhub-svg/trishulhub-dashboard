@@ -37,6 +37,14 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "skills",
+    "examples",
+    "mini-services",
+    "seed.js",
+    "app.js",
+    "standalone-start.js",
+    "copy-standalone.js",
+    "hostinger-setup.sh"
   ]
 }

@@ -37,6 +37,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
+    // Parse features from role config
+    let features: Record<string, boolean> = {}
+    try {
+      if (agent.roleConfig?.features) {
+        features = JSON.parse(agent.roleConfig.features)
+      }
+    } catch {}
+
     // Get or create chat
     let chat
     if (chatId) {
@@ -111,7 +119,7 @@ export async function POST(req: NextRequest) {
     // Build messages array with conversation history
     const systemPrompt = agent.roleConfig?.rolePrompt || agent.systemPrompt
 
-    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string | any[] }> = [
       { role: "system", content: systemPrompt }
     ]
 
@@ -127,16 +135,13 @@ export async function POST(req: NextRequest) {
     // Add current user message
     const hasImages = fileUrls && fileUrls.length > 0
     if (hasImages) {
-      // For vision, we need to handle content parts differently
       const contentParts: any[] = [{ type: "text", text: message }]
       if (fileUrls) {
         for (const url of fileUrls) {
           contentParts.push({ type: "image_url", image_url: { url } })
         }
       }
-      // Skip adding duplicate user message since we already saved it
-      // For vision models, we need to use the content parts format
-      chatMessages.push({ role: "user", content: message })
+      chatMessages.push({ role: "user", content: contentParts })
     } else {
       chatMessages.push({ role: "user", content: message })
     }
@@ -157,6 +162,50 @@ export async function POST(req: NextRequest) {
       // Calculate cost
       const cost = estimateCost(result.model, result.inputTokens, result.outputTokens)
 
+      // Check if this response should create an approval request
+      let approvalId: string | null = null
+      if (features.approvalRequired) {
+        // Check if the response contains deliverable content (invoices, emails, code, etc.)
+        const needsApproval = isApprovalWorthy(agent.type, message, result.content)
+        if (needsApproval) {
+          const approval = await db.approval.create({
+            data: {
+              type: getApprovalType(agent.type),
+              requesterType: "AI",
+              requesterId: agentId,
+              agentId,
+              title: `${agent.name} - ${getApprovalType(agent.type)}`,
+              description: `AI-generated content requiring approval`,
+              data: JSON.stringify({
+                chatId: chat.id,
+                userMessage: message.substring(0, 200),
+                aiResponse: result.content.substring(0, 500),
+                model: result.model,
+              }),
+              status: "PENDING",
+            }
+          })
+          approvalId = approval.id
+
+          // Notify users with approval access
+          const approvers = await db.userAgentAccess.findMany({
+            where: { agentId, canApprove: true },
+          })
+          for (const approver of approvers) {
+            await db.notification.create({
+              data: {
+                userId: approver.userId,
+                title: "Approval Required",
+                message: `${agent.name} generated content that needs your approval.`,
+                type: "APPROVAL",
+                link: `/dashboard/approvals`,
+                metadata: JSON.stringify({ approvalId: approval.id }),
+              },
+            })
+          }
+        }
+      }
+
       // Save assistant message
       const assistantMsg = await db.chatMessage.create({
         data: {
@@ -167,6 +216,7 @@ export async function POST(req: NextRequest) {
             tokens: { input: result.inputTokens, output: result.outputTokens },
             cost,
             model: result.model,
+            approvalId,
           }),
         }
       })
@@ -192,6 +242,9 @@ export async function POST(req: NextRequest) {
       // Update agent status
       await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
 
+      // Check for inter-agent automation triggers
+      await checkAutomationTriggers(agent, message, result.content, chat.id)
+
       return NextResponse.json({
         content: result.content,
         inputTokens: result.inputTokens,
@@ -200,6 +253,7 @@ export async function POST(req: NextRequest) {
         model: result.model,
         chatId: chat.id,
         messageId: assistantMsg.id,
+        approvalId,
       })
     } catch (apiError: any) {
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
@@ -227,5 +281,147 @@ export async function POST(req: NextRequest) {
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+// ━━ Helper: Determine if AI response needs approval ━━
+function isApprovalWorthy(agentType: string, userMessage: string, aiResponse: string): boolean {
+  const lowerMsg = userMessage.toLowerCase()
+  const lowerResp = aiResponse.toLowerCase()
+
+  switch (agentType) {
+    case "FINANCE":
+      return lowerMsg.includes("invoice") || lowerMsg.includes("quotation") || lowerMsg.includes("estimate") ||
+             lowerResp.includes("invoice number") || lowerResp.includes("quotation") || lowerResp.includes("total:")
+    case "CLIENT_HUNTER":
+      return lowerMsg.includes("email") || lowerMsg.includes("outreach") || lowerMsg.includes("cold") ||
+             lowerResp.includes("dear ") || lowerResp.includes("subject:")
+    case "CONTENT":
+      return lowerMsg.includes("publish") || lowerMsg.includes("post") || lowerMsg.includes("blog") ||
+             lowerResp.includes("# ") || lowerResp.length > 1000
+    case "DEV":
+      return lowerMsg.includes("deploy") || lowerMsg.includes("production") ||
+             lowerResp.includes("```") && lowerResp.length > 500
+    case "PROJECT_MANAGER":
+      return lowerMsg.includes("plan") || lowerMsg.includes("assign") ||
+             lowerResp.includes("milestone") || lowerResp.includes("phase")
+    default:
+      return false
+  }
+}
+
+// ━━ Helper: Get approval type based on agent type ━━
+function getApprovalType(agentType: string): string {
+  const map: Record<string, string> = {
+    FINANCE: "INVOICE",
+    CLIENT_HUNTER: "LEAD_OUTREACH",
+    CONTENT: "CONTENT_PIECE",
+    DEV: "CODE_REVIEW",
+    PROJECT_MANAGER: "PROJECT_PLAN",
+    HR: "TASK",
+    SUPPORT: "TASK",
+  }
+  return map[agentType] || "TASK"
+}
+
+// ━━ Inter-Agent Automation Pipeline ━━
+async function checkAutomationTriggers(
+  agent: { id: string; type: string; name: string },
+  userMessage: string,
+  aiResponse: string,
+  chatId: string
+) {
+  try {
+    const lowerMsg = userMessage.toLowerCase()
+    const lowerResp = aiResponse.toLowerCase()
+
+    // CLIENT_HUNTER finds a lead → Notify Finance Agent
+    if (agent.type === "CLIENT_HUNTER" &&
+        (lowerMsg.includes("find") || lowerMsg.includes("search") || lowerMsg.includes("client")) &&
+        (lowerResp.includes("potential client") || lowerResp.includes("lead") || lowerResp.includes("business"))) {
+      const financeAgent = await db.agent.findFirst({ where: { type: "FINANCE" } })
+      if (financeAgent) {
+        await db.crossAgentMessage.create({
+          data: {
+            fromAgentId: agent.id,
+            toAgentId: financeAgent.id,
+            chatId,
+            message: `New lead found by Client Hunter. Please prepare a cost estimation and quotation. Summary: ${aiResponse.substring(0, 300)}`,
+            type: "REQUEST",
+            status: "PENDING",
+          }
+        })
+        // Notify users with Finance access
+        const financeUsers = await db.userAgentAccess.findMany({
+          where: { agentId: financeAgent.id, canView: true },
+        })
+        for (const u of financeUsers) {
+          await db.notification.create({
+            data: {
+              userId: u.userId,
+              title: "New Lead - Finance Review Needed",
+              message: `Client Hunter found a new lead. Finance Agent has been notified to prepare a quotation.`,
+              type: "AGENT",
+              link: `/dashboard/agents/${financeAgent.id}`,
+            },
+          })
+        }
+      }
+    }
+
+    // PROJECT_MANAGER assigns work → Notify Dev Agent
+    if (agent.type === "PROJECT_MANAGER" &&
+        (lowerResp.includes("assign") || lowerResp.includes("task") || lowerResp.includes("phase"))) {
+      const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+      if (devAgent && lowerResp.includes("develop")) {
+        await db.crossAgentMessage.create({
+          data: {
+            fromAgentId: agent.id,
+            toAgentId: devAgent.id,
+            chatId,
+            message: `New development task assigned by PM. Details: ${aiResponse.substring(0, 300)}`,
+            type: "REQUEST",
+            status: "PENDING",
+          }
+        })
+      }
+    }
+
+    // SUPPORT escalates → Notify Dev Agent
+    if (agent.type === "SUPPORT" && lowerResp.includes("escalat")) {
+      const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+      if (devAgent) {
+        await db.crossAgentMessage.create({
+          data: {
+            fromAgentId: agent.id,
+            toAgentId: devAgent.id,
+            chatId,
+            message: `Support ticket escalated. Issue: ${aiResponse.substring(0, 300)}`,
+            type: "ALERT",
+            status: "PENDING",
+          }
+        })
+      }
+    }
+
+    // HR workload check → Notify Project Manager
+    if (agent.type === "HR" && (lowerResp.includes("overwork") || lowerResp.includes("capacity"))) {
+      const pmAgent = await db.agent.findFirst({ where: { type: "PROJECT_MANAGER" } })
+      if (pmAgent) {
+        await db.crossAgentMessage.create({
+          data: {
+            fromAgentId: agent.id,
+            toAgentId: pmAgent.id,
+            chatId,
+            message: `HR workload alert: ${aiResponse.substring(0, 300)}`,
+            type: "ALERT",
+            status: "PENDING",
+          }
+        })
+      }
+    }
+  } catch (err) {
+    // Don't fail the main request if automation triggers fail
+    console.error("[automation] Trigger error:", err)
   }
 }
