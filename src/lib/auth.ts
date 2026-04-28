@@ -47,14 +47,39 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
+    // Fix NEXTAUTH_URL mismatch - redirect to the correct domain
+    async redirect({ url, baseUrl }) {
+      // If the url is relative, prepend the baseUrl
+      if (url.startsWith("/")) return baseUrl + url
+      // If the url is on the same domain, allow it
+      try {
+        const urlObj = new URL(url)
+        const baseObj = new URL(baseUrl)
+        if (urlObj.hostname === baseObj.hostname) return url
+      } catch {}
+      // If url is on a different domain (e.g., localhost vs actual domain),
+      // redirect to the same path on the actual domain
+      try {
+        const urlObj = new URL(url)
+        const baseObj = new URL(baseUrl)
+        // Replace the origin but keep the path
+        return baseObj.origin + urlObj.pathname + urlObj.search
+      } catch {
+        return baseUrl
+      }
+    },
   },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   session: {
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET || "trishulhub-secret-key-change-in-production",
+  // Trust the proxy - Hostinger uses reverse proxy (Apache/Nginx → Node)
+  // This ensures NextAuth sees the correct https:// protocol
+  trustHost: true,
 }
 
 export default NextAuth(authOptions)
