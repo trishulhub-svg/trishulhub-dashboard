@@ -11,9 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("taroon@trishulhub.in");
+  const [password, setPassword] = useState("password123");
   const [loading, setLoading] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [dbReady, setDbReady] = useState<boolean | null>(null);
   const router = useRouter();
   const { data: session, status } = useSession();
 
@@ -28,6 +30,24 @@ export default function LoginPage() {
       }
     }
   }, [status, session, router]);
+
+  // Check if database has users
+  useEffect(() => {
+    fetch("/api/seed")
+      .then(r => r.json())
+      .then(data => {
+        if (data.skipped) {
+          setDbReady(true);
+        } else if (data.message && data.message.includes("success")) {
+          setDbReady(true);
+        } else {
+          setDbReady(false);
+        }
+      })
+      .catch(() => {
+        setDbReady(false);
+      });
+  }, []);
 
   // Show loading spinner while checking session
   if (status === "loading") {
@@ -55,6 +75,26 @@ export default function LoginPage() {
     );
   }
 
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      const res = await fetch("/api/seed", { method: "POST", credentials: 'include' });
+      const data = await res.json();
+      if (data.skipped) {
+        toast.success("Database already set up! You can sign in.");
+        setDbReady(true);
+      } else if (data.error) {
+        toast.error("Setup failed: " + data.error);
+      } else {
+        toast.success("Database set up successfully! You can now sign in.");
+        setDbReady(true);
+      }
+    } catch {
+      toast.error("Failed to set up database. Please try again.");
+    }
+    setSeeding(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -71,8 +111,6 @@ export default function LoginPage() {
         setLoading(false);
       } else {
         toast.success("Login successful!");
-        // Wait for session to update, then redirect based on role
-        // The useEffect above will handle the redirect once session is updated
         setTimeout(() => {
           router.refresh();
         }, 300);
@@ -101,6 +139,30 @@ export default function LoginPage() {
           <h2 className="text-xl font-semibold">AI Agent Dashboard</h2>
           <p className="text-muted-foreground">Sign in to manage your AI agents and projects</p>
         </div>
+
+        {/* Show setup button if database is not ready */}
+        {dbReady === false && (
+          <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800">
+            <CardHeader>
+              <CardTitle className="text-orange-700 dark:text-orange-400">First Time Setup</CardTitle>
+              <CardDescription className="text-orange-600 dark:text-orange-300">
+                The database needs to be set up before you can sign in. Click below to create the default admin user and sample data.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                onClick={handleSeed}
+                disabled={seeding}
+              >
+                {seeding ? "Setting up database..." : "Setup Database & Create Admin User"}
+              </Button>
+              <p className="text-xs text-orange-500 mt-2 text-center">
+                This creates: 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -140,19 +202,15 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {process.env.NODE_ENV !== 'production' && (
-          <Button variant="outline" className="w-full" onClick={async () => {
-            setLoading(true);
-            try {
-              await fetch("/api/seed", { method: "POST", credentials: 'include' });
-              toast.success("Database seeded! You can now sign in.");
-            } catch {
-              toast.error("Failed to seed database");
-            }
-            setLoading(false);
-          }} disabled={loading}>
-            Seed Database (First Time Only)
-          </Button>
+        {/* Always show setup link at bottom */}
+        {dbReady === true && (
+          <p className="text-center text-xs text-muted-foreground">
+            First time? Visit{" "}
+            <a href="/api/seed" className="underline text-primary hover:text-primary/80">
+              /api/seed
+            </a>{" "}
+            to set up the database.
+          </p>
         )}
       </div>
     </div>
