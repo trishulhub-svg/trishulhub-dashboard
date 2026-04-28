@@ -79,6 +79,7 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET || "trishulhub-secret-key-change-in-production",
   // Trust the proxy - required for Vercel and reverse proxy deployments
   // This ensures NextAuth sees the correct https:// protocol
+  trustHost: true,
 } as NextAuthOptions
 
 export default NextAuth(authOptions)
