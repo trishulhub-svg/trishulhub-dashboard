@@ -11,6 +11,7 @@ import {
   Lightbulb, Calendar, Clock, AlertTriangle, ArrowRightLeft,
   PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose,
   MoreVertical, Search, SendHorizontal, ShieldAlert,
+  Wrench, Brain, Eye, FileCode, Globe, Terminal,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -244,6 +245,10 @@ export default function AgentChatPage() {
   // Delete confirmation dialog
   const [deleteDialogChatId, setDeleteDialogChatId] = useState<string | null>(null);
 
+  // Agentic steps for Dev Agent
+  const [agentSteps, setAgentSteps] = useState<Array<{ type: string; content: string; toolName?: string; stepNumber: number }>>([]);
+  const [isAgentic, setIsAgentic] = useState(false);
+
   // Scheduled tasks
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -423,7 +428,6 @@ export default function AgentChatPage() {
     const userContent = input.trim();
     setInput("");
 
-    // If no active chat, we'll let the backend create one
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
       chatId: activeChatId || "",
@@ -434,8 +438,16 @@ export default function AgentChatPage() {
     setMessages((prev) => [...prev, tempUserMsg]);
     setSending(true);
 
+    // Use agentic endpoint for DEV agent (autonomous mode)
+    const useAgentic = agent?.type === "DEV";
+    if (useAgentic) {
+      setAgentSteps([]);
+      setIsAgentic(true);
+    }
+
     try {
-      const res = await fetch("/api/agents/chat", {
+      const endpoint = useAgentic ? "/api/agents/agent-chat" : "/api/agents/chat";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -448,11 +460,24 @@ export default function AgentChatPage() {
 
       if (res.ok) {
         const data = await res.json();
+
+        // Show agentic steps for DEV agent
+        if (useAgentic && data.steps) {
+          setAgentSteps(data.steps);
+        }
+
         const assistantMsg: ChatMessage = {
           id: data.messageId || `temp-assistant-${Date.now()}`,
           chatId: data.chatId || activeChatId || "",
           role: "assistant",
           content: data.content || "No response",
+          metadata: JSON.stringify({
+            agentic: data.agentic,
+            totalSteps: data.totalSteps,
+            usedTools: data.usedTools,
+            steps: data.steps,
+            thinkingPreview: data.thinkingPreview,
+          }),
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
@@ -464,22 +489,27 @@ export default function AgentChatPage() {
       } else {
         const error = await res.json();
         const errorMsg = error.error || "Failed to get response";
+
+        // Show partial steps even on error
+        if (useAgentic && error.steps) {
+          setAgentSteps(error.steps);
+        }
+
         toast.error(errorMsg, { duration: 6000 });
-        if (errorMsg.includes("API key") || errorMsg.includes("No active API key")) {
+        if (errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")) {
           setMessages((prev) => [
             ...prev,
             {
               id: `sys-${Date.now()}`,
               chatId: activeChatId || "",
               role: "system",
-              content: "⚠️ No valid API key found. Please go to Settings > API Keys and add a valid OpenRouter API key.",
+              content: "⚠️ No valid Z.ai API key found for agentic mode. Dev Agent requires a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
               createdAt: new Date().toISOString(),
             },
           ]);
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
         }
-        // If backend created a chat but failed, refresh
         if (error.chatId && !activeChatId) {
           setActiveChatId(error.chatId);
           await fetchChats();
@@ -490,8 +520,9 @@ export default function AgentChatPage() {
       setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
     } finally {
       setSending(false);
+      setIsAgentic(false);
     }
-  }, [input, sending, agentId, activeChatId, fetchChats]);
+  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type]);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1448,7 +1479,9 @@ function ChatArea({
             <Icon className={`h-16 w-16 mb-4 ${agentConfig?.color || "text-muted-foreground"} opacity-30`} />
             <h3 className="text-lg font-semibold mb-2">Chat with {agent.name}</h3>
             <p className="text-sm text-muted-foreground max-w-md mb-6">
-              Give {agent.name} a task or ask a question. The agent will process your request and respond.
+              {agent.type === "DEV"
+                ? "Dev Agent works autonomously — it can plan, search the web, read/write files, run commands, and iterate until your task is complete. Give it a complex task and watch it go!"
+                : `Give ${agent.name} a task or ask a question. The agent will process your request and respond.`}
             </p>
             {suggestedPrompts.length > 0 && (
               <div className="flex flex-wrap gap-2 max-w-lg justify-center">
@@ -1493,8 +1526,82 @@ function ChatArea({
                         <div className="flex items-center gap-2 mb-1.5">
                           <Icon className={`h-3.5 w-3.5 ${agentConfig?.color}`} />
                           <span className="text-xs font-medium">{agent.name}</span>
+                          {(() => {
+                            try {
+                              const meta = JSON.parse(msg.metadata || "{}");
+                              if (meta.agentic) return (
+                                <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                                  <Zap className="h-2.5 w-2.5" /> Autonomous
+                                </Badge>
+                              );
+                            } catch {}
+                            return null;
+                          })()}
                         </div>
                       )}
+                      {/* Agentic Steps Preview */}
+                      {msg.role === "assistant" && (() => {
+                        try {
+                          const meta = JSON.parse(msg.metadata || "{}");
+                          if (meta.agentic && meta.steps && meta.steps.length > 0) {
+                            return (
+                              <div className="mb-2 p-2 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800/40">
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <Brain className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+                                  <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                                    Agent Execution ({meta.totalSteps || meta.steps.length} steps)
+                                  </span>
+                                </div>
+                                <div className="space-y-1">
+                                  {meta.steps.slice(0, 8).map((step: any, idx: number) => (
+                                    <div key={idx} className="flex items-start gap-1.5 text-[10px]">
+                                      {step.type === "thinking" ? (
+                                        <Brain className="h-2.5 w-2.5 mt-0.5 text-purple-500 shrink-0" />
+                                      ) : step.type === "tool_call" ? (
+                                        <Wrench className="h-2.5 w-2.5 mt-0.5 text-blue-500 shrink-0" />
+                                      ) : step.type === "tool_result" ? (
+                                        <CheckCircle2 className="h-2.5 w-2.5 mt-0.5 text-green-500 shrink-0" />
+                                      ) : step.type === "plan" ? (
+                                        <Lightbulb className="h-2.5 w-2.5 mt-0.5 text-amber-500 shrink-0" />
+                                      ) : step.type === "error" ? (
+                                        <AlertTriangle className="h-2.5 w-2.5 mt-0.5 text-red-500 shrink-0" />
+                                      ) : (
+                                        <Eye className="h-2.5 w-2.5 mt-0.5 text-gray-400 shrink-0" />
+                                      )}
+                                      <span className="text-muted-foreground break-all">
+                                        {step.type === "tool_call"
+                                          ? `${step.toolName || "tool"}(${step.content?.replace(/.*?\(/, "").replace(/\)$/, "") || ""})`
+                                          : step.type === "tool_result"
+                                            ? step.content
+                                            : step.content?.substring(0, 120)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {meta.steps.length > 8 && (
+                                    <span className="text-[9px] text-muted-foreground ml-4">
+                                      +{meta.steps.length - 8} more steps...
+                                    </span>
+                                  )}
+                                </div>
+                                {meta.usedTools && meta.usedTools.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-purple-100 dark:border-purple-800/40">
+                                    {meta.usedTools.map((tool: string) => (
+                                      <Badge key={tool} variant="outline" className="text-[8px] h-3.5 px-1">
+                                        {tool === "web_search" ? <Globe className="h-2 w-2 mr-0.5" /> :
+                                         tool === "read_file" ? <FileCode className="h-2 w-2 mr-0.5" /> :
+                                         tool === "run_command" ? <Terminal className="h-2 w-2 mr-0.5" /> :
+                                         <Wrench className="h-2 w-2 mr-0.5" />}
+                                        {tool}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                        } catch {}
+                        return null;
+                      })()}
                       <div className="text-sm whitespace-pre-wrap break-words">{msg.content}</div>
                     </>
                   )}
@@ -1556,8 +1663,20 @@ function ChatArea({
             {sending && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-xl p-3 flex items-center gap-2">
-                  <Loader2Icon className="h-4 w-4 animate-spin" />
-                  <span className="text-sm text-muted-foreground">{agent.name} is thinking...</span>
+                  {agent.type === "DEV" ? (
+                    <>
+                      <Brain className="h-4 w-4 animate-pulse text-purple-500" />
+                      <span className="text-sm text-muted-foreground">Dev Agent is working autonomously...</span>
+                      <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                        <Zap className="h-2.5 w-2.5" /> Agent Mode
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2Icon className="h-4 w-4 animate-spin" />
+                      <span className="text-sm text-muted-foreground">{agent.name} is thinking...</span>
+                    </>
+                  )}
                 </div>
               </div>
             )}
