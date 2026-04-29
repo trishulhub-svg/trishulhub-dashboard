@@ -26,6 +26,8 @@ import {
   CheckCircle2,
   XCircle,
   CalendarDays,
+  Monitor,
+  Eye,
 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -358,10 +360,46 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            </Button>
+            {/* Theme Selector Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-9 w-9">
+                  {theme === "dark" ? (
+                    <Moon className="h-4 w-4" />
+                  ) : theme === "bluelight" ? (
+                    <Eye className="h-4 w-4 text-amber-600" />
+                  ) : (
+                    <Sun className="h-4 w-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setTheme("light")} className={cn("flex items-center gap-3", theme === "light" && "bg-accent")}>
+                  <Sun className="h-4 w-4" />
+                  <span>Light Mode</span>
+                  {theme === "light" && <Check className="h-3 w-3 ml-auto text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("dark")} className={cn("flex items-center gap-3", theme === "dark" && "bg-accent")}>
+                  <Moon className="h-4 w-4" />
+                  <span>Dark Mode</span>
+                  {theme === "dark" && <Check className="h-3 w-3 ml-auto text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("bluelight")} className={cn("flex items-center gap-3", theme === "bluelight" && "bg-accent")}>
+                  <Eye className="h-4 w-4 text-amber-600" />
+                  <div className="flex flex-col">
+                    <span>Blue Light</span>
+                    <span className="text-[10px] text-muted-foreground">Eye protection for long use</span>
+                  </div>
+                  {theme === "bluelight" && <Check className="h-3 w-3 ml-auto text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setTheme("system")} className={cn("flex items-center gap-3", theme === "system" && "bg-accent")}>
+                  <Monitor className="h-4 w-4" />
+                  <span>System Default</span>
+                  {theme === "system" && <Check className="h-3 w-3 ml-auto text-primary" />}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Notifications Dropdown */}
             <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>

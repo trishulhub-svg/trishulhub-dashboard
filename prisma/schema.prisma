@@ -139,20 +139,22 @@ model UserAgentAccess {
 
 // ━━ Scheduled Tasks ━━
 model ScheduledTask {
-  id          String    @id @default(cuid())
-  agentId     String
-  userId      String
-  title       String
-  description String?
-  dueDate     DateTime
-  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
-  progress    Int       @default(0) // 0-100
-  priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  result      String?   // AI output / result of the task
-  notifyAt    DateTime? // When to notify
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  agentId          String
+  userId           String
+  title            String
+  description      String?
+  dueDate          DateTime
+  status           String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
+  progress         Int       @default(0) // 0-100
+  priority         String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  result           String?   // AI output / result of the task
+  notifyAt         DateTime? // When to notify
+  completedAt      DateTime?
+  attachments      String    @default("[]") // JSON array: [{name, url, size, type}]
+  crossAgentAccess String    @default("[]") // JSON array of agentIds that can view/execute this task
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   agent Agent @relation(fields: [agentId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
@@ -188,18 +190,20 @@ model Approval {
 
 // ━━ Cross-Agent Communication ━━
 model CrossAgentMessage {
-  id          String   @id @default(cuid())
-  fromAgentId String
-  toAgentId   String
-  chatId      String?  // Optional link to a chat
-  message     String
-  type        String   // INFO, REQUEST, RESULT, ALERT
-  status      String   @default("PENDING") // PENDING, PROCESSED, IGNORED
-  createdAt   DateTime @default(now())
+  id              String   @id @default(cuid())
+  fromAgentId     String
+  toAgentId       String
+  chatId          String?  // Optional link to a chat (from side)
+  linkedChatId    String?  // Optional link to a specific chat on the receiving agent for data sharing
+  message         String
+  type            String   // INFO, REQUEST, RESULT, ALERT
+  status          String   @default("PENDING") // PENDING, PROCESSED, IGNORED
+  shareFullChat   Boolean  @default(false) // Whether to share full chat context with the receiving agent
+  createdAt       DateTime @default(now())
 
-  fromAgent Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
-  toAgent   Agent  @relation("ToAgent", fields: [toAgentId], references: [id])
-  chat      Chat?  @relation(fields: [chatId], references: [id])
+  fromAgent  Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
+  toAgent    Agent  @relation("ToAgent", fields: [toAgentId], references: [id])
+  chat       Chat?  @relation(fields: [chatId], references: [id])
 
   @@index([toAgentId, status])
   @@index([fromAgentId])

@@ -112,6 +112,46 @@
   --sidebar-ring: oklch(0.65 0.2 25);
 }
 
+/* Blue Light Mode - Warm amber-tinted, reduced blue light for long-term screen use */
+.bluelight {
+  --background: oklch(0.95 0.015 75);
+  --foreground: oklch(0.22 0.02 60);
+  --card: oklch(0.97 0.012 75);
+  --card-foreground: oklch(0.22 0.02 60);
+  --popover: oklch(0.97 0.012 75);
+  --popover-foreground: oklch(0.22 0.02 60);
+  --primary: oklch(0.58 0.18 25);
+  --primary-foreground: oklch(0.97 0.01 75);
+  --secondary: oklch(0.88 0.03 75);
+  --secondary-foreground: oklch(0.30 0.03 60);
+  --muted: oklch(0.90 0.02 75);
+  --muted-foreground: oklch(0.48 0.02 60);
+  --accent: oklch(0.86 0.04 75);
+  --accent-foreground: oklch(0.30 0.04 60);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.82 0.02 75);
+  --input: oklch(0.84 0.02 75);
+  --ring: oklch(0.58 0.18 25);
+  --chart-1: oklch(0.58 0.18 25);
+  --chart-2: oklch(0.62 0.14 145);
+  --chart-3: oklch(0.52 0.16 270);
+  --chart-4: oklch(0.72 0.14 60);
+  --chart-5: oklch(0.68 0.18 340);
+  --sidebar: oklch(0.93 0.02 75);
+  --sidebar-foreground: oklch(0.22 0.02 60);
+  --sidebar-primary: oklch(0.58 0.18 25);
+  --sidebar-primary-foreground: oklch(0.97 0.01 75);
+  --sidebar-accent: oklch(0.88 0.04 75);
+  --sidebar-accent-foreground: oklch(0.30 0.04 60);
+  --sidebar-border: oklch(0.82 0.02 75);
+  --sidebar-ring: oklch(0.58 0.18 25);
+}
+
+/* Blue light scrollbar override */
+.bluelight .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.65 0.03 75);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -138,4 +178,16 @@
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
   background: oklch(0.4 0.01 0);
+}
+
+/* Blue light filter overlay for images and media - reduces blue light penetration */
+.bluelight img,
+.bluelight video {
+  filter: sepia(0.08) saturate(0.92);
+}
+
+/* Blue light mode: softer shadows and reduced harshness */
+.bluelight .shadow-sm,
+.bluelight .shadow {
+  --tw-shadow-color: oklch(0.7 0.02 75 / 8%);
 }

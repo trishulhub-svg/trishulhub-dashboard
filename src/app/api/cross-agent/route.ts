@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/cross-agent - Send a message from one agent to another
-// This is called internally when an agent needs to communicate with another agent
+// Supports linkedChatId for chat-to-chat data sharing and shareFullChat
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { fromAgentId, toAgentId, message, type, chatId } = await req.json()
+    const { fromAgentId, toAgentId, message, type, chatId, linkedChatId, shareFullChat } = await req.json()
 
     if (!fromAgentId || !toAgentId || !message) {
       return NextResponse.json({ error: "From agent, to agent, and message are required" }, { status: 400 })
@@ -65,15 +65,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
+    // If linking a chat from the receiving agent, verify it exists
+    let linkedChatContext = ""
+    if (linkedChatId) {
+      const linkedChat = await db.chat.findUnique({
+        where: { id: linkedChatId },
+        include: { messages: { orderBy: { createdAt: "asc" } } },
+      })
+      if (linkedChat) {
+        if (shareFullChat) {
+          // Share full chat context with the receiving agent
+          const chatMessages = linkedChat.messages
+            .filter((m: any) => m.role === "user" || m.role === "assistant")
+            .map((m: any) => `${m.role === "user" ? "User" : linkedChat.agent?.name || "Assistant"}: ${m.content}`)
+            .join("\n")
+          linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}"]:\n${chatMessages}`
+        } else {
+          // Share just a summary
+          linkedChatContext = `\n\n[Referenced Chat: "${linkedChat.title}" with ${linkedChat.messages.length} messages]`
+        }
+      }
+    }
+
     // Create the cross-agent message
     const crossMsg = await db.crossAgentMessage.create({
       data: {
         fromAgentId,
         toAgentId,
         chatId: chatId || null,
+        linkedChatId: linkedChatId || null,
         message,
         type: type || "INFO",
         status: "PENDING",
+        shareFullChat: shareFullChat || false,
       },
       include: {
         fromAgent: { select: { id: true, name: true, type: true } },
@@ -82,14 +106,13 @@ export async function POST(req: NextRequest) {
     })
 
     // Process the message - have the receiving agent acknowledge/act on it
-    // This creates an AI response from the receiving agent
     try {
       const toAgentConfig = await db.agentRoleConfig.findUnique({
         where: { agentId: toAgentId }
       })
 
       const systemPrompt = toAgentConfig?.rolePrompt || toAgent.systemPrompt
-      const contextMessage = `[Cross-Agent Message from ${fromAgent.name}]: ${message}\n\nBriefly acknowledge this message and describe how you will act on it.`
+      const contextMessage = `[Cross-Agent Message from ${fromAgent.name}]: ${message}${linkedChatContext}\n\nBriefly acknowledge this message and describe how you will act on it.`
 
       // Find an active API key
       let apiKey = toAgent.apiKeyId
@@ -136,13 +159,16 @@ export async function POST(req: NextRequest) {
         data: { status: "PROCESSED" },
       })
 
-      // If there's a linked chat, add the cross-agent message to it
+      // If there's a linked chat, add the cross-agent message + shared context to it
       if (chatId) {
+        const contextNote = linkedChatId 
+          ? `\n\n🔗 This message includes context from another agent's chat.`
+          : ""
         await db.chatMessage.create({
           data: {
             chatId,
             role: "system",
-            content: `[${fromAgent.name} → ${toAgent.name}]: ${message}\n\n${toAgent.name}'s Response: ${aiResponse}`,
+            content: `[${fromAgent.name} → ${toAgent.name}]: ${message}${contextNote}\n\n${toAgent.name}'s Response: ${aiResponse}`,
           }
         })
       }
@@ -181,6 +207,51 @@ export async function POST(req: NextRequest) {
         aiResponse: `Message delivered but processing failed: ${aiError.message}`,
       })
     }
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+// DELETE /api/cross-agent - Delete a cross-agent message/connection
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const userId = (session.user as any).id
+    const userRole = (session.user as any).role
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+
+    if (!id) {
+      return NextResponse.json({ error: "Message ID is required" }, { status: 400 })
+    }
+
+    const msg = await db.crossAgentMessage.findUnique({ where: { id } })
+    if (!msg) {
+      return NextResponse.json({ error: "Message not found" }, { status: 404 })
+    }
+
+    // Only admins or the user who created the linked chat can delete
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      // Check if user has access to either agent
+      const hasAccess = await db.userAgentAccess.findFirst({
+        where: {
+          userId,
+          agentId: { in: [msg.fromAgentId, msg.toAgentId] },
+          canChat: true,
+        }
+      })
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      }
+    }
+
+    await db.crossAgentMessage.delete({ where: { id } })
+
+    return NextResponse.json({ success: true, message: "Cross-agent connection deleted" })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

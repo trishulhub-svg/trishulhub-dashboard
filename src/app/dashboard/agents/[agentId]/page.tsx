@@ -12,6 +12,8 @@ import {
   PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose,
   MoreVertical, Search, SendHorizontal, ShieldAlert,
   Wrench, Brain, Eye, FileCode, Globe, Terminal,
+  Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
+  Link2, Unlink, FileUp, Upload,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -113,6 +115,8 @@ interface CrossAgentMsg {
   fromAgent?: { id: string; name: string; type: string };
   toAgent?: { id: string; name: string; type: string };
   aiResponse?: string;
+  linkedChatId?: string;
+  shareFullChat?: boolean;
 }
 
 interface QuickAction {
@@ -248,6 +252,7 @@ export default function AgentChatPage() {
   // Agentic steps for Dev Agent
   const [agentSteps, setAgentSteps] = useState<Array<{ type: string; content: string; toolName?: string; stepNumber: number }>>([]);
   const [isAgentic, setIsAgentic] = useState(false);
+  const [liveSteps, setLiveSteps] = useState<Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>>([]);
 
   // Scheduled tasks
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
@@ -443,76 +448,202 @@ export default function AgentChatPage() {
     if (useAgentic) {
       setAgentSteps([]);
       setIsAgentic(true);
+      setLiveSteps([]);
     }
 
     try {
       const endpoint = useAgentic ? "/api/agents/agent-chat" : "/api/agents/chat";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          agentId,
-          message: userContent,
-          chatId: activeChatId || undefined,
-        }),
-      });
 
-      if (res.ok) {
-        const data = await res.json();
+      // Use streaming for agentic mode
+      if (useAgentic) {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            agentId,
+            message: userContent,
+            chatId: activeChatId || undefined,
+            stream: true,
+          }),
+        });
 
-        // Show agentic steps for all agentic agents
-        if (useAgentic && data.steps) {
-          setAgentSteps(data.steps);
+        if (!res.ok) {
+          const error = await res.json();
+          const errorMsg = error.error || "Failed to get response";
+          if (error.steps) setAgentSteps(error.steps);
+          toast.error(errorMsg, { duration: 6000 });
+          if (errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `sys-${Date.now()}`,
+                chatId: activeChatId || "",
+                role: "system",
+                content: "⚠️ No valid Z.ai API key found for agentic mode. Agentic agents require a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          } else {
+            setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+          }
+          if (error.chatId && !activeChatId) {
+            setActiveChatId(error.chatId);
+            await fetchChats();
+          }
+          return;
         }
 
-        const assistantMsg: ChatMessage = {
-          id: data.messageId || `temp-assistant-${Date.now()}`,
-          chatId: data.chatId || activeChatId || "",
-          role: "assistant",
-          content: data.content || "No response",
-          metadata: JSON.stringify({
-            agentic: data.agentic,
-            totalSteps: data.totalSteps,
-            usedTools: data.usedTools,
-            steps: data.steps,
-            thinkingPreview: data.thinkingPreview,
-          }),
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
+        // Parse SSE stream for real-time step updates
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No stream body");
 
-        if (!activeChatId && data.chatId) {
-          setActiveChatId(data.chatId);
-          await fetchChats();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalData: any = null;
+        const collectedSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }> = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+
+            try {
+              const event = JSON.parse(data);
+
+              if (event.type === "step") {
+                // Real-time step update
+                const step = event.step;
+                collectedSteps.push(step);
+                setAgentSteps([...collectedSteps]);
+
+                // Update live steps with status
+                setLiveSteps((prev) => {
+                  const updated = [...prev];
+                  // Mark previous steps as done
+                  if (updated.length > 0) {
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+                  }
+                  updated.push({
+                    type: step.type,
+                    content: step.type === "thinking" ? "Thinking..." :
+                             step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                             step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                             step.type === "plan" ? "Planning approach..." :
+                             step.type === "error" ? "Error occurred" :
+                             "Preparing response...",
+                    toolName: step.toolName,
+                    status: 'running',
+                  });
+                  return updated;
+                });
+              } else if (event.type === "complete") {
+                finalData = event;
+              } else if (event.type === "error") {
+                toast.error(event.message || "Agent execution error", { duration: 6000 });
+              }
+            } catch {
+              // Ignore non-JSON lines
+            }
+          }
+        }
+
+        // Handle final response (fallback if no streaming events)
+        if (!finalData) {
+          // Non-streaming fallback — parse as regular JSON
+          setLiveSteps([]);
+          setAgentSteps([]);
+          const textRes = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              agentId,
+              message: userContent,
+              chatId: activeChatId || undefined,
+            }),
+          });
+          if (textRes.ok) {
+            finalData = await textRes.json();
+            if (finalData.steps) setAgentSteps(finalData.steps);
+          }
+        }
+
+        if (finalData) {
+          if (finalData.steps) setAgentSteps(finalData.steps);
+
+          const assistantMsg: ChatMessage = {
+            id: finalData.messageId || `temp-assistant-${Date.now()}`,
+            chatId: finalData.chatId || activeChatId || "",
+            role: "assistant",
+            content: finalData.content || "No response",
+            metadata: JSON.stringify({
+              agentic: finalData.agentic,
+              totalSteps: finalData.totalSteps,
+              usedTools: finalData.usedTools,
+              steps: finalData.steps,
+              thinkingPreview: finalData.thinkingPreview,
+            }),
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+
+          if (!activeChatId && finalData.chatId) {
+            setActiveChatId(finalData.chatId);
+            await fetchChats();
+          }
         }
       } else {
-        const error = await res.json();
-        const errorMsg = error.error || "Failed to get response";
+        // Simple chat (non-agentic) - standard request
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            agentId,
+            message: userContent,
+            chatId: activeChatId || undefined,
+          }),
+        });
 
-        // Show partial steps even on error
-        if (useAgentic && error.steps) {
-          setAgentSteps(error.steps);
-        }
+        if (res.ok) {
+          const data = await res.json();
+          const assistantMsg: ChatMessage = {
+            id: data.messageId || `temp-assistant-${Date.now()}`,
+            chatId: data.chatId || activeChatId || "",
+            role: "assistant",
+            content: data.content || "No response",
+            metadata: JSON.stringify({
+              agentic: data.agentic,
+              totalSteps: data.totalSteps,
+              usedTools: data.usedTools,
+              steps: data.steps,
+              thinkingPreview: data.thinkingPreview,
+            }),
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
 
-        toast.error(errorMsg, { duration: 6000 });
-        if (errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `sys-${Date.now()}`,
-              chatId: activeChatId || "",
-              role: "system",
-              content: "⚠️ No valid Z.ai API key found for agentic mode. Agentic agents require a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
-              createdAt: new Date().toISOString(),
-            },
-          ]);
+          if (!activeChatId && data.chatId) {
+            setActiveChatId(data.chatId);
+            await fetchChats();
+          }
         } else {
+          const error = await res.json();
+          toast.error(error.error || "Failed to get response", { duration: 6000 });
           setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
-        }
-        if (error.chatId && !activeChatId) {
-          setActiveChatId(error.chatId);
-          await fetchChats();
+          if (error.chatId && !activeChatId) {
+            setActiveChatId(error.chatId);
+            await fetchChats();
+          }
         }
       }
     } catch {
@@ -521,8 +652,9 @@ export default function AgentChatPage() {
     } finally {
       setSending(false);
       setIsAgentic(false);
+      setLiveSteps([]);
     }
-  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type]);
+  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic]);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -634,7 +766,7 @@ export default function AgentChatPage() {
   };
 
   // ── Create scheduled task ──
-  const handleCreateTask = async (data: { title: string; description: string; dueDate: string; priority: string }) => {
+  const handleCreateTask = async (data: { title: string; description: string; dueDate: string; priority: string; attachments?: any[]; crossAgentAccess?: string[] }) => {
     try {
       const res = await fetch("/api/scheduled-tasks", {
         method: "POST",
@@ -656,13 +788,13 @@ export default function AgentChatPage() {
   };
 
   // ── Send cross-agent message ──
-  const handleCrossAgentSend = async (toAgentId: string, message: string, type: string) => {
+  const handleCrossAgentSend = async (toAgentId: string, message: string, type: string, linkedChatId?: string, shareFullChat?: boolean) => {
     try {
       const res = await fetch("/api/cross-agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ fromAgentId: agentId, toAgentId, message, type }),
+        body: JSON.stringify({ fromAgentId: agentId, toAgentId, message, type, chatId: activeChatId || undefined, linkedChatId, shareFullChat }),
       });
       if (res.ok) {
         toast.success("Message sent to agent");
@@ -884,7 +1016,7 @@ export default function AgentChatPage() {
           features={features}
           suggestedPrompts={suggestedPrompts}
         />
-        <NewTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} onSubmit={handleCreateTask} />
+        <NewTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} onSubmit={handleCreateTask} allAgents={allAgents} currentAgentId={agentId} />
         <CrossAgentDialog
           open={crossAgentOpen}
           onOpenChange={setCrossAgentOpen}
@@ -1174,7 +1306,7 @@ export default function AgentChatPage() {
         features={features}
         suggestedPrompts={suggestedPrompts}
       />
-      <NewTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} onSubmit={handleCreateTask} />
+      <NewTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} onSubmit={handleCreateTask} allAgents={allAgents} currentAgentId={agentId} />
       <CrossAgentDialog
         open={crossAgentOpen}
         onOpenChange={setCrossAgentOpen}
@@ -1543,52 +1675,73 @@ function ChatArea({
                           })()}
                         </div>
                       )}
-                      {/* Agentic Steps Preview */}
+                      {/* Agentic Steps Preview - GLM 5.1 Style */}
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
                           if (meta.agentic && meta.steps && meta.steps.length > 0) {
                             return (
-                              <div className="mb-2 p-2 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800/40">
-                                <div className="flex items-center gap-1.5 mb-1.5">
-                                  <Brain className="h-3 w-3 text-purple-600 dark:text-purple-400" />
-                                  <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                                    Agent Execution ({meta.totalSteps || meta.steps.length} steps)
-                                  </span>
+                              <div className="mb-2 rounded-lg border border-purple-200 dark:border-purple-800/40 overflow-hidden">
+                                {/* Header */}
+                                <div className="flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/20">
+                                  <div className="flex items-center gap-2">
+                                    <Brain className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                    <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                                      Agent Execution
+                                    </span>
+                                    <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                                      {meta.totalSteps || meta.steps.length} steps
+                                    </Badge>
+                                  </div>
+                                  <ListChecks className="h-3.5 w-3.5 text-purple-500" />
                                 </div>
-                                <div className="space-y-1">
-                                  {meta.steps.slice(0, 8).map((step: any, idx: number) => (
-                                    <div key={idx} className="flex items-start gap-1.5 text-[10px]">
+                                
+                                {/* Steps as Todo-like list */}
+                                <div className="px-3 py-2 bg-white dark:bg-card/50 space-y-1.5">
+                                  {meta.steps.slice(0, 6).map((step: any, idx: number) => (
+                                    <div key={idx} className="flex items-start gap-2">
                                       {step.type === "thinking" ? (
-                                        <Brain className="h-2.5 w-2.5 mt-0.5 text-purple-500 shrink-0" />
+                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-purple-500 shrink-0" />
                                       ) : step.type === "tool_call" ? (
-                                        <Wrench className="h-2.5 w-2.5 mt-0.5 text-blue-500 shrink-0" />
+                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
                                       ) : step.type === "tool_result" ? (
-                                        <CheckCircle2 className="h-2.5 w-2.5 mt-0.5 text-green-500 shrink-0" />
+                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-green-500 shrink-0" />
                                       ) : step.type === "plan" ? (
-                                        <Lightbulb className="h-2.5 w-2.5 mt-0.5 text-amber-500 shrink-0" />
+                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
                                       ) : step.type === "error" ? (
-                                        <AlertTriangle className="h-2.5 w-2.5 mt-0.5 text-red-500 shrink-0" />
+                                        <CircleX className="h-3.5 w-3.5 mt-0.5 text-red-500 shrink-0" />
                                       ) : (
-                                        <Eye className="h-2.5 w-2.5 mt-0.5 text-gray-400 shrink-0" />
+                                        <Circle className="h-3.5 w-3.5 mt-0.5 text-gray-400 shrink-0" />
                                       )}
-                                      <span className="text-muted-foreground break-all">
-                                        {step.type === "tool_call"
-                                          ? `${step.toolName || "tool"}(${step.content?.replace(/.*?\(/, "").replace(/\)$/, "") || ""})`
-                                          : step.type === "tool_result"
-                                            ? step.content
-                                            : step.content?.substring(0, 120)}
-                                      </span>
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-[11px] font-medium text-foreground">
+                                          {step.type === "thinking" ? "Deep Reasoning" :
+                                           step.type === "tool_call" ? `Used ${step.toolName || 'tool'}` :
+                                           step.type === "tool_result" ? `${step.toolName || 'Tool'} result` :
+                                           step.type === "plan" ? "Planned approach" :
+                                           step.type === "response" ? "Final response" :
+                                           step.type === "error" ? "Error" : step.type}
+                                        </span>
+                                        {step.content && step.type !== "response" && (
+                                          <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">
+                                            {step.type === "tool_call"
+                                              ? step.content?.replace(/.*?\(/, "").replace(/\)$/, "")
+                                              : step.content?.substring(0, 100)}
+                                          </p>
+                                        )}
+                                      </div>
                                     </div>
                                   ))}
-                                  {meta.steps.length > 8 && (
-                                    <span className="text-[9px] text-muted-foreground ml-4">
-                                      +{meta.steps.length - 8} more steps...
+                                  {meta.steps.length > 6 && (
+                                    <span className="text-[10px] text-muted-foreground ml-5.5">
+                                      +{meta.steps.length - 6} more steps
                                     </span>
                                   )}
                                 </div>
+                                
+                                {/* Used Tools Footer */}
                                 {meta.usedTools && meta.usedTools.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-purple-100 dark:border-purple-800/40">
+                                  <div className="flex flex-wrap gap-1 px-3 py-1.5 border-t border-purple-100 dark:border-purple-800/30 bg-purple-50/50 dark:bg-purple-900/10">
                                     {meta.usedTools.map((tool: string) => (
                                       <Badge key={tool} variant="outline" className="text-[8px] h-3.5 px-1">
                                         {tool === "web_search" ? <Globe className="h-2 w-2 mr-0.5" /> :
@@ -1666,20 +1819,121 @@ function ChatArea({
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="bg-muted rounded-xl p-3 flex items-center gap-2">
+                <div className="bg-muted rounded-xl p-4 max-w-[85%] w-full">
                   {features?.agentic !== false ? (
-                    <>
-                      <Brain className="h-4 w-4 animate-pulse text-purple-500" />
-                      <span className="text-sm text-muted-foreground">{agent.name} is working autonomously...</span>
-                      <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                        <Zap className="h-2.5 w-2.5" /> Agent Mode
-                      </Badge>
-                    </>
+                    <div className="space-y-3">
+                      {/* Agentic Header */}
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <Brain className="h-5 w-5 text-purple-500" />
+                          <Sparkles className="h-3 w-3 text-purple-400 absolute -top-1 -right-1 animate-ping" />
+                        </div>
+                        <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">{agent.name} is working</span>
+                        <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 animate-pulse">
+                          <Zap className="h-2.5 w-2.5" /> Autonomous
+                        </Badge>
+                      </div>
+
+                      {/* Live Steps Progress - GLM 5.1 style */}
+                      {liveSteps.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {liveSteps.map((step, idx) => (
+                            <div key={idx} className="flex items-center gap-2.5">
+                              {/* Status Icon */}
+                              {step.status === 'running' ? (
+                                <div className="relative shrink-0">
+                                  {step.type === 'thinking' ? (
+                                    <Brain className="h-4 w-4 text-purple-500 animate-pulse" />
+                                  ) : step.type === 'tool_call' ? (
+                                    <Wrench className="h-4 w-4 text-blue-500 animate-bounce" />
+                                  ) : step.type === 'tool_result' ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                  ) : step.type === 'plan' ? (
+                                    <Lightbulb className="h-4 w-4 text-amber-500 animate-pulse" />
+                                  ) : (
+                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                  )}
+                                </div>
+                              ) : step.status === 'done' ? (
+                                <CircleCheck className="h-4 w-4 text-green-500 shrink-0" />
+                              ) : (
+                                <CircleX className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              
+                              {/* Step Content */}
+                              <span className={`text-xs ${step.status === 'running' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                                {step.content}
+                              </span>
+                              
+                              {/* Running indicator */}
+                              {step.status === 'running' && (
+                                <div className="flex gap-0.5 ml-auto shrink-0">
+                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
+                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
+                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : agentSteps.length > 0 ? (
+                        /* Fallback to agentSteps if liveSteps not available */
+                        <div className="space-y-1.5">
+                          {agentSteps.slice(-5).map((step, idx) => (
+                            <div key={idx} className="flex items-center gap-2.5">
+                              {step.type === "thinking" ? (
+                                <Brain className="h-3.5 w-3.5 text-purple-500 shrink-0 animate-pulse" />
+                              ) : step.type === "tool_call" ? (
+                                <Wrench className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                              ) : step.type === "tool_result" ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                              ) : step.type === "plan" ? (
+                                <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                              ) : step.type === "error" ? (
+                                <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                              ) : (
+                                <CircleDot className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                              )}
+                              <span className="text-xs text-muted-foreground">
+                                {step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                                 step.type === "thinking" ? "Thinking..." :
+                                 step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                                 step.content?.substring(0, 80)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        /* Initial state - no steps yet */
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-purple-500" />
+                          <span className="text-xs text-muted-foreground">Starting agent execution...</span>
+                        </div>
+                      )}
+
+                      {/* Progress bar */}
+                      {liveSteps.length > 0 && (
+                        <div className="mt-2">
+                          <div className="h-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min((liveSteps.filter(s => s.status === 'done').length / Math.max(liveSteps.length, 1)) * 100, 95)}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between mt-1">
+                            <span className="text-[9px] text-muted-foreground">{liveSteps.filter(s => s.status === 'done').length}/{liveSteps.length} steps done</span>
+                            <span className="text-[9px] text-muted-foreground">
+                              {liveSteps.some(s => s.status === 'running') ? 'In progress...' : 'Almost done...'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ) : (
-                    <>
+                    <div className="flex items-center gap-2">
                       <Loader2Icon className="h-4 w-4 animate-spin" />
                       <span className="text-sm text-muted-foreground">{agent.name} is thinking...</span>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2097,6 +2351,29 @@ function CrossAgentTab({
   onRefresh: () => void;
   allAgents: AgentData[];
 }) {
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (msgId: string) => {
+    setDeletingId(msgId);
+    try {
+      const res = await fetch(`/api/cross-agent?id=${msgId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Message deleted");
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to delete message");
+      }
+    } catch {
+      toast.error("Failed to delete message");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="p-3 space-y-3">
       <div className="flex items-center justify-between">
@@ -2144,7 +2421,7 @@ function CrossAgentTab({
           {messages.slice(0, 10).map((msg) => {
             const isIncoming = msg.toAgentId === agentId;
             return (
-              <Card key={msg.id} className="p-2.5">
+              <Card key={msg.id} className="p-2.5 group relative">
                 <div className="flex items-start gap-2">
                   <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 ${isIncoming ? "bg-blue-100 dark:bg-blue-900/30" : "bg-green-100 dark:bg-green-900/30"}`}>
                     {isIncoming ? (
@@ -2154,19 +2431,49 @@ function CrossAgentTab({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <span className="text-[10px] font-medium">
                         {isIncoming ? msg.fromAgent?.name : msg.toAgent?.name}
                       </span>
                       <Badge variant="outline" className="text-[8px] h-3 px-1">
                         {msg.type}
                       </Badge>
+                      {msg.linkedChatId && (
+                        <Badge variant="secondary" className="text-[8px] h-3 px-1 gap-0.5">
+                          <Link2 className="h-2 w-2" /> Shared chat context
+                        </Badge>
+                      )}
+                      {msg.shareFullChat && (
+                        <Badge className="text-[8px] h-3 px-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                          Full context
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{msg.message}</p>
                     <span className="text-[8px] text-muted-foreground mt-0.5 block">
                       {formatRelativeTime(msg.createdAt)}
                     </span>
                   </div>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500"
+                          onClick={() => handleDelete(msg.id)}
+                          disabled={deletingId === msg.id}
+                        >
+                          {deletingId === msg.id ? (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-2.5 w-2.5" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete message</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </Card>
             );
@@ -2347,31 +2654,72 @@ function NewTaskDialog({
   open,
   onOpenChange,
   onSubmit,
+  allAgents,
+  currentAgentId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { title: string; description: string; dueDate: string; priority: string }) => void;
+  onSubmit: (data: { title: string; description: string; dueDate: string; priority: string; attachments?: any[]; crossAgentAccess?: string[] }) => void;
+  allAgents?: AgentData[];
+  currentAgentId?: string;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
+  const [crossAgentAccess, setCrossAgentAccess] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const otherAgents = (allAgents || []).filter((a) => a.id !== currentAgentId);
 
   const handleSubmit = () => {
     if (!title.trim() || !dueDate) {
       toast.error("Title and due date are required");
       return;
     }
-    onSubmit({ title: title.trim(), description: description.trim(), dueDate, priority });
+    onSubmit({
+      title: title.trim(),
+      description: description.trim(),
+      dueDate,
+      priority,
+      attachments: attachments.length > 0 ? attachments : undefined,
+      crossAgentAccess: crossAgentAccess.length > 0 ? crossAgentAccess : undefined,
+    });
     setTitle("");
     setDescription("");
     setDueDate("");
     setPriority("MEDIUM");
+    setAttachments([]);
+    setCrossAgentAccess([]);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const newAttachments = Array.from(files).map((f) => ({
+      name: f.name,
+      size: f.size,
+      type: f.type,
+    }));
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleAgentAccess = (agentId: string) => {
+    setCrossAgentAccess((prev) =>
+      prev.includes(agentId) ? prev.filter((id) => id !== agentId) : [...prev, agentId]
+    );
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Scheduled Task</DialogTitle>
         </DialogHeader>
@@ -2407,6 +2755,78 @@ function NewTaskDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {/* File Attachments */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Paperclip className="h-3.5 w-3.5" /> File Attachments
+            </Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="h-3.5 w-3.5 mr-1.5" /> Attach Files
+            </Button>
+            {attachments.length > 0 && (
+              <div className="space-y-1">
+                {attachments.map((att, i) => (
+                  <div key={i} className="flex items-center gap-2 p-1.5 rounded-md bg-muted text-xs">
+                    <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate flex-1 min-w-0">{att.name}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {att.size < 1024 ? `${att.size} B` : att.size < 1048576 ? `${(att.size / 1024).toFixed(1)} KB` : `${(att.size / 1048576).toFixed(1)} MB`}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-4 w-4 shrink-0"
+                      onClick={() => removeAttachment(i)}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Cross-Agent Access */}
+          {otherAgents.length > 0 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Cross-Agent Access
+              </Label>
+              <p className="text-[10px] text-muted-foreground">Select agents that can view/execute this task.</p>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {otherAgents.map((a) => (
+                  <label
+                    key={a.id}
+                    className="flex items-center gap-2 p-1.5 rounded-md hover:bg-muted cursor-pointer text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={crossAgentAccess.includes(a.id)}
+                      onChange={() => toggleAgentAccess(a.id)}
+                      className="rounded border-gray-300"
+                    />
+                    <span>{a.name}</span>
+                    <Badge variant="outline" className="text-[8px] h-3 px-1 ml-auto">
+                      {a.type}
+                    </Badge>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -2432,27 +2852,67 @@ function CrossAgentDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agents: AgentData[];
-  onSend: (toAgentId: string, message: string, type: string) => void;
+  onSend: (toAgentId: string, message: string, type: string, linkedChatId?: string, shareFullChat?: boolean) => void;
   fromAgentName: string;
 }) {
   const [toAgentId, setToAgentId] = useState("");
   const [message, setMessage] = useState("");
   const [type, setType] = useState("INFO");
+  const [linkedChatId, setLinkedChatId] = useState("");
+  const [shareFullChat, setShareFullChat] = useState(false);
+  const [targetChats, setTargetChats] = useState<Chat[]>([]);
+  const [targetChatsLoading, setTargetChatsLoading] = useState(false);
+
+  // Fetch target agent's chats when selected
+  const handleAgentChange = async (agentId: string) => {
+    setToAgentId(agentId);
+    setLinkedChatId("");
+    setTargetChats([]);
+    if (!agentId) return;
+    setTargetChatsLoading(true);
+    try {
+      const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setTargetChats(data as Chat[]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch target agent chats:", err);
+    } finally {
+      setTargetChatsLoading(false);
+    }
+  };
 
   const handleSend = () => {
     if (!toAgentId || !message.trim()) {
       toast.error("Select an agent and type a message");
       return;
     }
-    onSend(toAgentId, message.trim(), type);
+    onSend(toAgentId, message.trim(), type, linkedChatId || undefined, linkedChatId ? shareFullChat : undefined);
     setToAgentId("");
     setMessage("");
     setType("INFO");
+    setLinkedChatId("");
+    setShareFullChat(false);
+    setTargetChats([]);
+  };
+
+  // Reset state when dialog closes
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setToAgentId("");
+      setMessage("");
+      setType("INFO");
+      setLinkedChatId("");
+      setShareFullChat(false);
+      setTargetChats([]);
+    }
+    onOpenChange(nextOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Send to Another Agent</DialogTitle>
         </DialogHeader>
@@ -2463,7 +2923,7 @@ function CrossAgentDialog({
           </div>
           <div className="space-y-2">
             <Label>To Agent *</Label>
-            <Select value={toAgentId} onValueChange={setToAgentId}>
+            <Select value={toAgentId} onValueChange={handleAgentChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Select agent..." />
               </SelectTrigger>
@@ -2499,9 +2959,45 @@ function CrossAgentDialog({
               rows={3}
             />
           </div>
+
+          {/* Linked Chat from Target Agent */}
+          {toAgentId && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <Link2 className="h-3.5 w-3.5" /> Link Chat (Optional)
+              </Label>
+              <p className="text-[10px] text-muted-foreground">Connect a specific chat from the target agent.</p>
+              <Select value={linkedChatId} onValueChange={setLinkedChatId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={targetChatsLoading ? "Loading chats..." : "Select a chat..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {targetChats.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.title} ({c._count?.messages || 0} messages)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Share Full Chat Context Toggle */}
+          {linkedChatId && linkedChatId !== "none" && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/50">
+              <div className="space-y-0.5">
+                <Label className="text-xs">Share full chat context</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  The receiving agent will get all messages from the linked chat.
+                </p>
+              </div>
+              <Switch checked={shareFullChat} onCheckedChange={setShareFullChat} />
+            </div>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleSend}>

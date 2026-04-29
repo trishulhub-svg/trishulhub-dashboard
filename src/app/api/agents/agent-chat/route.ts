@@ -1,6 +1,7 @@
 // Agentic Chat API - Multi-agent autonomous execution endpoint
 // Supports ALL agent types with role-specific tools, thinking mode, and autonomous loop
 // Each agent type gets its own system prompt and tool set
+// Supports SSE streaming for real-time step updates
 
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
-    const { agentId, message, chatId } = await req.json()
+    const { agentId, message, chatId, stream } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
     }
@@ -110,11 +111,191 @@ export async function POST(req: NextRequest) {
     // Get agent-specific tools
     const tools = getToolsForAgentType(agent.type)
 
-    // Collect steps for streaming
-    const allSteps: AgentStep[] = []
+    // ── STREAMING MODE ──
+    if (stream) {
+      const encoder = new TextEncoder()
+      const stream = new ReadableStream({
+        async start(controller) {
+          let lastError: Error | null = null
+          let success = false
 
-    // Try each key
+          for (const key of eligibleKeys) {
+            try {
+              const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
+                maxSteps: 15,
+                maxTokens: 8192,
+                agentType: agent.type,
+                systemPrompt,
+                tools,
+                onStep: (step: AgentStep) => {
+                  // Send each step as SSE event
+                  try {
+                    const stepData = {
+                      type: "step",
+                      step: {
+                        type: step.type,
+                        content: step.type === "thinking"
+                          ? step.content.substring(0, 300)
+                          : step.type === "tool_result"
+                            ? (step.toolResult || step.content).substring(0, 500)
+                            : step.type === "tool_call"
+                              ? `${step.toolName}(${Object.entries(step.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 50)}`).join(", ")})`
+                              : step.content.substring(0, 500),
+                        toolName: step.toolName,
+                        stepNumber: step.stepNumber,
+                      }
+                    }
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(stepData)}\n\n`))
+                  } catch {
+                    // Stream may have closed
+                  }
+                },
+              })
+
+              // Success! 
+              success = true
+
+              // If the used key was previously ERROR, mark it as ACTIVE
+              if (key.status === "ERROR") {
+                await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
+              }
+
+              // Update agent's preferred key
+              if (agent.apiKeyId !== key.id) {
+                await db.agent.update({ where: { id: agentId }, data: { apiKeyId: key.id } })
+              }
+
+              // Build rich metadata with agent steps
+              const metadata: any = {
+                tokens: { input: result.totalInputTokens, output: result.totalOutputTokens },
+                cost: result.cost,
+                model: result.model,
+                provider: result.provider,
+                apiKeyId: key.id,
+                agentic: true,
+                agentType: agent.type,
+                totalSteps: result.totalSteps,
+                usedTools: result.usedTools,
+                steps: result.steps.map(s => ({
+                  type: s.type,
+                  toolName: s.toolName,
+                  content: s.type === "thinking"
+                    ? s.content.substring(0, 200)
+                    : s.type === "tool_result"
+                      ? s.content.substring(0, 500)
+                      : s.content.substring(0, 500),
+                })),
+              }
+
+              if (result.thinkingContent) {
+                metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
+              }
+
+              // Save assistant message
+              const assistantMsg = await db.chatMessage.create({
+                data: {
+                  chatId: chat.id,
+                  role: "assistant",
+                  content: result.finalResponse,
+                  metadata: JSON.stringify(metadata),
+                },
+              })
+
+              // Log usage
+              await db.apiUsageLog.create({
+                data: {
+                  apiKeyId: key.id,
+                  agentId: agent.id,
+                  model: result.model,
+                  inputTokens: result.totalInputTokens,
+                  outputTokens: result.totalOutputTokens,
+                  cost: result.cost,
+                },
+              })
+
+              // Update key spend
+              await db.apiKey.update({
+                where: { id: key.id },
+                data: { currentSpend: { increment: result.cost } },
+              })
+
+              // Update agent status
+              await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
+
+              // Send complete event
+              const completeData = {
+                type: "complete",
+                content: result.finalResponse,
+                inputTokens: result.totalInputTokens,
+                outputTokens: result.totalOutputTokens,
+                cost: result.cost,
+                model: result.model,
+                provider: result.provider,
+                chatId: chat.id,
+                messageId: assistantMsg.id,
+                agentic: true,
+                agentType: agent.type,
+                totalSteps: result.totalSteps,
+                usedTools: result.usedTools,
+                steps: result.steps.map(s => ({
+                  type: s.type,
+                  content: s.type === "thinking"
+                    ? s.content.substring(0, 300)
+                    : s.type === "tool_result"
+                      ? (s.toolResult || s.content).substring(0, 500)
+                      : s.type === "tool_call"
+                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 50)}`).join(", ")})`
+                        : s.content.substring(0, 500),
+                  toolName: s.toolName,
+                  stepNumber: s.stepNumber,
+                })),
+                thinkingPreview: result.thinkingContent?.substring(0, 300),
+              }
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
+              controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+              controller.close()
+              return
+            } catch (err: any) {
+              lastError = err
+              console.error(`[agent-chat] Key "${key.keyName}" failed:`, err.message)
+
+              if (err.message.includes("Insufficient balance")) {
+                await db.apiKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } })
+              }
+              continue // Try next key
+            }
+          }
+
+          // All keys failed
+          await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+
+          const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
+          const errorData = {
+            type: "error",
+            message: isRateLimit
+              ? "AI model is currently busy. Please try again in a moment."
+              : `Agentic execution failed: ${lastError?.message || "All API keys failed"}. Please check your Z.ai API key.`,
+            chatId: chat.id,
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorData)}\n\n`))
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+          controller.close()
+        },
+      })
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      })
+    }
+
+    // ── NON-STREAMING MODE (original behavior) ──
+    const allSteps: AgentStep[] = []
     let lastError: Error | null = null
+
     for (const key of eligibleKeys) {
       try {
         const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
@@ -128,19 +309,15 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // Success! Save the results
-
-        // If the used key was previously ERROR, mark it as ACTIVE
+        // Success!
         if (key.status === "ERROR") {
           await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
         }
 
-        // Update agent's preferred key
         if (agent.apiKeyId !== key.id) {
           await db.agent.update({ where: { id: agentId }, data: { apiKeyId: key.id } })
         }
 
-        // Build rich metadata with agent steps
         const metadata: any = {
           tokens: { input: result.totalInputTokens, output: result.totalOutputTokens },
           cost: result.cost,
@@ -155,7 +332,7 @@ export async function POST(req: NextRequest) {
             type: s.type,
             toolName: s.toolName,
             content: s.type === "thinking"
-              ? s.content.substring(0, 200) // Truncate thinking for storage
+              ? s.content.substring(0, 200)
               : s.type === "tool_result"
                 ? s.content.substring(0, 500)
                 : s.content.substring(0, 500),
@@ -166,7 +343,6 @@ export async function POST(req: NextRequest) {
           metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
         }
 
-        // Save assistant message
         const assistantMsg = await db.chatMessage.create({
           data: {
             chatId: chat.id,
@@ -176,7 +352,6 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // Log usage
         await db.apiUsageLog.create({
           data: {
             apiKeyId: key.id,
@@ -188,16 +363,13 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // Update key spend
         await db.apiKey.update({
           where: { id: key.id },
           data: { currentSpend: { increment: result.cost } },
         })
 
-        // Update agent status
         await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
 
-        // Return the result with all steps
         return NextResponse.json({
           content: result.finalResponse,
           inputTokens: result.totalInputTokens,
@@ -232,7 +404,7 @@ export async function POST(req: NextRequest) {
         if (err.message.includes("Insufficient balance")) {
           await db.apiKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } })
         }
-        continue // Try next key
+        continue
       }
     }
 

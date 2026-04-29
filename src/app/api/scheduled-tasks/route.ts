@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
-    const { agentId, title, description, dueDate, priority, notifyAt } = await req.json()
+    const { agentId, title, description, dueDate, priority, notifyAt, attachments, crossAgentAccess } = await req.json()
 
     if (!agentId || !title || !dueDate) {
       return NextResponse.json({ error: "Agent ID, title, and due date are required" }, { status: 400 })
@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
         dueDate: new Date(dueDate),
         priority: priority || "MEDIUM",
         notifyAt: notifyAt ? new Date(notifyAt) : null,
+        attachments: JSON.stringify(attachments || []),
+        crossAgentAccess: JSON.stringify(crossAgentAccess || []),
         status: "PENDING",
       },
       include: {
