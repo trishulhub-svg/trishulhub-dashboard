@@ -56,7 +56,7 @@ model Agent {
   name         String
   type         String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
   description  String
-  model        String   @default("openai/gpt-4o-mini")
+  model        String   @default("glm-4.5-flash")
   systemPrompt String
   status       String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
   apiKeyId     String?

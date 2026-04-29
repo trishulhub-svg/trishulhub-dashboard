@@ -58,7 +58,8 @@ interface KeyInfo {
 // ━━ Valid Model Sets ━━
 // Updated 2025-04: Only models that actually exist on Z.ai API
 const VALID_ZAI_MODELS = new Set([
-  "glm-4.7-flash", "glm-4-plus", "glm-4.5-air", "glm-5.1",
+  // Coder plan models (tested and confirmed working)
+  "glm-4.7-flash", "glm-4.5-flash", "glm-4-plus", "glm-4.5-air", "glm-5.1",
   // Legacy names (redirected by getModelForProvider to actual model names)
   "glm-4-flash", "glm-4-air", "glm-4-long",
   "glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414",
@@ -85,6 +86,8 @@ const CROSS_PROVIDER_MAP: Record<string, Record<string, string>> = {
   "glm-4.5-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air" },
   "glm-4.7-flash": { openrouter: "meta-llama/llama-3.3-70b-instruct:free", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
   "glm-5.1": { openrouter: "anthropic/claude-sonnet-4", google_ai: "gemini-2.5-pro", zai: "glm-5.1" },
+  // glm-4.5-flash: Reasoning model included in Coder plan (BEST for agent tasks)
+  "glm-4.5-flash": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-flash" },
   // glm-z1-flash removed: model does not exist on Z.ai API
   // Legacy short names → redirect to working models
   "glm-4-flash": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
@@ -138,8 +141,7 @@ export function getModelForProvider(model: string, provider: string): string {
   // Fallback to provider defaults (updated 2025-04: glm-4-flash is deprecated, use glm-4.7-flash)
   console.warn(`[model-mapping] Model "${model}" not valid for provider "${provider}". Using default.`)
   const defaults: Record<string, string> = {
-    zai: "glm-4.7-flash",
-    google_ai: "gemini-2.0-flash",
+    zai: "glm-4.5-flash",    google_ai: "gemini-2.0-flash",
     openrouter: "openai/gpt-4o-mini",
   }
   return defaults[providerKey] || model
@@ -597,6 +599,7 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
     "glm-4-air-250414": { input: 0.1, output: 0.5 },
     "glm-4-flash-250414": { input: 0.1, output: 0.5 },
     "glm-4.7-flash": { input: 0, output: 0 },
+    "glm-4.5-flash": { input: 0, output: 0 },
     "glm-4-long-250414": { input: 0.5, output: 2.0 },
     "gemini-2.0-flash": { input: 0, output: 0 },
     "gemini-2.5-pro": { input: 1.25, output: 10.0 },
@@ -620,6 +623,7 @@ export const FREE_MODELS = [
   "deepseek/deepseek-r1:free",
   "google/gemini-2.0-flash-exp:free",
   "glm-4.7-flash",
+  "glm-4.5-flash",
 ]
 
 // ━━ Get provider-specific model list ━━
@@ -627,6 +631,7 @@ export function getModelsForProvider(provider: string): { id: string; name: stri
   switch (provider.toUpperCase()) {
     case "ZAI":
       return [
+        { id: "glm-4.5-flash", name: "GLM-4.5 Flash (Coder Plan - Recommended)", free: true },
         { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free)", free: true },
         { id: "glm-4.5-air", name: "GLM-4.5 Air", free: false },
         { id: "glm-4-plus", name: "GLM-4 Plus", free: false },

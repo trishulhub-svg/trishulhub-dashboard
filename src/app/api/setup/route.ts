@@ -12,16 +12,16 @@ export async function GET() {
 export async function PATCH() {
   const logs: string[] = []
   try {
-    // Update all agents using deprecated model names to glm-4.7-flash
-    const deprecatedModels = ["glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414", "glm-4-flash", "glm-4-air", "glm-4-long"]
+    // Update all agents using deprecated model names to glm-4.5-flash
+    const deprecatedModels = ["glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414", "glm-4-flash", "glm-4-air", "glm-4-long", "glm-4.7-flash"]
     let updated = 0
     for (const oldModel of deprecatedModels) {
       const result = await db.agent.updateMany({
         where: { model: oldModel },
-        data: { model: "glm-4.7-flash" },
+        data: { model: "glm-4.5-flash" },
       })
       updated += result.count
-      if (result.count > 0) logs.push(`Updated ${result.count} agents from ${oldModel} → glm-4.7-flash`)
+      if (result.count > 0) logs.push(`Updated ${result.count} agents from ${oldModel} → glm-4.5-flash`)
     }
 
     // Also reset EXHAUSTED API keys to ACTIVE (Z.ai model errors were marking keys as exhausted)
@@ -101,13 +101,13 @@ export async function POST() {
     // Create AI agents
     const createdAgents: any[] = []
     const agentDefs = [
-      { name: "Dev Agent", type: "DEV", description: "Writes code, builds features, fixes bugs, reviews code, deploys projects in phases", model: "glm-4.7-flash", systemPrompt: "You are Dev Agent for TrishulHub.", status: "IDLE" },
-      { name: "Client Hunter Agent", type: "CLIENT_HUNTER", description: "Finds clients via web search, generates leads, drafts outreach emails, scores prospects", model: "glm-4.7-flash", systemPrompt: "You are Client Hunter Agent for TrishulHub.", status: "IDLE" },
-      { name: "Finance Agent", type: "FINANCE", description: "Estimates project costs, generates invoices & quotations, tracks payments, financial reports", model: "glm-4.7-flash", systemPrompt: "You are Finance Agent for TrishulHub.", status: "IDLE" },
-      { name: "Project Manager Agent", type: "PROJECT_MANAGER", description: "Breaks down projects into phases & tasks, assigns work, tracks deadlines, manages approvals", model: "glm-4.7-flash", systemPrompt: "You are Project Manager Agent for TrishulHub.", status: "IDLE" },
-      { name: "HR Agent", type: "HR", description: "Manages leave, tracks attendance, monitors workload, suggests best-fit employees for tasks", model: "glm-4.7-flash", systemPrompt: "You are HR Agent for TrishulHub.", status: "IDLE" },
-      { name: "Content Agent", type: "CONTENT", description: "Writes website copy, social media posts, blog articles, SEO-optimized content", model: "glm-4.7-flash", systemPrompt: "You are Content Agent for TrishulHub.", status: "IDLE" },
-      { name: "Support Agent", type: "SUPPORT", description: "Handles client tickets, answers FAQs, provides technical support, escalates issues", model: "glm-4.7-flash", systemPrompt: "You are Support Agent for TrishulHub.", status: "IDLE" },
+      { name: "Dev Agent", type: "DEV", description: "Writes code, builds features, fixes bugs, reviews code, deploys projects in phases", model: "glm-4.5-flash", systemPrompt: "You are Dev Agent for TrishulHub.", status: "IDLE" },
+      { name: "Client Hunter Agent", type: "CLIENT_HUNTER", description: "Finds clients via web search, generates leads, drafts outreach emails, scores prospects", model: "glm-4.5-flash", systemPrompt: "You are Client Hunter Agent for TrishulHub.", status: "IDLE" },
+      { name: "Finance Agent", type: "FINANCE", description: "Estimates project costs, generates invoices & quotations, tracks payments, financial reports", model: "glm-4.5-flash", systemPrompt: "You are Finance Agent for TrishulHub.", status: "IDLE" },
+      { name: "Project Manager Agent", type: "PROJECT_MANAGER", description: "Breaks down projects into phases & tasks, assigns work, tracks deadlines, manages approvals", model: "glm-4.5-flash", systemPrompt: "You are Project Manager Agent for TrishulHub.", status: "IDLE" },
+      { name: "HR Agent", type: "HR", description: "Manages leave, tracks attendance, monitors workload, suggests best-fit employees for tasks", model: "glm-4.5-flash", systemPrompt: "You are HR Agent for TrishulHub.", status: "IDLE" },
+      { name: "Content Agent", type: "CONTENT", description: "Writes website copy, social media posts, blog articles, SEO-optimized content", model: "glm-4.5-flash", systemPrompt: "You are Content Agent for TrishulHub.", status: "IDLE" },
+      { name: "Support Agent", type: "SUPPORT", description: "Handles client tickets, answers FAQs, provides technical support, escalates issues", model: "glm-4.5-flash", systemPrompt: "You are Support Agent for TrishulHub.", status: "IDLE" },
     ]
     for (const a of agentDefs) {
       const agent = await db.agent.create({ data: a })
