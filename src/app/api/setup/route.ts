@@ -8,7 +8,7 @@ export async function GET() {
   return POST()
 }
 
-// PATCH /api/setup - Migrate existing agents to use correct model names
+// PATCH /api/setup - Migrate existing agents to use correct model names and update features
 export async function PATCH() {
   const logs: string[] = []
   try {
@@ -38,11 +38,36 @@ export async function PATCH() {
     })
     if (resetErrorKeys.count > 0) logs.push(`Reset ${resetErrorKeys.count} error API keys to ACTIVE`)
 
-    if (updated === 0 && resetKeys.count === 0 && resetErrorKeys.count === 0) {
-      logs.push("No migration needed - all agents already use correct models")
+    // Update all agent role configs to include agentic: true feature flag
+    const agentFeatureUpdates: Record<string, Record<string, boolean>> = {
+      DEV: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, codeReview: true, phasedDevelopment: true },
+      CLIENT_HUNTER: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, leadScoring: true, emailDrafting: true },
+      FINANCE: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, autoInvoice: false, autoQuotation: false },
+      PROJECT_MANAGER: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, autoAssign: false, riskAlerts: true },
+      HR: { agentic: true, webSearch: false, autoTask: false, crossAgent: true, approvalRequired: false, workloadTracking: true, leaveManagement: true },
+      CONTENT: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, seoOptimization: true, multiPlatform: true },
+      SUPPORT: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: false, autoEscalation: true, knowledgeBase: true },
     }
 
-    return NextResponse.json({ status: "success", migrated: updated, logs })
+    let featuresUpdated = 0
+    const allAgents = await db.agent.findMany({ include: { roleConfig: true } })
+    for (const agent of allAgents) {
+      const newFeatures = agentFeatureUpdates[agent.type]
+      if (newFeatures && agent.roleConfig) {
+        await db.agentRoleConfig.update({
+          where: { id: agent.roleConfig.id },
+          data: { features: JSON.stringify(newFeatures) },
+        })
+        featuresUpdated++
+      }
+    }
+    if (featuresUpdated > 0) logs.push(`Updated ${featuresUpdated} agent role configs with agentic: true feature flag`)
+
+    if (updated === 0 && resetKeys.count === 0 && resetErrorKeys.count === 0 && featuresUpdated === 0) {
+      logs.push("No migration needed - everything is up to date")
+    }
+
+    return NextResponse.json({ status: "success", migrated: updated, featuresUpdated, logs })
   } catch (error: any) {
     return NextResponse.json({ status: "error", error: error.message, logs }, { status: 500 })
   }
