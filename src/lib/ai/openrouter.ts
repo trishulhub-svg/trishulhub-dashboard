@@ -141,34 +141,170 @@ export function normalizeModelForProvider(model: string, provider: string): stri
   return normalized;
 }
 
+// ━━ Valid models per provider (for validation after mapping) ━━
+const VALID_ZAI_MODELS = new Set([
+  "glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414",
+  "glm-4-plus-0111", "glm-4.5-air-250414", "glm-4.7-flash", "glm-5.1",
+  "glm-4-flash", "glm-4-air", "glm-4-long", "glm-4-plus", "glm-4.5-air",
+])
+
+const VALID_GOOGLE_AI_MODELS = new Set([
+  "gemini-2.0-flash", "gemini-2.5-pro", "gemini-1.5-pro", "gemini-1.5-flash",
+  "gemini-pro", "gemini-2.0-flash-lite",
+])
+
+const VALID_OPENROUTER_PREFIXES = ["/", "gpt-", "claude-", "llama", "deepseek", "mistral", "qwen"]
+
 // ━━ Get appropriate model for provider ━━
 export function getModelForProvider(model: string, provider: string): string {
   const normalized = normalizeModelForProvider(model, provider)
 
-  // For ZAI provider, use Z.ai compatible models
-  if (provider === "ZAI" || provider === "zai") {
-    // Map OpenRouter model names to Z.ai equivalents
-    const zaiModelMap: Record<string, string> = {
-      "openai/gpt-4o": "glm-4-plus-0111",
-      "openai/gpt-4o-mini": "glm-4-flash-250414",
-      "anthropic/claude-sonnet-4": "glm-4-plus-0111",
-      "meta-llama/llama-3.3-70b-instruct:free": "glm-4-flash-250414",
-      "deepseek/deepseek-r1:free": "glm-4-air-250414",
-      "google/gemini-2.0-flash-exp:free": "glm-4.5-air-250414",
-    }
-    return zaiModelMap[model] || normalized || "glm-4-flash-250414"
+  // ━━ Comprehensive cross-provider model map ━━
+  // Maps model names from ANY provider to the equivalent in the TARGET provider.
+  // This ensures failover always sends a valid model name to each provider.
+  const crossProviderMap: Record<string, Record<string, string>> = {
+    // ── Z.ai models → other providers ──
+    "glm-4-flash-250414": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-flash-250414",
+    },
+    "glm-4-air-250414": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-air-250414",
+    },
+    "glm-4-long-250414": {
+      openrouter: "openai/gpt-4o",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-long-250414",
+    },
+    "glm-4-plus-0111": {
+      openrouter: "openai/gpt-4o",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+    "glm-4.5-air-250414": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4.5-air-250414",
+    },
+    "glm-4.7-flash": {
+      openrouter: "meta-llama/llama-3.3-70b-instruct:free",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4.7-flash",
+    },
+    "glm-5.1": {
+      openrouter: "anthropic/claude-sonnet-4",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-5.1",
+    },
+    // Short aliases (without date suffix)
+    "glm-4-flash": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-flash-250414",
+    },
+    "glm-4-air": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-air-250414",
+    },
+    "glm-4-plus": {
+      openrouter: "openai/gpt-4o",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+
+    // ── Google AI models → other providers ──
+    "gemini-2.0-flash": {
+      openrouter: "google/gemini-2.0-flash-exp:free",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4.5-air-250414",
+    },
+    "gemini-2.5-pro": {
+      openrouter: "google/gemini-2.5-pro-preview-05-06",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+    "gemini-1.5-pro": {
+      openrouter: "google/gemini-pro-1.5",
+      google_ai: "gemini-1.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+
+    // ── OpenRouter models → other providers ──
+    "openai/gpt-4o": {
+      openrouter: "openai/gpt-4o",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+    "openai/gpt-4o-mini": {
+      openrouter: "openai/gpt-4o-mini",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-flash-250414",
+    },
+    "anthropic/claude-sonnet-4": {
+      openrouter: "anthropic/claude-sonnet-4",
+      google_ai: "gemini-2.5-pro",
+      zai: "glm-4-plus-0111",
+    },
+    "meta-llama/llama-3.3-70b-instruct:free": {
+      openrouter: "meta-llama/llama-3.3-70b-instruct:free",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-flash-250414",
+    },
+    "deepseek/deepseek-r1:free": {
+      openrouter: "deepseek/deepseek-r1:free",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4-air-250414",
+    },
+    "google/gemini-2.0-flash-exp:free": {
+      openrouter: "google/gemini-2.0-flash-exp:free",
+      google_ai: "gemini-2.0-flash",
+      zai: "glm-4.5-air-250414",
+    },
   }
 
-  // For GOOGLE_AI provider
-  if (provider === "GOOGLE_AI" || provider === "google_ai") {
-    const googleModelMap: Record<string, string> = {
-      "openai/gpt-4o": "gemini-2.0-flash",
-      "openai/gpt-4o-mini": "gemini-2.0-flash",
-    }
-    return googleModelMap[model] || normalized || "gemini-2.0-flash"
+  const providerKey = provider.toLowerCase().replace("google_ai", "google_ai")
+
+  // Step 1: Check if the ORIGINAL model has a cross-provider mapping
+  if (crossProviderMap[model]?.[providerKey]) {
+    return crossProviderMap[model][providerKey]
   }
 
-  return normalized || model
+  // Step 2: Check if the NORMALIZED model has a cross-provider mapping
+  if (crossProviderMap[normalized]?.[providerKey]) {
+    return crossProviderMap[normalized][providerKey]
+  }
+
+  // Step 3: Validate that the normalized model is actually valid for this provider
+  const providerUpper = provider.toUpperCase()
+  let isValidModel = false
+
+  if (providerUpper === "ZAI") {
+    isValidModel = VALID_ZAI_MODELS.has(normalized)
+  } else if (providerUpper === "GOOGLE_AI") {
+    isValidModel = VALID_GOOGLE_AI_MODELS.has(normalized)
+  } else if (providerUpper === "OPENROUTER") {
+    // OpenRouter accepts many models — just check it has a provider prefix or looks valid
+    isValidModel = VALID_OPENROUTER_PREFIXES.some(p => normalized.includes(p))
+  }
+
+  if (isValidModel) {
+    return normalized
+  }
+
+  // Step 4: Fallback to provider defaults if model is not valid
+  console.warn(`[model-mapping] Model "${model}" (normalized: "${normalized}") is not valid for provider "${provider}". Using default.`)
+
+  const defaults: Record<string, string> = {
+    zai: "glm-4-flash-250414",
+    google_ai: "gemini-2.0-flash",
+    openrouter: "openai/gpt-4o-mini",
+  }
+
+  return defaults[providerKey] || normalized || model
 }
 
 // ━━ OpenRouter API ━━
@@ -178,7 +314,9 @@ async function callOpenRouterAPI(
   apiKey: string,
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
-  const normalizedModel = normalizeModelForProvider(model, "openrouter")
+  const normalizedModel = getModelForProvider(model, "OPENROUTER")
+
+  console.log(`[openrouter] Calling OpenRouter API with model: ${normalizedModel} (original: ${model})`)
 
   const response = await fetch(OPENROUTER_API_URL, {
     method: "POST",
@@ -232,7 +370,7 @@ async function callZaiAPI(
 ): Promise<AIResponse> {
   const normalizedModel = getModelForProvider(model, "ZAI")
 
-  console.log(`[zai] Calling Z.ai API with model: ${normalizedModel}`)
+  console.log(`[zai] Calling Z.ai API with model: ${normalizedModel} (original: ${model})`)
 
   const response = await fetch(ZAI_API_URL, {
     method: "POST",
@@ -286,6 +424,8 @@ async function callGoogleAIAPI(
   const normalizedModel = getModelForProvider(model, "GOOGLE_AI")
   const url = `${GOOGLE_AI_API_URL}/${normalizedModel}:generateContent?key=${apiKey}`
 
+  console.log(`[google-ai] Calling Google AI API with model: ${normalizedModel} (original: ${model})`)
+
   // Convert messages to Google AI format
   const contents: any[] = []
   let systemInstruction = ""
@@ -326,6 +466,8 @@ async function callGoogleAIAPI(
   if (!response.ok) {
     const errorText = await response.text()
     const statusCode = response.status
+
+    console.error(`[google-ai] API error: ${statusCode} - ${errorText.substring(0, 500)}`)
 
     if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
       throw new APIKeyInvalidError("google_ai", statusCode, errorText)
@@ -407,9 +549,9 @@ export async function callAIWithFailover(
     }
 
     try {
-      console.log(`[ai-failover] Trying key: "${key.keyName}" (${key.provider}), priority: ${key.priority}`)
+      console.log(`[ai-failover] Trying key: "${key.keyName}" (${key.provider}), priority: ${key.priority}, agent model: ${model}`)
       const result = await callAI(messages, model, key.keyValue, key.provider, options)
-      console.log(`[ai-failover] Success with key: "${key.keyName}" (${key.provider})`)
+      console.log(`[ai-failover] Success with key: "${key.keyName}" (${key.provider}), used model: ${result.model}`)
       return {
         ...result,
         apiKeyId: key.id,
