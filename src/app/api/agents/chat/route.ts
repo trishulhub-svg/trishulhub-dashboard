@@ -282,7 +282,7 @@ export async function POST(req: NextRequest) {
           // Check if this key was mentioned in the error messages
           const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
           if (keyErrors.length > 0) {
-            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("余额不足"))
+            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("余额不足"))
             const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized"))
 
             if (isExhausted) {
@@ -328,7 +328,7 @@ export async function POST(req: NextRequest) {
           error: `All API keys exhausted or failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to your existing key at Dashboard > API Keys.`,
           chatId: chat.id,
           details: apiError.errors,
-          hint: "If your Z.ai key shows '余额不足' (insufficient balance), recharge at open.bigmodel.cn or add an OpenRouter/Google AI key as backup.",
+          hint: "If your Z.ai key shows 'insufficient balance', recharge at open.bigmodel.cn or add an OpenRouter/Google AI key as backup.",
         }, { status: 500 })
       }
 

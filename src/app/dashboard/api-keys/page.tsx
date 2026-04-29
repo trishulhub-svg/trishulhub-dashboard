@@ -37,7 +37,7 @@ const statusIcons: Record<string, string> = {
 };
 
 const providerInfo: Record<string, { name: string; color: string; url: string; icon: string }> = {
-  ZAI: { name: "Z.ai (智谱)", color: "bg-blue-500", url: "https://open.bigmodel.cn", icon: "🤖" },
+  ZAI: { name: "Z.ai", color: "bg-blue-500", url: "https://open.bigmodel.cn", icon: "🤖" },
   OPENROUTER: { name: "OpenRouter", color: "bg-purple-500", url: "https://openrouter.ai/keys", icon: "🔀" },
   GOOGLE_AI: { name: "Google AI", color: "bg-green-500", url: "https://aistudio.google.com/apikey", icon: "🧠" },
   OTHER: { name: "Other", color: "bg-gray-500", url: "#", icon: "🔑" },
@@ -707,7 +707,7 @@ function KeyForm({
         <Select value={formProvider} onValueChange={setFormProvider}>
           <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="ZAI">🤖 Z.ai (智谱) — GLM models</SelectItem>
+            <SelectItem value="ZAI">🤖 Z.ai — GLM models</SelectItem>
             <SelectItem value="OPENROUTER">🔀 OpenRouter — Multi-model access</SelectItem>
             <SelectItem value="GOOGLE_AI">🧠 Google AI — Gemini models</SelectItem>
             <SelectItem value="OTHER">🔑 Other — Custom API</SelectItem>
