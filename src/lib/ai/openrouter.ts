@@ -3,6 +3,8 @@
 // Cross-Provider Model Map - Ensures correct model names for each AI provider
 // This fixes the bug where Z.ai models were sent to Google AI API (which doesn't recognize them)
 
+import { SignJWT } from "jose"
+
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 const GOOGLE_AI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -244,6 +246,42 @@ async function callOpenRouterAPI(
   }
 }
 
+// ━━ Z.ai JWT Token Generation ━━
+// Z.ai API keys come in format: {id}.{secret}
+// The API requires a JWT token signed with the secret, not the raw key
+async function generateZaiToken(apiKey: string): Promise<string> {
+  // If the key already looks like a JWT (starts with eyJ), use it directly
+  if (apiKey.startsWith("eyJ")) {
+    return apiKey
+  }
+
+  // If the key contains a dot, it's in id.secret format — generate JWT
+  const parts = apiKey.split(".")
+  if (parts.length === 2) {
+    const [id, secret] = parts
+    try {
+      const secretBytes = new TextEncoder().encode(secret)
+      const now = Date.now()
+      const token = await new SignJWT({
+        api_key: id,
+        timestamp: now,
+      })
+        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
+        .setIssuedAt()
+        .setExpirationTime(now + 3600 * 1000) // 1 hour
+        .sign(secretBytes)
+      return token
+    } catch (err) {
+      console.error("[zai] JWT generation failed, using raw key:", err)
+      // Fall back to using the raw key
+      return apiKey
+    }
+  }
+
+  // If no dot and not a JWT, use as-is (might be a newer format)
+  return apiKey
+}
+
 // ━━ Z.ai Direct API ━━
 async function callZaiAPI(
   messages: ChatMessage[],
@@ -252,13 +290,14 @@ async function callZaiAPI(
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
   const mappedModel = getModelForProvider(model, "ZAI")
+  const token = await generateZaiToken(apiKey)
 
   console.log(`[zai] Calling with model: ${mappedModel} (original: ${model})`)
 
   const response = await fetch(ZAI_API_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

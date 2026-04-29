@@ -282,8 +282,8 @@ export async function POST(req: NextRequest) {
           // Check if this key was mentioned in the error messages
           const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
           if (keyErrors.length > 0) {
-            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("余额不足"))
-            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized"))
+            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("余额不足") || e.includes("令牌已过期"))
+            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized") || e.includes("验证不正确"))
 
             if (isExhausted) {
               await db.apiKey.update({
