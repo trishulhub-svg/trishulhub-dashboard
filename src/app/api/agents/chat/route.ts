@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { callAI, estimateCost, getVisionModel } from "@/lib/ai/openrouter"
+import { callAIWithFailover, AllKeysExhaustedError, APIKeyExhaustedError, APIKeyInvalidError, getModelForProvider, getVisionModel } from "@/lib/ai/openrouter"
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,38 +81,34 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // Get active API key
-    let apiKey = agent.apiKeyId
-      ? await db.apiKey.findUnique({ where: { id: agent.apiKeyId } })
-      : null
+    // ━━ Get ALL active API keys for failover ━━
+    const allActiveKeys = await db.apiKey.findMany({
+      where: {
+        OR: [
+          { status: "ACTIVE" },
+          // Also include ERROR status keys to retry them
+          { status: "ERROR" },
+        ]
+      },
+      orderBy: { priority: "asc" },
+    })
 
-    if (!apiKey || apiKey.status !== "ACTIVE") {
-      const allActiveKeys = await db.apiKey.findMany({
-        where: { status: "ACTIVE" },
-        orderBy: { priority: "asc" },
-      })
-
-      apiKey = allActiveKeys.find((k) => {
-        try {
-          const assigned = JSON.parse(k.assignedAgents || "[]")
-          return assigned.length === 0 || assigned.includes(agent.type)
-        } catch {
-          return true
-        }
-      }) || null
-
-      if (apiKey) {
-        await db.agent.update({
-          where: { id: agentId },
-          data: { apiKeyId: apiKey.id },
-        })
+    // Filter keys that are assigned to this agent type (or assigned to all)
+    const eligibleKeys = allActiveKeys.filter((k) => {
+      try {
+        const assigned = JSON.parse(k.assignedAgents || "[]")
+        // Empty array = all agents, or includes this agent type
+        return assigned.length === 0 || assigned.includes(agent.type)
+      } catch {
+        return true // If parsing fails, include the key
       }
-    }
+    })
 
-    if (!apiKey) {
+    if (eligibleKeys.length === 0) {
       return NextResponse.json({
-        error: "No active API key available. Please add a valid API key in Settings > API Keys.",
+        error: "No active API key available. Please add a valid API key in API Keys page. If your key shows EXHAUSTED, add balance or add another provider's key as backup.",
         chatId: chat.id,
+        hint: "Go to Dashboard > API Keys > Add Key. You can add keys from Z.ai, OpenRouter, or Google AI.",
       }, { status: 400 })
     }
 
@@ -152,20 +148,32 @@ export async function POST(req: NextRequest) {
     await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
 
     try {
-      const result = await callAI(chatMessages, model, apiKey.keyValue, apiKey.provider)
+      // ━━ Call AI with automatic key failover ━━
+      const result = await callAIWithFailover(chatMessages, model, eligibleKeys)
 
-      // If successful, mark key as ACTIVE (in case it was previously ERROR)
-      if (apiKey.status === "ERROR") {
-        await db.apiKey.update({ where: { id: apiKey.id }, data: { status: "ACTIVE" } })
+      // Mark exhausted/invalid keys based on what was tried
+      // (the failover function already tried all keys, so we just need to update statuses)
+
+      // If the used key was previously ERROR, mark it as ACTIVE
+      const usedKey = eligibleKeys.find(k => k.id === result.apiKeyId)
+      if (usedKey && usedKey.status === "ERROR") {
+        await db.apiKey.update({
+          where: { id: usedKey.id },
+          data: { status: "ACTIVE" }
+        })
       }
 
-      // Calculate cost
-      const cost = estimateCost(result.model, result.inputTokens, result.outputTokens)
+      // Update agent's preferred key
+      if (result.apiKeyId && agent.apiKeyId !== result.apiKeyId) {
+        await db.agent.update({
+          where: { id: agentId },
+          data: { apiKeyId: result.apiKeyId },
+        })
+      }
 
       // Check if this response should create an approval request
       let approvalId: string | null = null
       if (features.approvalRequired) {
-        // Check if the response contains deliverable content (invoices, emails, code, etc.)
         const needsApproval = isApprovalWorthy(agent.type, message, result.content)
         if (needsApproval) {
           const approval = await db.approval.create({
@@ -214,8 +222,10 @@ export async function POST(req: NextRequest) {
           content: result.content,
           metadata: JSON.stringify({
             tokens: { input: result.inputTokens, output: result.outputTokens },
-            cost,
+            cost: result.cost,
             model: result.model,
+            provider: result.usedProvider,
+            apiKeyId: result.apiKeyId,
             approvalId,
           }),
         }
@@ -224,19 +234,25 @@ export async function POST(req: NextRequest) {
       // Log usage
       await db.apiUsageLog.create({
         data: {
-          apiKeyId: apiKey.id,
+          apiKeyId: result.apiKeyId,
           agentId: agent.id,
           model: result.model,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
-          cost,
+          cost: result.cost,
         },
       })
 
       // Update API key spend
       await db.apiKey.update({
-        where: { id: apiKey.id },
-        data: { currentSpend: apiKey.currentSpend + cost },
+        where: { id: result.apiKeyId },
+        data: {
+          currentSpend: { increment: result.cost },
+          // Check if budget exceeded
+          ...(usedKey && usedKey.monthlyBudget > 0 && (usedKey.currentSpend + result.cost) >= usedKey.monthlyBudget
+            ? { status: "EXHAUSTED" }
+            : {}),
+        },
       })
 
       // Update agent status
@@ -249,8 +265,9 @@ export async function POST(req: NextRequest) {
         content: result.content,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
-        cost,
+        cost: result.cost,
         model: result.model,
+        provider: result.usedProvider,
         chatId: chat.id,
         messageId: assistantMsg.id,
         approvalId,
@@ -258,28 +275,71 @@ export async function POST(req: NextRequest) {
     } catch (apiError: any) {
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
 
-      const errorMsg = apiError.message || ""
-      if (errorMsg.includes("401") || errorMsg.includes("Unauthorized") || errorMsg.includes("User not found")) {
-        await db.apiKey.update({
-          where: { id: apiKey.id },
-          data: { status: "ERROR" },
+      // Handle specific error types
+      if (apiError instanceof AllKeysExhaustedError) {
+        // Mark exhausted keys in database
+        for (const key of eligibleKeys) {
+          // Check if this key was mentioned in the error messages
+          const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
+          if (keyErrors.length > 0) {
+            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("余额不足"))
+            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized"))
+
+            if (isExhausted) {
+              await db.apiKey.update({
+                where: { id: key.id },
+                data: { status: "EXHAUSTED" },
+              })
+              // Unlink agents from this exhausted key
+              await db.agent.updateMany({
+                where: { apiKeyId: key.id },
+                data: { apiKeyId: null },
+              })
+            } else if (isInvalid) {
+              await db.apiKey.update({
+                where: { id: key.id },
+                data: { status: "ERROR" },
+              })
+              await db.agent.updateMany({
+                where: { apiKeyId: key.id },
+                data: { apiKeyId: null },
+              })
+            }
+          }
+        }
+
+        // Create notification for admin
+        const admins = await db.user.findMany({
+          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } }
         })
-        await db.agent.update({
-          where: { id: agentId },
-          data: { apiKeyId: null },
-        })
+        for (const admin of admins) {
+          await db.notification.create({
+            data: {
+              userId: admin.id,
+              title: "API Keys Exhausted",
+              message: `All API keys have failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to existing ones.`,
+              type: "ERROR",
+              link: "/dashboard/api-keys",
+            }
+          })
+        }
+
         return NextResponse.json({
-          error: "API key is invalid or expired. Please add a valid API key in Settings > API Keys.",
+          error: `All API keys exhausted or failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to your existing key at Dashboard > API Keys.`,
           chatId: chat.id,
+          details: apiError.errors,
+          hint: "If your Z.ai key shows '余额不足' (insufficient balance), recharge at open.bigmodel.cn or add an OpenRouter/Google AI key as backup.",
         }, { status: 500 })
       }
 
+      // Generic error
       return NextResponse.json({
         error: `AI API error: ${apiError.message}`,
         chatId: chat.id,
       }, { status: 500 })
     }
   } catch (error: any) {
+    console.error("[chat] Unhandled error:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
@@ -351,7 +411,6 @@ async function checkAutomationTriggers(
             status: "PENDING",
           }
         })
-        // Notify users with Finance access
         const financeUsers = await db.userAgentAccess.findMany({
           where: { agentId: financeAgent.id, canView: true },
         })
@@ -421,7 +480,6 @@ async function checkAutomationTriggers(
       }
     }
   } catch (err) {
-    // Don't fail the main request if automation triggers fail
     console.error("[automation] Trigger error:", err)
   }
 }

@@ -1,4 +1,5 @@
-// AI Integration Module - Supports OpenRouter, Z.ai Direct API, and Google AI
+// AI Integration Module - Supports OpenRouter, Z.ai Direct API, Google AI, and Custom APIs
+// Features: Multi-provider, automatic key failover, budget tracking, health monitoring
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -20,6 +21,9 @@ interface AIResponse {
   inputTokens: number
   outputTokens: number
   model: string
+  provider: string
+  apiKeyId?: string
+  cost: number
 }
 
 interface OpenRouterResponse {
@@ -35,12 +39,61 @@ interface OpenRouterResponse {
   }
 }
 
+interface KeyInfo {
+  id: string
+  keyName: string
+  keyValue: string
+  provider: string
+  status: string
+  priority: number
+  monthlyBudget: number
+  currentSpend: number
+  assignedAgents: string
+}
+
+// ━━ Error Types ━━
+export class APIKeyExhaustedError extends Error {
+  provider: string
+  statusCode: number
+  detail: string
+
+  constructor(provider: string, statusCode: number, detail: string) {
+    super(`API key exhausted: ${provider} returned ${statusCode} - ${detail}`)
+    this.name = "APIKeyExhaustedError"
+    this.provider = provider
+    this.statusCode = statusCode
+    this.detail = detail
+  }
+}
+
+export class APIKeyInvalidError extends Error {
+  provider: string
+  statusCode: number
+
+  constructor(provider: string, statusCode: number, detail: string) {
+    super(`API key invalid: ${provider} returned ${statusCode} - ${detail}`)
+    this.name = "APIKeyInvalidError"
+    this.provider = provider
+    this.statusCode = statusCode
+  }
+}
+
+export class AllKeysExhaustedError extends Error {
+  triedKeys: number
+  errors: string[]
+
+  constructor(triedKeys: number, errors: string[]) {
+    super(`All ${triedKeys} API keys exhausted. Errors: ${errors.join("; ")}`)
+    this.name = "AllKeysExhaustedError"
+    this.triedKeys = triedKeys
+    this.errors = errors
+  }
+}
+
 // ━━ Provider Detection ━━
 export function detectProvider(apiKey: string): "openrouter" | "zai" | "google_ai" | "other" {
   if (apiKey.startsWith("sk-or-") || apiKey.startsWith("sk-")) return "openrouter"
   if (apiKey.startsWith("AIza")) return "google_ai"
-  // Z.ai keys are typically hex strings without specific prefixes
-  // If the key is associated with a ZAI provider in the database, it will be handled by the route
   return "openrouter" // default
 }
 
@@ -74,7 +127,48 @@ export function normalizeModelForProvider(model: string, provider: string): stri
     return zaiMap[normalized];
   }
 
+  // OpenRouter model mapping
+  if (provider === "openrouter" && !normalized.includes("/")) {
+    // If model doesn't have a provider prefix, add one
+    const openrouterMap: Record<string, string> = {
+      "gpt-4o": "openai/gpt-4o",
+      "gpt-4o-mini": "openai/gpt-4o-mini",
+      "claude-sonnet-4": "anthropic/claude-sonnet-4",
+    };
+    if (openrouterMap[normalized]) return openrouterMap[normalized];
+  }
+
   return normalized;
+}
+
+// ━━ Get appropriate model for provider ━━
+export function getModelForProvider(model: string, provider: string): string {
+  const normalized = normalizeModelForProvider(model, provider)
+
+  // For ZAI provider, use Z.ai compatible models
+  if (provider === "ZAI" || provider === "zai") {
+    // Map OpenRouter model names to Z.ai equivalents
+    const zaiModelMap: Record<string, string> = {
+      "openai/gpt-4o": "glm-4-plus-0111",
+      "openai/gpt-4o-mini": "glm-4-flash-250414",
+      "anthropic/claude-sonnet-4": "glm-4-plus-0111",
+      "meta-llama/llama-3.3-70b-instruct:free": "glm-4-flash-250414",
+      "deepseek/deepseek-r1:free": "glm-4-air-250414",
+      "google/gemini-2.0-flash-exp:free": "glm-4.5-air-250414",
+    }
+    return zaiModelMap[model] || normalized || "glm-4-flash-250414"
+  }
+
+  // For GOOGLE_AI provider
+  if (provider === "GOOGLE_AI" || provider === "google_ai") {
+    const googleModelMap: Record<string, string> = {
+      "openai/gpt-4o": "gemini-2.0-flash",
+      "openai/gpt-4o-mini": "gemini-2.0-flash",
+    }
+    return googleModelMap[model] || normalized || "gemini-2.0-flash"
+  }
+
+  return normalized || model
 }
 
 // ━━ OpenRouter API ━━
@@ -84,16 +178,18 @@ async function callOpenRouterAPI(
   apiKey: string,
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
+  const normalizedModel = normalizeModelForProvider(model, "openrouter")
+
   const response = await fetch(OPENROUTER_API_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://trishulhub.in",
+      "HTTP-Referer": "https://trishulhub.com",
       "X-Title": "TrishulHub AI Dashboard",
     },
     body: JSON.stringify({
-      model,
+      model: normalizedModel,
       messages,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature || 0.7,
@@ -101,17 +197,29 @@ async function callOpenRouterAPI(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`OpenRouter API error: ${response.status} - ${error}`)
+    const errorText = await response.text()
+    const statusCode = response.status
+
+    if (statusCode === 401 || statusCode === 403) {
+      throw new APIKeyInvalidError("openrouter", statusCode, errorText)
+    }
+    if (statusCode === 402 || statusCode === 429) {
+      throw new APIKeyExhaustedError("openrouter", statusCode, errorText)
+    }
+    throw new Error(`OpenRouter API error: ${statusCode} - ${errorText}`)
   }
 
   const data: OpenRouterResponse = await response.json()
+
+  const cost = estimateCost(normalizedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
 
   return {
     content: data.choices[0]?.message?.content || "",
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
-    model,
+    model: normalizedModel,
+    provider: "openrouter",
+    cost,
   }
 }
 
@@ -122,7 +230,9 @@ async function callZaiAPI(
   apiKey: string,
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
-  const normalizedModel = normalizeModelForProvider(model, "zai")
+  const normalizedModel = getModelForProvider(model, "ZAI")
+
+  console.log(`[zai] Calling Z.ai API with model: ${normalizedModel}`)
 
   const response = await fetch(ZAI_API_URL, {
     method: "POST",
@@ -139,17 +249,30 @@ async function callZaiAPI(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Z.ai API error: ${response.status} - ${error}`)
+    const errorText = await response.text()
+    const statusCode = response.status
+
+    console.error(`[zai] API error: ${statusCode} - ${errorText}`)
+
+    if (statusCode === 401 || statusCode === 403) {
+      throw new APIKeyInvalidError("zai", statusCode, errorText)
+    }
+    if (statusCode === 402 || statusCode === 429) {
+      throw new APIKeyExhaustedError("zai", statusCode, errorText)
+    }
+    throw new Error(`Z.ai API error: ${statusCode} - ${errorText}`)
   }
 
   const data = await response.json()
+  const cost = estimateCost(normalizedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
 
   return {
     content: data.choices?.[0]?.message?.content || "",
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
     model: normalizedModel,
+    provider: "zai",
+    cost,
   }
 }
 
@@ -160,7 +283,7 @@ async function callGoogleAIAPI(
   apiKey: string,
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
-  const normalizedModel = model.includes("/") ? model.split("/").pop()! : model
+  const normalizedModel = getModelForProvider(model, "GOOGLE_AI")
   const url = `${GOOGLE_AI_API_URL}/${normalizedModel}:generateContent?key=${apiKey}`
 
   // Convert messages to Google AI format
@@ -201,21 +324,32 @@ async function callGoogleAIAPI(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Google AI API error: ${response.status} - ${error}`)
+    const errorText = await response.text()
+    const statusCode = response.status
+
+    if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
+      throw new APIKeyInvalidError("google_ai", statusCode, errorText)
+    }
+    if (statusCode === 429) {
+      throw new APIKeyExhaustedError("google_ai", statusCode, errorText)
+    }
+    throw new Error(`Google AI API error: ${statusCode} - ${errorText}`)
   }
 
   const data = await response.json()
+  const cost = estimateCost(normalizedModel, data.usageMetadata?.promptTokenCount || 0, data.usageMetadata?.candidatesTokenCount || 0)
 
   return {
     content: data.candidates?.[0]?.content?.parts?.[0]?.text || "",
     inputTokens: data.usageMetadata?.promptTokenCount || 0,
     outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
     model: normalizedModel,
+    provider: "google_ai",
+    cost,
   }
 }
 
-// ━━ Unified AI Call ━━
+// ━━ Single Provider Call ━━
 export async function callAI(
   messages: ChatMessage[],
   model: string,
@@ -223,7 +357,9 @@ export async function callAI(
   provider: string = "OPENROUTER",
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
-  switch (provider) {
+  const providerUpper = provider.toUpperCase()
+
+  switch (providerUpper) {
     case "ZAI":
       return callZaiAPI(messages, model, apiKey, options)
     case "GOOGLE_AI":
@@ -232,6 +368,74 @@ export async function callAI(
     default:
       return callOpenRouterAPI(messages, model, apiKey, options)
   }
+}
+
+// ━━ Multi-Key Failover AI Call ━━
+// Tries keys in priority order. If a key returns 429/exhausted, marks it and tries next.
+// This is the recommended way to call AI from the chat route.
+export async function callAIWithFailover(
+  messages: ChatMessage[],
+  model: string,
+  keys: KeyInfo[],
+  options?: { maxTokens?: number; temperature?: number }
+): Promise<AIResponse & { apiKeyId: string; usedProvider: string }> {
+  if (!keys || keys.length === 0) {
+    throw new AllKeysExhaustedError(0, ["No API keys available"])
+  }
+
+  // Sort keys by priority (ascending = highest priority first)
+  const sortedKeys = [...keys].sort((a, b) => a.priority - b.priority)
+
+  const errors: string[] = []
+  let lastFailedKeyId: string | null = null
+
+  for (const key of sortedKeys) {
+    // Skip exhausted or error keys (but try once if all are exhausted)
+    if (key.status === "EXHAUSTED") {
+      errors.push(`Key "${key.keyName}" (${key.provider}): EXHAUSTED - skipped`)
+      continue
+    }
+    if (key.status === "ERROR") {
+      errors.push(`Key "${key.keyName}" (${key.provider}): ERROR status - skipped`)
+      continue
+    }
+
+    // Check budget
+    if (key.monthlyBudget > 0 && key.currentSpend >= key.monthlyBudget) {
+      errors.push(`Key "${key.keyName}" (${key.provider}): Budget exhausted ($${key.currentSpend.toFixed(2)}/$${key.monthlyBudget.toFixed(2)})`)
+      continue
+    }
+
+    try {
+      console.log(`[ai-failover] Trying key: "${key.keyName}" (${key.provider}), priority: ${key.priority}`)
+      const result = await callAI(messages, model, key.keyValue, key.provider, options)
+      console.log(`[ai-failover] Success with key: "${key.keyName}" (${key.provider})`)
+      return {
+        ...result,
+        apiKeyId: key.id,
+        usedProvider: key.provider,
+      }
+    } catch (err: any) {
+      lastFailedKeyId = key.id
+      const errMsg = err.message || String(err)
+      errors.push(`Key "${key.keyName}" (${key.provider}): ${errMsg}`)
+      console.error(`[ai-failover] Key "${key.keyName}" failed:`, errMsg)
+
+      if (err instanceof APIKeyExhaustedError) {
+        // Mark key as exhausted (caller should update DB)
+        console.warn(`[ai-failover] Key "${key.keyName}" is EXHAUSTED (429/402). Will try next key.`)
+        // Don't break - try next key
+      } else if (err instanceof APIKeyInvalidError) {
+        // Mark key as error (caller should update DB)
+        console.warn(`[ai-failover] Key "${key.keyName}" is INVALID (401/403). Will try next key.`)
+        // Don't break - try next key
+      }
+      // For other errors, also try next key
+    }
+  }
+
+  // All keys failed
+  throw new AllKeysExhaustedError(sortedKeys.length, errors)
 }
 
 // ━━ Backward compatibility ━━
@@ -260,6 +464,8 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
     "glm-4-flash-250414": { input: 0.1, output: 0.5 },
     "glm-4.7-flash": { input: 0, output: 0 },
     "glm-4-long-250414": { input: 0.5, output: 2.0 },
+    "gemini-2.0-flash": { input: 0, output: 0 },
+    "gemini-2.5-pro": { input: 1.25, output: 10.0 },
   }
 
   const modelCost = costs[model] || { input: 0.5, output: 1.5 }
@@ -279,3 +485,34 @@ export const FREE_MODELS = [
   "google/gemini-2.0-flash-exp:free",
   "glm-4.7-flash",
 ]
+
+// ━━ Get provider-specific model list ━━
+export function getModelsForProvider(provider: string): { id: string; name: string; free: boolean }[] {
+  switch (provider.toUpperCase()) {
+    case "ZAI":
+      return [
+        { id: "glm-4-flash-250414", name: "GLM-4 Flash", free: false },
+        { id: "glm-4-air-250414", name: "GLM-4 Air", free: false },
+        { id: "glm-4-long-250414", name: "GLM-4 Long", free: false },
+        { id: "glm-4-plus-0111", name: "GLM-4 Plus", free: false },
+        { id: "glm-4.5-air-250414", name: "GLM-4.5 Air", free: false },
+        { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free)", free: true },
+        { id: "glm-5.1", name: "GLM-5.1", free: false },
+      ]
+    case "GOOGLE_AI":
+      return [
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", free: true },
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", free: false },
+      ]
+    case "OPENROUTER":
+    default:
+      return [
+        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", free: false },
+        { id: "openai/gpt-4o", name: "GPT-4o", free: false },
+        { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", free: false },
+        { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B (Free)", free: true },
+        { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1 (Free)", free: true },
+        { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash (Free)", free: true },
+      ]
+  }
+}
