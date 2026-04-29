@@ -972,6 +972,8 @@ export default function AgentChatPage() {
               suggestedPrompts={suggestedPrompts}
               onSuggestedPrompt={handleSuggestedPrompt}
               features={features}
+              liveSteps={liveSteps}
+              agentSteps={agentSteps}
               Paperclip={Paperclip}
               Send={Send}
               Loader2={Loader2}
@@ -1260,6 +1262,8 @@ export default function AgentChatPage() {
           suggestedPrompts={suggestedPrompts}
           onSuggestedPrompt={handleSuggestedPrompt}
           features={features}
+          liveSteps={liveSteps}
+          agentSteps={agentSteps}
           Paperclip={Paperclip}
           Send={Send}
           Loader2={Loader2}
@@ -1573,6 +1577,8 @@ function ChatArea({
   suggestedPrompts,
   onSuggestedPrompt,
   features,
+  liveSteps,
+  agentSteps,
   Paperclip: PaperclipIcon,
   Send: SendIcon,
   Loader2: Loader2Icon,
@@ -1593,6 +1599,8 @@ function ChatArea({
   suggestedPrompts: SuggestedPrompt[];
   onSuggestedPrompt: (prompt: string) => void;
   features: Record<string, boolean>;
+  liveSteps: Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>;
+  agentSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }>;
   Paperclip: React.ComponentType<{ className?: string }>;
   Send: React.ComponentType<{ className?: string }>;
   Loader2: React.ComponentType<{ className?: string }>;

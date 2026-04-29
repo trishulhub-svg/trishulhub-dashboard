@@ -70,7 +70,10 @@ export async function POST(req: NextRequest) {
     if (linkedChatId) {
       const linkedChat = await db.chat.findUnique({
         where: { id: linkedChatId },
-        include: { messages: { orderBy: { createdAt: "asc" } } },
+        include: {
+          agent: { select: { id: true, name: true, type: true } },
+          messages: { orderBy: { createdAt: "asc" } },
+        },
       })
       if (linkedChat) {
         if (shareFullChat) {
