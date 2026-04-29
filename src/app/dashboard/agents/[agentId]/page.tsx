@@ -438,8 +438,8 @@ export default function AgentChatPage() {
     setMessages((prev) => [...prev, tempUserMsg]);
     setSending(true);
 
-    // Use agentic endpoint for DEV agent (autonomous mode)
-    const useAgentic = agent?.type === "DEV";
+    // Use agentic endpoint for agents with agentic feature enabled
+    const useAgentic = features?.agentic !== false; // All agents are agentic by default
     if (useAgentic) {
       setAgentSteps([]);
       setIsAgentic(true);
@@ -461,7 +461,7 @@ export default function AgentChatPage() {
       if (res.ok) {
         const data = await res.json();
 
-        // Show agentic steps for DEV agent
+        // Show agentic steps for all agentic agents
         if (useAgentic && data.steps) {
           setAgentSteps(data.steps);
         }
@@ -503,7 +503,7 @@ export default function AgentChatPage() {
               id: `sys-${Date.now()}`,
               chatId: activeChatId || "",
               role: "system",
-              content: "⚠️ No valid Z.ai API key found for agentic mode. Dev Agent requires a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
+              content: "⚠️ No valid Z.ai API key found for agentic mode. Agentic agents require a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
               createdAt: new Date().toISOString(),
             },
           ]);
@@ -839,6 +839,7 @@ export default function AgentChatPage() {
               chatInputRef={chatInputRef}
               suggestedPrompts={suggestedPrompts}
               onSuggestedPrompt={handleSuggestedPrompt}
+              features={features}
               Paperclip={Paperclip}
               Send={Send}
               Loader2={Loader2}
@@ -1126,6 +1127,7 @@ export default function AgentChatPage() {
           chatInputRef={chatInputRef}
           suggestedPrompts={suggestedPrompts}
           onSuggestedPrompt={handleSuggestedPrompt}
+          features={features}
           Paperclip={Paperclip}
           Send={Send}
           Loader2={Loader2}
@@ -1438,6 +1440,7 @@ function ChatArea({
   chatInputRef,
   suggestedPrompts,
   onSuggestedPrompt,
+  features,
   Paperclip: PaperclipIcon,
   Send: SendIcon,
   Loader2: Loader2Icon,
@@ -1457,6 +1460,7 @@ function ChatArea({
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>;
   suggestedPrompts: SuggestedPrompt[];
   onSuggestedPrompt: (prompt: string) => void;
+  features: Record<string, boolean>;
   Paperclip: React.ComponentType<{ className?: string }>;
   Send: React.ComponentType<{ className?: string }>;
   Loader2: React.ComponentType<{ className?: string }>;
@@ -1479,8 +1483,8 @@ function ChatArea({
             <Icon className={`h-16 w-16 mb-4 ${agentConfig?.color || "text-muted-foreground"} opacity-30`} />
             <h3 className="text-lg font-semibold mb-2">Chat with {agent.name}</h3>
             <p className="text-sm text-muted-foreground max-w-md mb-6">
-              {agent.type === "DEV"
-                ? "Dev Agent works autonomously — it can plan, search the web, read/write files, run commands, and iterate until your task is complete. Give it a complex task and watch it go!"
+              {features?.agentic !== false
+                ? `${agent.name} works autonomously — it can plan, use tools, search the web, and iterate until your task is complete. Give it a complex task and watch it go!`
                 : `Give ${agent.name} a task or ask a question. The agent will process your request and respond.`}
             </p>
             {suggestedPrompts.length > 0 && (
@@ -1663,10 +1667,10 @@ function ChatArea({
             {sending && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-xl p-3 flex items-center gap-2">
-                  {agent.type === "DEV" ? (
+                  {features?.agentic !== false ? (
                     <>
                       <Brain className="h-4 w-4 animate-pulse text-purple-500" />
-                      <span className="text-sm text-muted-foreground">Dev Agent is working autonomously...</span>
+                      <span className="text-sm text-muted-foreground">{agent.name} is working autonomously...</span>
                       <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
                         <Zap className="h-2.5 w-2.5" /> Agent Mode
                       </Badge>

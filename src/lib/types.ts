@@ -146,7 +146,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "dev-schedule", label: "Schedule Task", prompt: "Create a scheduled development task for: ", icon: "Calendar" },
       { id: "dev-ask-pm", label: "Ask Project Manager", prompt: "Send a question to the Project Manager about: ", icon: "MessageSquare" },
     ],
-    features: { webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, codeReview: true, phasedDevelopment: true },
+    features: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, codeReview: true, phasedDevelopment: true },
     suggestedPrompts: [
       { id: "dev-sp1", label: "Build a landing page", prompt: "Build a responsive landing page with a hero section, features grid, testimonials, and contact form." },
       { id: "dev-sp2", label: "Fix a React bug", prompt: "I have a React component that's not re-rendering when state changes. Help me debug it." },
@@ -168,7 +168,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "ch-send-finance", label: "Send to Finance", prompt: "Send this lead to the Finance Agent for quotation preparation: ", icon: "DollarSign" },
       { id: "ch-schedule", label: "Schedule Outreach", prompt: "Schedule a 7-day outreach plan for: ", icon: "Calendar" },
     ],
-    features: { webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, leadScoring: true, emailDrafting: true },
+    features: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, leadScoring: true, emailDrafting: true },
     suggestedPrompts: [
       { id: "ch-sp1", label: "Find clients in Harrow", prompt: "Find potential clients in Harrow, London who need web development services. Look for businesses without professional websites." },
       { id: "ch-sp2", label: "Find restaurants needing websites", prompt: "Search for restaurants in our target area that don't have a professional website or online ordering system." },
@@ -189,7 +189,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "fin-notify-pm", label: "Notify PM", prompt: "Notify the Project Manager about the budget status for: ", icon: "MessageSquare" },
       { id: "fin-schedule", label: "Schedule Invoice", prompt: "Schedule an invoice to be generated for: ", icon: "Calendar" },
     ],
-    features: { webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, autoInvoice: false, autoQuotation: false },
+    features: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, autoInvoice: false, autoQuotation: false },
     suggestedPrompts: [
       { id: "fin-sp1", label: "Estimate 5-page website", prompt: "Estimate the cost for a 5-page responsive business website with contact form, about page, services, blog, and homepage." },
       { id: "fin-sp2", label: "Create monthly invoice", prompt: "Create an invoice for monthly website maintenance services: hosting, security updates, backups, and content updates." },
@@ -211,7 +211,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "pm-alert", label: "Send Alert", prompt: "Send a deadline alert about: ", icon: "AlertTriangle" },
       { id: "pm-schedule", label: "Schedule Review", prompt: "Schedule a project review meeting for: ", icon: "Calendar" },
     ],
-    features: { webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, autoAssign: false, riskAlerts: true },
+    features: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, autoAssign: false, riskAlerts: true },
     suggestedPrompts: [
       { id: "pm-sp1", label: "Plan e-commerce project", prompt: "Plan an e-commerce website project with product catalog, cart, checkout, payment integration, and admin panel." },
       { id: "pm-sp2", label: "Check all deadlines", prompt: "Review all active projects and their deadlines. Flag any risks and suggest priority adjustments." },
@@ -232,7 +232,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "hr-flag", label: "Flag Issue", prompt: "Flag this HR issue to management: ", icon: "AlertTriangle" },
       { id: "hr-schedule", label: "Schedule Review", prompt: "Schedule a performance review for: ", icon: "Calendar" },
     ],
-    features: { webSearch: false, autoTask: false, crossAgent: true, approvalRequired: false, workloadTracking: true, leaveManagement: true },
+    features: { agentic: true, webSearch: false, autoTask: false, crossAgent: true, approvalRequired: false, workloadTracking: true, leaveManagement: true },
     suggestedPrompts: [
       { id: "hr-sp1", label: "Who's available?", prompt: "Which team members are available this week? Show their current workload and capacity." },
       { id: "hr-sp2", label: "Leave conflicts", prompt: "Are there any leave conflicts in the next 2 weeks that could affect project deadlines?" },
@@ -253,7 +253,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "con-approve", label: "Submit for Approval", prompt: "Submit this content piece for approval: ", icon: "CheckCircle" },
       { id: "con-schedule", label: "Schedule Post", prompt: "Schedule this content for publishing: ", icon: "Calendar" },
     ],
-    features: { webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, seoOptimization: true, multiPlatform: true },
+    features: { agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, seoOptimization: true, multiPlatform: true },
     suggestedPrompts: [
       { id: "con-sp1", label: "Write website homepage", prompt: "Write compelling homepage copy for a restaurant website. Include hero section, about us, menu highlights, and call-to-action." },
       { id: "con-sp2", label: "Social media campaign", prompt: "Create a week-long social media campaign for a new website launch. Posts for Instagram, LinkedIn, and Twitter/X." },
@@ -274,7 +274,7 @@ export const DEFAULT_AGENT_ROLE_CONFIGS: Record<AgentType, {
       { id: "sup-close", label: "Close Ticket", prompt: "Close this ticket with resolution summary: ", icon: "CheckCircle" },
       { id: "sup-priority", label: "Set Priority", prompt: "Assess and set the priority for this ticket: ", icon: "AlertTriangle" },
     ],
-    features: { webSearch: false, autoTask: true, crossAgent: true, approvalRequired: false, autoEscalation: true, knowledgeBase: true },
+    features: { agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: false, autoEscalation: true, knowledgeBase: true },
     suggestedPrompts: [
       { id: "sup-sp1", label: "Email not working", prompt: "My business email is not sending or receiving messages. Help me troubleshoot this issue." },
       { id: "sup-sp2", label: "Website down", prompt: "My website is showing a 500 error. Help me diagnose and fix this urgently." },
@@ -299,6 +299,7 @@ export const MODEL_OPTIONS = {
     { value: "glm-4.5-air-250414", label: "GLM-4.5 Air", cost: "$" },
     { value: "glm-4-air-250414", label: "GLM-4 Air", cost: "$" },
     { value: "glm-4-flash-250414", label: "GLM-4 Flash", cost: "$" },
+    { value: "glm-4.5-flash", label: "GLM-4.5 Flash (Free + Agentic)", cost: "Free" },
     { value: "glm-4.7-flash", label: "GLM-4.7 Flash (Free)", cost: "Free" },
     { value: "glm-4-long-250414", label: "GLM-4 Long", cost: "$" },
   ],

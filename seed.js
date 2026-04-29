@@ -74,7 +74,7 @@ async function seed() {
           { id: "dev-schedule", label: "Schedule Task", prompt: "Create a scheduled development task for: ", icon: "Calendar" },
           { id: "dev-ask-pm", label: "Ask PM", prompt: "Send a question to the Project Manager about: ", icon: "MessageSquare" },
         ]),
-        features: JSON.stringify({ webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, codeReview: true, phasedDevelopment: true }),
+        features: JSON.stringify({ agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, codeReview: true, phasedDevelopment: true }),
         suggestedPrompts: JSON.stringify([
           { id: "dev-sp1", label: "Build a landing page", prompt: "Build a responsive landing page with a hero section, features grid, testimonials, and contact form." },
           { id: "dev-sp2", label: "Fix a React bug", prompt: "I have a React component that's not re-rendering when state changes. Help me debug it." },
@@ -98,7 +98,7 @@ async function seed() {
           { id: "ch-send-finance", label: "Send to Finance", prompt: "Send this lead to the Finance Agent for quotation: ", icon: "DollarSign" },
           { id: "ch-schedule", label: "Schedule Outreach", prompt: "Schedule a 7-day outreach plan for: ", icon: "Calendar" },
         ]),
-        features: JSON.stringify({ webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, leadScoring: true, emailDrafting: true }),
+        features: JSON.stringify({ agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, leadScoring: true, emailDrafting: true }),
         suggestedPrompts: JSON.stringify([
           { id: "ch-sp1", label: "Find clients in Harrow", prompt: "Find potential clients in Harrow, London who need web development services." },
           { id: "ch-sp2", label: "Find restaurants", prompt: "Search for restaurants in our area that don't have a professional website." },
@@ -121,7 +121,7 @@ async function seed() {
           { id: "fin-notify-pm", label: "Notify PM", prompt: "Notify the Project Manager about budget status for: ", icon: "MessageSquare" },
           { id: "fin-schedule", label: "Schedule Invoice", prompt: "Schedule an invoice for: ", icon: "Calendar" },
         ]),
-        features: JSON.stringify({ webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true }),
+        features: JSON.stringify({ agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true }),
         suggestedPrompts: JSON.stringify([
           { id: "fin-sp1", label: "Estimate 5-page website", prompt: "Estimate the cost for a 5-page responsive business website." },
           { id: "fin-sp2", label: "Create monthly invoice", prompt: "Create an invoice for monthly website maintenance." },
@@ -144,7 +144,7 @@ async function seed() {
           { id: "pm-assign-dev", label: "Assign to Dev", prompt: "Assign this task to the Dev Agent: ", icon: "Code2" },
           { id: "pm-alert", label: "Send Alert", prompt: "Send a deadline alert about: ", icon: "AlertTriangle" },
         ]),
-        features: JSON.stringify({ webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, riskAlerts: true }),
+        features: JSON.stringify({ agentic: true, webSearch: false, autoTask: true, crossAgent: true, approvalRequired: true, riskAlerts: true }),
         suggestedPrompts: JSON.stringify([
           { id: "pm-sp1", label: "Plan e-commerce project", prompt: "Plan an e-commerce website with product catalog, cart, checkout, and admin panel." },
           { id: "pm-sp2", label: "Check deadlines", prompt: "Review all active projects and their deadlines. Flag any risks." },
@@ -165,7 +165,7 @@ async function seed() {
           { id: "hr-approve-leave", label: "Approve Leave", prompt: "Review this leave request: ", icon: "CheckCircle" },
           { id: "hr-flag", label: "Flag Issue", prompt: "Flag this HR issue: ", icon: "AlertTriangle" },
         ]),
-        features: JSON.stringify({ webSearch: false, autoTask: false, crossAgent: true, workloadTracking: true, leaveManagement: true }),
+        features: JSON.stringify({ agentic: true, webSearch: false, autoTask: false, crossAgent: true, workloadTracking: true, leaveManagement: true }),
         suggestedPrompts: JSON.stringify([
           { id: "hr-sp1", label: "Who's available?", prompt: "Which team members are available this week?" },
           { id: "hr-sp2", label: "Leave conflicts", prompt: "Are there any leave conflicts in the next 2 weeks?" },
@@ -186,7 +186,7 @@ async function seed() {
           { id: "con-review", label: "Review Content", prompt: "Review this content for: grammar, tone, SEO, readability: ", icon: "Eye" },
           { id: "con-approve", label: "Submit for Approval", prompt: "Submit this content for approval: ", icon: "CheckCircle" },
         ]),
-        features: JSON.stringify({ webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, seoOptimization: true }),
+        features: JSON.stringify({ agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: true, seoOptimization: true }),
         suggestedPrompts: JSON.stringify([
           { id: "con-sp1", label: "Write homepage", prompt: "Write compelling homepage copy for a restaurant website." },
           { id: "con-sp2", label: "Social campaign", prompt: "Create a week-long social media campaign for a website launch." },
@@ -207,7 +207,7 @@ async function seed() {
           { id: "sup-assign-dev", label: "Send to Dev", prompt: "Escalate this issue to Dev Agent: ", icon: "Code2" },
           { id: "sup-close", label: "Close Ticket", prompt: "Close this ticket with resolution: ", icon: "CheckCircle" },
         ]),
-        features: JSON.stringify({ webSearch: false, autoTask: true, crossAgent: true, autoEscalation: true, knowledgeBase: true }),
+        features: JSON.stringify({ agentic: true, webSearch: false, autoTask: true, crossAgent: true, autoEscalation: true, knowledgeBase: true }),
         suggestedPrompts: JSON.stringify([
           { id: "sup-sp1", label: "Email not working", prompt: "My business email is not sending or receiving messages." },
           { id: "sup-sp2", label: "Website down", prompt: "My website is showing a 500 error." },

@@ -1,11 +1,13 @@
-// Agentic Chat API - Streaming endpoint with multi-step autonomous execution
-// Supports: Function calling, thinking mode, tool execution, step-by-step streaming
+// Agentic Chat API - Multi-agent autonomous execution endpoint
+// Supports ALL agent types with role-specific tools, thinking mode, and autonomous loop
+// Each agent type gets its own system prompt and tool set
 
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { runAgentLoop, AgentStep, AgentLoopResult } from "@/lib/ai/agent-loop"
+import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 import { callAIWithFailover, AllKeysExhaustedError, getVisionModel } from "@/lib/ai/openrouter"
 
 export async function POST(req: NextRequest) {
@@ -30,19 +32,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Get agent
+    // Get agent with role config
     const agent = await db.agent.findUnique({
       where: { id: agentId },
       include: { roleConfig: true },
     })
     if (!agent) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
-    }
-
-    // Only DEV agent supports agentic mode for now
-    if (agent.type !== "DEV") {
-      // Fall back to regular chat for non-DEV agents
-      return NextResponse.json({ error: "Agentic mode is only available for Dev Agent. Use regular chat for other agents." }, { status: 400 })
     }
 
     // Get or create chat
@@ -76,7 +72,7 @@ export async function POST(req: NextRequest) {
     const zaiKeys = await db.apiKey.findMany({
       where: {
         provider: "ZAI",
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "ERROR"] },
       },
       orderBy: { priority: "asc" },
     })
@@ -91,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     if (eligibleKeys.length === 0) {
       return NextResponse.json({
-        error: "No active Z.ai API key available for agentic mode. Agentic Dev requires a Z.ai API key with GLM-4.5-Flash or GLM-5.1. Please add one in API Keys page.",
+        error: "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash. Please add one in API Keys page.",
         chatId: chat.id,
       }, { status: 400 })
     }
@@ -108,6 +104,12 @@ export async function POST(req: NextRequest) {
         content: m.content,
       }))
 
+    // Build system prompt from agent's role config
+    const systemPrompt = agent.roleConfig?.rolePrompt || agent.systemPrompt || undefined
+
+    // Get agent-specific tools
+    const tools = getToolsForAgentType(agent.type)
+
     // Collect steps for streaming
     const allSteps: AgentStep[] = []
 
@@ -118,6 +120,9 @@ export async function POST(req: NextRequest) {
         const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
           maxSteps: 15,
           maxTokens: 8192,
+          agentType: agent.type,
+          systemPrompt,
+          tools,
           onStep: (step) => {
             allSteps.push(step)
           },
@@ -143,6 +148,7 @@ export async function POST(req: NextRequest) {
           provider: result.provider,
           apiKeyId: key.id,
           agentic: true,
+          agentType: agent.type,
           totalSteps: result.totalSteps,
           usedTools: result.usedTools,
           steps: result.steps.map(s => ({
@@ -202,6 +208,7 @@ export async function POST(req: NextRequest) {
           chatId: chat.id,
           messageId: assistantMsg.id,
           agentic: true,
+          agentType: agent.type,
           totalSteps: result.totalSteps,
           usedTools: result.usedTools,
           steps: result.steps.map(s => ({

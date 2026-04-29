@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Code2, Crosshair, DollarSign, ClipboardList, Users, PenTool, HeadphonesIcon,
-  ArrowRight, Bot, MessageSquare, Calendar, Zap,
+  ArrowRight, Bot, MessageSquare, Calendar, Zap, Brain,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -134,6 +134,11 @@ export default function AgentsPage() {
 
                 {/* Features Badges */}
                 <div className="flex flex-wrap gap-1.5">
+                  {features.agentic && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                      <Brain className="h-2.5 w-2.5 mr-0.5" /> Agentic
+                    </Badge>
+                  )}
                   {features.webSearch && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                       <Zap className="h-2.5 w-2.5 mr-0.5" /> Web Search
