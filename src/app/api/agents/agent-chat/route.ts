@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
-    const { agentId, message, chatId, stream } = await req.json()
+    const { agentId, message, chatId, stream, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
     }
@@ -64,9 +64,18 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Save user message
+    // Save user message with file attachments metadata
+    const messageMetadata = fileUrls && fileUrls.length > 0
+      ? JSON.stringify({ attachments: fileUrls.map((url: string) => ({ url, type: url.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) ? "image" : "file" })) })
+      : undefined
+
     await db.chatMessage.create({
-      data: { chatId: chat.id, role: "user", content: message },
+      data: {
+        chatId: chat.id,
+        role: "user",
+        content: message,
+        ...(messageMetadata ? { metadata: messageMetadata } : {}),
+      },
     })
 
     // Get Z.ai API key (agentic mode requires Z.ai for function calling)

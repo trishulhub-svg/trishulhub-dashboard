@@ -254,6 +254,11 @@ export default function AgentChatPage() {
   const [isAgentic, setIsAgentic] = useState(false);
   const [liveSteps, setLiveSteps] = useState<Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>>([]);
 
+  // File upload state
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Scheduled tasks
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -426,19 +431,71 @@ export default function AgentChatPage() {
     }
   }, [agentId, fetchChats, selectChat]);
 
+  // ── File upload handler ──
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    // Support agent doesn't get file upload
+    if (agent?.type === "SUPPORT") return;
+
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("agentId", agentId);
+
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          toast.error(err.error || "Upload failed");
+          continue;
+        }
+
+        const data = await res.json();
+        if (data.success && data.file) {
+          setAttachedFiles((prev) => [...prev, {
+            url: data.file.url,
+            name: data.file.name,
+            type: data.file.type,
+            isImage: data.file.isImage,
+          }]);
+        }
+      }
+    } catch (err: any) {
+      toast.error("Upload failed: " + err.message);
+    } finally {
+      setUploading(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [agentId, agent?.type]);
+
+  const removeAttachment = useCallback((url: string) => {
+    setAttachedFiles((prev) => prev.filter((f) => f.url !== url));
+  }, []);
+
   // ── Send message ──
   const handleSend = useCallback(async () => {
     if (!input.trim() || sending) return;
 
     const userContent = input.trim();
+    const currentAttachments = [...attachedFiles];
     setInput("");
+    setAttachedFiles([]);
 
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
       chatId: activeChatId || "",
       role: "user",
-      content: userContent,
+      content: userContent + (currentAttachments.length > 0 ? `\n\n📎 Attached: ${currentAttachments.map(f => f.name).join(", ")}` : ""),
       createdAt: new Date().toISOString(),
+      metadata: currentAttachments.length > 0 ? JSON.stringify({ attachments: currentAttachments.map(f => ({ url: f.url, name: f.name, type: f.isImage ? "image" : "file" })) }) : undefined,
     };
     setMessages((prev) => [...prev, tempUserMsg]);
     setSending(true);
@@ -465,6 +522,7 @@ export default function AgentChatPage() {
             message: userContent,
             chatId: activeChatId || undefined,
             stream: true,
+            fileUrls: currentAttachments.length > 0 ? currentAttachments.map(f => f.url) : undefined,
           }),
         });
 
@@ -611,6 +669,7 @@ export default function AgentChatPage() {
             agentId,
             message: userContent,
             chatId: activeChatId || undefined,
+            fileUrls: currentAttachments.length > 0 ? currentAttachments.map(f => f.url) : undefined,
           }),
         });
 
@@ -974,6 +1033,11 @@ export default function AgentChatPage() {
               features={features}
               liveSteps={liveSteps}
               agentSteps={agentSteps}
+              attachedFiles={attachedFiles}
+              uploading={uploading}
+              onFileUpload={handleFileUpload}
+              onRemoveAttachment={removeAttachment}
+              fileInputRef={fileInputRef}
               Paperclip={Paperclip}
               Send={Send}
               Loader2={Loader2}
@@ -1264,6 +1328,11 @@ export default function AgentChatPage() {
           features={features}
           liveSteps={liveSteps}
           agentSteps={agentSteps}
+          attachedFiles={attachedFiles}
+          uploading={uploading}
+          onFileUpload={handleFileUpload}
+          onRemoveAttachment={removeAttachment}
+          fileInputRef={fileInputRef}
           Paperclip={Paperclip}
           Send={Send}
           Loader2={Loader2}
@@ -1579,6 +1648,11 @@ function ChatArea({
   features,
   liveSteps,
   agentSteps,
+  attachedFiles,
+  uploading,
+  onFileUpload,
+  onRemoveAttachment,
+  fileInputRef,
   Paperclip: PaperclipIcon,
   Send: SendIcon,
   Loader2: Loader2Icon,
@@ -1601,6 +1675,11 @@ function ChatArea({
   features: Record<string, boolean>;
   liveSteps: Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>;
   agentSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }>;
+  attachedFiles: Array<{ url: string; name: string; type: string; isImage: boolean }>;
+  uploading: boolean;
+  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveAttachment: (url: string) => void;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
   Paperclip: React.ComponentType<{ className?: string }>;
   Send: React.ComponentType<{ className?: string }>;
   Loader2: React.ComponentType<{ className?: string }>;
@@ -1761,6 +1840,41 @@ function ChatArea({
                                     ))}
                                   </div>
                                 )}
+                              </div>
+                            );
+                          }
+                        } catch {}
+                        return null;
+                      })()}
+                      {/* File attachments for user messages */}
+                      {msg.role === "user" && (() => {
+                        try {
+                          const meta = JSON.parse(msg.metadata || "{}");
+                          if (meta.attachments && meta.attachments.length > 0) {
+                            return (
+                              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                                {meta.attachments.map((att: { url: string; name?: string; type: string }, idx: number) => (
+                                  att.type === "image" ? (
+                                    <a key={idx} href={att.url} target="_blank" rel="noopener noreferrer">
+                                      <img
+                                        src={att.url}
+                                        alt={att.name || "Attached image"}
+                                        className="max-h-40 rounded-lg border border-primary-foreground/20 cursor-pointer hover:opacity-90 transition-opacity"
+                                      />
+                                    </a>
+                                  ) : (
+                                    <a
+                                      key={idx}
+                                      href={att.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs bg-primary-foreground/10 rounded px-2 py-1 hover:bg-primary-foreground/20 transition-colors"
+                                    >
+                                      <FileCode className="h-3 w-3" />
+                                      {att.name || "File"}
+                                    </a>
+                                  )
+                                ))}
                               </div>
                             );
                           }
@@ -1970,25 +2084,60 @@ function ChatArea({
             ))}
           </div>
         )}
+        {/* Attached files preview */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto">
+            {attachedFiles.map((file) => (
+              <div key={file.url} className="flex items-center gap-1.5 bg-muted/50 rounded-lg px-2 py-1 text-xs">
+                {file.isImage ? (
+                  <img src={file.url} alt={file.name} className="h-8 w-8 rounded object-cover" />
+                ) : (
+                  <FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
+                )}
+                <span className="max-w-[100px] truncate">{file.name}</span>
+                <button
+                  onClick={() => onRemoveAttachment(file.url)}
+                  className="text-muted-foreground hover:text-destructive shrink-0"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2 max-w-3xl mx-auto">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={() => toast.info("File upload coming soon!")}
-          >
-            <PaperclipIcon className="h-4 w-4" />
-          </Button>
+          {/* File upload button - hidden for SUPPORT agent */}
+          {agent.type !== "SUPPORT" && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md,.js,.ts,.tsx,.jsx,.html,.css,.zip"
+                onChange={onFileUpload}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <PaperclipIcon className="h-4 w-4" />}
+              </Button>
+            </>
+          )}
           <Textarea
             ref={chatInputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${agent.name}...`}
+            placeholder={`Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
             className="min-h-[44px] max-h-32 resize-none"
             rows={1}
           />
-          <Button onClick={handleSend} disabled={!input.trim() || sending} className="shrink-0">
+          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending} className="shrink-0">
             {sending ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />}
           </Button>
         </div>

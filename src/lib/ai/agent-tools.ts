@@ -185,6 +185,67 @@ export const DEV_AGENT_TOOLS: AgentTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "git_commit_push",
+      description: "Stage, commit, and push code changes to the GitHub repository. Use this after you've made code changes and verified they work. This requires human approval before pushing.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "Commit message describing the changes." },
+          files: { type: "array", items: { type: "string" }, description: "List of file paths to stage (relative to project root). Use ['.'] to stage all changes." },
+          branch: { type: "string", description: "Branch name to push to. Defaults to current branch." },
+          description: { type: "string", description: "Brief description of what changes are being pushed and why." },
+        },
+        required: ["message", "files", "description"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "git_status",
+      description: "Check git status to see what files have been modified, added, or deleted. Use this before committing to understand what changes exist.",
+      parameters: {
+        type: "object",
+        properties: {
+          purpose: { type: "string", description: "Why you are checking git status." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "git_create_branch",
+      description: "Create and switch to a new git branch. Use this for feature development to keep changes isolated from main.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Name for the new branch (e.g., 'feature/login-page', 'fix/header-bug')." },
+          purpose: { type: "string", description: "Why you are creating this branch." },
+        },
+        required: ["name", "purpose"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "git_diff",
+      description: "View the diff of changes - shows what lines were added or removed. Use this to review changes before committing.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path to see diff for. Omit to see all changes." },
+          purpose: { type: "string", description: "Why you are checking the diff." },
+        },
+        required: [],
+      },
+    },
+  },
   PLAN_TASK_TOOL,
 ]
 
@@ -778,6 +839,23 @@ export async function executeToolCall(
         result = await executeAnalyzeCode(args.path, args.focus)
         break
 
+      // ── Git/GitHub tools (Dev Agent only) ──
+      case "git_commit_push":
+        result = await executeGitCommitPush(args.message, args.files, args.branch, args.description)
+        break
+
+      case "git_status":
+        result = await executeGitStatus(args.purpose)
+        break
+
+      case "git_create_branch":
+        result = await executeGitCreateBranch(args.name, args.purpose)
+        break
+
+      case "git_diff":
+        result = await executeGitDiff(args.path, args.purpose)
+        break
+
       // ── Client Hunter tools ──
       case "search_leads":
         result = await executeWebSearch(
@@ -1147,6 +1225,100 @@ async function executeAnalyzeCode(filePath: string, focus: string): Promise<stri
     ].filter(Boolean).join("\n")
   } catch (error: any) {
     return `Error analyzing code: ${error.message}`
+  }
+}
+
+// ━━ Git/GitHub Tool Implementations ━━
+
+async function executeGitStatus(purpose?: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync("git status --porcelain && echo '---BRANCH---' && git branch --show-current && echo '---REMOTE---' && git remote -v", {
+      cwd: PROJECT_ROOT,
+      timeout: 15000,
+    })
+    return `Git Status${purpose ? ` (Purpose: ${purpose})` : ""}:\n${stdout.trim()}`
+  } catch (error: any) {
+    return `Error checking git status: ${error.message}`
+  }
+}
+
+async function executeGitCreateBranch(name: string, purpose?: string): Promise<string> {
+  // Validate branch name
+  if (!/^[a-zA-Z0-9\/\-_]+$/.test(name)) {
+    return `Error: Invalid branch name "${name}". Use only letters, numbers, hyphens, underscores, and slashes.`
+  }
+  try {
+    const { stdout: currentBranch } = await execAsync("git branch --show-current", { cwd: PROJECT_ROOT, timeout: 10000 })
+    const { stdout } = await execAsync(`git checkout -b ${name}`, { cwd: PROJECT_ROOT, timeout: 15000 })
+    return `Created and switched to branch "${name}" from "${currentBranch.trim()}"${purpose ? `\nPurpose: ${purpose}` : ""}\n${stdout.trim()}\n\nYou can now make changes on this branch. Use git_commit_push to push when ready.`
+  } catch (error: any) {
+    return `Error creating branch: ${error.message}`
+  }
+}
+
+async function executeGitDiff(filePath?: string, purpose?: string): Promise<string> {
+  try {
+    const cmd = filePath
+      ? `git diff -- ${filePath}`
+      : "git diff --stat && echo '---DETAILED---' && git diff"
+    const { stdout } = await execAsync(cmd, { cwd: PROJECT_ROOT, timeout: 15000, maxBuffer: 2 * 1024 * 1024 })
+    if (!stdout.trim()) {
+      return "No unstaged changes found. (Staged changes not shown - use 'git diff --cached' to see staged changes)"
+    }
+    // Limit output to prevent overwhelming the context
+    const truncated = stdout.length > 10000 ? stdout.substring(0, 10000) + "\n... (diff truncated, too many changes)" : stdout
+    return `Git Diff${purpose ? ` (Purpose: ${purpose})` : ""}:\n${truncated}`
+  } catch (error: any) {
+    return `Error checking git diff: ${error.message}`
+  }
+}
+
+async function executeGitCommitPush(
+  message: string,
+  files: string[],
+  branch?: string,
+  description?: string
+): Promise<string> {
+  try {
+    // 1. Stage files
+    const filesArg = files.length === 1 && files[0] === "." ? "." : files.map(f => `"${f}"`).join(" ")
+    await execAsync(`git add ${filesArg}`, { cwd: PROJECT_ROOT, timeout: 15000 })
+
+    // 2. Check what's staged
+    const { stdout: staged } = await execAsync("git diff --cached --stat", { cwd: PROJECT_ROOT, timeout: 15000 })
+    if (!staged.trim()) {
+      return "No changes to commit. All files are already up to date."
+    }
+
+    // 3. Commit
+    const safeMessage = message.replace(/"/g, '\\"')
+    const { stdout: commitOut } = await execAsync(`git commit -m "${safeMessage}"`, {
+      cwd: PROJECT_ROOT,
+      timeout: 30000,
+    })
+
+    // 4. Push
+    const branchArg = branch || ""
+    const pushCmd = branchArg ? `git push origin ${branchArg}` : "git push"
+    const { stdout: pushOut } = await execAsync(pushCmd, { cwd: PROJECT_ROOT, timeout: 60000 })
+
+    return [
+      `✅ Git commit & push successful!`,
+      `${description ? `Description: ${description}` : ""}`,
+      `Commit: ${safeMessage}`,
+      `Files staged: ${filesArg}`,
+      ``,
+      `Commit output: ${commitOut.trim()}`,
+      `Push output: ${pushOut.trim()}`,
+      ``,
+      `Changes are now live on GitHub.`,
+    ].filter(Boolean).join("\n")
+  } catch (error: any) {
+    // If commit succeeded but push failed, report partial success
+    if (error.message?.includes("push") || error.message?.includes("remote")) {
+      return `⚠️ Commit succeeded but push failed: ${error.message}\n\nThe changes are committed locally. You can try pushing again manually.`
+    }
+    return `Error during git commit/push: ${error.message}`
   }
 }
 

@@ -72,12 +72,17 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Save user message
+    // Save user message with file attachments metadata
+    const messageMetadata = fileUrls && fileUrls.length > 0
+      ? JSON.stringify({ attachments: fileUrls.map((url: string) => ({ url, type: url.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) ? "image" : "file" })) })
+      : undefined
+
     await db.chatMessage.create({
       data: {
         chatId: chat.id,
         role: "user",
         content: message,
+        ...(messageMetadata ? { metadata: messageMetadata } : {}),
       }
     })
 
