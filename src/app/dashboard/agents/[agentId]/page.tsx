@@ -241,6 +241,9 @@ export default function AgentChatPage() {
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
+  // Delete confirmation dialog
+  const [deleteDialogChatId, setDeleteDialogChatId] = useState<string | null>(null);
+
   // Scheduled tasks
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -714,6 +717,33 @@ export default function AgentChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {activeChat && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => { setRenamingChatId(activeChat.id); setRenameValue(activeChat.title); }}>
+                    <Pencil className="h-4 w-4 mr-2" /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => archiveChat(activeChat.id)}>
+                    <Archive className="h-4 w-4 mr-2" /> Archive
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                    <DropdownMenuItem className="text-orange-600" onClick={() => setDeleteDialogChatId(activeChat.id)}>
+                      <ShieldAlert className="h-4 w-4 mr-2" /> Request Deletion
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem className="text-red-600" onClick={() => setDeleteDialogChatId(activeChat.id)}>
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -757,6 +787,7 @@ export default function AgentChatPage() {
               setRenameValue={setRenameValue}
               userRole={userRole}
               isMobile
+              onDeleteDialog={(id) => setDeleteDialogChatId(id)}
             />
           </TabsContent>
 
@@ -829,6 +860,67 @@ export default function AgentChatPage() {
           onSend={handleCrossAgentSend}
           fromAgentName={agent.name}
         />
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={!!deleteDialogChatId} onOpenChange={(open) => { if (!open) setDeleteDialogChatId(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                  <><ShieldAlert className="h-5 w-5 text-orange-500" /> Request Chat Deletion</>
+                ) : (
+                  <><Trash2 className="h-5 w-5 text-red-500" /> Delete Chat</>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-3">
+              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                <p className="text-sm text-muted-foreground">
+                  Your deletion request will be sent to admins (Taroon and Pruthvi) for review. 
+                  The chat will only be deleted after one of them approves it.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  This action cannot be undone. The chat and all its messages will be permanently deleted.
+                </p>
+              )}
+              {deleteDialogChatId && (
+                <div className="mt-3 p-2 rounded-lg bg-muted">
+                  <p className="text-sm font-medium">
+                    {chats.find(c => c.id === deleteDialogChatId)?.title || "Untitled Chat"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {chats.find(c => c.id === deleteDialogChatId)?._count?.messages || 0} messages
+                  </p>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
+              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                <Button 
+                  variant="outline" 
+                  className="bg-orange-500 hover:bg-orange-600 text-white hover:text-white"
+                  onClick={() => {
+                    if (deleteDialogChatId) deleteChat(deleteDialogChatId);
+                    setDeleteDialogChatId(null);
+                  }}
+                >
+                  <ShieldAlert className="h-4 w-4 mr-2" /> Send Deletion Request
+                </Button>
+              ) : (
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (deleteDialogChatId) deleteChat(deleteDialogChatId);
+                    setDeleteDialogChatId(null);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" /> Delete Chat
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -883,6 +975,7 @@ export default function AgentChatPage() {
               setRenamingChatId={setRenamingChatId}
               setRenameValue={setRenameValue}
               userRole={userRole}
+              onDeleteDialog={(id) => setDeleteDialogChatId(id)}
             />
           </>
         ) : (
@@ -930,6 +1023,33 @@ export default function AgentChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {activeChat && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => { setRenamingChatId(activeChat.id); setRenameValue(activeChat.title); }}>
+                    <Pencil className="h-4 w-4 mr-2" /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => archiveChat(activeChat.id)}>
+                    <Archive className="h-4 w-4 mr-2" /> Archive
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                    <DropdownMenuItem className="text-orange-600" onClick={() => setDeleteDialogChatId(activeChat.id)}>
+                      <ShieldAlert className="h-4 w-4 mr-2" /> Request Deletion
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem className="text-red-600" onClick={() => setDeleteDialogChatId(activeChat.id)}>
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1029,6 +1149,67 @@ export default function AgentChatPage() {
         onSend={handleCrossAgentSend}
         fromAgentName={agent.name}
       />
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteDialogChatId} onOpenChange={(open) => { if (!open) setDeleteDialogChatId(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                <><ShieldAlert className="h-5 w-5 text-orange-500" /> Request Chat Deletion</>
+              ) : (
+                <><Trash2 className="h-5 w-5 text-red-500" /> Delete Chat</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+              <p className="text-sm text-muted-foreground">
+                Your deletion request will be sent to admins (Taroon and Pruthvi) for review. 
+                The chat will only be deleted after one of them approves it.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                This action cannot be undone. The chat and all its messages will be permanently deleted.
+              </p>
+            )}
+            {deleteDialogChatId && (
+              <div className="mt-3 p-2 rounded-lg bg-muted">
+                <p className="text-sm font-medium">
+                  {chats.find(c => c.id === deleteDialogChatId)?.title || "Untitled Chat"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {chats.find(c => c.id === deleteDialogChatId)?._count?.messages || 0} messages
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
+            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+              <Button 
+                variant="outline" 
+                className="bg-orange-500 hover:bg-orange-600 text-white hover:text-white"
+                onClick={() => {
+                  if (deleteDialogChatId) deleteChat(deleteDialogChatId);
+                  setDeleteDialogChatId(null);
+                }}
+              >
+                <ShieldAlert className="h-4 w-4 mr-2" /> Send Deletion Request
+              </Button>
+            ) : (
+              <Button 
+                variant="destructive"
+                onClick={() => {
+                  if (deleteDialogChatId) deleteChat(deleteDialogChatId);
+                  setDeleteDialogChatId(null);
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-2" /> Delete Chat
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1051,6 +1232,7 @@ function ChatSidebar({
   setRenameValue,
   userRole,
   isMobile,
+  onDeleteDialog,
 }: {
   chats: Chat[];
   activeChatId: string | null;
@@ -1066,6 +1248,7 @@ function ChatSidebar({
   setRenameValue: (val: string) => void;
   userRole?: string;
   isMobile?: boolean;
+  onDeleteDialog?: (id: string) => void;
 }) {
   if (loading) {
     return (
@@ -1128,7 +1311,7 @@ function ChatSidebar({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                            className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <MoreVertical className="h-3 w-3" />
@@ -1158,7 +1341,8 @@ function ChatSidebar({
                               className="text-orange-600"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onDelete(chat.id);
+                                if (onDeleteDialog) onDeleteDialog(chat.id);
+                                else onDelete(chat.id);
                               }}
                             >
                               <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
@@ -1168,7 +1352,8 @@ function ChatSidebar({
                               className="text-red-600"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onDelete(chat.id);
+                                if (onDeleteDialog) onDeleteDialog(chat.id);
+                                else onDelete(chat.id);
                               }}
                             >
                               <Trash2 className="h-3 w-3 mr-2" /> Delete
