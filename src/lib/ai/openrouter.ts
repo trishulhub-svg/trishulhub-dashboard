@@ -58,7 +58,7 @@ interface KeyInfo {
 // ━━ Valid Model Sets ━━
 // Updated 2025-04: Only models that actually exist on Z.ai API
 const VALID_ZAI_MODELS = new Set([
-  "glm-4.7-flash", "glm-4-plus", "glm-4.5-air", "glm-5.1", "glm-z1-flash",
+  "glm-4.7-flash", "glm-4-plus", "glm-4.5-air", "glm-5.1",
   // Legacy names (redirected by getModelForProvider to actual model names)
   "glm-4-flash", "glm-4-air", "glm-4-long",
   "glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414",
@@ -85,7 +85,7 @@ const CROSS_PROVIDER_MAP: Record<string, Record<string, string>> = {
   "glm-4.5-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air" },
   "glm-4.7-flash": { openrouter: "meta-llama/llama-3.3-70b-instruct:free", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
   "glm-5.1": { openrouter: "anthropic/claude-sonnet-4", google_ai: "gemini-2.5-pro", zai: "glm-5.1" },
-  "glm-z1-flash": { openrouter: "deepseek/deepseek-r1:free", google_ai: "gemini-2.0-flash", zai: "glm-z1-flash" },
+  // glm-z1-flash removed: model does not exist on Z.ai API
   // Legacy short names → redirect to working models
   "glm-4-flash": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
   "glm-4-air": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
@@ -292,13 +292,13 @@ async function generateZaiToken(apiKey: string): Promise<string> {
     try {
       const secretBytes = new TextEncoder().encode(secret)
       const now = Date.now()
+      const nowSec = Math.floor(now / 1000)
       const token = await new SignJWT({
         api_key: id,
-        timestamp: now,
+        timestamp: now, // Z.ai expects milliseconds
+        exp: nowSec + 3600, // JWT standard: seconds since epoch
       })
         .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
-        .setIssuedAt()
-        .setExpirationTime(now + 3600 * 1000) // 1 hour
         .sign(secretBytes)
       return token
     } catch (err) {
@@ -313,6 +313,7 @@ async function generateZaiToken(apiKey: string): Promise<string> {
 }
 
 // ━━ Z.ai Direct API ━━
+// Includes automatic retry with exponential backoff for temporary rate limits
 async function callZaiAPI(
   messages: ChatMessage[],
   model: string,
@@ -324,53 +325,81 @@ async function callZaiAPI(
 
   console.log(`[zai] Calling with model: ${mappedModel} (original: ${model})`)
 
-  const response = await fetch(ZAI_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const MAX_RETRIES = 2
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff: 2s, 4s
+      const delayMs = Math.pow(2, attempt) * 1000
+      console.log(`[zai] Retry attempt ${attempt}/${MAX_RETRIES} after ${delayMs}ms...`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+
+    const response = await fetch(ZAI_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: mappedModel,
+        messages,
+        max_tokens: options?.maxTokens || 4096,
+        temperature: options?.temperature || 0.7,
+      }),
+    })
+
+    if (!response.ok) {
+      let errorText = await response.text()
+      const statusCode = response.status
+
+      // Translate Chinese error messages from Z.ai API to English
+      errorText = translateZaiError(errorText)
+
+      console.error(`[zai] API error: ${statusCode} - ${errorText.substring(0, 500)}`)
+
+      if (statusCode === 401 || statusCode === 403) {
+        throw new APIKeyInvalidError("zai", statusCode, errorText)
+      }
+      if (statusCode === 402) {
+        throw new APIKeyExhaustedError("zai", statusCode, errorText)
+      }
+      if (statusCode === 429) {
+        // 429 can be temporary rate limit OR insufficient balance
+        // "访问量过大" = rate limit (temporary) → retry with backoff
+        // "余额不足" = insufficient balance (permanent until recharge) → mark as exhausted
+        const isInsufficientBalance = errorText.includes("Insufficient balance") || errorText.includes("insufficient balance") || errorText.includes("no available resource") || errorText.includes("请充值")
+        if (isInsufficientBalance) {
+          throw new APIKeyExhaustedError("zai", statusCode, errorText)
+        }
+        // Temporary rate limit - retry if attempts remain
+        lastError = new Error(`Z.ai rate limit (temporary): ${errorText}. Model is busy, please try again in a moment.`)
+        if (attempt < MAX_RETRIES) continue // retry
+        throw lastError // no more retries
+      }
+      // Model not found (code 1211) - try to provide helpful message
+      if (errorText.includes("Model does not exist") || errorText.includes("model not found")) {
+        throw new Error(`Z.ai API error: Model "${mappedModel}" does not exist. Please update the agent to use a valid model like "glm-4.7-flash" (free) or "glm-4-plus" (paid).`)
+      }
+      throw new Error(`Z.ai API error: ${statusCode} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    const cost = estimateCost(mappedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
+
+    return {
+      content: data.choices?.[0]?.message?.content || "",
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
       model: mappedModel,
-      messages,
-      max_tokens: options?.maxTokens || 4096,
-      temperature: options?.temperature || 0.7,
-    }),
-  })
-
-  if (!response.ok) {
-    let errorText = await response.text()
-    const statusCode = response.status
-
-    // Translate Chinese error messages from Z.ai API to English
-    errorText = translateZaiError(errorText)
-
-    console.error(`[zai] API error: ${statusCode} - ${errorText.substring(0, 500)}`)
-
-    if (statusCode === 401 || statusCode === 403) {
-      throw new APIKeyInvalidError("zai", statusCode, errorText)
+      provider: "zai",
+      cost,
     }
-    if (statusCode === 402 || statusCode === 429) {
-      throw new APIKeyExhaustedError("zai", statusCode, errorText)
-    }
-    // Model not found (code 1211) - try to provide helpful message
-    if (errorText.includes("Model does not exist") || errorText.includes("model not found")) {
-      throw new Error(`Z.ai API error: Model "${mappedModel}" does not exist. Please update the agent to use a valid model like "glm-4.7-flash" (free) or "glm-4-plus" (paid).`)
-    }
-    throw new Error(`Z.ai API error: ${statusCode} - ${errorText}`)
-  }
+  } // end retry loop
 
-  const data = await response.json()
-  const cost = estimateCost(mappedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
-
-  return {
-    content: data.choices?.[0]?.message?.content || "",
-    inputTokens: data.usage?.prompt_tokens || 0,
-    outputTokens: data.usage?.completion_tokens || 0,
-    model: mappedModel,
-    provider: "zai",
-    cost,
-  }
+  // Should not reach here, but just in case
+  throw lastError || new Error("Z.ai API call failed unexpectedly")
 }
 
 // ━━ Google AI Studio API ━━
@@ -602,7 +631,6 @@ export function getModelsForProvider(provider: string): { id: string; name: stri
         { id: "glm-4.5-air", name: "GLM-4.5 Air", free: false },
         { id: "glm-4-plus", name: "GLM-4 Plus", free: false },
         { id: "glm-5.1", name: "GLM-5.1", free: false },
-        { id: "glm-z1-flash", name: "GLM-Z1 Flash (Reasoning)", free: false },
       ]
     case "GOOGLE_AI":
       return [

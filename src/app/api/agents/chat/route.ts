@@ -277,51 +277,68 @@ export async function POST(req: NextRequest) {
 
       // Handle specific error types
       if (apiError instanceof AllKeysExhaustedError) {
-        // Mark exhausted keys in database
-        for (const key of eligibleKeys) {
-          // Check if this key was mentioned in the error messages
-          const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
-          if (keyErrors.length > 0) {
-            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("Insufficient balance") || e.includes("Token expired"))
-            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized") || e.includes("Invalid authentication"))
+        // Check if this was a temporary rate limit (not a permanent exhaustion)
+        const isTemporaryRateLimit = apiError.errors.some(e => e.includes("rate limit") || e.includes("too much traffic") || e.includes("访问量过大") || e.includes("try again"))
+        const isOnlyRateLimited = isTemporaryRateLimit && !apiError.errors.some(e => e.includes("402") || e.includes("Insufficient balance") || e.includes("insufficient balance") || e.includes("no available resource"))
 
-            if (isExhausted) {
-              await db.apiKey.update({
-                where: { id: key.id },
-                data: { status: "EXHAUSTED" },
-              })
-              // Unlink agents from this exhausted key
-              await db.agent.updateMany({
-                where: { apiKeyId: key.id },
-                data: { apiKeyId: null },
-              })
-            } else if (isInvalid) {
-              await db.apiKey.update({
-                where: { id: key.id },
-                data: { status: "ERROR" },
-              })
-              await db.agent.updateMany({
-                where: { apiKeyId: key.id },
-                data: { apiKeyId: null },
-              })
+        // Only mark keys as EXHAUSTED for permanent issues (insufficient balance), NOT temporary rate limits
+        if (!isOnlyRateLimited) {
+          // Mark exhausted keys in database
+          for (const key of eligibleKeys) {
+            // Check if this key was mentioned in the error messages
+            const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
+            if (keyErrors.length > 0) {
+              const isExhausted = keyErrors.some(e => e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("Insufficient balance") || e.includes("insufficient balance") || e.includes("no available resource") || e.includes("Token expired"))
+              const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized") || e.includes("Invalid authentication"))
+
+              if (isExhausted) {
+                await db.apiKey.update({
+                  where: { id: key.id },
+                  data: { status: "EXHAUSTED" },
+                })
+                // Unlink agents from this exhausted key
+                await db.agent.updateMany({
+                  where: { apiKeyId: key.id },
+                  data: { apiKeyId: null },
+                })
+              } else if (isInvalid) {
+                await db.apiKey.update({
+                  where: { id: key.id },
+                  data: { status: "ERROR" },
+                })
+                await db.agent.updateMany({
+                  where: { apiKeyId: key.id },
+                  data: { apiKeyId: null },
+                })
+              }
             }
           }
-        }
 
-        // Create notification for admin
-        const admins = await db.user.findMany({
-          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } }
-        })
-        for (const admin of admins) {
-          await db.notification.create({
-            data: {
-              userId: admin.id,
-              title: "API Keys Exhausted",
-              message: `All API keys have failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to existing ones.`,
-              type: "ERROR",
-              link: "/dashboard/api-keys",
-            }
+          // Create notification for admin
+          const admins = await db.user.findMany({
+            where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } }
           })
+          for (const admin of admins) {
+            await db.notification.create({
+              data: {
+                userId: admin.id,
+                title: "API Keys Exhausted",
+                message: `All API keys have failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to existing ones.`,
+                type: "ERROR",
+                link: "/dashboard/api-keys",
+              }
+            })
+          }
+        } // end if (!isOnlyRateLimited)
+
+        // Return appropriate error message
+        if (isOnlyRateLimited) {
+          return NextResponse.json({
+            error: "AI model is currently busy (rate limited). Please try again in a moment. This is temporary and your API keys are still valid.",
+            chatId: chat.id,
+            details: apiError.errors,
+            hint: "The free model (glm-4.7-flash) can be busy at peak times. Try again in 30-60 seconds, or add a paid model API key for more reliable access.",
+          }, { status: 503 })
         }
 
         return NextResponse.json({
