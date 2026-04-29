@@ -96,9 +96,14 @@ model Chat {
   userId    String
   title     String   @default("New Chat")
   isShared  Boolean  @default(false) // Can be accessed by other agents
-  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED, ENDED
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Chat locking - prevents concurrent access by different users
+  lockedBy    String?   // User ID who is currently active on this chat
+  lockedAt    DateTime? // When the lock was acquired
+  lockedByName String?  // Display name of the user who locked it
 
   agent          Agent            @relation(fields: [agentId], references: [id])
   user           User             @relation(fields: [userId], references: [id])
@@ -107,6 +112,7 @@ model Chat {
 
   @@index([agentId, userId])
   @@index([userId, status])
+  @@index([lockedBy])
 }
 
 model ChatMessage {

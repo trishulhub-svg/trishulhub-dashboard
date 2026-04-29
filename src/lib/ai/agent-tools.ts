@@ -858,10 +858,7 @@ export async function executeToolCall(
 
       // ── Client Hunter tools ──
       case "search_leads":
-        result = await executeWebSearch(
-          `${args.industry || 'businesses'} in ${args.location} ${args.criteria || ''} contact details`,
-          `Finding leads: ${args.industry || 'businesses'} in ${args.location}`
-        )
+        result = await executeSearchLeads(args.location, args.industry, args.criteria)
         break
 
       case "analyze_website":
@@ -1078,6 +1075,108 @@ async function executeWebSearch(query: string, purpose?: string): Promise<string
     return `Web search for: "${query}"${purpose ? ` (Purpose: ${purpose})` : ""}\n\nSearch completed. For detailed results, try a more specific query.`
   } catch (error: any) {
     return `Web search failed: ${error.message}. Please try again with a different query.`
+  }
+}
+
+// ━━ Client Hunter: Structured Lead Search ━━
+
+async function executeSearchLeads(location: string, industry?: string, criteria?: string): Promise<string> {
+  try {
+    // Perform multiple targeted searches to gather comprehensive lead data
+    const searchQueries = [
+      `${industry || 'businesses'} in ${location} contact details phone website`,
+      `${industry || 'companies'} ${location} ${criteria || ''} directory listing`,
+      `best ${industry || 'businesses'} near ${location} reviews`,
+    ]
+
+    const allResults: Array<{ name: string; url: string; snippet: string }> = []
+
+    for (const query of searchQueries) {
+      try {
+        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
+        const response = await fetch(`${baseUrl}/api/web-search?q=${encodeURIComponent(query)}`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.results && data.results.length > 0) {
+            for (const r of data.results) {
+              allResults.push({
+                name: r.name || r.title || "",
+                url: r.url || "",
+                snippet: r.snippet || r.content || "",
+              })
+            }
+          }
+        }
+      } catch {
+        // Continue with next query if one fails
+      }
+    }
+
+    // Deduplicate by URL
+    const seenUrls = new Set<string>()
+    const uniqueResults = allResults.filter(r => {
+      if (seenUrls.has(r.url)) return false
+      seenUrls.add(r.url)
+      return true
+    })
+
+    if (uniqueResults.length === 0) {
+      return `No leads found for ${industry || 'businesses'} in ${location}. Try broadening your search criteria or trying a different location.`
+    }
+
+    // Parse results into structured lead format
+    const leads = uniqueResults.slice(0, 8).map((r, idx) => {
+      const snippet = r.snippet || ""
+      // Try to extract phone number from snippet
+      const phoneMatch = snippet.match(/(?:\+44|0)\s?\d[\d\s\-]{8,12}\d/)
+      const phone = phoneMatch ? phoneMatch[0] : null
+
+      // Try to extract email
+      const emailMatch = snippet.match(/[\w.-]+@[\w.-]+\.\w+/)
+      const email = emailMatch ? emailMatch[0] : null
+
+      // Try to extract address
+      const addressMatch = snippet.match(/(\d+[\w\s,]+(?:Street|Road|Lane|Avenue|Drive|Way|Place|Harrow|London|Manchester|Birmingham|Leeds|Bristol|Edinburgh)[\w\s,]*)/i)
+      const address = addressMatch ? addressMatch[1].trim() : null
+
+      return {
+        id: idx + 1,
+        businessName: r.name || `Business ${idx + 1}`,
+        website: r.url || null,
+        phone: phone,
+        email: email,
+        address: address,
+        industry: industry || "General",
+        location: location,
+        notes: snippet.substring(0, 200),
+      }
+    })
+
+    // Format as structured output
+    const formattedLeads = leads.map(lead => {
+      const lines = [
+        `LEAD #${lead.id}:`,
+        `  Business Name: ${lead.businessName}`,
+        `  Location: ${lead.location}`,
+        `  Industry: ${lead.industry}`,
+        lead.website ? `  Website: ${lead.website}` : "  Website: Not found",
+        lead.phone ? `  Phone: ${lead.phone}` : "  Phone: Not found",
+        lead.email ? `  Email: ${lead.email}` : "  Email: Not found",
+        lead.address ? `  Address: ${lead.address}` : "  Address: Not found",
+        `  Notes: ${lead.notes.substring(0, 150)}`,
+      ]
+      return lines.join("\n")
+    }).join("\n\n")
+
+    const summary = `Found ${leads.length} potential leads for ${industry || 'businesses'} in ${location}.\n\n${formattedLeads}\n\nNEXT STEPS: Use score_lead to evaluate each lead, then use draft_email for HOT/WARM leads. Present results in a clear table with columns: Business, Location, Website, Score, Tier.`
+
+    return summary
+  } catch (error: any) {
+    return `Lead search failed: ${error.message}. Please try again with different parameters.`
   }
 }
 

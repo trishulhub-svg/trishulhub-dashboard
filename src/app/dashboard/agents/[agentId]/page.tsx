@@ -83,6 +83,9 @@ interface Chat {
   status: string;
   createdAt: string;
   updatedAt: string;
+  lockedBy?: string | null;
+  lockedAt?: string | null;
+  lockedByName?: string | null;
   agent?: { id: string; name: string; type: string; status: string };
   messages?: { id: string; role: string; content: string; createdAt: string }[];
   _count?: { messages: number };
@@ -235,7 +238,7 @@ export default function AgentChatPage() {
   const [mobileTab, setMobileTab] = useState<"chats" | "messages" | "features">("messages");
 
   // Right panel tab
-  const [rightTab, setRightTab] = useState<"features" | "tasks" | "crossagent">("features");
+  const [rightTab, setRightTab] = useState<"features" | "tasks" | "crossagent" | "live">("live");
 
   // Dialogs
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -253,6 +256,13 @@ export default function AgentChatPage() {
   const [agentSteps, setAgentSteps] = useState<Array<{ type: string; content: string; toolName?: string; stepNumber: number }>>([]);
   const [isAgentic, setIsAgentic] = useState(false);
   const [liveSteps, setLiveSteps] = useState<Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>>([]);
+
+  // Chat locking state (Feature 4)
+  const [chatLockInfo, setChatLockInfo] = useState<{ lockedBy: string | null; lockedByName: string | null; lockedAt: string | null }>({ lockedBy: null, lockedByName: null, lockedAt: null });
+
+  // Plan steps for Tasks tab (Feature 2)
+  const [planSteps, setPlanSteps] = useState<Array<{ step: number; title: string; description: string; status: 'completed' | 'running' | 'pending' }>>([]);
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
 
   // File upload state
   const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
@@ -405,11 +415,71 @@ export default function AgentChatPage() {
   }, [messages, sending]);
 
   // ── Select chat ──
-  const selectChat = useCallback((chatId: string) => {
+  const selectChat = useCallback(async (chatId: string) => {
+    // Check lock status before selecting
+    try {
+      const lockRes = await fetch(`/api/chat-lock?chatId=${chatId}`, { credentials: "include" });
+      if (lockRes.ok) {
+        const lockData = await lockRes.json();
+        setChatLockInfo({ lockedBy: lockData.lockedBy, lockedByName: lockData.lockedByName, lockedAt: lockData.lockedAt });
+        
+        // If locked by another user and not admin, show locked state
+        const currentUserId = (session?.user as any)?.id;
+        const currentUserRole = (session?.user as any)?.role;
+        if (lockData.locked && lockData.lockedBy !== currentUserId && currentUserRole !== "SUPER_ADMIN" && currentUserRole !== "ADMIN") {
+          setActiveChatId(chatId);
+          fetchMessages(chatId);
+          if (isMobile) setMobileTab("messages");
+          return;
+        }
+      }
+    } catch {
+      // Continue even if lock check fails
+    }
+
+    // Release previous chat lock if switching chats
+    if (activeChatId && activeChatId !== chatId) {
+      try {
+        await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
+      } catch {}
+    }
+
     setActiveChatId(chatId);
     fetchMessages(chatId);
     if (isMobile) setMobileTab("messages");
-  }, [fetchMessages, isMobile]);
+  }, [fetchMessages, isMobile, activeChatId, session]);
+
+  // ── Release chat lock ──
+  const releaseChatLock = useCallback(async () => {
+    if (!activeChatId) return;
+    try {
+      await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
+      setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
+    } catch {}
+  }, [activeChatId]);
+
+  // ── End Chat (release lock + set status to ENDED) ──
+  const endChat = useCallback(async () => {
+    if (!activeChatId) return;
+    try {
+      // Release lock
+      await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
+      // Set chat status to ENDED
+      await fetch("/api/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: activeChatId, status: "ENDED" }),
+      });
+      setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
+      setActiveChatId(null);
+      setMessages([]);
+      await fetchChats();
+      toast.success("Chat ended and lock released");
+    } catch {
+      toast.error("Failed to end chat");
+    }
+  }, [activeChatId, fetchChats]);
 
   // ── Create new chat ──
   const createNewChat = useCallback(async () => {
@@ -592,6 +662,38 @@ export default function AgentChatPage() {
                 collectedSteps.push(step);
                 setAgentSteps([...collectedSteps]);
 
+                // Check for plan_task steps (Feature 2)
+                if (step.type === "tool_call" && step.toolName === "plan_task") {
+                  try {
+                    const argsStr = step.content || "";
+                    const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                    if (stepsMatch) {
+                      const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
+                      setPlanSteps(stepsData.map((s: any, idx: number) => ({
+                        step: s.step || idx + 1,
+                        title: s.title || `Step ${idx + 1}`,
+                        description: s.description || "",
+                        status: idx === 0 ? 'running' as const : 'pending' as const,
+                      })));
+                    }
+                  } catch {}
+                }
+
+                // Update plan step status as tools execute
+                if (step.type === "tool_result" && planSteps.length > 0) {
+                  setPlanSteps(prev => {
+                    const updated = [...prev];
+                    const runningIdx = updated.findIndex(s => s.status === 'running');
+                    if (runningIdx >= 0) {
+                      updated[runningIdx] = { ...updated[runningIdx], status: 'completed' as const };
+                      if (runningIdx + 1 < updated.length) {
+                        updated[runningIdx + 1] = { ...updated[runningIdx + 1], status: 'running' as const };
+                      }
+                    }
+                    return updated;
+                  });
+                }
+
                 // Update live steps with status
                 setLiveSteps((prev) => {
                   const updated = [...prev];
@@ -721,8 +823,12 @@ export default function AgentChatPage() {
       setSending(false);
       setIsAgentic(false);
       setLiveSteps([]);
+      // Mark all plan steps as completed when done
+      if (planSteps.length > 0) {
+        setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
+      }
     }
-  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic]);
+  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps]);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -773,6 +879,10 @@ export default function AgentChatPage() {
   };
 
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const currentUserId = (session?.user as { id?: string })?.id;
+
+  // Is the current chat locked by someone else?
+  const isChatLockedByOther = !!(activeChatId && chatLockInfo.lockedBy && chatLockInfo.lockedBy !== currentUserId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN");
 
   const deleteChat = async (chatId: string) => {
     try {
@@ -922,6 +1032,20 @@ export default function AgentChatPage() {
   // ── Active chat ──
   const activeChat = chats.find((c) => c.id === activeChatId);
 
+  // ── Auto-release lock on unmount / navigation away ──
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (activeChatId) {
+        // Use sendBeacon for reliability during page unload
+        navigator.sendBeacon(`/api/chat-lock?chatId=${activeChatId}`);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeChatId]);
+
   // ────────────────────────────────────────────────────────────────
   // RENDER
   // ────────────────────────────────────────────────────────────────
@@ -1050,6 +1174,10 @@ export default function AgentChatPage() {
               Paperclip={Paperclip}
               Send={Send}
               Loader2={Loader2}
+              isChatLockedByOther={isChatLockedByOther}
+              chatLockInfo={chatLockInfo}
+              onEndChat={endChat}
+              onReleaseLock={releaseChatLock}
             />
           </TabsContent>
 
@@ -1076,6 +1204,12 @@ export default function AgentChatPage() {
               onRefreshCrossAgent={fetchCrossAgent}
               Icon={Icon}
               agentConfig={agentConfig}
+              liveSteps={liveSteps}
+              agentSteps={agentSteps}
+              planSteps={planSteps}
+              expandedSteps={expandedSteps}
+              setExpandedSteps={setExpandedSteps}
+              sending={sending}
             />
           </TabsContent>
         </Tabs>
@@ -1345,6 +1479,10 @@ export default function AgentChatPage() {
           Paperclip={Paperclip}
           Send={Send}
           Loader2={Loader2}
+          isChatLockedByOther={isChatLockedByOther}
+          chatLockInfo={chatLockInfo}
+          onEndChat={endChat}
+          onReleaseLock={releaseChatLock}
         />
       </div>
 
@@ -1373,6 +1511,12 @@ export default function AgentChatPage() {
             onRefreshCrossAgent={fetchCrossAgent}
             Icon={Icon}
             agentConfig={agentConfig}
+            liveSteps={liveSteps}
+            agentSteps={agentSteps}
+            planSteps={planSteps}
+            expandedSteps={expandedSteps}
+            setExpandedSteps={setExpandedSteps}
+            sending={sending}
           />
         </div>
       )}
@@ -1617,6 +1761,11 @@ function ChatSidebar({
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
+                      {chat.lockedByName && (
+                        <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
+                          🔒 {chat.lockedByName}
+                        </Badge>
+                      )}
                       <span className="text-[10px] text-muted-foreground">
                         {chat._count?.messages || 0} msgs
                       </span>
@@ -1665,6 +1814,10 @@ function ChatArea({
   Paperclip: PaperclipIcon,
   Send: SendIcon,
   Loader2: Loader2Icon,
+  isChatLockedByOther,
+  chatLockInfo,
+  onEndChat,
+  onReleaseLock,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -1692,9 +1845,71 @@ function ChatArea({
   Paperclip: React.ComponentType<{ className?: string }>;
   Send: React.ComponentType<{ className?: string }>;
   Loader2: React.ComponentType<{ className?: string }>;
+  isChatLockedByOther: boolean | null;
+  chatLockInfo: { lockedBy: string | null; lockedByName: string | null; lockedAt: string | null };
+  onEndChat: () => void;
+  onReleaseLock: () => void;
 }) {
   return (
     <>
+      {/* Feature 4: Chat Locked Overlay */}
+      {isChatLockedByOther && (
+        <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="text-center p-6 max-w-sm">
+            <div className="h-16 w-16 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert className="h-8 w-8 text-orange-500" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">Chat Locked</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {chatLockInfo.lockedByName || 'Another user'} is currently working on this chat. You cannot send messages until they release it.
+            </p>
+            <Button variant="outline" onClick={onReleaseLock} className="text-sm">
+              <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
+            </Button>
+          </div>
+        </div>
+      )}
+      {/* Feature 1: Agent is thinking indicator */}
+      {sending && (
+        <div className="px-4 py-2 border-b bg-purple-50 dark:bg-purple-900/20 flex items-center gap-2">
+          <div className="relative">
+            <Brain className="h-4 w-4 text-purple-500" />
+            <div className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-purple-400 animate-ping" />
+          </div>
+          <span className="text-xs font-medium text-purple-700 dark:text-purple-300 animate-pulse">Agent is thinking...</span>
+          <div className="flex gap-0.5 ml-1">
+            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
+            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
+            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
+          </div>
+          <Badge variant="secondary" className="text-[8px] h-4 ml-auto bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+            <Clock className="h-2.5 w-2.5 mr-0.5" /> {liveSteps.length > 0 ? `Step ${liveSteps.length}` : 'Starting...'}
+          </Badge>
+        </div>
+      )}
+      {/* Feature 4: End Chat button in header when active */}
+      {activeChat && !isChatLockedByOther && (
+        <div className="px-4 py-1.5 border-b bg-card flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-[9px] h-4">
+              {activeChat.status}
+            </Badge>
+            {chatLockInfo.lockedByName && (
+              <Badge variant="secondary" className="text-[9px] h-4 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+                🔒 {chatLockInfo.lockedByName}
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+            onClick={onEndChat}
+          >
+            <X className="h-3 w-3 mr-1" /> End Chat
+          </Button>
+        </div>
+      )}
       {/* Messages */}
       <ScrollArea className="flex-1">
         {messagesLoading ? (
@@ -2125,12 +2340,13 @@ function ChatArea({
                 multiple
                 accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md,.js,.ts,.tsx,.jsx,.html,.css,.zip"
                 onChange={onFileUpload}
+                disabled={sending}
               />
               <Button
                 variant="ghost"
                 size="icon"
                 className="shrink-0"
-                disabled={uploading}
+                disabled={uploading || sending}
                 onClick={() => fileInputRef.current?.click()}
               >
                 {uploading ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <PaperclipIcon className="h-4 w-4" />}
@@ -2142,9 +2358,10 @@ function ChatArea({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
+            placeholder={sending ? "Agent is working... please wait" : `Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
             className="min-h-[44px] max-h-32 resize-none"
             rows={1}
+            disabled={sending}
           />
           <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending} className="shrink-0">
             {sending ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />}
@@ -2180,9 +2397,15 @@ function RightPanel({
   onRefreshCrossAgent,
   Icon,
   agentConfig,
+  liveSteps,
+  agentSteps,
+  planSteps,
+  expandedSteps,
+  setExpandedSteps,
+  sending,
 }: {
   rightTab: string;
-  setRightTab: (tab: "features" | "tasks" | "crossagent") => void;
+  setRightTab: (tab: "features" | "tasks" | "crossagent" | "live") => void;
   agent: AgentData;
   quickActions: QuickAction[];
   specialCommands: SpecialCommand[];
@@ -2202,18 +2425,27 @@ function RightPanel({
   onRefreshCrossAgent: () => void;
   Icon: React.ComponentType<{ className?: string }>;
   agentConfig: { color: string; label: string } | null;
+  liveSteps: Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>;
+  agentSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }>;
+  planSteps: Array<{ step: number; title: string; description: string; status: 'completed' | 'running' | 'pending' }>;
+  expandedSteps: Set<number>;
+  setExpandedSteps: (steps: Set<number>) => void;
+  sending: boolean;
 }) {
   return (
     <>
       {/* Panel header */}
       <div className="p-3 border-b">
-        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent")}>
+        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent" | "live")}>
           <TabsList className="w-full h-8">
-            <TabsTrigger value="features" className="text-xs flex-1">
-              <Zap className="h-3 w-3 mr-1" /> Features
+            <TabsTrigger value="live" className="text-xs flex-1">
+              <Terminal className="h-3 w-3 mr-1" /> Live
             </TabsTrigger>
             <TabsTrigger value="tasks" className="text-xs flex-1">
-              <Calendar className="h-3 w-3 mr-1" /> Tasks
+              <ListChecks className="h-3 w-3 mr-1" /> Tasks
+            </TabsTrigger>
+            <TabsTrigger value="features" className="text-xs flex-1">
+              <Zap className="h-3 w-3 mr-1" /> Info
             </TabsTrigger>
             <TabsTrigger value="crossagent" className="text-xs flex-1">
               <ArrowRightLeft className="h-3 w-3 mr-1" /> Cross
@@ -2223,6 +2455,28 @@ function RightPanel({
       </div>
 
       <ScrollArea className="flex-1">
+        {rightTab === "live" && (
+          <LiveTab
+            liveSteps={liveSteps}
+            agentSteps={agentSteps}
+            sending={sending}
+            agent={agent}
+            Icon={Icon}
+            agentConfig={agentConfig}
+            expandedSteps={expandedSteps}
+            setExpandedSteps={setExpandedSteps}
+          />
+        )}
+        {rightTab === "tasks" && (
+          <TasksTab
+            tasks={scheduledTasks}
+            loading={tasksLoading}
+            onNewTask={onNewTask}
+            onStatusUpdate={onTaskStatusUpdate}
+            onRefresh={onRefreshTasks}
+            planSteps={planSteps}
+          />
+        )}
         {rightTab === "features" && (
           <FeaturesTab
             agent={agent}
@@ -2242,6 +2496,7 @@ function RightPanel({
             onNewTask={onNewTask}
             onStatusUpdate={onTaskStatusUpdate}
             onRefresh={onRefreshTasks}
+            planSteps={planSteps}
           />
         )}
         {rightTab === "crossagent" && (
@@ -2256,6 +2511,164 @@ function RightPanel({
         )}
       </ScrollArea>
     </>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// LIVE TAB (Feature 2: Z.ai-style terminal view)
+// ──────────────────────────────────────────────────────────────────
+function LiveTab({
+  liveSteps,
+  agentSteps,
+  sending,
+  agent,
+  Icon,
+  agentConfig,
+  expandedSteps,
+  setExpandedSteps,
+}: {
+  liveSteps: Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>;
+  agentSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }>;
+  sending: boolean;
+  agent: AgentData;
+  Icon: React.ComponentType<{ className?: string }>;
+  agentConfig: { color: string; label: string } | null;
+  expandedSteps: Set<number>;
+  setExpandedSteps: (steps: Set<number>) => void;
+}) {
+  const liveRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (liveRef.current) {
+      liveRef.current.scrollTop = liveRef.current.scrollHeight;
+    }
+  }, [liveSteps, agentSteps]);
+
+  const allSteps = liveSteps.length > 0 ? liveSteps : agentSteps.map(s => ({
+    type: s.type,
+    content: s.content,
+    toolName: s.toolName,
+    status: 'done' as const,
+  }));
+
+  const completedSteps = allSteps.filter(s => s.status === 'done').length;
+  const totalSteps = allSteps.length;
+  const progressPct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+
+  const getStepIcon = (type: string, status: string) => {
+    if (status === 'running') {
+      switch (type) {
+        case 'thinking': return <Brain className="h-3.5 w-3.5 text-purple-500 animate-pulse" />;
+        case 'tool_call': return <Wrench className="h-3.5 w-3.5 text-blue-500 animate-bounce" />;
+        case 'tool_result': return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
+        case 'plan': return <Lightbulb className="h-3.5 w-3.5 text-amber-500 animate-pulse" />;
+        case 'error': return <CircleX className="h-3.5 w-3.5 text-red-500" />;
+        default: return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />;
+      }
+    }
+    switch (type) {
+      case 'thinking': return <Brain className="h-3.5 w-3.5 text-purple-500" />;
+      case 'tool_call': return <Wrench className="h-3.5 w-3.5 text-blue-500" />;
+      case 'tool_result': return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
+      case 'plan': return <Lightbulb className="h-3.5 w-3.5 text-amber-500" />;
+      case 'error': return <CircleX className="h-3.5 w-3.5 text-red-500" />;
+      default: return <CircleCheck className="h-3.5 w-3.5 text-muted-foreground" />;
+    }
+  };
+
+  const getStepBadge = (type: string) => {
+    switch (type) {
+      case 'thinking': return <Badge className="text-[8px] h-4 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">🧠 Thinking</Badge>;
+      case 'tool_call': return <Badge className="text-[8px] h-4 px-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">🔧 Tool Call</Badge>;
+      case 'tool_result': return <Badge className="text-[8px] h-4 px-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">✅ Result</Badge>;
+      case 'plan': return <Badge className="text-[8px] h-4 px-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">📋 Planning</Badge>;
+      case 'error': return <Badge className="text-[8px] h-4 px-1 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">❌ Error</Badge>;
+      default: return <Badge className="text-[8px] h-4 px-1 bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300">📝 Response</Badge>;
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Terminal Header */}
+      <div className="p-3 border-b bg-slate-50 dark:bg-slate-900/50">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Icon className={`h-4 w-4 ${agentConfig?.color || "text-muted-foreground"}`} />
+            <span className="text-xs font-semibold">Agent Execution</span>
+            {sending && (
+              <Badge variant="secondary" className="text-[8px] h-4 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 animate-pulse">
+                ● LIVE
+              </Badge>
+            )}
+          </div>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {completedSteps}/{totalSteps} steps
+          </span>
+        </div>
+        {/* Progress bar */}
+        <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
+            style={{ width: `${sending ? Math.min(progressPct, 95) : progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Terminal Content */}
+      <div ref={liveRef} className="flex-1 overflow-y-auto p-3 font-mono text-[11px] space-y-2 bg-white dark:bg-black/20 max-h-96" style={{ scrollbarWidth: 'thin' }}>
+        {!sending && allSteps.length === 0 && (
+          <div className="text-center py-8">
+            <Terminal className="h-8 w-8 mx-auto text-muted-foreground opacity-30 mb-2" />
+            <p className="text-xs text-muted-foreground">No agent activity yet</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Steps will appear here when the agent is working</p>
+          </div>
+        )}
+        {allSteps.map((step, idx) => (
+          <div key={idx} className="rounded-md border border-border/50 overflow-hidden">
+            {/* Step header */}
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors"
+              onClick={() => {
+                const next = new Set(expandedSteps);
+                if (next.has(idx)) next.delete(idx);
+                else next.add(idx);
+                setExpandedSteps(next);
+              }}
+            >
+              {getStepIcon(step.type, step.status)}
+              {getStepBadge(step.type)}
+              {step.toolName && (
+                <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">{step.toolName}</span>
+              )}
+              {step.status === 'running' && (
+                <div className="flex gap-0.5 ml-auto">
+                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
+                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
+                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
+                </div>
+              )}
+              {step.status === 'done' && (
+                <ChevronRight className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${expandedSteps.has(idx) ? 'rotate-90' : ''}`} />
+              )}
+            </div>
+            {/* Step content (collapsible) */}
+            {(step.status === 'running' || expandedSteps.has(idx)) && step.content && (
+              <div className="px-3 py-1.5 border-t border-border/30 bg-slate-50/50 dark:bg-slate-900/30">
+                <p className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words line-clamp-6">
+                  {step.content.substring(0, 500)}
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
+        {sending && allSteps.length === 0 && (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>Waiting for agent to start...</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2372,12 +2785,14 @@ function TasksTab({
   onNewTask,
   onStatusUpdate,
   onRefresh,
+  planSteps,
 }: {
   tasks: ScheduledTask[];
   loading: boolean;
   onNewTask: () => void;
   onStatusUpdate: () => void;
   onRefresh: () => void;
+  planSteps: Array<{ step: number; title: string; description: string; status: 'completed' | 'running' | 'pending' }>;
 }) {
   const handleUpdateStatus = async (taskId: string, status: string) => {
     try {
@@ -2398,9 +2813,67 @@ function TasksTab({
 
   return (
     <div className="p-3 space-y-3">
+      {/* Feature 2: Plan Steps Todo Checklist */}
+      {planSteps.length > 0 && (
+        <div className="mb-4">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            <ListChecks className="h-3 w-3 inline mr-1" /> Agent Plan Progress
+          </h4>
+          <div className="space-y-1.5">
+            {planSteps.map((step) => (
+              <div key={step.step} className={`flex items-start gap-2 p-2 rounded-md border transition-colors ${
+                step.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' :
+                step.status === 'running' ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' :
+                'bg-muted/30 border-border'
+              }`}>
+                {step.status === 'completed' ? (
+                  <CircleCheck className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
+                ) : step.status === 'running' ? (
+                  <Loader2 className="h-4 w-4 text-blue-500 animate-spin shrink-0 mt-0.5" />
+                ) : (
+                  <Circle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <span className={`text-xs font-medium ${step.status === 'pending' ? 'text-muted-foreground' : ''}`}>
+                    {step.step}. {step.title}
+                  </span>
+                  {step.description && step.status !== 'pending' && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{step.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Feature 5: Execute Now button */}
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduled Tasks</h4>
         <div className="flex gap-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={async () => {
+                  try {
+                    const res = await fetch("/api/cron/execute-tasks", { credentials: "include" });
+                    if (res.ok) {
+                      const data = await res.json();
+                      toast.success(`Executed ${data.executed || 0} tasks`);
+                      onRefresh();
+                    } else {
+                      toast.error("Failed to execute tasks");
+                    }
+                  } catch {
+                    toast.error("Failed to execute tasks");
+                  }
+                }}>
+                  <Zap className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Execute Tasks Now</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

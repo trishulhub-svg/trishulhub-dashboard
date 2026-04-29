@@ -52,6 +52,35 @@ export async function POST(req: NextRequest) {
       if (!chat || chat.userId !== userId) {
         return NextResponse.json({ error: "Chat not found" }, { status: 404 })
       }
+
+      // Check if chat is locked by another user (Feature 4: Chat Locking)
+      if (chat.lockedBy && chat.lockedBy !== userId) {
+        // Admin and Super Admin can bypass locks
+        if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+          return NextResponse.json({
+            error: `${chat.lockedByName || 'Another user'} is currently working on this chat`,
+            lockedBy: chat.lockedBy,
+            lockedByName: chat.lockedByName,
+          }, { status: 423 })
+        }
+      }
+
+      // Auto-release lock if chat is ENDED
+      if (chat.status === "ENDED" && chat.lockedBy) {
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: null, lockedAt: null, lockedByName: null },
+        })
+      }
+
+      // Auto-acquire lock when user sends first message to a chat
+      if (!chat.lockedBy) {
+        const userName = (session.user as any).name || session.user.email || "Unknown"
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
+        })
+      }
     } else {
       chat = await db.chat.create({
         data: {
@@ -59,6 +88,9 @@ export async function POST(req: NextRequest) {
           userId,
           title: message.substring(0, 50) + (message.length > 50 ? "..." : ""),
           status: "ACTIVE",
+          lockedBy: userId,
+          lockedAt: new Date(),
+          lockedByName: (session.user as any).name || session.user.email || "Unknown",
         },
         include: { messages: true },
       })
@@ -108,8 +140,9 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
-    // Update agent status
-    await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
+    // Feature 6: Don't update agent.status to RUNNING per-chat.
+    // Agent status should not be global - each chat is independent.
+    // We track activity at the chat level, not the agent level.
 
     // Build conversation history from chat messages
     const history = chat.messages
@@ -234,8 +267,9 @@ export async function POST(req: NextRequest) {
                 data: { currentSpend: { increment: result.cost } },
               })
 
-              // Update agent status
-              await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
+              // Feature 6: Don't set agent status back to IDLE after each chat
+              // This was causing interference when multiple users work on different chats
+              // Agent status will be managed separately if needed
 
               // Send complete event
               const completeData = {
@@ -383,7 +417,7 @@ export async function POST(req: NextRequest) {
           data: { currentSpend: { increment: result.cost } },
         })
 
-        await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
+        // Feature 6: Don't set agent status back to IDLE (per-chat independence)
 
         return NextResponse.json({
           content: result.finalResponse,
