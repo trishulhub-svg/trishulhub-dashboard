@@ -10,7 +10,7 @@ import {
   Pencil, Check, X, ChevronRight, ChevronLeft, Zap, Command,
   Lightbulb, Calendar, Clock, AlertTriangle, ArrowRightLeft,
   PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose,
-  MoreVertical, Search, SendHorizontal,
+  MoreVertical, Search, SendHorizontal, ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -538,6 +538,8 @@ export default function AgentChatPage() {
     }
   };
 
+  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+
   const deleteChat = async (chatId: string) => {
     try {
       const res = await fetch(`/api/chats?id=${chatId}`, {
@@ -545,12 +547,17 @@ export default function AgentChatPage() {
         credentials: "include",
       });
       if (res.ok) {
-        if (activeChatId === chatId) {
-          setActiveChatId(null);
-          setMessages([]);
+        const data = await res.json();
+        if (data.pendingApproval) {
+          toast.success(data.message || "Deletion request sent for approval");
+        } else {
+          if (activeChatId === chatId) {
+            setActiveChatId(null);
+            setMessages([]);
+          }
+          await fetchChats();
+          toast.success("Chat deleted");
         }
-        await fetchChats();
-        toast.success("Chat deleted");
       }
     } catch {
       toast.error("Failed to delete chat");
@@ -748,6 +755,7 @@ export default function AgentChatPage() {
               renameValue={renameValue}
               setRenamingChatId={setRenamingChatId}
               setRenameValue={setRenameValue}
+              userRole={userRole}
               isMobile
             />
           </TabsContent>
@@ -874,6 +882,7 @@ export default function AgentChatPage() {
               renameValue={renameValue}
               setRenamingChatId={setRenamingChatId}
               setRenameValue={setRenameValue}
+              userRole={userRole}
             />
           </>
         ) : (
@@ -1040,6 +1049,7 @@ function ChatSidebar({
   renameValue,
   setRenamingChatId,
   setRenameValue,
+  userRole,
   isMobile,
 }: {
   chats: Chat[];
@@ -1054,6 +1064,7 @@ function ChatSidebar({
   renameValue: string;
   setRenamingChatId: (id: string | null) => void;
   setRenameValue: (val: string) => void;
+  userRole?: string;
   isMobile?: boolean;
 }) {
   if (loading) {
@@ -1142,15 +1153,27 @@ function ChatSidebar({
                             <Archive className="h-3 w-3 mr-2" /> Archive
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDelete(chat.id);
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3 mr-2" /> Delete
-                          </DropdownMenuItem>
+                          {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                            <DropdownMenuItem
+                              className="text-orange-600"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(chat.id);
+                              }}
+                            >
+                              <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(chat.id);
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

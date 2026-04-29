@@ -15,6 +15,28 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type")
 
+    if (type === "users") {
+      // SUPER_ADMIN only: list all users for team management
+      const userRole = (session.user as any).role
+      if (userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
+      }
+      const users = await db.user.findMany({
+        where: { role: { not: "CLIENT" } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          department: true,
+          isActive: true,
+          createdAt: true,
+        },
+        orderBy: { name: "asc" },
+      })
+      return NextResponse.json(users)
+    }
+
     if (type === "attendance") {
       const records = await db.attendance.findMany({
         include: { user: { select: { id: true, name: true, email: true, role: true } } },
@@ -137,10 +159,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === "user") {
-      // Create a new team member
+      // SUPER_ADMIN only: Create a new team member
+      const userRole = (session.user as any).role
+      if (userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
+      }
+
       const { name, email, role, department, password } = data
       if (!name || !email || !password) {
         return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
+      }
+
+      // Check if email already exists
+      const existing = await db.user.findUnique({ where: { email } })
+      if (existing) {
+        return NextResponse.json({ error: "Email already in use" }, { status: 409 })
       }
 
       const hashedPassword = await bcrypt.hash(password, 12)
@@ -220,7 +253,26 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(access)
     }
 
-    // Update user
+    // Update user (SUPER_ADMIN only for role/active changes)
+    if (data.role !== undefined || data.isActive !== undefined) {
+      const userRole = (session.user as any).role
+      if (userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can change user role or status" }, { status: 403 })
+      }
+
+      // Prevent changing role of SUPER_ADMIN users
+      const targetUser = await db.user.findUnique({ where: { id } })
+      if (!targetUser) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 })
+      }
+      if (targetUser.role === "SUPER_ADMIN" && data.role && data.role !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Cannot change role of SUPER_ADMIN users" }, { status: 403 })
+      }
+      if (targetUser.role === "SUPER_ADMIN" && data.isActive === false) {
+        return NextResponse.json({ error: "Cannot deactivate SUPER_ADMIN users" }, { status: 403 })
+      }
+    }
+
     const updateData: any = {}
     if (data.name) updateData.name = data.name
     if (data.department) updateData.department = data.department

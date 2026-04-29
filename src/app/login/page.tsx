@@ -212,11 +212,13 @@ export default function LoginPage() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="taroon@trishulhub.in"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
                   className="h-11 text-base"
                 />
               </div>
@@ -229,7 +231,9 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  autoComplete="off"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
                   className="h-11 text-base"
                 />
               </div>

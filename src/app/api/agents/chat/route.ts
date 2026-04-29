@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { callAIWithFailover, AllKeysExhaustedError, APIKeyExhaustedError, APIKeyInvalidError, getModelForProvider, getVisionModel } from "@/lib/ai/openrouter"
+import { callAIWithFailover, AllKeysExhaustedError, APIKeyExhaustedError, APIKeyInvalidError, getModelForProvider, getVisionModel, translateZaiError } from "@/lib/ai/openrouter"
 
 export async function POST(req: NextRequest) {
   try {
@@ -282,8 +282,8 @@ export async function POST(req: NextRequest) {
           // Check if this key was mentioned in the error messages
           const keyErrors = apiError.errors.filter(e => e.includes(key.keyName))
           if (keyErrors.length > 0) {
-            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("余额不足") || e.includes("令牌已过期"))
-            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized") || e.includes("验证不正确"))
+            const isExhausted = keyErrors.some(e => e.includes("429") || e.includes("402") || e.includes("exhausted") || e.includes("EXHAUSTED") || e.includes("insufficient balance") || e.includes("Insufficient balance") || e.includes("Token expired"))
+            const isInvalid = keyErrors.some(e => e.includes("401") || e.includes("403") || e.includes("invalid") || e.includes("Unauthorized") || e.includes("Invalid authentication"))
 
             if (isExhausted) {
               await db.apiKey.update({

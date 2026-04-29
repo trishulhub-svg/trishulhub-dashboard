@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter,
+  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter, Trash2, User,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ const typeColors: Record<string, string> = {
   CODE_REVIEW: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
   LEAD_OUTREACH: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
   CONTENT_PIECE: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  CHAT_DELETION: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
 };
 
 const statusColors: Record<string, string> = {
@@ -149,12 +150,12 @@ export default function ApprovalsPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${typeColors[item.type] || "bg-muted"}`}>
-                            {item.requesterType === "AI" ? <Bot className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+                            {item.type === "CHAT_DELETION" ? <Trash2 className="h-5 w-5" /> : item.requesterType === "AI" ? <Bot className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
                           </div>
                           <div>
                             <p className="text-sm font-medium">{item.title}</p>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              <Badge variant="secondary" className="text-[10px]">{item.type}</Badge>
+                              <Badge variant="secondary" className="text-[10px]">{item.type === "CHAT_DELETION" ? "Chat Deletion" : item.type}</Badge>
                               {item.agent && (
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                   <Bot className="h-3 w-3" />
@@ -163,6 +164,12 @@ export default function ApprovalsPage() {
                               )}
                               {item.requesterType === "AI" && (
                                 <Badge variant="outline" className="text-[10px]">AI Requested</Badge>
+                              )}
+                              {item.type === "CHAT_DELETION" && parsedData.requestedBy && (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <User className="h-3 w-3" />
+                                  <span>Requested by {parsedData.requestedBy}</span>
+                                </div>
                               )}
                             </div>
                           </div>

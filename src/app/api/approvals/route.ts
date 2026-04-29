@@ -149,6 +149,24 @@ export async function PATCH(req: NextRequest) {
       })
     }
 
+    // If this is a CHAT_DELETION approval, handle the actual deletion
+    if (approval.type === "CHAT_DELETION" && status === "APPROVED") {
+      try {
+        let approvalData: any = {};
+        try { approvalData = JSON.parse(approval.data); } catch {}
+        const chatId = approvalData.chatId;
+        if (chatId) {
+          // Delete the chat and its messages
+          await db.chatMessage.deleteMany({ where: { chatId } })
+          await db.chat.delete({ where: { id: chatId } }).catch(() => {
+            // Chat may already be deleted
+          })
+        }
+      } catch (deleteErr) {
+        console.error("Failed to delete chat during approval:", deleteErr)
+      }
+    }
+
     // If it was an AI agent that requested approval, update agent status
     if (approval.requesterType === "AI" && approval.agentId) {
       if (status === "APPROVED") {

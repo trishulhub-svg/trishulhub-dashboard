@@ -121,7 +121,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE /api/chats - Delete a chat
+// DELETE /api/chats - Delete a chat (or request approval for DEVELOPER role)
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -130,6 +130,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
+    const userRole = (session.user as any).role
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 
@@ -137,11 +138,83 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Chat ID is required" }, { status: 400 })
     }
 
-    const chat = await db.chat.findUnique({ where: { id } })
+    const chat = await db.chat.findUnique({
+      where: { id },
+      include: { agent: { select: { id: true, name: true } } }
+    })
     if (!chat || chat.userId !== userId) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
     }
 
+    // DEVELOPER users must request approval for chat deletion
+    if (userRole === "DEVELOPER" || userRole === "CLIENT") {
+      // Check if there's already a pending approval for this chat deletion
+      const existingApproval = await db.approval.findFirst({
+        where: {
+          type: "CHAT_DELETION",
+          status: "PENDING",
+          data: { contains: chat.id },
+        }
+      })
+
+      if (existingApproval) {
+        return NextResponse.json({
+          success: true,
+          pendingApproval: true,
+          message: "A deletion request for this chat is already pending approval",
+        })
+      }
+
+      // Create an approval request instead of deleting
+      const requester = await db.user.findUnique({ where: { id: userId } })
+      const approval = await db.approval.create({
+        data: {
+          type: "CHAT_DELETION",
+          requesterType: "HUMAN",
+          requesterId: userId,
+          agentId: chat.agentId,
+          title: `Delete Chat: "${chat.title}"`,
+          description: `${requester?.name || "A developer"} requested deletion of chat "${chat.title}" with agent ${chat.agent?.name || "Unknown"}.`,
+          data: JSON.stringify({
+            chatId: chat.id,
+            chatTitle: chat.title,
+            agentId: chat.agentId,
+            agentName: chat.agent?.name,
+            requestedBy: requester?.name,
+            requesterId: userId,
+            messageCount: await db.chatMessage.count({ where: { chatId: chat.id } }),
+          }),
+          status: "PENDING",
+        },
+      })
+
+      // Notify all SUPER_ADMIN users
+      const superAdmins = await db.user.findMany({
+        where: { role: "SUPER_ADMIN", isActive: true },
+      })
+
+      for (const admin of superAdmins) {
+        await db.notification.create({
+          data: {
+            userId: admin.id,
+            title: "Chat Deletion Request",
+            message: `${requester?.name || "A developer"} requested deletion of chat "${chat.title}". Please review and approve or reject.`,
+            type: "APPROVAL",
+            link: "/dashboard/approvals",
+            metadata: JSON.stringify({ approvalId: approval.id, type: "CHAT_DELETION", chatId: chat.id }),
+          }
+        })
+      }
+
+      return NextResponse.json({
+        success: true,
+        pendingApproval: true,
+        message: "Deletion request sent for approval",
+        approvalId: approval.id,
+      })
+    }
+
+    // SUPER_ADMIN and ADMIN can delete directly
     // Delete all messages first (cascade should handle this, but be safe)
     await db.chatMessage.deleteMany({ where: { chatId: id } })
     await db.chat.delete({ where: { id } })

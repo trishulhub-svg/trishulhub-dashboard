@@ -56,10 +56,13 @@ interface KeyInfo {
 }
 
 // ━━ Valid Model Sets ━━
+// Updated 2025-04: Only models that actually exist on Z.ai API
 const VALID_ZAI_MODELS = new Set([
+  "glm-4.7-flash", "glm-4-plus", "glm-4.5-air", "glm-5.1", "glm-z1-flash",
+  // Legacy names (redirected by getModelForProvider to actual model names)
+  "glm-4-flash", "glm-4-air", "glm-4-long",
   "glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414",
-  "glm-4-plus-0111", "glm-4.5-air-250414", "glm-4.7-flash", "glm-5.1",
-  "glm-4-flash", "glm-4-air", "glm-4-long", "glm-4-plus", "glm-4.5-air",
+  "glm-4-plus-0111", "glm-4.5-air-250414",
 ])
 
 const VALID_GOOGLE_AI_MODELS = new Set([
@@ -71,20 +74,24 @@ const VALID_OPENROUTER_PREFIXES = ["/", "gpt-", "claude-", "llama", "deepseek", 
 
 // ━━ Cross-Provider Model Map ━━
 // Maps every model name to its equivalent in every provider
+// Updated 2025-04: Z.ai "zai" entries now point to actual working API model names
 const CROSS_PROVIDER_MAP: Record<string, Record<string, string>> = {
   // Z.ai models → other providers
-  "glm-4-flash-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4-flash-250414" },
-  "glm-4-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4-air-250414" },
-  "glm-4-long-250414": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-long-250414" },
-  "glm-4-plus-0111": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus-0111" },
-  "glm-4.5-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air-250414" },
+  // glm-4-flash and glm-4-air are DEPRECATED on Z.ai API — redirect to glm-4.7-flash (free) or glm-4.5-air (paid)
+  "glm-4-flash-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
+  "glm-4-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
+  "glm-4-long-250414": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus" },
+  "glm-4-plus-0111": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus" },
+  "glm-4.5-air-250414": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air" },
   "glm-4.7-flash": { openrouter: "meta-llama/llama-3.3-70b-instruct:free", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
   "glm-5.1": { openrouter: "anthropic/claude-sonnet-4", google_ai: "gemini-2.5-pro", zai: "glm-5.1" },
-  "glm-4-flash": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4-flash-250414" },
-  "glm-4-air": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4-air-250414" },
-  "glm-4-long": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-long-250414" },
-  "glm-4-plus": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus-0111" },
-  "glm-4.5-air": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air-250414" },
+  "glm-z1-flash": { openrouter: "deepseek/deepseek-r1:free", google_ai: "gemini-2.0-flash", zai: "glm-z1-flash" },
+  // Legacy short names → redirect to working models
+  "glm-4-flash": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
+  "glm-4-air": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.7-flash" },
+  "glm-4-long": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus" },
+  "glm-4-plus": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus" },
+  "glm-4.5-air": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air" },
 
   // Google AI models → other providers
   "gemini-2.0-flash": { openrouter: "google/gemini-2.0-flash-exp:free", google_ai: "gemini-2.0-flash", zai: "glm-4.5-air-250414" },
@@ -128,10 +135,10 @@ export function getModelForProvider(model: string, provider: string): string {
 
   if (isValid) return model
 
-  // Fallback to provider defaults
+  // Fallback to provider defaults (updated 2025-04: glm-4-flash is deprecated, use glm-4.7-flash)
   console.warn(`[model-mapping] Model "${model}" not valid for provider "${provider}". Using default.`)
   const defaults: Record<string, string> = {
-    zai: "glm-4-flash-250414",
+    zai: "glm-4.7-flash",
     google_ai: "gemini-2.0-flash",
     openrouter: "openai/gpt-4o-mini",
   }
@@ -175,6 +182,29 @@ export class AllKeysExhaustedError extends Error {
     this.triedKeys = triedKeys
     this.errors = errors
   }
+}
+
+// ━━ Translate Z.ai Chinese Error Messages to English ━━
+export function translateZaiError(errorMsg: string): string {
+  const translations: [string, string][] = [
+    ["模型不存在", "Model does not exist"],
+    ["余额不足或无可用资源包", "Insufficient balance or no available resource package"],
+    ["余额不足", "Insufficient balance"],
+    ["令牌已过期或验证不正确", "Token expired or invalid authentication"],
+    ["令牌已过期", "Token expired"],
+    ["验证不正确", "Invalid authentication"],
+    ["请求频率过快", "Request rate too high"],
+    ["参数错误", "Parameter error"],
+    ["内部错误", "Internal server error"],
+    ["请充值", "Please recharge"],
+    ["您的账户已达到速率限制", "Your account has reached the rate limit"],
+    ["请您控制请求频率", "Please control request frequency"],
+  ]
+  let result = errorMsg
+  for (const [cn, en] of translations) {
+    result = result.replace(new RegExp(cn, "g"), en)
+  }
+  return result
 }
 
 // ━━ Provider Detection ━━
@@ -309,8 +339,11 @@ async function callZaiAPI(
   })
 
   if (!response.ok) {
-    const errorText = await response.text()
+    let errorText = await response.text()
     const statusCode = response.status
+
+    // Translate Chinese error messages from Z.ai API to English
+    errorText = translateZaiError(errorText)
 
     console.error(`[zai] API error: ${statusCode} - ${errorText.substring(0, 500)}`)
 
@@ -319,6 +352,10 @@ async function callZaiAPI(
     }
     if (statusCode === 402 || statusCode === 429) {
       throw new APIKeyExhaustedError("zai", statusCode, errorText)
+    }
+    // Model not found (code 1211) - try to provide helpful message
+    if (errorText.includes("Model does not exist") || errorText.includes("model not found")) {
+      throw new Error(`Z.ai API error: Model "${mappedModel}" does not exist. Please update the agent to use a valid model like "glm-4.7-flash" (free) or "glm-4-plus" (paid).`)
     }
     throw new Error(`Z.ai API error: ${statusCode} - ${errorText}`)
   }
@@ -561,13 +598,11 @@ export function getModelsForProvider(provider: string): { id: string; name: stri
   switch (provider.toUpperCase()) {
     case "ZAI":
       return [
-        { id: "glm-4-flash-250414", name: "GLM-4 Flash", free: false },
-        { id: "glm-4-air-250414", name: "GLM-4 Air", free: false },
-        { id: "glm-4-long-250414", name: "GLM-4 Long", free: false },
-        { id: "glm-4-plus-0111", name: "GLM-4 Plus", free: false },
-        { id: "glm-4.5-air-250414", name: "GLM-4.5 Air", free: false },
         { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free)", free: true },
+        { id: "glm-4.5-air", name: "GLM-4.5 Air", free: false },
+        { id: "glm-4-plus", name: "GLM-4 Plus", free: false },
         { id: "glm-5.1", name: "GLM-5.1", free: false },
+        { id: "glm-z1-flash", name: "GLM-Z1 Flash (Reasoning)", free: false },
       ]
     case "GOOGLE_AI":
       return [
