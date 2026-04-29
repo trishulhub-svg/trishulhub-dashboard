@@ -40,7 +40,6 @@ export default function LoginPage() {
         if (data.status === "already_setup" || data.status === "success") {
           setDbReady(true);
         } else if (data.status === "error" && data.logs) {
-          // Setup endpoint ran but DB doesn't exist yet
           setDbReady(false);
         } else {
           setDbReady(false);
@@ -54,8 +53,16 @@ export default function LoginPage() {
   // Show loading spinner while checking session
   if (status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center gap-3">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
+        <Image
+          src="/200px.png"
+          alt="TrishulHub"
+          width={120}
+          height={48}
+          className="rounded-lg"
+          priority
+        />
+        <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
@@ -67,8 +74,16 @@ export default function LoginPage() {
   // Don't render the login form if already authenticated
   if (status === "authenticated" && session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center gap-3">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
+        <Image
+          src="/200px.png"
+          alt="TrishulHub"
+          width={120}
+          height={48}
+          className="rounded-lg"
+          priority
+        />
+        <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
           <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
@@ -131,22 +146,27 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md space-y-8">
-        <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <Image
-              src="/512logo.png"
-              alt="TrishulHub"
-              width={56}
-              height={56}
-              className="rounded-xl"
-              priority
-            />
-            <h1 className="text-3xl font-bold text-primary">TrishulHub</h1>
+        {/* Brand Header - BIGGER and bolder for PWA feel */}
+        <div className="text-center space-y-5">
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative h-16 w-40">
+              <Image
+                src="/200px.png"
+                alt="TrishulHub"
+                fill
+                className="rounded-xl object-contain"
+                priority
+                sizes="160px"
+              />
+            </div>
+            <div>
+              <h1 className="text-4xl font-black text-primary tracking-tight">TrishulHub</h1>
+              <p className="text-base font-semibold text-foreground mt-1">AI Agent Dashboard</p>
+            </div>
           </div>
-          <h2 className="text-xl font-semibold">AI Agent Dashboard</h2>
-          <p className="text-muted-foreground">Sign in to manage your AI agents and projects</p>
+          <p className="text-muted-foreground text-sm">Sign in to manage your AI agents and projects</p>
         </div>
 
         {/* Show setup button if database is not ready */}
@@ -160,7 +180,7 @@ export default function LoginPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Button
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white h-11 text-base font-semibold"
                 onClick={handleSetup}
                 disabled={seeding}
               >
@@ -181,14 +201,14 @@ export default function LoginPage() {
         )}
 
         <Card>
-          <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>Enter your credentials to access the dashboard</CardDescription>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl">Sign In</CardTitle>
+            <CardDescription className="text-sm">Enter your credentials to access the dashboard</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
                 <Input
                   id="email"
                   type="email"
@@ -197,10 +217,11 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
+                  className="h-11 text-base"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -209,9 +230,10 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   autoComplete="current-password"
+                  className="h-11 text-base"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full h-11 text-base font-semibold" disabled={loading}>
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>

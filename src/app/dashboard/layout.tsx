@@ -121,25 +121,35 @@ function SidebarContent({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
-        <Image
-          src="/200px.png"
-          alt="TrishulHub"
-          width={28}
-          height={28}
-          className="rounded"
-          priority
-        />
+      {/* Logo Section - BIGGER and more prominent */}
+      <div className={cn(
+        "flex items-center gap-3 px-4 py-5 border-b border-sidebar-border",
+        collapsed && "justify-center px-2"
+      )}>
+        <div className={cn(
+          "relative shrink-0",
+          collapsed ? "h-10 w-10" : "h-11 w-11"
+        )}>
+          <Image
+            src="/200px.png"
+            alt="TrishulHub"
+            fill
+            className="rounded-lg object-contain"
+            priority
+            sizes="(max-width: 768px) 44px, 44px"
+          />
+        </div>
         {!collapsed && (
-          <div>
-            <h1 className="font-bold text-sidebar-primary text-lg leading-tight">TrishulHub</h1>
-            <p className="text-xs text-muted-foreground">AI Agent Dashboard</p>
+          <div className="min-w-0">
+            <h1 className="font-extrabold text-sidebar-primary text-xl leading-tight tracking-tight">TrishulHub</h1>
+            <p className="text-[11px] text-muted-foreground font-medium">AI Agent Dashboard</p>
           </div>
         )}
       </div>
 
-      <ScrollArea className="flex-1 py-2">
-        <nav className="space-y-1 px-2">
+      {/* Navigation - bigger items with more padding */}
+      <ScrollArea className="flex-1 py-3">
+        <nav className="space-y-1 px-3">
           {filteredNavItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
@@ -147,13 +157,13 @@ function SidebarContent({
                 key={item.href}
                 onClick={() => onNavigate(item.href)}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors w-full text-left",
+                  "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
                   isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
-                <item.icon className={cn("h-4 w-4 shrink-0", collapsed && "mx-auto")} />
+                <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
                 {!collapsed && <span>{item.title}</span>}
               </button>
             );
@@ -161,17 +171,18 @@ function SidebarContent({
         </nav>
       </ScrollArea>
 
-      <div className="border-t border-sidebar-border p-3">
+      {/* User Section - bigger avatar and text */}
+      <div className="border-t border-sidebar-border p-4">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+          <Avatar className="h-10 w-10">
+            <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
               {userName.split(" ").map((n) => n[0]).join("")}
             </AvatarFallback>
           </Avatar>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{userName}</p>
-              <p className="text-xs text-muted-foreground truncate">{userRole}</p>
+              <p className="text-sm font-semibold truncate">{userName}</p>
+              <p className="text-xs text-muted-foreground truncate">{userRole.replace("_", " ")}</p>
             </div>
           )}
         </div>
@@ -219,7 +230,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (session) {
       fetchNotifications();
-      // Poll every 30 seconds for new notifications
       const interval = setInterval(fetchNotifications, 30000);
       return () => clearInterval(interval);
     }
@@ -270,10 +280,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center gap-3">
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
+        <div className="flex flex-col items-center gap-4">
+          <Image
+            src="/200px.png"
+            alt="TrishulHub"
+            width={80}
+            height={32}
+            className="rounded-lg"
+            priority
+          />
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
+          </div>
         </div>
       </div>
     );
@@ -283,11 +303,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar - wider and more spacious */}
       <aside
         className={cn(
           "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative",
-          collapsed ? "w-16" : "w-64"
+          collapsed ? "w-[72px]" : "w-[280px]"
         )}
       >
         <SidebarContent
@@ -300,16 +320,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-20 -right-3 z-10 h-6 w-6 rounded-full border bg-background shadow-sm hidden md:flex"
+          className="absolute top-24 -right-3 z-10 h-7 w-7 rounded-full border bg-background shadow-sm hidden md:flex"
           onClick={() => setCollapsed(!collapsed)}
         >
-          <ChevronLeft className={cn("h-3 w-3 transition-transform", collapsed && "rotate-180")} />
+          <ChevronLeft className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")} />
         </Button>
       </aside>
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-64 p-0 bg-sidebar">
+        <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
           <SidebarContent
             collapsed={false}
             userRole={userRole}
@@ -322,9 +342,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 sticky top-0 z-30">
-          <div className="flex items-center gap-2">
+        {/* Header - taller and more prominent */}
+        <header className="h-16 border-b border-border bg-card flex items-center justify-between px-5 sticky top-0 z-30">
+          <div className="flex items-center gap-3">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden">
@@ -332,13 +352,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Button>
               </SheetTrigger>
             </Sheet>
-            <h2 className="text-sm font-medium text-muted-foreground hidden sm:block">
+            <h2 className="text-base font-semibold text-foreground hidden sm:block">
               {navItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href)))?.title || "Dashboard"}
             </h2>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
               <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
             </Button>
@@ -346,10 +366,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Notifications Dropdown */}
             <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
+                <Button variant="ghost" size="icon" className="relative h-9 w-9">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </Badge>
                   )}
@@ -388,14 +408,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           }}
                         >
                           <div className={cn(
-                            "mt-0.5 h-6 w-6 rounded-full flex items-center justify-center shrink-0",
+                            "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
                             notif.type === "ERROR" || notif.type === "WARNING" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
                             notif.type === "SUCCESS" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
                             notif.type === "TASK" || notif.type === "APPROVAL" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
                             notif.type === "AGENT" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
                             "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                           )}>
-                            <NotifIcon className="h-3 w-3" />
+                            <NotifIcon className="h-3.5 w-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
@@ -431,20 +451,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2">
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                <Button variant="ghost" className="flex items-center gap-2 h-9">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
                       {userName.split(" ").map((n) => n[0]).join("")}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="hidden sm:block text-sm">{userName}</span>
+                  <span className="hidden sm:block text-sm font-medium">{userName}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <div className="p-2">
                   <p className="text-sm font-medium">{userName}</p>
                   <p className="text-xs text-muted-foreground">{userEmail}</p>
-                  <Badge variant="secondary" className="mt-1 text-xs">{userRole}</Badge>
+                  <Badge variant="secondary" className="mt-1 text-xs">{userRole.replace("_", " ")}</Badge>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
@@ -459,8 +479,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 p-4 md:p-6 overflow-auto">{children}</main>
+        {/* Page Content - more padding */}
+        <main className="flex-1 p-5 md:p-8 overflow-auto">{children}</main>
       </div>
     </div>
   );

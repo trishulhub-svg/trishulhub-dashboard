@@ -25,25 +25,23 @@ export default function HomePage() {
   }, [session, status, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center space-y-4">
-        <div className="flex items-center justify-center gap-3">
-          <Image
-            src="/200px.png"
-            alt="TrishulHub"
-            width={48}
-            height={48}
-            className="rounded-lg"
-            priority
-          />
-          <h1 className="text-3xl font-bold text-primary">TrishulHub</h1>
-        </div>
-        <p className="text-muted-foreground">AI Agent Dashboard</p>
-        <div className="flex items-center justify-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-          <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-          <div className="h-2 w-2 rounded-full bg-primary animate-bounce" />
-        </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
+      <div className="relative h-16 w-40">
+        <Image
+          src="/200px.png"
+          alt="TrishulHub"
+          fill
+          className="rounded-lg object-contain"
+          priority
+          sizes="160px"
+        />
+      </div>
+      <h1 className="text-4xl font-black text-primary tracking-tight">TrishulHub</h1>
+      <p className="text-base font-medium text-muted-foreground">AI Agent Dashboard</p>
+      <div className="flex items-center gap-2 mt-2">
+        <div className="h-2.5 w-2.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+        <div className="h-2.5 w-2.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+        <div className="h-2.5 w-2.5 rounded-full bg-primary animate-bounce" />
       </div>
     </div>
   );
