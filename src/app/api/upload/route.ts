@@ -1,15 +1,11 @@
 // File Upload API - Handles file uploads for agent chats and tasks
-// Supports images, documents, code files, and more
-// Files are saved to /public/uploads/ and metadata is returned
+// Returns base64 data URLs instead of saving to filesystem
+// This works on Vercel's read-only serverless environment
 
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { writeFile, mkdir } from "fs/promises"
-import path from "path"
-import { existsSync } from "fs"
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads")
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_TYPES: Record<string, string[]> = {
   image: ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"],
@@ -77,31 +73,18 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
-    // Ensure upload directory exists
-    if (!existsSync(UPLOAD_DIR)) {
-      await mkdir(UPLOAD_DIR, { recursive: true })
-    }
-
-    // Generate unique filename
-    const ext = path.extname(file.name) || `.${mimeType.split("/")[1] || "bin"}`
-    const timestamp = Date.now()
-    const randomSuffix = Math.random().toString(36).substring(2, 8)
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").substring(0, 50)
-    const uniqueName = `${timestamp}-${randomSuffix}-${safeName}`
-
-    // Save file
-    const filePath = path.join(UPLOAD_DIR, uniqueName)
+    // Convert file to base64 data URL (no filesystem writes needed)
     const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(filePath, buffer)
+    const base64Data = buffer.toString("base64")
+    const dataUrl = `data:${mimeType};base64,${base64Data}`
 
-    // Build response
-    const fileUrl = `/uploads/${uniqueName}`
+    // Build response with data URL
     const category = getFileCategory(mimeType)
     const isImage = isImageType(mimeType)
 
     const fileMeta = {
       name: file.name,
-      url: fileUrl,
+      url: dataUrl,
       size: file.size,
       type: mimeType,
       category,
@@ -121,7 +104,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE - Remove an uploaded file
+// DELETE - No-op since files are not stored on filesystem
+// Kept for API compatibility
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -129,29 +113,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { searchParams } = new URL(req.url)
-    const fileUrl = searchParams.get("url")
-
-    if (!fileUrl) {
-      return NextResponse.json({ error: "File URL is required" }, { status: 400 })
-    }
-
-    // Security: only allow deleting files from uploads directory
-    if (!fileUrl.startsWith("/uploads/")) {
-      return NextResponse.json({ error: "Invalid file URL" }, { status: 400 })
-    }
-
-    const filePath = path.join(process.cwd(), "public", fileUrl)
-    if (!filePath.startsWith(path.join(process.cwd(), "public", "uploads"))) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
-    }
-
-    const { unlink } = await import("fs/promises")
-    if (existsSync(filePath)) {
-      await unlink(filePath)
-    }
-
-    return NextResponse.json({ success: true, message: "File deleted" })
+    // Files are now stored as base64 data URLs, no filesystem cleanup needed
+    return NextResponse.json({ success: true, message: "File reference removed" })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

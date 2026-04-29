@@ -73,8 +73,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Save user message with file attachments metadata
+    // For base64 data URLs, store only metadata (name/type) not the full data to keep DB records small
     const messageMetadata = fileUrls && fileUrls.length > 0
-      ? JSON.stringify({ attachments: fileUrls.map((url: string) => ({ url, type: url.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) ? "image" : "file" })) })
+      ? JSON.stringify({ attachments: fileUrls.map((url: string, idx: number) => ({
+          name: `attachment-${idx + 1}`,
+          type: url.startsWith("data:image/") ? "image" : "file",
+          // Don't store full base64 in DB - just indicate it was attached
+          stored: false,
+        })) })
       : undefined
 
     await db.chatMessage.create({

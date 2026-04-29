@@ -439,36 +439,45 @@ export default function AgentChatPage() {
     // Support agent doesn't get file upload
     if (agent?.type === "SUPPORT") return;
 
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const ALLOWED_EXTENSIONS = ["png","jpg","jpeg","gif","webp","svg","pdf","doc","docx","xls","xlsx","txt","csv","json","md","js","ts","tsx","jsx","html","css","zip"];
+    const IMAGE_EXTENSIONS = ["png","jpg","jpeg","gif","webp","svg"];
+
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("agentId", agentId);
-
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.error || "Upload failed");
+        // Check file size
+        if (file.size > MAX_FILE_SIZE) {
+          toast.error(`File "${file.name}" is too large. Maximum size is 10MB.`);
           continue;
         }
 
-        const data = await res.json();
-        if (data.success && data.file) {
-          setAttachedFiles((prev) => [...prev, {
-            url: data.file.url,
-            name: data.file.name,
-            type: data.file.type,
-            isImage: data.file.isImage,
-          }]);
+        // Check file extension
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+          toast.error(`File type "${ext}" not allowed for "${file.name}".`);
+          continue;
         }
+
+        // Read file as base64 data URL on the client side (no server upload needed)
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error(`Failed to read file "${file.name}"`));
+          reader.readAsDataURL(file);
+        });
+
+        const isImage = IMAGE_EXTENSIONS.includes(ext);
+
+        setAttachedFiles((prev) => [...prev, {
+          url: dataUrl,
+          name: file.name,
+          type: file.type || `application/${ext}`,
+          isImage,
+        }]);
       }
     } catch (err: any) {
-      toast.error("Upload failed: " + err.message);
+      toast.error("File processing failed: " + err.message);
     } finally {
       setUploading(false);
       // Reset file input
@@ -495,7 +504,7 @@ export default function AgentChatPage() {
       role: "user",
       content: userContent + (currentAttachments.length > 0 ? `\n\n📎 Attached: ${currentAttachments.map(f => f.name).join(", ")}` : ""),
       createdAt: new Date().toISOString(),
-      metadata: currentAttachments.length > 0 ? JSON.stringify({ attachments: currentAttachments.map(f => ({ url: f.url, name: f.name, type: f.isImage ? "image" : "file" })) }) : undefined,
+      metadata: currentAttachments.length > 0 ? JSON.stringify({ attachments: currentAttachments.map(f => ({ name: f.name, type: f.isImage ? "image" : "file", stored: false })) }) : undefined,
     };
     setMessages((prev) => [...prev, tempUserMsg]);
     setSending(true);
