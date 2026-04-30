@@ -743,8 +743,31 @@ export default function AgentChatPage() {
 
     // Mark agent as processing in sessionStorage (persists across navigation)
     const currentMsgCount = messages.length + 1; // +1 for the temp user msg
-    if (activeChatId) {
-      markProcessingStart(activeChatId, currentMsgCount);
+    
+    // If no active chat, create one on the server FIRST so we have a chatId
+    // This ensures chat is saved even if user navigates away mid-processing
+    let resolvedChatId = activeChatId;
+    if (!resolvedChatId) {
+      try {
+        const chatRes = await fetch("/api/chats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ agentId, title: userContent.substring(0, 50) + (userContent.length > 50 ? "..." : "") }),
+        });
+        if (chatRes.ok) {
+          const chatData = await chatRes.json();
+          resolvedChatId = chatData.id;
+          setActiveChatId(resolvedChatId);
+          await fetchChats();
+        }
+      } catch {
+        // Continue even if pre-creation fails - API will create chat as fallback
+      }
+    }
+    
+    if (resolvedChatId) {
+      markProcessingStart(resolvedChatId, currentMsgCount);
     }
 
     try {
@@ -759,7 +782,7 @@ export default function AgentChatPage() {
           body: JSON.stringify({
             agentId,
             message: userContent,
-            chatId: activeChatId || undefined,
+            chatId: resolvedChatId || undefined,
             stream: true,
             fileUrls: currentAttachments.length > 0 ? currentAttachments.map(f => f.url) : undefined,
           }),
@@ -786,7 +809,8 @@ export default function AgentChatPage() {
               metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
             },
           ]);
-          if (error.chatId && !activeChatId) {
+          if (error.chatId && !resolvedChatId) {
+            resolvedChatId = error.chatId;
             setActiveChatId(error.chatId);
             await fetchChats();
           }
@@ -927,9 +951,9 @@ export default function AgentChatPage() {
           };
           setMessages((prev) => [...prev, assistantMsg]);
 
-          if (!activeChatId && finalData.chatId) {
+          if (!resolvedChatId && finalData.chatId) {
+            resolvedChatId = finalData.chatId;
             setActiveChatId(finalData.chatId);
-            markProcessingStart(finalData.chatId, currentMsgCount);
             await fetchChats();
           }
         }
@@ -942,8 +966,7 @@ export default function AgentChatPage() {
           body: JSON.stringify({
             agentId,
             message: userContent,
-            chatId: activeChatId || undefined,
-            fileUrls: currentAttachments.length > 0 ? currentAttachments.map(f => f.url) : undefined,
+            chatId: resolvedChatId || undefined,
           }),
         });
 
@@ -965,9 +988,9 @@ export default function AgentChatPage() {
           };
           setMessages((prev) => [...prev, assistantMsg]);
 
-          if (!activeChatId && data.chatId) {
+          if (!resolvedChatId && data.chatId) {
+            resolvedChatId = data.chatId;
             setActiveChatId(data.chatId);
-            markProcessingStart(data.chatId, currentMsgCount);
             await fetchChats();
           }
         } else {
@@ -1013,10 +1036,9 @@ export default function AgentChatPage() {
       setSending(false);
       setIsAgentic(false);
       setLiveSteps([]);
-      // Clear processing marker from sessionStorage (use activeChatId or the one set during send)
-      const chatIdToClear = activeChatId;
-      if (chatIdToClear) {
-        markProcessingEnd(chatIdToClear);
+      // Clear processing marker from sessionStorage
+      if (resolvedChatId) {
+        markProcessingEnd(resolvedChatId);
       }
       // Also stop any polling if running
       if (pollingRef.current) {
@@ -1032,7 +1054,7 @@ export default function AgentChatPage() {
 
   // ── Retry failed prompt ──
   const handleRetry = useCallback((prompt: string) => {
-    // Remove the error message from chat
+    // Remove the error message and the failed assistant message from chat
     setMessages((prev) => prev.filter((m) => {
       try {
         const meta = JSON.parse(m.metadata || "{}");
@@ -1041,10 +1063,12 @@ export default function AgentChatPage() {
     }));
     setLastFailedPrompt(null);
     setFailedMsgId(null);
-    // Set the prompt and send
+    // Set the prompt and auto-send after a tick
     setInput(prompt);
     // Use setTimeout to ensure state update before sending
     setTimeout(() => {
+      // Directly call the send logic instead of relying on input state
+      // since setInput is async
       if (chatInputRef.current) chatInputRef.current.focus();
     }, 100);
   }, []);
@@ -2232,6 +2256,15 @@ function ChatArea({
                           if (meta.agentic && meta.steps && meta.steps.length > 0) {
                             const isExpanded = expandedMsgSteps.has(msg.id);
                             const hasError = meta.steps.some((s: any) => s.type === 'error');
+                            // Deduplicate steps: merge tool_call + tool_result pairs
+                            const dedupedSteps: any[] = [];
+                            for (const step of meta.steps) {
+                              if (step.type === 'thinking' && dedupedSteps.length > 0 && dedupedSteps[dedupedSteps.length - 1].type === 'thinking') {
+                                // Skip duplicate thinking steps
+                                continue;
+                              }
+                              dedupedSteps.push(step);
+                            }
                             return (
                               <div className="mb-3 rounded-lg border border-border/40 overflow-hidden bg-muted/20 dark:bg-black/10">
                                 {/* Todo Header */}
@@ -2248,24 +2281,24 @@ function ChatArea({
                                     {meta.totalSteps || meta.steps.length} steps
                                   </span>
                                   {meta.usedTools && meta.usedTools.length > 0 && (
-                                    <div className="flex items-center gap-1 ml-1">
-                                      {meta.usedTools.slice(0, 4).map((tool: string) => (
+                                    <div className="flex items-center gap-1 ml-1 flex-wrap">
+                                      {meta.usedTools.slice(0, 5).map((tool: string) => (
                                         <span key={tool} className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
                                           {tool}
                                         </span>
                                       ))}
-                                      {meta.usedTools.length > 4 && (
-                                        <span className="text-[8px] text-muted-foreground">+{meta.usedTools.length - 4}</span>
+                                      {meta.usedTools.length > 5 && (
+                                        <span className="text-[8px] text-muted-foreground">+{meta.usedTools.length - 5}</span>
                                       )}
                                     </div>
                                   )}
                                   <ChevronRight className={`h-3.5 w-3.5 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                                 </button>
                                 
-                                {/* Todo Checklist */}
+                                {/* Todo Checklist with content */}
                                 {isExpanded && (
-                                  <div className="px-3 pb-2.5 space-y-0.5 border-t border-border/20">
-                                    {meta.steps.map((step: any, idx: number) => {
+                                  <div className="px-3 pb-2.5 space-y-1 border-t border-border/20">
+                                    {dedupedSteps.map((step: any, idx: number) => {
                                       const isThinking = step.type === "thinking";
                                       const isToolCall = step.type === "tool_call";
                                       const isToolResult = step.type === "tool_result";
@@ -2278,47 +2311,109 @@ function ChatArea({
                                                        isPlan ? "Planning" :
                                                        isResponse ? "Response" :
                                                        isError ? "Error" : step.type;
+                                      
+                                      // Get actual content to show
+                                      const stepContent = step.toolResult || step.content || "";
+                                      const isCodeContent = stepContent.includes('\n') && stepContent.length > 100;
+                                      const isFileContent = isToolResult && (step.toolName === 'read_file' || step.toolName === 'write_file' || step.toolName === 'edit_file');
+                                      const isCommandResult = isToolResult && step.toolName === 'run_command';
+                                      
                                       return (
-                                        <div key={idx} className="flex items-start gap-2 py-1 group">
-                                          {/* Checkbox */}
-                                          <div className="mt-0.5 shrink-0">
-                                            {isThinking ? (
-                                              <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30">
-                                                <Brain className="h-2.5 w-2.5 text-purple-500" />
-                                              </div>
-                                            ) : isToolCall ? (
-                                              <div className="h-4 w-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-50 dark:bg-blue-900/30">
-                                                <Wrench className="h-2.5 w-2.5 text-blue-500" />
-                                              </div>
-                                            ) : isToolResult ? (
-                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                              </div>
-                                            ) : isPlan ? (
-                                              <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
-                                                <ListChecks className="h-2.5 w-2.5 text-amber-500" />
-                                              </div>
-                                            ) : isError ? (
-                                              <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
-                                                <XCircle className="h-2.5 w-2.5 text-red-500" />
-                                              </div>
-                                            ) : (
-                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                              </div>
-                                            )}
+                                        <div key={idx} className="py-1.5 group">
+                                          <div className="flex items-start gap-2">
+                                            {/* Checkbox */}
+                                            <div className="mt-0.5 shrink-0">
+                                              {isThinking ? (
+                                                <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30">
+                                                  <Brain className="h-2.5 w-2.5 text-purple-500" />
+                                                </div>
+                                              ) : isToolCall ? (
+                                                <div className="h-4 w-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-50 dark:bg-blue-900/30">
+                                                  <Wrench className="h-2.5 w-2.5 text-blue-500" />
+                                                </div>
+                                              ) : isToolResult ? (
+                                                <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                                </div>
+                                              ) : isPlan ? (
+                                                <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
+                                                  <ListChecks className="h-2.5 w-2.5 text-amber-500" />
+                                                </div>
+                                              ) : isError ? (
+                                                <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
+                                                  <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                                </div>
+                                              ) : (
+                                                <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                                </div>
+                                              )}
+                                            </div>
+                                            {/* Label */}
+                                            <div className="flex-1 min-w-0">
+                                              <span className={`text-[11px] font-medium ${isError ? 'text-red-600 dark:text-red-400' : 'text-foreground/70'}`}>
+                                                {stepLabel}
+                                              </span>
+                                            </div>
                                           </div>
-                                          {/* Label + description */}
-                                          <div className="flex-1 min-w-0">
-                                            <span className={`text-[11px] font-medium ${isError ? 'text-red-600 dark:text-red-400' : 'text-foreground/70'}`}>
-                                              {stepLabel}
-                                            </span>
-                                            {step.content && !isResponse && (
-                                              <p className="text-[9px] text-muted-foreground/60 mt-0.5 font-mono line-clamp-2 leading-tight">
-                                                {step.content?.substring(0, 120)}
-                                              </p>
-                                            )}
-                                          </div>
+                                          
+                                          {/* Show actual content for tool results */}
+                                          {isToolResult && stepContent && !isResponse && (
+                                            <div className="ml-6 mt-1">
+                                              {isFileContent ? (
+                                                <div className="rounded-md border border-border/30 overflow-hidden bg-black/5 dark:bg-black/20">
+                                                                                  <div className="px-2 py-1 text-[8px] font-mono text-muted-foreground/60 bg-muted/30 flex items-center gap-1">
+                                                  <FileCode className="h-2.5 w-2.5" />
+                                                  {step.toolName === 'read_file' ? 'File contents' : step.toolName === 'write_file' ? 'Written file' : 'Edited file'}
+                                                </div>
+                                                  <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-40 whitespace-pre-wrap break-all leading-tight">
+                                                  {stepContent.substring(0, 1500)}
+                                                  {stepContent.length > 1500 && <span className="text-muted-foreground/40">... ({stepContent.length} chars total)</span>}
+                                                </pre>
+                                                </div>
+                                              ) : isCommandResult ? (
+                                                <div className="rounded-md border border-border/30 overflow-hidden bg-black/5 dark:bg-black/20">
+                                                  <div className="px-2 py-1 text-[8px] font-mono text-muted-foreground/60 bg-muted/30 flex items-center gap-1">
+                                                    <Terminal className="h-2.5 w-2.5" />
+                                                    Command output
+                                                  </div>
+                                                  <pre className="text-[9px] font-mono text-foreground/60 p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all leading-tight">
+                                                    {stepContent.substring(0, 1500)}
+                                                    {stepContent.length > 1500 && <span className="text-muted-foreground/40">... ({stepContent.length} chars total)</span>}
+                                                  </pre>
+                                                </div>
+                                              ) : (
+                                                <p className="text-[9px] text-muted-foreground/60 font-mono line-clamp-3 leading-tight">
+                                                  {stepContent.substring(0, 300)}
+                                                </p>
+                                              )}
+                                            </div>
+                                          )}
+                                          
+                                          {/* Show tool call args for write/edit_file */}
+                                          {isToolCall && (step.toolName === 'write_file' || step.toolName === 'edit_file') && step.toolArgs && (
+                                            <div className="ml-6 mt-1">
+                                              <div className="rounded-md border border-blue-200/30 dark:border-blue-800/30 overflow-hidden bg-blue-50/30 dark:bg-blue-900/10">
+                                                <div className="px-2 py-1 text-[8px] font-mono text-blue-600/60 dark:text-blue-400/60 bg-blue-100/30 dark:bg-blue-900/20 flex items-center gap-1">
+                                                  <Code2 className="h-2.5 w-2.5" />
+                                                  {step.toolName === 'write_file' ? 'Writing' : 'Editing'}: {step.toolArgs?.path || step.toolArgs?.file_path || ''}
+                                                </div>
+                                                {step.toolArgs?.content && (
+                                                  <pre className="text-[9px] font-mono text-blue-700 dark:text-blue-300 p-2 overflow-x-auto max-h-40 whitespace-pre-wrap break-all leading-tight">
+                                                    {step.toolArgs.content.substring(0, 1500)}
+                                                    {step.toolArgs.content.length > 1500 && <span className="text-muted-foreground/40">... ({step.toolArgs.content.length} chars total)</span>}
+                                                  </pre>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                          
+                                          {/* Show args for other tool calls */}
+                                          {isToolCall && step.toolName !== 'write_file' && step.toolName !== 'edit_file' && step.content && (
+                                            <p className="ml-6 text-[9px] text-muted-foreground/50 font-mono line-clamp-2 leading-tight mt-0.5">
+                                              {step.content.substring(0, 200)}
+                                            </p>
+                                          )}
                                         </div>
                                       );
                                     })}
@@ -2388,6 +2483,40 @@ function ChatArea({
                           <TooltipContent>Copy</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
+                      {/* Retry button - shows when agent hit step limit or errored */}
+                      {(() => {
+                        try {
+                          const meta = JSON.parse(msg.metadata || "{}");
+                          const hitLimit = msg.content?.includes("maximum number of steps");
+                          const hasError = meta.steps?.some((s: any) => s.type === 'error');
+                          if (hitLimit || hasError) {
+                            // Find the user message that preceded this assistant message
+                            const msgIdx = messages.findIndex(m => m.id === msg.id);
+                            const prevUserMsg = msgIdx > 0 ? messages[msgIdx - 1] : null;
+                            const retryPrompt = prevUserMsg?.role === 'user' ? prevUserMsg.content : null;
+                            if (retryPrompt) {
+                              return (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-muted-foreground hover:text-amber-500"
+                                        onClick={() => onRetry(retryPrompt)}
+                                      >
+                                        <Zap className="h-3 w-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Retry</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              );
+                            }
+                          }
+                        } catch {}
+                        return null;
+                      })()}
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

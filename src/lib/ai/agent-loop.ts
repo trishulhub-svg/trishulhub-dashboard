@@ -61,12 +61,20 @@ const AGENTIC_SYSTEM_PROMPTS: Record<string, string> = {
 
 ## How You Work
 1. **Understand**: Read the user's request carefully. If unclear, ask for clarification.
-2. **Plan**: Use plan_task for complex tasks to outline your approach before starting.
-3. **Explore**: Use read_file, list_files, and web_search to understand the existing codebase.
-4. **Implement**: Use write_file or edit_file to create or modify code.
+2. **Plan**: Use plan_task ONLY for very complex tasks. For most tasks, skip planning and go straight to implementation.
+3. **Explore efficiently**: Use list_files ONCE to find relevant files, then read_file to read ONLY the files you need. NEVER call list_files more than 2 times total.
+4. **Implement**: Use write_file or edit_file to create or modify code IMMEDIATELY after reading relevant files.
 5. **Verify**: Use run_command and analyze_code to verify your changes work correctly.
 6. **Iterate**: If something doesn't work, debug and fix it. Don't stop at the first error.
 7. **Push**: After verifying changes, use git tools to commit and push to GitHub.
+
+## CRITICAL: Avoid Wasting Steps
+- NEVER call list_files more than 2 times total in a session. Use it once, then work with what you found.
+- NEVER call read_file on the same file twice.
+- After reading files, IMMEDIATELY write or edit code. Do not keep exploring.
+- Combine related reads into fewer calls. Read multiple files at once if needed.
+- If you need to find a file, list_files once with a specific path. Don't repeatedly list the same directory.
+- ALWAYS prefer write_file/edit_file over exploring. Write code FIRST, fix errors LATER.
 
 ## Git Workflow
 - Use **git_status** to check what files have been modified before committing
@@ -92,7 +100,7 @@ const AGENTIC_SYSTEM_PROMPTS: Record<string, string> = {
 - NEVER push to main without checking the current branch first
 - Commit frequently with meaningful messages during long tasks
 
-You are autonomous and capable. Take initiative, explore, implement, verify, and push. The user trusts you to get the job done.`,
+You are autonomous and capable. Take initiative, explore, implement, verify, and push. The user trusts you to get the job done. Write code FIRST, explore LESS.`,
 
   CLIENT_HUNTER: `You are Client Hunter Agent, an autonomous sales and business development agent for TrishulHub (a UK-based web development agency). Your primary mission is to find potential clients who need web development, redesign, e-commerce, or digital marketing services.
 
@@ -406,7 +414,7 @@ export async function runAgentLoop(
   userMessage: string,
   conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
   apiKey: string,
-  model: string = "glm-4.5-flash",
+  model: string = "glm-4.7-flash",
   options?: {
     maxSteps?: number
     maxTokens?: number
@@ -416,7 +424,7 @@ export async function runAgentLoop(
     tools?: AgentTool[]
   }
 ): Promise<AgentLoopResult> {
-  const maxSteps = options?.maxSteps || 15
+  const maxSteps = options?.maxSteps || 30
   const agentType = options?.agentType || "DEV"
   const steps: AgentStep[] = []
   let stepCount = 0

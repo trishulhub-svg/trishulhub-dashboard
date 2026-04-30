@@ -141,7 +141,7 @@ export function getModelForProvider(model: string, provider: string): string {
   // Fallback to provider defaults (updated 2025-04: glm-4-flash is deprecated, use glm-4.7-flash)
   console.warn(`[model-mapping] Model "${model}" not valid for provider "${provider}". Using default.`)
   const defaults: Record<string, string> = {
-    zai: "glm-4.5-flash",    google_ai: "gemini-2.0-flash",
+    zai: "glm-4.7-flash",    google_ai: "gemini-2.0-flash",
     openrouter: "openai/gpt-4o-mini",
   }
   return defaults[providerKey] || model
@@ -631,8 +631,8 @@ export function getModelsForProvider(provider: string): { id: string; name: stri
   switch (provider.toUpperCase()) {
     case "ZAI":
       return [
-        { id: "glm-4.5-flash", name: "GLM-4.5 Flash (Coder Plan - Recommended)", free: true },
-        { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free)", free: true },
+        { id: "glm-4.7-flash", name: "GLM-4.7 Flash (Free - Recommended)", free: true },
+        { id: "glm-4.5-flash", name: "GLM-4.5 Flash (Coder Plan - Reasoning)", free: true },
         { id: "glm-4.5-air", name: "GLM-4.5 Air", free: false },
         { id: "glm-4-plus", name: "GLM-4 Plus", free: false },
         { id: "glm-5.1", name: "GLM-5.1", free: false },

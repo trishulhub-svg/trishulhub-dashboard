@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
           for (const key of eligibleKeys) {
             try {
               const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
-                maxSteps: 15,
+                maxSteps: 30,
                 maxTokens: 8192,
                 agentType: agent.type,
                 systemPrompt,
@@ -183,13 +183,15 @@ export async function POST(req: NextRequest) {
                       step: {
                         type: step.type,
                         content: step.type === "thinking"
-                          ? step.content.substring(0, 300)
+                          ? step.content.substring(0, 500)
                           : step.type === "tool_result"
-                            ? (step.toolResult || step.content).substring(0, 500)
+                            ? (step.toolResult || step.content).substring(0, 2000)
                             : step.type === "tool_call"
-                              ? `${step.toolName}(${Object.entries(step.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 50)}`).join(", ")})`
-                              : step.content.substring(0, 500),
+                              ? `${step.toolName}(${Object.entries(step.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                              : step.content.substring(0, 2000),
                         toolName: step.toolName,
+                        toolArgs: step.toolArgs,
+                        toolResult: step.type === "tool_result" ? (step.toolResult || step.content).substring(0, 2000) : undefined,
                         stepNumber: step.stepNumber,
                       }
                     }
@@ -228,10 +230,14 @@ export async function POST(req: NextRequest) {
                   type: s.type,
                   toolName: s.toolName,
                   content: s.type === "thinking"
-                    ? s.content.substring(0, 200)
+                    ? s.content.substring(0, 500)
                     : s.type === "tool_result"
-                      ? s.content.substring(0, 500)
-                      : s.content.substring(0, 500),
+                      ? s.content.substring(0, 2000)
+                      : s.type === "tool_call"
+                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                        : s.content.substring(0, 2000),
+                  toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
+                  toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
                 })),
               }
 
@@ -289,16 +295,18 @@ export async function POST(req: NextRequest) {
                 steps: result.steps.map(s => ({
                   type: s.type,
                   content: s.type === "thinking"
-                    ? s.content.substring(0, 300)
+                    ? s.content.substring(0, 500)
                     : s.type === "tool_result"
-                      ? (s.toolResult || s.content).substring(0, 500)
+                      ? (s.toolResult || s.content).substring(0, 2000)
                       : s.type === "tool_call"
-                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 50)}`).join(", ")})`
-                        : s.content.substring(0, 500),
+                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                        : s.content.substring(0, 2000),
                   toolName: s.toolName,
+                  toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
+                  toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
                   stepNumber: s.stepNumber,
                 })),
-                thinkingPreview: result.thinkingContent?.substring(0, 300),
+                thinkingPreview: result.thinkingContent?.substring(0, 500),
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
@@ -348,7 +356,7 @@ export async function POST(req: NextRequest) {
     for (const key of eligibleKeys) {
       try {
         const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
-          maxSteps: 15,
+          maxSteps: 30,
           maxTokens: 8192,
           agentType: agent.type,
           systemPrompt,
@@ -381,15 +389,19 @@ export async function POST(req: NextRequest) {
             type: s.type,
             toolName: s.toolName,
             content: s.type === "thinking"
-              ? s.content.substring(0, 200)
+              ? s.content.substring(0, 500)
               : s.type === "tool_result"
-                ? s.content.substring(0, 500)
-                : s.content.substring(0, 500),
+                ? s.content.substring(0, 2000)
+                : s.type === "tool_call"
+                  ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                  : s.content.substring(0, 2000),
+            toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
+            toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
           })),
         }
 
         if (result.thinkingContent) {
-          metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
+          metadata.thinkingPreview = result.thinkingContent.substring(0, 500)
         }
 
         const assistantMsg = await db.chatMessage.create({
@@ -435,16 +447,18 @@ export async function POST(req: NextRequest) {
           steps: result.steps.map(s => ({
             type: s.type,
             content: s.type === "thinking"
-              ? s.content.substring(0, 300)
+              ? s.content.substring(0, 500)
               : s.type === "tool_result"
-                ? (s.toolResult || s.content).substring(0, 500)
+                ? (s.toolResult || s.content).substring(0, 2000)
                 : s.type === "tool_call"
-                  ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 50)}`).join(", ")})`
-                  : s.content.substring(0, 500),
+                  ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                  : s.content.substring(0, 2000),
             toolName: s.toolName,
+            toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
+            toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
             stepNumber: s.stepNumber,
           })),
-          thinkingPreview: result.thinkingContent?.substring(0, 300),
+          thinkingPreview: result.thinkingContent?.substring(0, 500),
         })
       } catch (err: any) {
         lastError = err
