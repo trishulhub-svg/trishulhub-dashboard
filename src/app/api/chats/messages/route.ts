@@ -3,6 +3,44 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
+// PATCH /api/chats/messages - Update message metadata
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const userId = (session.user as any).id
+    const body = await req.json()
+    const { messageId, metadata } = body
+
+    if (!messageId) {
+      return NextResponse.json({ error: "Message ID is required" }, { status: 400 })
+    }
+
+    // Find the message and verify access
+    const message = await db.chatMessage.findUnique({ where: { id: messageId }, include: { chat: true } })
+    if (!message) {
+      return NextResponse.json({ error: "Message not found" }, { status: 404 })
+    }
+
+    if (message.chat.userId !== userId) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+
+    // Update metadata
+    const updated = await db.chatMessage.update({
+      where: { id: messageId },
+      data: { metadata: typeof metadata === "string" ? metadata : JSON.stringify(metadata) },
+    })
+
+    return NextResponse.json({ success: true, message: updated })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
 // GET /api/chats/messages - Get messages for a chat
 export async function GET(req: NextRequest) {
   try {

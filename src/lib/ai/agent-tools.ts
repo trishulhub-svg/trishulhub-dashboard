@@ -58,7 +58,7 @@ const PLAN_TASK_TOOL: AgentTool = {
   type: "function",
   function: {
     name: "plan_task",
-    description: "Create a detailed execution plan for a complex task. Break the task into clear, ordered steps with descriptions. Use this before starting work to think through the approach.",
+    description: "Create a detailed execution plan for a complex task. Break the task into clear, ordered steps with descriptions and executable prompts. Use this before starting work to think through the approach. Each step should include a 'prompt' field containing the specific instruction that can be executed when the user activates that step.",
     parameters: {
       type: "object",
       properties: {
@@ -74,10 +74,11 @@ const PLAN_TASK_TOOL: AgentTool = {
               step: { type: "number", description: "Step number" },
               title: { type: "string", description: "Short title for this step" },
               description: { type: "string", description: "What to do in this step" },
+              prompt: { type: "string", description: "The exact instruction to execute when the user activates this step. Should be a self-contained, specific command like 'Read and update the file src/components/App.tsx to add dark mode toggle' or 'Run npm test to verify all tests pass'." },
             },
-            required: ["step", "title", "description"],
+            required: ["step", "title", "description", "prompt"],
           },
-          description: "Ordered list of steps to complete the task.",
+          description: "Ordered list of steps to complete the task. Each step must include a 'prompt' field.",
         },
       },
       required: ["task", "steps"],
@@ -805,14 +806,25 @@ export async function executeToolCall(
         result = await executeWebSearch(args.query, args.purpose)
         break
 
-      case "plan_task":
+      case "plan_task": {
+        // Generate unique IDs for each todo item
+        const planSteps = (args.steps || []).map((s: any, idx: number) => ({
+          id: `todo-${Date.now()}-${idx}`,
+          step: s.step || idx + 1,
+          title: s.title || `Step ${idx + 1}`,
+          description: s.description || "",
+          prompt: s.prompt || s.description || "",
+          status: "pending" as const,
+        }))
         result = JSON.stringify({
           task: args.task,
-          steps: args.steps,
+          steps: planSteps,
+          requiresActivation: true,
           status: "planned",
-          totalSteps: args.steps?.length || 0,
+          totalSteps: planSteps.length,
         }, null, 2)
         break
+      }
 
       // ── Dev Agent tools ──
       case "read_file":

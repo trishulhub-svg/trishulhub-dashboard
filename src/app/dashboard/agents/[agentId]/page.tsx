@@ -269,6 +269,19 @@ export default function AgentChatPage() {
   const [planSteps, setPlanSteps] = useState<Array<{ step: number; title: string; description: string; status: 'completed' | 'running' | 'pending' }>>([]);
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
 
+  // TODO items for plan-then-execute workflow (Z.ai-style)
+  const [todoItems, setTodoItems] = useState<Array<{
+    id: string;
+    step: number;
+    title: string;
+    description: string;
+    prompt: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    result?: string;
+    messageId?: string;
+  }>>([]);
+  const [activatingStepId, setActivatingStepId] = useState<string | null>(null);
+
   // File upload state
   const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
   const [uploading, setUploading] = useState(false);
@@ -289,6 +302,8 @@ export default function AgentChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const directMessageRef = useRef<string | null>(null); // For sending messages programmatically (e.g., TODO activation)
+  const activeTodoIdRef = useRef<string | null>(null); // Track which TODO item is being activated
 
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
@@ -487,6 +502,29 @@ export default function AgentChatPage() {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
+          // Restore todoItems from the last assistant message
+          // and infer status from conversation history
+          const lastAssistantMsg = [...msgs].reverse().find(m => m.role === 'assistant');
+          if (lastAssistantMsg?.metadata) {
+            try {
+              const meta = JSON.parse(lastAssistantMsg.metadata);
+              if (meta.todoItems && meta.todoItems.length > 0) {
+                const executedSteps = new Set<number>();
+                for (const msg of msgs) {
+                  if (msg.role === 'user') {
+                    const match = msg.content.match(/^\[Executing Plan Step (\d+):/);
+                    if (match) executedSteps.add(parseInt(match[1]));
+                  }
+                }
+                const restoredItems = meta.todoItems.map((item: any) => ({
+                  ...item,
+                  status: executedSteps.has(item.step) ? 'completed' as const : item.status,
+                  result: executedSteps.has(item.step) ? 'Step executed' : item.result,
+                }));
+                setTodoItems(restoredItems);
+              }
+            } catch {}
+          }
           // Refresh chat list to reflect updated state
           fetchChats();
         }
@@ -525,6 +563,28 @@ export default function AgentChatPage() {
           if (assistantMsgs.length > 0 && loadedMsgs.length > info.lastMessageCount) {
             // Agent already finished while we were away - no need to animate
             markProcessingEnd(chat.id);
+            // Restore todoItems from the last assistant message with status inference
+            const lastAssistantMsg = [...loadedMsgs].reverse().find(m => m.role === 'assistant');
+            if (lastAssistantMsg?.metadata) {
+              try {
+                const meta = JSON.parse(lastAssistantMsg.metadata);
+                if (meta.todoItems && meta.todoItems.length > 0) {
+                  const executedSteps = new Set<number>();
+                  for (const msg of loadedMsgs) {
+                    if (msg.role === 'user') {
+                      const match = msg.content.match(/^\[Executing Plan Step (\d+):/);
+                      if (match) executedSteps.add(parseInt(match[1]));
+                    }
+                  }
+                  const restoredItems = meta.todoItems.map((item: any) => ({
+                    ...item,
+                    status: executedSteps.has(item.step) ? 'completed' as const : item.status,
+                    result: executedSteps.has(item.step) ? 'Step executed' : item.result,
+                  }));
+                  setTodoItems(restoredItems);
+                }
+              } catch {}
+            }
           } else {
             // Agent is still working - resume animation and poll for completion
             startPollingForCompletion(chat.id, info.lastMessageCount);
@@ -636,11 +696,43 @@ export default function AgentChatPage() {
     }
 
     setActiveChatId(chatId);
-    fetchMessages(chatId).then(() => {
+    // Clear existing todoItems when switching chats
+    setTodoItems([]);
+    fetchMessages(chatId).then((loadedMsgs) => {
       // After loading messages, check if this chat has active processing
       const procInfo = getProcessingInfo(chatId);
       if (procInfo) {
         startPollingForCompletion(chatId, procInfo.lastMessageCount);
+      }
+      // Restore todoItems from the last assistant message's metadata
+      // and infer status from subsequent conversation messages
+      if (loadedMsgs && loadedMsgs.length > 0) {
+        const lastAssistantMsg = [...loadedMsgs].reverse().find(m => m.role === 'assistant');
+        if (lastAssistantMsg?.metadata) {
+          try {
+            const meta = JSON.parse(lastAssistantMsg.metadata);
+            if (meta.todoItems && meta.todoItems.length > 0) {
+              // Infer completed steps from conversation: check for user messages
+              // that start with "[Executing Plan Step X:"
+              const executedSteps = new Set<number>();
+              for (const msg of loadedMsgs) {
+                if (msg.role === 'user') {
+                  const match = msg.content.match(/^\[Executing Plan Step (\d+):/);
+                  if (match) {
+                    executedSteps.add(parseInt(match[1]));
+                  }
+                }
+              }
+              // Update TODO items status based on executed steps
+              const restoredItems = meta.todoItems.map((item: any) => ({
+                ...item,
+                status: executedSteps.has(item.step) ? 'completed' as const : item.status,
+                result: executedSteps.has(item.step) ? 'Step executed' : item.result,
+              }));
+              setTodoItems(restoredItems);
+            }
+          } catch {}
+        }
       }
     });
     if (isMobile) setMobileTab("messages");
@@ -781,10 +873,14 @@ export default function AgentChatPage() {
 
   // ── Send message ──
   const handleSend = useCallback(async () => {
-    // Allow sending with just text, just attachments, or both
-    if ((!input.trim() && attachedFiles.length === 0) || sending || uploading) return;
+    // Check for direct message override (used by TODO activation)
+    const directMsg = directMessageRef.current;
+    const userContent = directMsg || (input.trim() || (attachedFiles.length > 0 ? "Please analyze the attached file(s)." : ""));
+    directMessageRef.current = null;
 
-    const userContent = input.trim() || "Please analyze the attached file(s).";
+    // Allow sending with just text, just attachments, or both
+    if ((!userContent.trim() && attachedFiles.length === 0) || sending || uploading) return;
+
     const currentAttachments = [...attachedFiles];
     setInput("");
     setAttachedFiles([]);
@@ -892,6 +988,7 @@ export default function AgentChatPage() {
         let buffer = "";
         let finalData: any = null;
         const collectedSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }> = [];
+        let collectedTodoItems: Array<{ id: string; step: number; title: string; description: string; prompt: string; status: 'pending' | 'running' | 'completed' | 'failed'; result?: string }> = [];
 
         while (true) {
           const { done, value } = await reader.read();
@@ -930,6 +1027,47 @@ export default function AgentChatPage() {
                       })));
                     }
                   } catch {}
+                }
+
+                // Parse plan_task tool_result to extract TODO items with prompts
+                if (step.type === "tool_result" && step.toolName === "plan_task") {
+                  try {
+                    const resultStr = step.toolResult || step.content || "";
+                    const planData = JSON.parse(resultStr);
+                    if (planData.requiresActivation && planData.steps && planData.steps.length > 0) {
+                      const newTodos = planData.steps.map((s: any) => ({
+                        id: s.id || `todo-${Date.now()}-${s.step}`,
+                        step: s.step,
+                        title: s.title,
+                        description: s.description || "",
+                        prompt: s.prompt || s.description || "",
+                        status: 'pending' as const,
+                      }));
+                      collectedTodoItems = newTodos;
+                      setTodoItems(newTodos);
+                    }
+                  } catch {
+                    // If JSON parsing fails, try regex fallback
+                    try {
+                      const resultStr = step.toolResult || step.content || "";
+                      const stepsMatch = resultStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                      if (stepsMatch) {
+                        const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
+                        if (stepsData.length > 0 && stepsData[0].prompt) {
+                          const newTodos = stepsData.map((s: any, idx: number) => ({
+                            id: s.id || `todo-${Date.now()}-${idx}`,
+                            step: s.step || idx + 1,
+                            title: s.title || `Step ${idx + 1}`,
+                            description: s.description || "",
+                            prompt: s.prompt || s.description || "",
+                            status: 'pending' as const,
+                          }));
+                          collectedTodoItems = newTodos;
+                          setTodoItems(newTodos);
+                        }
+                      }
+                    } catch {}
+                  }
                 }
 
                 // Update plan step status as tools execute
@@ -1013,6 +1151,7 @@ export default function AgentChatPage() {
               usedTools: finalData.usedTools,
               steps: finalData.steps,
               thinkingPreview: finalData.thinkingPreview,
+              todoItems: collectedTodoItems.length > 0 ? collectedTodoItems : undefined,
             }),
             createdAt: new Date().toISOString(),
           };
@@ -1117,7 +1256,7 @@ export default function AgentChatPage() {
         setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
       }
     }
-  }, [input, sending, uploading, attachedFiles, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd]);
+  }, [input, sending, uploading, attachedFiles, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd, todoItems]);
 
   // ── Retry failed prompt ──
   const handleRetry = useCallback((prompt: string) => {
@@ -1139,6 +1278,66 @@ export default function AgentChatPage() {
       if (chatInputRef.current) chatInputRef.current.focus();
     }, 100);
   }, []);
+
+  // ── Activate a TODO plan step ──
+  const handleActivateTodo = useCallback(async (item: typeof todoItems[0]) => {
+    if (sending || item.status === 'running' || item.status === 'completed') return;
+
+    // Update the item status to running
+    const itemId = item.id;
+    setTodoItems(prev => prev.map(t => t.id === itemId ? { ...t, status: 'running' as const } : t));
+    setActivatingStepId(itemId);
+    activeTodoIdRef.current = itemId;
+
+    const prefixedPrompt = `[Executing Plan Step ${item.step}: ${item.title}] ${item.prompt}`;
+
+    // Set the direct message ref and trigger handleSend
+    directMessageRef.current = prefixedPrompt;
+
+    let success = false;
+    try {
+      await handleSend();
+      // If handleSend completed without throwing, mark as completed
+      success = true;
+    } catch {
+      // On error, mark the item as failed
+      setTodoItems(prev => prev.map(t => t.id === itemId ? { ...t, status: 'failed' as const, result: 'Failed to execute step' } : t));
+    } finally {
+      if (success && activeTodoIdRef.current === itemId) {
+        setTodoItems(prev => prev.map(t => t.id === itemId ? { ...t, status: 'completed' as const, result: 'Step completed successfully' } : t));
+      }
+      setActivatingStepId(null);
+      activeTodoIdRef.current = null;
+    }
+  }, [sending, todoItems, handleSend]);
+
+  // ── Auto-save TODO items to DB when they change ──
+  useEffect(() => {
+    if (todoItems.length === 0 || !activeChatId) return;
+    // Find the last assistant message that has todoItems in metadata
+    const planMsg = [...messages].reverse().find(m => {
+      if (m.role !== 'assistant') return false;
+      try {
+        const meta = JSON.parse(m.metadata || "{}");
+        return meta.todoItems && meta.todoItems.length > 0;
+      } catch { return false; }
+    });
+    if (!planMsg) return;
+    // Update the metadata with current todoItems state
+    try {
+      const meta = JSON.parse(planMsg.metadata || "{}");
+      const updatedMeta = { ...meta, todoItems };
+      // Update in DB (fire-and-forget)
+      fetch("/api/chats/messages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ messageId: planMsg.id, metadata: updatedMeta }),
+      }).catch(() => {});
+      // Also update in local messages state
+      setMessages(prev => prev.map(m => m.id === planMsg.id ? { ...m, metadata: JSON.stringify(updatedMeta) } : m));
+    } catch {}
+  }, [todoItems, activeChatId, messages]);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1181,6 +1380,7 @@ export default function AgentChatPage() {
         if (activeChatId === chatId) {
           setActiveChatId(null);
           setMessages([]);
+          setTodoItems([]);
         }
         await fetchChats();
         toast.success("Chat archived");
@@ -1210,6 +1410,7 @@ export default function AgentChatPage() {
           if (activeChatId === chatId) {
             setActiveChatId(null);
             setMessages([]);
+            setTodoItems([]);
           }
           await fetchChats();
           toast.success("Chat deleted");
@@ -1479,6 +1680,8 @@ export default function AgentChatPage() {
               onReleaseLock={releaseChatLock}
               onRetry={handleRetry}
               onResumeChat={resumeChat}
+              todoItems={todoItems}
+              onActivateTodo={handleActivateTodo}
             />
           </TabsContent>
 
@@ -1787,6 +1990,8 @@ export default function AgentChatPage() {
           onReleaseLock={releaseChatLock}
           onRetry={handleRetry}
           onResumeChat={resumeChat}
+          todoItems={todoItems}
+          onActivateTodo={handleActivateTodo}
         />
       </div>
 
@@ -2180,6 +2385,8 @@ function ChatArea({
   onReleaseLock,
   onRetry,
   onResumeChat,
+  todoItems,
+  onActivateTodo,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -2213,8 +2420,11 @@ function ChatArea({
   onReleaseLock: () => void;
   onRetry: (prompt: string) => void;
   onResumeChat: (chatId?: string) => void;
+  todoItems: Array<{ id: string; step: number; title: string; description: string; prompt: string; status: 'pending' | 'running' | 'completed' | 'failed'; result?: string }>;
+  onActivateTodo: (item: typeof todoItems[0]) => void;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
+  const [todoExpanded, setTodoExpanded] = useState(true);
 
   const toggleMsgSteps = (msgId: string) => {
     setExpandedMsgSteps((prev) => {
@@ -2564,6 +2774,162 @@ function ChatArea({
                               </div>
                             );
                           }
+                        } catch {}
+                        return null;
+                      })()}
+                      {/* Z.ai-style TODO list for plan-then-execute workflow */}
+                      {msg.role === "assistant" && (() => {
+                        try {
+                          const meta = JSON.parse(msg.metadata || "{}");
+                          // Get todoItems either from state (current message) or from metadata (historical)
+                          const isLastAssistantMsg = messages.indexOf(msg) === messages.length - 1;
+                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (meta.todoItems || []);
+                          if (!items || items.length === 0) return null;
+
+                          const completedCount = items.filter((t: any) => t.status === 'completed').length;
+                          const totalCount = items.length;
+                          const hasRunning = items.some((t: any) => t.status === 'running');
+                          const allCompleted = completedCount === totalCount;
+
+                          return (
+                            <div className="mb-3 rounded-lg border border-border/40 overflow-hidden bg-gradient-to-b from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10">
+                              {/* TODO Header */}
+                              <button
+                                onClick={() => setTodoExpanded(!todoExpanded)}
+                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-amber-100/30 dark:hover:bg-amber-900/20 transition-colors text-left"
+                              >
+                                {allCompleted ? (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                ) : hasRunning ? (
+                                  <Loader2 className="h-4 w-4 text-amber-500 shrink-0 animate-spin" />
+                                ) : (
+                                  <ListChecks className="h-4 w-4 text-amber-500 shrink-0" />
+                                )}
+                                <span className="text-xs font-semibold text-foreground/80">Plan</span>
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  {completedCount}/{totalCount}
+                                </span>
+                                {/* Progress bar */}
+                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden ml-1 mr-2 max-w-[80px]">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-500"
+                                    style={{
+                                      width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
+                                      background: allCompleted
+                                        ? 'linear-gradient(90deg, #10b981, #059669)'
+                                        : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                                    }}
+                                  />
+                                </div>
+                                <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${todoExpanded ? "rotate-90" : ""}`} />
+                                {/* Run All button */}
+                                {!allCompleted && !hasRunning && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0 ml-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Auto-activate the first pending step
+                                      const firstPending = items.find((t: any) => t.status === 'pending');
+                                      if (firstPending) onActivateTodo(firstPending);
+                                    }}
+                                    disabled={sending}
+                                  >
+                                    <Zap className="h-2.5 w-2.5" />
+                                    Run Next
+                                  </Button>
+                                )}
+                              </button>
+
+                              {/* TODO Items */}
+                              {todoExpanded && (
+                                <div className="px-3 pb-2.5 space-y-1 border-t border-amber-200/30 dark:border-amber-800/20">
+                                  {items.map((item: any) => {
+                                    const isPending = item.status === 'pending';
+                                    const isRunning = item.status === 'running';
+                                    const isCompleted = item.status === 'completed';
+                                    const isFailed = item.status === 'failed';
+
+                                    return (
+                                      <div key={item.id || item.step} className="py-1.5 group">
+                                        <div className="flex items-start gap-2">
+                                          {/* Status icon */}
+                                          <div className="mt-0.5 shrink-0">
+                                            {isPending ? (
+                                              <div className="h-4 w-4 rounded border-2 border-amber-300 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
+                                                <Circle className="h-2 w-2 text-amber-400" />
+                                              </div>
+                                            ) : isRunning ? (
+                                              <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30 animate-pulse">
+                                                <Loader2 className="h-2.5 w-2.5 text-amber-500 animate-spin" />
+                                              </div>
+                                            ) : isCompleted ? (
+                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                              </div>
+                                            ) : (
+                                              <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
+                                                <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                              </div>
+                                            )}
+                                          </div>
+                                          {/* Content */}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className={`text-[10px] font-mono text-muted-foreground/60`}>
+                                                {item.step}.
+                                              </span>
+                                              <span className={`text-[11px] font-medium ${
+                                                isCompleted ? 'text-foreground/50 line-through' :
+                                                isFailed ? 'text-red-600 dark:text-red-400' :
+                                                isRunning ? 'text-foreground/90' :
+                                                'text-foreground/70'
+                                              }`}>
+                                                {item.title}
+                                              </span>
+                                            </div>
+                                            {item.description && (
+                                              <p className={`text-[9px] mt-0.5 leading-tight ${
+                                                isCompleted ? 'text-muted-foreground/40' : 'text-muted-foreground/60'
+                                              }`}>
+                                                {item.description}
+                                              </p>
+                                            )}
+                                            {/* Result summary for completed items */}
+                                            {isCompleted && item.result && (
+                                              <p className="text-[9px] text-emerald-600/60 dark:text-emerald-400/50 mt-0.5 leading-tight">
+                                                ✓ {item.result}
+                                              </p>
+                                            )}
+                                            {/* Error info for failed items */}
+                                            {isFailed && item.result && (
+                                              <p className="text-[9px] text-red-500/70 mt-0.5 leading-tight">
+                                                ✗ {item.result}
+                                              </p>
+                                            )}
+                                          </div>
+                                          {/* Activate button - always visible for pending items */}
+                                          {isPending && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+                                              onClick={() => onActivateTodo(item)}
+                                              disabled={sending}
+                                            >
+                                              <Zap className="h-2.5 w-2.5" />
+                                              Run Step
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
                         } catch {}
                         return null;
                       })()}

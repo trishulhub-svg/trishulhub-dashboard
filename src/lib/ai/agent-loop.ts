@@ -62,7 +62,7 @@ const AGENTIC_SYSTEM_PROMPTS: Record<string, string> = {
 ## How You Work
 1. **Understand**: Read the user's request carefully. If unclear, ask for clarification.
 2. **Explore efficiently**: Use list_files ONCE to find relevant files, then read_file to read ONLY the files you need. NEVER call list_files more than 2 times total.
-3. **Plan** (for complex tasks): Use plan_task to break down complex, multi-step tasks. Skip planning for simple fixes and small changes.
+3. **Plan** (for complex tasks): Use plan_task to break down complex, multi-step tasks. Skip planning for simple fixes and small changes. When using plan_task, ALWAYS include a 'prompt' field for each step - this should be a specific, self-contained instruction that can be executed independently (e.g., "Read and update src/components/App.tsx to add a dark mode toggle button in the header").
 4. **Implement**: Use write_file or edit_file to create or modify code AFTER understanding the existing codebase.
 5. **Verify**: Use run_command and analyze_code to verify your changes work correctly.
 6. **Iterate**: If something doesn't work, debug and fix it. Don't stop at the first error.
