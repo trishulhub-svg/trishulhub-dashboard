@@ -223,6 +223,12 @@ export async function POST(req: NextRequest) {
     // Agent status should not be global - each chat is independent.
     // We track activity at the chat level, not the agent level.
 
+    // Mark chat as processing (persists across navigation)
+    await db.chat.update({
+      where: { id: chat.id },
+      data: { isProcessing: true },
+    }).catch(() => {})
+
     // Build conversation history from chat messages
     const history = chat.messages
       .slice(-20)
@@ -365,6 +371,46 @@ export async function POST(req: NextRequest) {
                 },
               })
 
+              // Mark chat as no longer processing
+              await db.chat.update({
+                where: { id: chat.id },
+                data: { isProcessing: false },
+              }).catch(() => {})
+
+              // Auto-push to GitHub if enabled and code was written
+              if (agent.roleConfig?.autoPushEnabled && agent.roleConfig.githubRepo && agent.roleConfig.githubToken) {
+                const hasCodeChanges = result.usedTools.includes('write_file') || result.usedTools.includes('edit_file')
+                if (hasCodeChanges) {
+                  try {
+                    const { exec } = require("child_process")
+                    const { promisify } = require("util")
+                    const execAsync = promisify(exec)
+                    const projectRoot = process.cwd()
+                    
+                    // Configure git remote with token if needed
+                    const repoUrl = agent.roleConfig.githubRepo
+                    const token = agent.roleConfig.githubToken
+                    // Construct authenticated URL
+                    const authUrl = repoUrl.replace('https://', `https://${token}@`)
+                    
+                    // Set remote and push
+                    await execAsync(`git -C "${projectRoot}" remote set-url origin ${authUrl} 2>/dev/null || git -C "${projectRoot}" remote add origin ${authUrl}`, { timeout: 10000 }).catch(() => {})
+                    await execAsync(`git -C "${projectRoot}" add -A`, { timeout: 15000 }).catch(() => {})
+                    const { stdout: statusOut } = await execAsync(`git -C "${projectRoot}" status --porcelain`, { timeout: 10000 }).catch(() => ({ stdout: '' }))
+                    if (statusOut.trim()) {
+                      const commitMsg = `Auto-push by ${agent.name}: ${enrichedMessage.substring(0, 80)}`
+                      await execAsync(`git -C "${projectRoot}" commit -m "${commitMsg.replace(/["\n$`]/g, '')}"`, { timeout: 15000 }).catch(() => {})
+                      await execAsync(`git -C "${projectRoot}" push origin HEAD`, { timeout: 60000 }).catch(() => {})
+                      console.log(`[agent-chat] Auto-pushed to GitHub for agent ${agent.name}`)
+                    }
+                    // Reset remote URL to remove token for security
+                    await execAsync(`git -C "${projectRoot}" remote set-url origin ${repoUrl}`, { timeout: 10000 }).catch(() => {})
+                  } catch (gitErr: any) {
+                    console.error(`[agent-chat] Auto-push failed:`, gitErr.message)
+                  }
+                }
+              }
+
               // Log usage
               await db.apiUsageLog.create({
                 data: {
@@ -503,6 +549,8 @@ export async function POST(req: NextRequest) {
 
           // All keys failed
           await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+          // Clear processing state on error
+          await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
           const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
           const errorData = {
@@ -591,6 +639,12 @@ export async function POST(req: NextRequest) {
           },
         })
 
+        // Mark chat as no longer processing
+        await db.chat.update({
+          where: { id: chat.id },
+          data: { isProcessing: false },
+        }).catch(() => {})
+
         await db.apiUsageLog.create({
           data: {
             apiKeyId: key.id,
@@ -676,6 +730,8 @@ export async function POST(req: NextRequest) {
 
     // All keys failed
     await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+    // Clear processing state on error
+    await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
     const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
     return NextResponse.json({

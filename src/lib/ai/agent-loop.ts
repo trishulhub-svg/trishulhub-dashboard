@@ -610,9 +610,24 @@ export async function runAgentLoop(
 
       // No tool calls - this is the final response
       if (result.content) {
+        // Enhance the final response with a code changes summary
+        let enhancedResponse = result.content
+        const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
+        if (writeSteps.length > 0) {
+          const fileSummary = writeSteps.map(s => {
+            const path = s.toolArgs?.path || s.toolArgs?.file_path || "unknown"
+            const action = s.toolName === "write_file" ? "Created" : "Edited"
+            return `- ${action}: \`${path}\``
+          }).join("\n")
+          // Only add summary if the response doesn't already list the files
+          if (!enhancedResponse.includes(fileSummary.split("\n")[0]?.split("`")[1] || "___NOMATCH___")) {
+            enhancedResponse = `\n📁 **Files Modified:**\n${fileSummary}\n\n${enhancedResponse}`
+          }
+        }
+
         const finalStep: AgentStep = {
           type: "response",
-          content: result.content,
+          content: enhancedResponse,
           stepNumber: stepCount,
           timestamp: Date.now(),
         }
@@ -620,7 +635,7 @@ export async function runAgentLoop(
         options?.onStep?.(finalStep)
 
         return {
-          finalResponse: result.content,
+          finalResponse: enhancedResponse,
           steps,
           totalSteps: stepCount,
           totalInputTokens,

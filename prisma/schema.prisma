@@ -86,6 +86,11 @@ model AgentRoleConfig {
   autoWorkflows    String  @default("[]") // JSON: [{id, name, trigger, actions}]
   suggestedPrompts String  @default("[]") // JSON: [{id, label, prompt}] - role-specific suggestion prompts
 
+  // GitHub integration settings
+  githubRepo      String  @default("") // GitHub repo URL (e.g., "https://github.com/user/repo")
+  githubToken     String  @default("") // GitHub personal access token
+  autoPushEnabled Boolean @default(false) // Auto-push code changes to GitHub
+
   agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 }
 
@@ -104,6 +109,10 @@ model Chat {
   lockedBy    String?   // User ID who is currently active on this chat
   lockedAt    DateTime? // When the lock was acquired
   lockedByName String?  // Display name of the user who locked it
+
+  // Persistent TODO items - survives navigation away and back
+  todoItems     String  @default("[]") // JSON array of TODO items with status
+  isProcessing  Boolean @default(false) // Whether agent is currently processing
 
   agent          Agent            @relation(fields: [agentId], references: [id])
   user           User             @relation(fields: [userId], references: [id])

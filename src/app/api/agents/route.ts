@@ -77,6 +77,9 @@ export async function PATCH(req: NextRequest) {
           features: JSON.stringify(roleConfig.features || {}),
           suggestedPrompts: JSON.stringify(roleConfig.suggestedPrompts || []),
           autoWorkflows: JSON.stringify(roleConfig.autoWorkflows || []),
+          githubRepo: roleConfig.githubRepo || "",
+          githubToken: roleConfig.githubToken || "",
+          autoPushEnabled: roleConfig.autoPushEnabled || false,
         },
         update: {
           ...(roleConfig.rolePrompt !== undefined && { rolePrompt: roleConfig.rolePrompt }),
@@ -85,6 +88,9 @@ export async function PATCH(req: NextRequest) {
           ...(roleConfig.features !== undefined && { features: JSON.stringify(roleConfig.features) }),
           ...(roleConfig.suggestedPrompts !== undefined && { suggestedPrompts: JSON.stringify(roleConfig.suggestedPrompts) }),
           ...(roleConfig.autoWorkflows !== undefined && { autoWorkflows: JSON.stringify(roleConfig.autoWorkflows) }),
+          ...(roleConfig.githubRepo !== undefined && { githubRepo: roleConfig.githubRepo }),
+          ...(roleConfig.githubToken !== undefined && { githubToken: roleConfig.githubToken }),
+          ...(roleConfig.autoPushEnabled !== undefined && { autoPushEnabled: roleConfig.autoPushEnabled }),
         }
       })
     }

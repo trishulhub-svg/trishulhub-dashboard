@@ -96,7 +96,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
-    const { id, title, status, isShared } = await req.json()
+    const body = await req.json()
+    const { id, title, status, isShared, todoItems, isProcessing } = body
 
     if (!id) {
       return NextResponse.json({ error: "Chat ID is required" }, { status: 400 })
@@ -111,6 +112,9 @@ export async function PATCH(req: NextRequest) {
     if (title !== undefined) data.title = title
     if (status !== undefined) data.status = status
     if (isShared !== undefined) data.isShared = isShared
+    // Persistent TODO items & processing state
+    if (todoItems !== undefined) data.todoItems = typeof todoItems === 'string' ? todoItems : JSON.stringify(todoItems)
+    if (isProcessing !== undefined) data.isProcessing = isProcessing
 
     const updated = await db.chat.update({
       where: { id },
