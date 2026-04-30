@@ -1293,7 +1293,21 @@ async function executeWriteFile(filePath: string, content: string, description?:
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(fullPath, content, "utf-8")
     const lines = content.split("\n").length
-    return `File written successfully: ${filePath}\nLines: ${lines}\nSize: ${Math.round(content.length / 1024)}KB${description ? `\nDescription: ${description}` : ""}`
+    // Include code preview (first 30 lines) so users can see the generated code
+    const previewLines = content.split("\n").slice(0, 30)
+    const preview = previewLines.length < lines
+      ? previewLines.join("\n") + `\n... (${lines - 30} more lines)`
+      : content
+    // Detect language from file extension for syntax highlighting
+    const ext = path.extname(filePath).slice(1)
+    const langMap: Record<string, string> = {
+      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+      py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+      css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
+      yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
+    }
+    const lang = langMap[ext] || ext
+    return `File written successfully: ${filePath}\nLines: ${lines}\nSize: ${Math.round(content.length / 1024)}KB${description ? `\nDescription: ${description}` : ""}\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   } catch (error: any) {
     return `Error writing file: ${error.message}`
   }
@@ -1322,11 +1336,31 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
       // For multiple occurrences, only replace the first one but warn the agent
       const newFileContent = content.replace(oldContent, newContent)
       fs.writeFileSync(fullPath, newFileContent, "utf-8")
-      return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\nWARNING: Found ${occurrences} occurrences of this pattern. Only the FIRST occurrence was replaced. If you want to replace all, use edit_file again or be more specific with the oldContent.`
+      const editPreviewLines = newContent.split("\n").slice(0, 20)
+      const editPreview = newContent.split("\n").length > 20
+        ? editPreviewLines.join("\n") + `\n... (${newContent.split("\n").length - 20} more lines)`
+        : newContent
+      const editExt = path.extname(filePath).slice(1)
+      const editLangMap: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", py: "python", css: "css", html: "html", json: "json" }
+      return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\nWARNING: Found ${occurrences} occurrences of this pattern. Only the FIRST occurrence was replaced.\n\n\`\`\`${editLangMap[editExt] || editExt}\n${editPreview}\n\`\`\``
     }
     const newFileContent = content.replace(oldContent, newContent)
     fs.writeFileSync(fullPath, newFileContent, "utf-8")
-    return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.`
+    // Include preview of the new content
+    const newLines = newContent.split("\n")
+    const previewLines = newLines.slice(0, 20)
+    const preview = newLines.length > 20
+      ? previewLines.join("\n") + `\n... (${newLines.length - 20} more lines)`
+      : newContent
+    const ext = path.extname(filePath).slice(1)
+    const langMap: Record<string, string> = {
+      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+      py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+      css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
+      yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
+    }
+    const lang = langMap[ext] || ext
+    return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   } catch (error: any) {
     return `Error editing file: ${error.message}`
   }

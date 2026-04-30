@@ -34,6 +34,8 @@ export default function AgentsPage() {
       if (res.ok) {
         const data = await res.json();
         setAgents(data);
+      } else {
+        console.error('Failed to fetch agents:', res.status, await res.text().catch(() => ''));
       }
     } catch (err) {
       console.error(err);

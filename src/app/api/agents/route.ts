@@ -38,8 +38,9 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(agents)
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
+  } catch (error: any) {
+    console.error("[agents] Failed to fetch agents:", error.message, error.stack)
+    return NextResponse.json({ error: "Failed to fetch agents", details: error.message }, { status: 500 })
   }
 }
 

@@ -610,18 +610,51 @@ export async function runAgentLoop(
 
       // No tool calls - this is the final response
       if (result.content) {
-        // Enhance the final response with a code changes summary
+        // Enhance the final response with a code changes summary + actual code from tool results
         let enhancedResponse = result.content
         const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
         if (writeSteps.length > 0) {
           const fileSummary = writeSteps.map(s => {
-            const path = s.toolArgs?.path || s.toolArgs?.file_path || "unknown"
+            const filePath = s.toolArgs?.path || s.toolArgs?.file_path || "unknown"
             const action = s.toolName === "write_file" ? "Created" : "Edited"
-            return `- ${action}: \`${path}\``
+            return `- ${action}: \`${filePath}\``
           }).join("\n")
+          
+          // Collect actual code from tool results for each write/edit
+          const codeResults: string[] = []
+          for (const writeStep of writeSteps) {
+            const filePath = writeStep.toolArgs?.path || writeStep.toolArgs?.file_path || "unknown"
+            // Find the corresponding tool_result step
+            const resultIdx = steps.findIndex(s => 
+              s.type === "tool_result" && 
+              s.toolName === writeStep.toolName &&
+              s.stepNumber >= writeStep.stepNumber &&
+              s.stepNumber <= writeStep.stepNumber + 1
+            )
+            if (resultIdx >= 0 && steps[resultIdx].toolResult) {
+              const toolResult = steps[resultIdx].toolResult || ""
+              // Extract code block from tool result if it contains one
+              const codeMatch = toolResult.match(/```[\w]*\n([\s\S]*?)```/)
+              if (codeMatch) {
+                codeResults.push(`### ${filePath}\n\`\`\`\n${codeMatch[1]}\n\`\`\``)
+              } else {
+                // Just include the file summary
+                codeResults.push(`### ${filePath}\n${toolResult.substring(0, 500)}`)
+              }
+            }
+          }
+          
+          // Build the enhanced response with files + code
+          const codeSection = codeResults.length > 0 
+            ? `\n\n---\n### 📝 Code Generated\n${codeResults.join("\n\n")}\n---\n`
+            : ""
+          
           // Only add summary if the response doesn't already list the files
           if (!enhancedResponse.includes(fileSummary.split("\n")[0]?.split("`")[1] || "___NOMATCH___")) {
-            enhancedResponse = `\n📁 **Files Modified:**\n${fileSummary}\n\n${enhancedResponse}`
+            enhancedResponse = `\n📁 **Files Modified:**\n${fileSummary}${codeSection}\n\n${enhancedResponse}`
+          } else if (codeResults.length > 0) {
+            // Files already listed but code section is new
+            enhancedResponse = `${enhancedResponse}${codeSection}`
           }
         }
 
