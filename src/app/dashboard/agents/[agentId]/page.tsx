@@ -563,6 +563,48 @@ export default function AgentChatPage() {
     };
   }, [activeChatId]);
 
+  // ── Poll for task completion notifications ──
+  const shownNotifIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!agentId) return;
+    const pollNotifications = async () => {
+      try {
+        const res = await fetch("/api/notifications?unread=true", { credentials: "include" });
+        if (res.ok) {
+          const notifications = await res.json();
+          const taskNotifs = (notifications as any[]).filter(
+            (n: any) => n.type === "SUCCESS" && n.metadata && (() => {
+              try { const meta = JSON.parse(n.metadata || "{}"); return meta.taskId; } catch { return false; }
+            })()
+          );
+          for (const notif of taskNotifs) {
+            if (!shownNotifIdsRef.current.has(notif.id)) {
+              shownNotifIdsRef.current.add(notif.id);
+              toast.success(notif.message, { duration: 5000 });
+              // Mark as read
+              fetch("/api/notifications", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ id: notif.id, isRead: true }),
+              }).catch(() => {});
+            }
+          }
+          // If any new task completion notifications found, refresh the tasks list
+          if (taskNotifs.length > 0) {
+            fetchTasks();
+          }
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+    };
+    // Initial poll
+    pollNotifications();
+    const interval = setInterval(pollNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [agentId, fetchTasks]);
+
   // ── Select chat ──
   const selectChat = useCallback(async (chatId: string) => {
     // Check lock status before selecting
@@ -3327,6 +3369,8 @@ function TasksTab({
   onRefresh: () => void;
   planSteps: Array<{ step: number; title: string; description: string; status: 'completed' | 'running' | 'pending' }>;
 }) {
+  const [executingTaskId, setExecutingTaskId] = useState<string | null>(null);
+
   const handleUpdateStatus = async (taskId: string, status: string) => {
     try {
       const res = await fetch("/api/scheduled-tasks", {
@@ -3341,6 +3385,29 @@ function TasksTab({
       }
     } catch {
       toast.error("Failed to update task");
+    }
+  };
+
+  const handleExecuteNow = async (taskId: string) => {
+    setExecutingTaskId(taskId);
+    try {
+      const res = await fetch(`/api/cron/execute-tasks?taskId=${taskId}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          toast.success(`Task executed successfully!`);
+        } else {
+          toast.error(data.error || "Task execution failed");
+        }
+        onRefresh();
+        onStatusUpdate();
+      } else {
+        toast.error("Failed to execute task");
+      }
+    } catch {
+      toast.error("Failed to execute task");
+    } finally {
+      setExecutingTaskId(null);
     }
   };
 
@@ -3470,11 +3537,33 @@ function TasksTab({
                   </div>
                   <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
                     <Clock className="h-2.5 w-2.5" />
-                    {new Date(task.dueDate).toLocaleDateString()}
+                    {new Date(task.dueDate).toLocaleString()}
                     {task.completedAt && (
-                      <span className="text-green-600 dark:text-green-400 ml-1">• Completed {new Date(task.completedAt).toLocaleDateString()}</span>
+                      <span className="text-green-600 dark:text-green-400 ml-1">• Completed {new Date(task.completedAt).toLocaleString()}</span>
                     )}
                   </div>
+                  {task.status === "PENDING" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 text-[9px] text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 mt-1 px-1.5"
+                      disabled={executingTaskId === task.id}
+                      onClick={() => handleExecuteNow(task.id)}
+                    >
+                      {executingTaskId === task.id ? (
+                        <Loader2 className="h-2.5 w-2.5 mr-0.5 animate-spin" />
+                      ) : (
+                        <Zap className="h-2.5 w-2.5 mr-0.5" />
+                      )}
+                      {executingTaskId === task.id ? "Executing..." : "Execute Now"}
+                    </Button>
+                  )}
+                  {task.status === "IN_PROGRESS" && executingTaskId === task.id && (
+                    <div className="flex items-center gap-1 mt-1 text-[9px] text-amber-600">
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      Executing...
+                    </div>
+                  )}
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -3484,9 +3573,15 @@ function TasksTab({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-40">
                     {task.status === "PENDING" && (
-                      <DropdownMenuItem onClick={() => handleUpdateStatus(task.id, "IN_PROGRESS")}>
-                        Start Task
-                      </DropdownMenuItem>
+                      <>
+                        <DropdownMenuItem onClick={() => handleExecuteNow(task.id)} disabled={executingTaskId === task.id}>
+                          <Zap className="h-3 w-3 mr-2" /> Execute Now
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleUpdateStatus(task.id, "IN_PROGRESS")}>
+                          Start Task
+                        </DropdownMenuItem>
+                      </>
                     )}
                     {task.status === "IN_PROGRESS" && (
                       <DropdownMenuItem onClick={() => handleUpdateStatus(task.id, "COMPLETED")}>
@@ -3847,6 +3942,7 @@ function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("09:00");
   const [priority, setPriority] = useState("MEDIUM");
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
   const [crossAgentAccess, setCrossAgentAccess] = useState<string[]>([]);
@@ -3859,10 +3955,12 @@ function NewTaskDialog({
       toast.error("Title and due date are required");
       return;
     }
+    // Combine date + time into ISO string
+    const combinedDueDate = dueTime ? `${dueDate}T${dueTime}:00` : dueDate;
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      dueDate,
+      dueDate: combinedDueDate,
       priority,
       attachments: attachments.length > 0 ? attachments : undefined,
       crossAgentAccess: crossAgentAccess.length > 0 ? crossAgentAccess : undefined,
@@ -3870,6 +3968,7 @@ function NewTaskDialog({
     setTitle("");
     setDescription("");
     setDueDate("");
+    setDueTime("09:00");
     setPriority("MEDIUM");
     setAttachments([]);
     setCrossAgentAccess([]);
@@ -3919,8 +4018,11 @@ function NewTaskDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>Due Date *</Label>
-            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <Label>Due Date & Time *</Label>
+            <div className="flex gap-2">
+              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="flex-1" />
+              <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-28" />
+            </div>
           </div>
           <div className="space-y-2">
             <Label>Priority</Label>

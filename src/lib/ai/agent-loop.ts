@@ -427,7 +427,7 @@ export async function runAgentLoop(
     tools?: AgentTool[]
   }
 ): Promise<AgentLoopResult> {
-  const maxSteps = options?.maxSteps || 30
+  const maxSteps = options?.maxSteps || 15
   const agentType = options?.agentType || "DEV"
   const steps: AgentStep[] = []
   let stepCount = 0
@@ -455,6 +455,8 @@ export async function runAgentLoop(
   // Note: File attachments are pre-processed by the API route using Z.ai Vision
   // and injected as text descriptions into the userMessage before reaching here
   messages.push({ role: "user", content: userMessage })
+
+  let emptyResponseCount = 0
 
   // Agent loop: keep going until model gives a final response (no tool calls)
   // or we hit the max step limit
@@ -501,6 +503,29 @@ export async function runAgentLoop(
             toolArgs = JSON.parse(toolCall.function.arguments)
           } catch {
             toolArgs = { _raw: toolCall.function.arguments }
+          }
+
+          // Duplicate tool call detection - prevent infinite loops
+          const argsKey = `${toolName}:${JSON.stringify(toolArgs)}`
+          const recentArgs = steps.slice(-6).filter(s => s.type === "tool_call" && s.toolName === toolName).map(s => `${s.toolName}:${JSON.stringify((s as any).toolArgs || {})}`)
+          if (recentArgs.filter(a => a === argsKey).length >= 2) {
+            // Skip duplicate call and tell model to change approach
+            const dupStep: AgentStep = {
+              type: "tool_result",
+              content: `Skipped duplicate ${toolName} call (same arguments repeated). Try a different approach or provide your final response.`,
+              toolName,
+              toolResult: `Skipped duplicate call. You've already called ${toolName} with these exact arguments multiple times. Please provide your final response or try a different query.`,
+              stepNumber: stepCount,
+              timestamp: Date.now(),
+            }
+            steps.push(dupStep)
+            options?.onStep?.(dupStep)
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: `Skipped duplicate call. You've already called ${toolName} with these exact arguments multiple times. Please provide your final response or try a different query.`,
+            })
+            continue
           }
 
           usedTools.add(toolName)
@@ -572,7 +597,26 @@ export async function runAgentLoop(
         }
       }
 
-      // Empty response - ask model to continue
+      // Empty response - ask model to continue (max 2 retries)
+      emptyResponseCount++
+      if (emptyResponseCount > 2) {
+        // Too many empty responses, return what we have
+        return {
+          finalResponse: steps.filter(s => s.type === "tool_result").length > 0
+            ? `I completed ${stepCount} steps. Here's what I accomplished:\n\n${steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n")}`
+            : "I wasn't able to generate a response. Please try again with a different prompt.",
+          steps,
+          totalSteps: stepCount,
+          totalInputTokens,
+          totalOutputTokens,
+          model,
+          provider: "zai",
+          cost: 0,
+          apiKeyId: "",
+          usedTools: Array.from(usedTools),
+          thinkingContent: finalThinkingContent || undefined,
+        }
+      }
       messages.push({
         role: "user",
         content: "Please continue. Your previous response was empty.",

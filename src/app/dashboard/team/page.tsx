@@ -33,6 +33,7 @@ export default function TeamPage() {
   const [leaves, setLeaves] = useState<unknown[]>([]);
   const [attendance, setAttendance] = useState<unknown[]>([]);
   const [agentAccess, setAgentAccess] = useState<unknown[]>([]);
+  const [agents, setAgents] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"team" | "leaves" | "attendance" | "access">("team");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
@@ -54,16 +55,18 @@ export default function TeamPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [userRes, leaveRes, attendRes, accessRes] = await Promise.all([
+      const [userRes, leaveRes, attendRes, accessRes, agentsRes] = await Promise.all([
         fetch("/api/team", { credentials: 'include' }),
         fetch("/api/team?type=leaves", { credentials: 'include' }),
         fetch("/api/team?type=attendance", { credentials: 'include' }),
         fetch("/api/team?type=agent-access", { credentials: 'include' }),
+        fetch("/api/agents", { credentials: 'include' }),
       ]);
       if (userRes.ok) setUsers(await userRes.json());
       if (leaveRes.ok) setLeaves(await leaveRes.json());
       if (attendRes.ok) setAttendance(await attendRes.json());
       if (accessRes.ok) setAgentAccess(await accessRes.json());
+      if (agentsRes.ok) setAgents(await agentsRes.json());
     } catch (err) {
       console.error(err);
     } finally {
@@ -424,8 +427,9 @@ export default function TeamPage() {
               <Select value={accessForm.agentId} onValueChange={(v) => setAccessForm(p => ({ ...p, agentId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                 <SelectContent>
-                  {/* We'll use a simpler approach - fetch agents */}
-                  <SelectItem value="auto">Will be fetched from agents list</SelectItem>
+                  {(agents as any[]).map((a: any) => (
+                    <SelectItem key={a.id} value={a.id}>{a.name} ({a.type})</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

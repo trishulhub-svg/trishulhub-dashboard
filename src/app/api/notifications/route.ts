@@ -14,9 +14,13 @@ export async function GET(req: NextRequest) {
     const userId = (session.user as any).id
     const { searchParams } = new URL(req.url)
     const targetUserId = searchParams.get("userId") || userId
+    const unreadOnly = searchParams.get("unread") === "true"
+
+    const where: any = { userId: targetUserId }
+    if (unreadOnly) where.isRead = false
 
     const notifications = await db.notification.findMany({
-      where: { userId: targetUserId },
+      where,
       orderBy: { createdAt: "desc" },
       take: 50,
     })

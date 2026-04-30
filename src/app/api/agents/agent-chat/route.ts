@@ -280,7 +280,7 @@ export async function POST(req: NextRequest) {
           for (const key of eligibleKeys) {
             try {
               const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
-                maxSteps: 30,
+                maxSteps: 15,
                 maxTokens: 8192,
                 agentType: agent.type,
                 systemPrompt,
@@ -466,7 +466,7 @@ export async function POST(req: NextRequest) {
     for (const key of eligibleKeys) {
       try {
         const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
-          maxSteps: 30,
+          maxSteps: 15,
           maxTokens: 8192,
           agentType: agent.type,
           systemPrompt,

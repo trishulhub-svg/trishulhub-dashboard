@@ -145,6 +145,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "User ID and Agent ID are required" }, { status: 400 })
       }
 
+      // Verify agent exists
+      const agentExists = await db.agent.findUnique({ where: { id: agentId } })
+      if (!agentExists) {
+        return NextResponse.json({ error: "Agent not found. Please select a valid agent." }, { status: 400 })
+      }
+
+      // Verify user exists
+      const userExists = await db.user.findUnique({ where: { id: userId } })
+      if (!userExists) {
+        return NextResponse.json({ error: "User not found. Please select a valid team member." }, { status: 400 })
+      }
+
       const access = await db.userAgentAccess.upsert({
         where: { userId_agentId: { userId, agentId } },
         create: { userId, agentId, canChat: canChat ?? true, canView: canView ?? true, canApprove: canApprove ?? false },
