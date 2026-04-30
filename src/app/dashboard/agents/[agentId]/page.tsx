@@ -635,6 +635,30 @@ export default function AgentChatPage() {
     }
   }, [activeChatId, fetchChats]);
 
+  // ── Resume Chat (set status back to ACTIVE so user can continue) ──
+  const resumeChat = useCallback(async (chatId?: string) => {
+    const targetId = chatId || activeChatId;
+    if (!targetId) return;
+    try {
+      await fetch("/api/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: targetId, status: "ACTIVE" }),
+      });
+      await fetchChats();
+      // Make sure the resumed chat is the active one
+      if (targetId !== activeChatId) {
+        setActiveChatId(targetId);
+        fetchMessages(targetId);
+        if (isMobile) setMobileTab("messages");
+      }
+      toast.success("Chat resumed — continue where you left off!");
+    } catch {
+      toast.error("Failed to resume chat");
+    }
+  }, [activeChatId, fetchChats, fetchMessages, isMobile]);
+
   // ── Create new chat ──
   const createNewChat = useCallback(async () => {
     try {
@@ -1375,6 +1399,7 @@ export default function AgentChatPage() {
               userRole={userRole}
               isMobile
               onDeleteDialog={(id) => setDeleteDialogChatId(id)}
+              onResumeChat={resumeChat}
             />
           </TabsContent>
 
@@ -1411,6 +1436,7 @@ export default function AgentChatPage() {
               onEndChat={endChat}
               onReleaseLock={releaseChatLock}
               onRetry={handleRetry}
+              onResumeChat={resumeChat}
             />
           </TabsContent>
 
@@ -1582,6 +1608,7 @@ export default function AgentChatPage() {
               setRenameValue={setRenameValue}
               userRole={userRole}
               onDeleteDialog={(id) => setDeleteDialogChatId(id)}
+              onResumeChat={resumeChat}
             />
           </>
         ) : (
@@ -1717,6 +1744,7 @@ export default function AgentChatPage() {
           onEndChat={endChat}
           onReleaseLock={releaseChatLock}
           onRetry={handleRetry}
+          onResumeChat={resumeChat}
         />
       </div>
 
@@ -1858,6 +1886,7 @@ function ChatSidebar({
   userRole,
   isMobile,
   onDeleteDialog,
+  onResumeChat,
 }: {
   chats: Chat[];
   activeChatId: string | null;
@@ -1874,6 +1903,7 @@ function ChatSidebar({
   userRole?: string;
   isMobile?: boolean;
   onDeleteDialog?: (id: string) => void;
+  onResumeChat?: (chatId: string) => void;
 }) {
   if (loading) {
     return (
@@ -2037,7 +2067,20 @@ function ChatSidebar({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-xs font-medium truncate">{chat.title}</span>
-                        <Badge variant="outline" className="text-[8px] h-3 px-1 text-muted-foreground shrink-0">ENDED</Badge>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onResumeChat?.(chat.id);
+                            }}
+                          >
+                            <Zap className="h-2.5 w-2.5 mr-0.5" /> Resume
+                          </Button>
+                          <Badge variant="outline" className="text-[8px] h-3 px-1 text-muted-foreground">ENDED</Badge>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-muted-foreground">
@@ -2094,6 +2137,7 @@ function ChatArea({
   onEndChat,
   onReleaseLock,
   onRetry,
+  onResumeChat,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -2126,6 +2170,7 @@ function ChatArea({
   onEndChat: () => void;
   onReleaseLock: () => void;
   onRetry: (prompt: string) => void;
+  onResumeChat: (chatId?: string) => void;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
 
@@ -2161,7 +2206,7 @@ function ChatArea({
       {sending && (
         <div className="h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-pulse shrink-0" />
       )}
-      {/* Feature 4: End Chat button in header when active */}
+      {/* Feature 4: End Chat / Resume Chat button in header */}
       {activeChat && !isChatLockedByOther && (
         <div className="px-4 py-1.5 border-b bg-card flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -2174,14 +2219,25 @@ function ChatArea({
               </Badge>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
-            onClick={onEndChat}
-          >
-            <X className="h-3 w-3 mr-1" /> End Chat
-          </Button>
+          {activeChat.status === "ENDED" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[10px] text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+              onClick={() => onResumeChat()}
+            >
+              <Zap className="h-3 w-3 mr-1" /> Resume Chat
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[10px] text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+              onClick={onEndChat}
+            >
+              <X className="h-3 w-3 mr-1" /> End Chat
+            </Button>
+          )}
         </div>
       )}
       {/* Messages */}
@@ -2717,12 +2773,20 @@ function ChatArea({
         )}
       </ScrollArea>
 
-      {/* Input Area - or "Chat Ended" banner for ended chats */}
+      {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
       {activeChat?.status === "ENDED" ? (
         <div className="p-3 border-t bg-muted/30 shrink-0">
-          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground flex-wrap">
             <Badge variant="outline" className="text-[9px] h-4">ENDED</Badge>
-            <span>This chat has ended. Start a new chat to continue.</span>
+            <span>This chat has ended.</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-[10px] gap-1 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 border-green-200 dark:border-green-800"
+              onClick={() => onResumeChat()}
+            >
+              <Zap className="h-3 w-3" /> Resume Chat
+            </Button>
           </div>
         </div>
       ) : (
