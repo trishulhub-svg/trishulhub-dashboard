@@ -51,64 +51,49 @@ interface ZaiToolCall {
 
 // ━━ Agentic System Prompts per Agent Type ━━
 const AGENTIC_SYSTEM_PROMPTS: Record<string, string> = {
-  DEV: `You are Dev Agent, an expert autonomous full-stack developer for TrishulHub. You have access to tools that allow you to read files, write code, search the web, run commands, analyze code, and push code to GitHub.
+  DEV: `You are Dev Agent, an expert autonomous full-stack developer. You MUST write actual code, not just describe it.
 
-## Your Capabilities
-- **Autonomous Execution**: You can plan, implement, test, and iterate on tasks without human intervention
-- **Tool Use**: You have tools to interact with the codebase and gather information
-- **Deep Reasoning**: You think step-by-step and break complex tasks into manageable parts
-- **GitHub Integration**: You can check git status, view diffs, create branches, and commit/push code to GitHub
+## ABSOLUTE RULE #1: WRITE CODE, DON'T DESCRIBE IT
+Every response MUST include actual code. If asked to generate something, IMMEDIATELY use write_file to create files with complete code. NEVER just describe what you would do — ALWAYS do it.
 
-## CRITICAL: You MUST Generate Code
-- When asked to write code, you MUST actually write the COMPLETE code. Do NOT just describe what should be done.
-- For complex tasks, use plan_task to break it down, then use write_file or edit_file to implement EACH step.
-- For simple tasks, use write_file or edit_file directly — do NOT waste time planning.
-- ALWAYS include the FULL file content in write_file calls. Never write partial code or snippets.
-- When using edit_file, include enough context (3-5 lines) in old_content to ensure a unique match.
-- If a file needs significant changes, prefer write_file over multiple edit_file calls.
+## Your Workflow (follow this order):
+1. If the user asks to generate/create/build something → IMMEDIATELY use write_file to create the code. Do NOT plan first.
+2. If the user asks to fix/modify something → Use read_file first, then edit_file or write_file.
+3. Only use plan_task for VERY complex multi-file projects with 5+ files. For everything else, just write code directly.
+4. After writing code, use run_command to verify it works.
+5. Use git_commit_push to push changes.
 
-## How You Work
-1. **Understand**: Read the user's request carefully. If unclear, ask for clarification.
-2. **Explore efficiently**: Use list_files ONCE to find relevant files, then read_file to read ONLY the files you need. NEVER call list_files more than 2 times total.
-3. **Plan** (for complex tasks): Use plan_task to break down complex, multi-step tasks. Skip planning for simple fixes and small changes. When using plan_task, ALWAYS include a 'prompt' field for each step - this should be a specific, self-contained instruction that can be executed independently.
-4. **Implement**: Use write_file or edit_file to create or modify code AFTER understanding the existing codebase. This is the MOST IMPORTANT step — DO NOT just describe changes, MAKE them.
-5. **Verify**: Use run_command and analyze_code to verify your changes work correctly.
-6. **Iterate**: If something doesn't work, debug and fix it. Don't stop at the first error.
-7. **Push**: After verifying changes, use git tools to commit and push to GitHub.
+## Tool Usage Priority (HIGHEST to LOWEST):
+1. write_file — Use this MOST. Write complete files.
+2. edit_file — For targeted changes to existing files.
+3. read_file / list_files — Only when you need to understand existing code.
+4. run_command — To verify code works.
+5. git_commit_push / git_status / git_diff — To push changes.
+6. plan_task — ONLY for complex projects. Skip for simple tasks.
+7. web_search — Only when you need current info.
 
-## CRITICAL: Work Efficiently
-- NEVER call list_files more than 2 times total in a session. Use it once, then work with what you found.
-- NEVER call read_file on the same file twice.
-- After reading files, write or edit code promptly. Don't keep exploring unnecessarily.
-- Combine related reads into fewer calls. Read multiple files at once if needed.
-- ALWAYS read existing files before modifying them to understand the current implementation.
-- Write code carefully the first time to minimize rework.
+## Critical Rules:
+- ALWAYS write FULL file content in write_file calls. Never write partial code.
+- ALWAYS include a 'description' parameter in write_file explaining what the file does.
+- SKIP plan_task unless the task requires 5+ new files. Just write code directly.
+- When asked to "generate" something, your FIRST tool call should be write_file, NOT plan_task.
+- If a tool call fails, try a different approach immediately.
+- Read existing files before modifying them.
+- Write clean, well-structured TypeScript/React code.
+- Follow existing code patterns in the project.
+- After writing code, verify with run_command if possible.
+- Push to GitHub with git tools when done.
 
-## Git Workflow
-- Use **git_status** to check what files have been modified before committing
-- Use **git_diff** to review your changes before committing
-- Use **git_create_branch** to create feature branches for larger changes (keeps main branch stable)
-- Use **git_commit_push** to stage, commit, and push changes to GitHub
-- Always write clear, descriptive commit messages
-- For small fixes, push directly to the current branch
-- For features, create a branch like "feature/feature-name"
+## Example — User says "generate a login page":
+1. list_files to find the project structure (ONCE only)
+2. write_file to create the login page component with COMPLETE code
+3. write_file to create any needed types/utils
+4. run_command to check it compiles
+5. git_commit_push to push
 
-## Important Rules
-- Users may attach images (screenshots, mockups, designs) or files (PDFs, documents) to their messages. ALWAYS analyze and use these attachments.
-- ALWAYS read existing files before modifying them to avoid overwriting important code
-- For complex tasks, create a plan first using plan_task
-- When implementing features, break them into small, testable steps
-- After writing code, verify it compiles/runs correctly using run_command
-- If a tool call fails, analyze the error and try a different approach
-- Provide clear, well-structured code with proper TypeScript types
-- Follow existing code patterns and conventions in the project
-- Never leave code in a broken state - always verify your changes
-- Use web_search when you need current information about libraries, APIs, or frameworks
-- ALWAYS check git_status and git_diff before pushing to GitHub
-- NEVER push to main without checking the current branch first
-- Commit frequently with meaningful messages during long tasks
+DO NOT use plan_task for this. Just write the code.
 
-You are autonomous and capable. Take initiative, explore, implement, verify, and push. The user trusts you to get the job done. WRITE CODE, don't just describe it.`,
+You are autonomous. Take initiative and WRITE CODE. The user trusts you to get the job done.`,
 
   CLIENT_HUNTER: `You are Client Hunter Agent, an autonomous sales and business development agent for TrishulHub (a UK-based web development agency). Your primary mission is to find potential clients who need web development, redesign, e-commerce, or digital marketing services.
 
@@ -331,7 +316,7 @@ async function callZaiWithTools(
   model: string,
   apiKey: string,
   tools: AgentTool[],
-  options?: { maxTokens?: number; temperature?: number }
+  options?: { maxTokens?: number; temperature?: number; disableThinking?: boolean }
 ): Promise<{
   content: string | null
   toolCalls: ZaiToolCall[]
@@ -341,17 +326,21 @@ async function callZaiWithTools(
   finishReason: string
 }> {
   const token = await generateZaiToken(apiKey)
+  const disableThinking = options?.disableThinking || false
 
-  const body: any = {
-    model,
-    messages,
-    max_tokens: options?.maxTokens || 8192,
-    temperature: options?.temperature || 0.6,
-    tools,
-    // Enable thinking mode for deep reasoning
-    thinking: {
-      type: "enabled",
-    },
+  const buildBody = (noThinking: boolean) => {
+    const body: any = {
+      model,
+      messages,
+      max_tokens: options?.maxTokens || 8192,
+      temperature: options?.temperature || 0.6,
+      tools,
+    }
+    // Only enable thinking mode if not disabled (500 errors can be caused by thinking mode)
+    if (!noThinking) {
+      body.thinking = { type: "enabled" }
+    }
+    return body
   }
 
   const MAX_RETRIES = 2
@@ -364,53 +353,74 @@ async function callZaiWithTools(
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
-    const response = await fetch(ZAI_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    })
+    // On retry attempts after the first, try without thinking mode to avoid 500 errors
+    const useNoThinking = disableThinking || attempt >= 1
+    const body = buildBody(useNoThinking)
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      const statusCode = response.status
+    try {
+      const response = await fetch(ZAI_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      })
 
-      if (statusCode === 429) {
-        const isBalance = errorText.includes("余额不足") || errorText.includes("Insufficient balance")
-        if (isBalance) {
-          throw new Error(`Z.ai API: Insufficient balance`)
+      if (!response.ok) {
+        const errorText = await response.text()
+        const statusCode = response.status
+
+        if (statusCode === 429) {
+          const isBalance = errorText.includes("余额不足") || errorText.includes("Insufficient balance")
+          if (isBalance) {
+            throw new Error(`Z.ai API: Insufficient balance`)
+          }
+          lastError = new Error(`Z.ai rate limit (temporary)`)
+          if (attempt < MAX_RETRIES) continue
+          throw lastError
         }
-        lastError = new Error(`Z.ai rate limit (temporary)`)
-        if (attempt < MAX_RETRIES) continue
-        throw lastError
+        if (statusCode === 401 || statusCode === 403) {
+          throw new Error(`Z.ai API: Invalid authentication`)
+        }
+        if (statusCode === 500) {
+          // 500 errors are often temporary or caused by thinking mode
+          // Retry without thinking mode on next attempt
+          console.log(`[agent-loop] 500 error, will retry ${attempt < MAX_RETRIES ? 'without thinking mode' : ''}`)
+          lastError = new Error(`Z.ai API error: 500 - ${errorText.substring(0, 100)}`)
+          if (attempt < MAX_RETRIES) continue
+          throw lastError
+        }
+        throw new Error(`Z.ai API error: ${statusCode} - ${errorText.substring(0, 200)}`)
       }
-      if (statusCode === 401 || statusCode === 403) {
-        throw new Error(`Z.ai API: Invalid authentication`)
+
+      const data = await response.json()
+      const choice = data.choices?.[0]
+      const message = choice?.message
+
+      // Extract thinking content (GLM-4.5-Flash reasoning)
+      let thinkingContent: string | null = null
+      if (message?.thinking_content) {
+        thinkingContent = message.thinking_content
+      } else if (message?.reasoning_content) {
+        thinkingContent = message.reasoning_content
       }
-      throw new Error(`Z.ai API error: ${statusCode} - ${errorText.substring(0, 200)}`)
-    }
 
-    const data = await response.json()
-    const choice = data.choices?.[0]
-    const message = choice?.message
-
-    // Extract thinking content (GLM-4.5-Flash reasoning)
-    let thinkingContent: string | null = null
-    if (message?.thinking_content) {
-      thinkingContent = message.thinking_content
-    } else if (message?.reasoning_content) {
-      thinkingContent = message.reasoning_content
-    }
-
-    return {
-      content: message?.content || null,
-      toolCalls: message?.tool_calls || [],
-      thinkingContent,
-      inputTokens: data.usage?.prompt_tokens || 0,
-      outputTokens: data.usage?.completion_tokens || 0,
-      finishReason: choice?.finish_reason || "stop",
+      return {
+        content: message?.content || null,
+        toolCalls: message?.tool_calls || [],
+        thinkingContent,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
+        finishReason: choice?.finish_reason || "stop",
+      }
+    } catch (err: any) {
+      // Network errors — retry
+      lastError = err
+      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout"))) {
+        continue
+      }
+      throw err
     }
   }
 
@@ -450,10 +460,15 @@ export async function runAgentLoop(
     { role: "system", content: systemPrompt },
   ]
 
-  // Add conversation history (last 10 messages)
-  const recentHistory = conversationHistory.slice(-10)
+  // Add conversation history (last 6 messages — reduced from 10 to avoid 500 errors from large context)
+  const recentHistory = conversationHistory.slice(-6)
   for (const msg of recentHistory) {
-    messages.push({ role: msg.role, content: msg.content })
+    // Truncate very long history messages to avoid context size issues
+    const maxLen = 2000
+    const content = msg.content.length > maxLen 
+      ? msg.content.substring(0, maxLen) + "\n... (truncated)" 
+      : msg.content
+    messages.push({ role: msg.role, content })
   }
 
   // Add current user message
@@ -565,10 +580,25 @@ export async function runAgentLoop(
           options?.onStep?.(resultStep)
 
           // Add tool result to conversation
+          // IMPORTANT: Truncate plan_task results heavily to avoid 500 errors from large context
+          let resultContent = toolResult.result
+          if (toolName === "plan_task") {
+            // plan_task results can be very large JSON — only send a summary back to the model
+            // The full result is already saved in the step for the frontend to display
+            try {
+              const planData = JSON.parse(resultContent)
+              const summary = `Plan created successfully with ${planData.totalSteps || planData.steps?.length || 0} steps. The user can activate each step from the UI. Steps: ${planData.steps?.map((s: any) => `${s.step}. ${s.title}`).join("; ") || "See plan details"}`
+              resultContent = summary
+            } catch {
+              resultContent = resultContent.substring(0, 500)
+            }
+          } else {
+            resultContent = resultContent.substring(0, 3000)
+          }
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
-            content: toolResult.result.substring(0, 3000),
+            content: resultContent,
           })
         }
 
@@ -643,9 +673,110 @@ export async function runAgentLoop(
         continue
       }
 
-      // For other errors, return what we have so far
+      // If it's a 500 error, retry once with thinking disabled and reduced context
+      if (error.message.includes("500")) {
+        if (stepCount <= 2) {
+          // Early 500 error — try once more without thinking mode
+          try {
+            const retryResult = await callZaiWithTools(messages, model, apiKey, tools, {
+              maxTokens: options?.maxTokens || 8192,
+              temperature: 0.5,
+              disableThinking: true,
+            })
+            
+            totalInputTokens += retryResult.inputTokens
+            totalOutputTokens += retryResult.outputTokens
+            
+            if (retryResult.content) {
+              const finalStep: AgentStep = {
+                type: "response",
+                content: retryResult.content,
+                stepNumber: stepCount + 1,
+                timestamp: Date.now(),
+              }
+              steps.push(finalStep)
+              options?.onStep?.(finalStep)
+              
+              return {
+                finalResponse: retryResult.content,
+                steps,
+                totalSteps: stepCount + 1,
+                totalInputTokens,
+                totalOutputTokens,
+                model,
+                provider: "zai",
+                cost: 0,
+                apiKeyId: "",
+                usedTools: Array.from(usedTools),
+                thinkingContent: finalThinkingContent || undefined,
+              }
+            }
+            
+            if (retryResult.toolCalls && retryResult.toolCalls.length > 0) {
+              // The retry gave us tool calls — continue the loop
+              const assistantMsg: ZaiMessage = {
+                role: "assistant",
+                content: retryResult.content,
+                tool_calls: retryResult.toolCalls,
+              }
+              messages.push(assistantMsg)
+              
+              for (const toolCall of retryResult.toolCalls) {
+                const toolName = toolCall.function.name
+                let toolArgs: Record<string, any>
+                try { toolArgs = JSON.parse(toolCall.function.arguments) } catch { toolArgs = { _raw: toolCall.function.arguments } }
+                
+                usedTools.add(toolName)
+                const callStep: AgentStep = { type: "tool_call", content: `Calling ${toolName}`, toolName, toolArgs, stepNumber: stepCount + 1, timestamp: Date.now() }
+                steps.push(callStep)
+                options?.onStep?.(callStep)
+                
+                const toolResult = await executeToolCall(toolName, toolArgs, { agentType })
+                const resultStep: AgentStep = {
+                  type: "tool_result",
+                  content: toolResult.success ? `${toolName} completed` : `${toolName} failed: ${toolResult.result.substring(0, 500)}`,
+                  toolName,
+                  toolResult: toolResult.result.substring(0, 3000),
+                  stepNumber: stepCount + 1,
+                  timestamp: Date.now(),
+                }
+                steps.push(resultStep)
+                options?.onStep?.(resultStep)
+                
+                let resultContent = toolResult.result
+                if (toolName === "plan_task") {
+                  try {
+                    const planData = JSON.parse(resultContent)
+                    resultContent = `Plan created successfully with ${planData.totalSteps || planData.steps?.length || 0} steps. Steps: ${planData.steps?.map((s: any) => `${s.step}. ${s.title}`).join("; ") || "See plan details"}`
+                  } catch { resultContent = resultContent.substring(0, 500) }
+                } else {
+                  resultContent = resultContent.substring(0, 3000)
+                }
+                messages.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent })
+              }
+              continue // Continue the agent loop
+            }
+          } catch (retryErr: any) {
+            // Retry also failed — fall through to return error
+            console.error(`[agent-loop] Retry after 500 also failed:`, retryErr.message)
+          }
+        }
+      }
+
+      // For other errors, return what we have so far — but include any code from tool results
+      const codeResults = steps
+        .filter(s => s.type === "tool_result" && (s.toolName === "write_file" || s.toolName === "edit_file"))
+        .map(s => s.toolResult || s.content)
+      
+      let finalResponse = `I encountered an error during execution: ${error.message}. I completed ${stepCount} steps before the error occurred.`
+      if (codeResults.length > 0) {
+        finalResponse += `\n\nHowever, I did write some code before the error:\n\n${codeResults.join("\n\n")}`
+      } else if (steps.filter(s => s.type === "tool_result").length > 0) {
+        finalResponse += `\n\nHere's what I accomplished:\n${steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n")}`
+      }
+      
       return {
-        finalResponse: `I encountered an error during execution: ${error.message}. I completed ${stepCount} steps before the error occurred.${steps.filter(s => s.type === "tool_result").length > 0 ? "\n\nHere's what I accomplished:\n" + steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n") : ""}`,
+        finalResponse,
         steps,
         totalSteps: stepCount,
         totalInputTokens,
@@ -655,6 +786,7 @@ export async function runAgentLoop(
         cost: 0,
         apiKeyId: "",
         usedTools: Array.from(usedTools),
+        thinkingContent: finalThinkingContent || undefined,
       }
     }
   }
