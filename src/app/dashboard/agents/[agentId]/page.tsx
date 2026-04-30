@@ -258,6 +258,10 @@ export default function AgentChatPage() {
   const [isAgentic, setIsAgentic] = useState(false);
   const [liveSteps, setLiveSteps] = useState<Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>>([]);
 
+  // Retry state - store last failed prompt for retry button
+  const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
+  const [failedMsgId, setFailedMsgId] = useState<string | null>(null);
+
   // Chat locking state (Feature 4)
   const [chatLockInfo, setChatLockInfo] = useState<{ lockedBy: string | null; lockedByName: string | null; lockedAt: string | null }>({ lockedBy: null, lockedByName: null, lockedAt: null });
 
@@ -766,20 +770,22 @@ export default function AgentChatPage() {
           const errorMsg = error.error || "Failed to get response";
           if (error.steps) setAgentSteps(error.steps);
           toast.error(errorMsg, { duration: 6000 });
-          if (errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `sys-${Date.now()}`,
-                chatId: activeChatId || "",
-                role: "system",
-                content: "⚠️ No valid Z.ai API key found for agentic mode. Agentic agents require a Z.ai API key. Go to Settings > API Keys and add a Z.ai key.",
-                createdAt: new Date().toISOString(),
-              },
-            ]);
-          } else {
-            setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
-          }
+          // Keep the user message but add error system message + enable retry
+          setLastFailedPrompt(userContent);
+          setFailedMsgId(tempUserMsg.id);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              chatId: activeChatId || "",
+              role: "system",
+              content: errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")
+                ? "No valid Z.ai API key found. Add one in Settings > API Keys."
+                : `Error: ${errorMsg}`,
+              createdAt: new Date().toISOString(),
+              metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
+            },
+          ]);
           if (error.chatId && !activeChatId) {
             setActiveChatId(error.chatId);
             await fetchChats();
@@ -965,18 +971,44 @@ export default function AgentChatPage() {
             await fetchChats();
           }
         } else {
-          const error = await res.json();
-          toast.error(error.error || "Failed to get response", { duration: 6000 });
-          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
-          if (error.chatId && !activeChatId) {
-            setActiveChatId(error.chatId);
+          const errorData = await res.json();
+          toast.error(errorData.error || "Failed to get response", { duration: 6000 });
+          // Keep user message, add error with retry
+          setLastFailedPrompt(userContent);
+          setFailedMsgId(tempUserMsg.id);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              chatId: activeChatId || "",
+              role: "system",
+              content: `Error: ${errorData.error || "Failed to get response"}`,
+              createdAt: new Date().toISOString(),
+              metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
+            },
+          ]);
+          if (errorData.chatId && !activeChatId) {
+            setActiveChatId(errorData.chatId);
             await fetchChats();
           }
         }
       }
     } catch {
       toast.error("Network error. Please try again.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+      // Keep user message, add error with retry instead of removing it
+      setLastFailedPrompt(userContent);
+      setFailedMsgId(tempUserMsg.id);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          chatId: activeChatId || "",
+          role: "system",
+          content: "Network error. Check your connection and try again.",
+          createdAt: new Date().toISOString(),
+          metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
+        },
+      ]);
     } finally {
       setSending(false);
       setIsAgentic(false);
@@ -997,6 +1029,25 @@ export default function AgentChatPage() {
       }
     }
   }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd]);
+
+  // ── Retry failed prompt ──
+  const handleRetry = useCallback((prompt: string) => {
+    // Remove the error message from chat
+    setMessages((prev) => prev.filter((m) => {
+      try {
+        const meta = JSON.parse(m.metadata || "{}");
+        return !meta.isError;
+      } catch { return true; }
+    }));
+    setLastFailedPrompt(null);
+    setFailedMsgId(null);
+    // Set the prompt and send
+    setInput(prompt);
+    // Use setTimeout to ensure state update before sending
+    setTimeout(() => {
+      if (chatInputRef.current) chatInputRef.current.focus();
+    }, 100);
+  }, []);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1332,6 +1383,7 @@ export default function AgentChatPage() {
               chatLockInfo={chatLockInfo}
               onEndChat={endChat}
               onReleaseLock={releaseChatLock}
+              onRetry={handleRetry}
             />
           </TabsContent>
 
@@ -1637,6 +1689,7 @@ export default function AgentChatPage() {
           chatLockInfo={chatLockInfo}
           onEndChat={endChat}
           onReleaseLock={releaseChatLock}
+          onRetry={handleRetry}
         />
       </div>
 
@@ -1972,6 +2025,7 @@ function ChatArea({
   chatLockInfo,
   onEndChat,
   onReleaseLock,
+  onRetry,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -2003,6 +2057,7 @@ function ChatArea({
   chatLockInfo: { lockedBy: string | null; lockedByName: string | null; lockedAt: string | null };
   onEndChat: () => void;
   onReleaseLock: () => void;
+  onRetry: (prompt: string) => void;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
 
@@ -2115,9 +2170,39 @@ function ChatArea({
                   }`}
                 >
                   {msg.role === "system" ? (
-                    <div className="text-sm text-yellow-800 dark:text-yellow-200 whitespace-pre-wrap break-words">
-                      {msg.content}
-                    </div>
+                    (() => {
+                      let isError = false;
+                      let retryPrompt: string | undefined;
+                      try {
+                        const meta = JSON.parse(msg.metadata || "{}");
+                        isError = meta.isError;
+                        retryPrompt = meta.retryPrompt;
+                      } catch {}
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            {isError ? (
+                              <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
+                            )}
+                            <p className={`text-sm whitespace-pre-wrap break-words ${isError ? "text-red-700 dark:text-red-300" : "text-yellow-800 dark:text-yellow-200"}`}>
+                              {msg.content}
+                            </p>
+                          </div>
+                          {isError && retryPrompt && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              onClick={() => onRetry(retryPrompt)}
+                            >
+                              <Zap className="h-3 w-3" /> Retry
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()
                   ) : (
                     <>
                       {/* Z.ai-style agent header */}
@@ -2140,82 +2225,103 @@ function ChatArea({
                           })()}
                         </div>
                       )}
-                      {/* Z.ai-style collapsible agentic steps timeline */}
+                      {/* Z.ai Todo-style agentic steps checklist */}
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
                           if (meta.agentic && meta.steps && meta.steps.length > 0) {
                             const isExpanded = expandedMsgSteps.has(msg.id);
-                            const displaySteps = isExpanded ? meta.steps : meta.steps.slice(0, 3);
+                            const hasError = meta.steps.some((s: any) => s.type === 'error');
                             return (
-                              <div className="mb-3 rounded-lg border border-border/60 overflow-hidden bg-muted/30 dark:bg-black/20">
-                                {/* Collapsible Header */}
+                              <div className="mb-3 rounded-lg border border-border/40 overflow-hidden bg-muted/20 dark:bg-black/10">
+                                {/* Todo Header */}
                                 <button 
                                   onClick={() => toggleMsgSteps(msg.id)}
-                                  className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+                                  className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/40 transition-colors text-left"
                                 >
-                                  <div className="flex items-center gap-1.5">
-                                    {meta.steps.every((s: any) => s.type !== 'error') ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                    ) : (
-                                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                                    )}
-                                    <span className="text-[11px] font-medium text-foreground/70">
-                                      {meta.totalSteps || meta.steps.length} steps completed
-                                    </span>
-                                  </div>
+                                  {hasError ? (
+                                    <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                                  ) : (
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                  )}
+                                  <span className="text-xs font-medium text-foreground/80">
+                                    {meta.totalSteps || meta.steps.length} steps
+                                  </span>
                                   {meta.usedTools && meta.usedTools.length > 0 && (
-                                    <div className="flex items-center gap-1 ml-2">
-                                      {meta.usedTools.slice(0, 3).map((tool: string) => (
-                                        <span key={tool} className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
+                                    <div className="flex items-center gap-1 ml-1">
+                                      {meta.usedTools.slice(0, 4).map((tool: string) => (
+                                        <span key={tool} className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
                                           {tool}
                                         </span>
                                       ))}
-                                      {meta.usedTools.length > 3 && (
-                                        <span className="text-[9px] text-muted-foreground">+{meta.usedTools.length - 3}</span>
+                                      {meta.usedTools.length > 4 && (
+                                        <span className="text-[8px] text-muted-foreground">+{meta.usedTools.length - 4}</span>
                                       )}
                                     </div>
                                   )}
-                                  <ChevronRight className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                  <ChevronRight className={`h-3.5 w-3.5 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                                 </button>
                                 
-                                {/* Steps Timeline */}
+                                {/* Todo Checklist */}
                                 {isExpanded && (
-                                  <div className="px-3 pb-2 space-y-1 border-t border-border/30">
-                                    {meta.steps.map((step: any, idx: number) => (
-                                      <div key={idx} className="flex items-start gap-2 py-1">
-                                        <div className="mt-1 shrink-0">
-                                          {step.type === "thinking" ? (
-                                            <div className="h-2 w-2 rounded-full bg-purple-500" />
-                                          ) : step.type === "tool_call" ? (
-                                            <div className="h-2 w-2 rounded-full bg-blue-500" />
-                                          ) : step.type === "tool_result" ? (
-                                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                                          ) : step.type === "plan" ? (
-                                            <div className="h-2 w-2 rounded-full bg-amber-500" />
-                                          ) : step.type === "error" ? (
-                                            <div className="h-2 w-2 rounded-full bg-red-500" />
-                                          ) : (
-                                            <div className="h-2 w-2 rounded-full bg-gray-400" />
-                                          )}
+                                  <div className="px-3 pb-2.5 space-y-0.5 border-t border-border/20">
+                                    {meta.steps.map((step: any, idx: number) => {
+                                      const isThinking = step.type === "thinking";
+                                      const isToolCall = step.type === "tool_call";
+                                      const isToolResult = step.type === "tool_result";
+                                      const isPlan = step.type === "plan";
+                                      const isError = step.type === "error";
+                                      const isResponse = step.type === "response";
+                                      const stepLabel = isThinking ? "Thinking" :
+                                                       isToolCall ? (step.toolName || "Tool call") :
+                                                       isToolResult ? `${step.toolName || 'Tool'} completed` :
+                                                       isPlan ? "Planning" :
+                                                       isResponse ? "Response" :
+                                                       isError ? "Error" : step.type;
+                                      return (
+                                        <div key={idx} className="flex items-start gap-2 py-1 group">
+                                          {/* Checkbox */}
+                                          <div className="mt-0.5 shrink-0">
+                                            {isThinking ? (
+                                              <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30">
+                                                <Brain className="h-2.5 w-2.5 text-purple-500" />
+                                              </div>
+                                            ) : isToolCall ? (
+                                              <div className="h-4 w-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-50 dark:bg-blue-900/30">
+                                                <Wrench className="h-2.5 w-2.5 text-blue-500" />
+                                              </div>
+                                            ) : isToolResult ? (
+                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                              </div>
+                                            ) : isPlan ? (
+                                              <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
+                                                <ListChecks className="h-2.5 w-2.5 text-amber-500" />
+                                              </div>
+                                            ) : isError ? (
+                                              <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
+                                                <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                              </div>
+                                            ) : (
+                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                              </div>
+                                            )}
+                                          </div>
+                                          {/* Label + description */}
+                                          <div className="flex-1 min-w-0">
+                                            <span className={`text-[11px] font-medium ${isError ? 'text-red-600 dark:text-red-400' : 'text-foreground/70'}`}>
+                                              {stepLabel}
+                                            </span>
+                                            {step.content && !isResponse && (
+                                              <p className="text-[9px] text-muted-foreground/60 mt-0.5 font-mono line-clamp-2 leading-tight">
+                                                {step.content?.substring(0, 120)}
+                                              </p>
+                                            )}
+                                          </div>
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                          <span className="text-[10px] font-medium text-foreground/60">
-                                            {step.type === "thinking" ? "Thinking" :
-                                             step.type === "tool_call" ? step.toolName || "Tool call" :
-                                             step.type === "tool_result" ? `${step.toolName || 'Tool'} result` :
-                                             step.type === "plan" ? "Planning" :
-                                             step.type === "response" ? "Response" :
-                                             step.type === "error" ? "Error" : step.type}
-                                          </span>
-                                          {step.content && step.type !== "response" && (
-                                            <p className="text-[9px] text-muted-foreground/70 mt-0.5 font-mono line-clamp-2">
-                                              {step.content?.substring(0, 150)}
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
@@ -2319,12 +2425,12 @@ function ChatArea({
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="max-w-[85%] w-full rounded-xl overflow-hidden border border-border/50 bg-card">
+                <div className="max-w-[85%] w-full rounded-2xl rounded-bl-md overflow-hidden border border-border/50 bg-card">
                   {/* Agent header */}
-                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/30">
+                  <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border/30 bg-muted/20">
                     <div className="relative">
-                      <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                        <Icon className="h-3.5 w-3.5 text-white" />
+                      <div className="h-7 w-7 rounded-md bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                        <Icon className="h-4 w-4 text-white" />
                       </div>
                       <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
                     </div>
@@ -2346,52 +2452,64 @@ function ChatArea({
                     )}
                   </div>
                   
-                  {/* Steps - Terminal style */}
-                  <div className="px-4 py-3 space-y-2 bg-[#0d1117] dark:bg-[#0d1117]">
+                  {/* Steps - Z.ai Todo-style checklist */}
+                  <div className="px-3.5 py-3 space-y-1">
                     {liveSteps.length > 0 ? (
-                      <>
-                        {liveSteps.map((step, idx) => (
-                          <div key={idx} className="flex items-start gap-2">
-                            <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">{idx + 1}</span>
-                            {step.status === 'running' ? (
-                              <div className="flex items-center gap-1.5">
-                                {step.type === 'thinking' ? (
-                                  <span className="text-purple-400 animate-pulse">◈</span>
-                                ) : step.type === 'tool_call' ? (
-                                  <span className="text-blue-400 animate-pulse">▸</span>
-                                ) : step.type === 'resuming' ? (
-                                  <span className="text-amber-400 animate-pulse">↻</span>
-                                ) : (
-                                  <span className="text-yellow-400 animate-pulse">◉</span>
-                                )}
-                                <span className="text-[11px] text-slate-300 font-mono">{step.content}</span>
-                                <span className="text-[9px] text-slate-600 animate-pulse">...</span>
-                              </div>
-                            ) : step.status === 'done' ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-emerald-500">✓</span>
-                                <span className="text-[11px] text-slate-500 font-mono">{step.content}</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-red-500">✗</span>
-                                <span className="text-[11px] text-red-400 font-mono">{step.content}</span>
-                              </div>
-                            )}
+                      liveSteps.map((step, idx) => {
+                        const isRunning = step.status === 'running';
+                        const isDone = step.status === 'done';
+                        const isThinking = step.type === 'thinking';
+                        const isToolCall = step.type === 'tool_call';
+                        const isResuming = step.type === 'resuming';
+                        return (
+                          <div key={idx} className="flex items-start gap-2.5 py-0.5">
+                            {/* Checkbox icon */}
+                            <div className="mt-0.5 shrink-0">
+                              {isRunning && isThinking ? (
+                                <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30 animate-pulse">
+                                  <Brain className="h-2.5 w-2.5 text-purple-500" />
+                                </div>
+                              ) : isRunning && isToolCall ? (
+                                <div className="h-4 w-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-50 dark:bg-blue-900/30 animate-pulse">
+                                  <Wrench className="h-2.5 w-2.5 text-blue-500" />
+                                </div>
+                              ) : isRunning && isResuming ? (
+                                <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30 animate-pulse">
+                                  <Loader2 className="h-2.5 w-2.5 text-amber-500 animate-spin" />
+                                </div>
+                              ) : isRunning ? (
+                                <div className="h-4 w-4 rounded border-2 border-yellow-400 flex items-center justify-center bg-yellow-50 dark:bg-yellow-900/30 animate-pulse">
+                                  <CircleDot className="h-2.5 w-2.5 text-yellow-500" />
+                                </div>
+                              ) : isDone ? (
+                                <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                                </div>
+                              ) : (
+                                <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
+                                  <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                </div>
+                              )}
+                            </div>
+                            {/* Step text */}
+                            <span className={`text-[11px] leading-4 mt-0.5 ${
+                              isRunning ? 'text-foreground/80 font-medium' : 
+                              isDone ? 'text-foreground/50' : 'text-red-500'
+                            }`}>
+                              {step.content}
+                            </span>
                           </div>
-                        ))}
-                        {/* Blinking cursor */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">_</span>
-                          <span className="text-emerald-400 animate-pulse font-mono">▋</span>
-                        </div>
-                      </>
+                        );
+                      })
                     ) : agentSteps.length > 0 ? (
                       agentSteps.slice(-5).map((step, idx) => (
-                        <div key={idx} className="flex items-start gap-2">
-                          <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">{idx + 1}</span>
-                          <span className="text-slate-500 font-mono">✓</span>
-                          <span className="text-[11px] text-slate-400 font-mono">
+                        <div key={idx} className="flex items-start gap-2.5 py-0.5">
+                          <div className="mt-0.5 shrink-0">
+                            <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                              <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                            </div>
+                          </div>
+                          <span className="text-[11px] text-foreground/50 mt-0.5">
                             {step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
                              step.type === "thinking" ? "Thinking..." :
                              step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
@@ -2400,16 +2518,18 @@ function ChatArea({
                         </div>
                       ))
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-emerald-400 animate-pulse font-mono">▋</span>
-                        <span className="text-[11px] text-slate-500 font-mono">Initializing agent...</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30 animate-pulse">
+                          <Brain className="h-2.5 w-2.5 text-purple-500" />
+                        </div>
+                        <span className="text-[11px] text-foreground/60 animate-pulse">Thinking...</span>
                       </div>
                     )}
                   </div>
                   
                   {/* Progress bar */}
                   {liveSteps.length > 1 && (
-                    <div className="h-0.5 bg-slate-800">
+                    <div className="h-0.5 bg-muted">
                       <div 
                         className="h-full bg-gradient-to-r from-purple-500 via-blue-500 to-emerald-500 transition-all duration-500"
                         style={{ width: `${Math.min((liveSteps.filter(s => s.status === 'done').length / Math.max(liveSteps.length, 1)) * 100, 95)}%` }}

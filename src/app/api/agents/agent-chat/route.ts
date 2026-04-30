@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     if (eligibleKeys.length === 0) {
       return NextResponse.json({
-        error: "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash. Please add one in API Keys page.",
+        error: "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash or GLM-5.1. Please add one in API Keys page.",
         chatId: chat.id,
       }, { status: 400 })
     }
