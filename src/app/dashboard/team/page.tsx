@@ -36,12 +36,17 @@ export default function TeamPage() {
   const [tab, setTab] = useState<"team" | "leaves" | "attendance" | "access">("team");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [addMemberLoading, setAddMemberLoading] = useState(false);
 
   // Leave form
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
 
   // Access form
   const [accessForm, setAccessForm] = useState({ userId: "", agentId: "", canChat: true, canView: true, canApprove: false });
+
+  // Add member form
+  const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -132,6 +137,42 @@ export default function TeamPage() {
     } catch { toast.error("Failed to remove access"); }
   };
 
+  const handleAddMember = async () => {
+    if (!memberForm.name || !memberForm.email || !memberForm.password) {
+      toast.error("Name, email, and password are required");
+      return;
+    }
+    setAddMemberLoading(true);
+    try {
+      const res = await fetch("/api/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          type: "user",
+          name: memberForm.name,
+          email: memberForm.email,
+          role: memberForm.role,
+          department: memberForm.department,
+          password: memberForm.password,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`${memberForm.name} added to the team`);
+        setAddMemberOpen(false);
+        setMemberForm({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
+        fetchData();
+      } else {
+        toast.error(data.error || "Failed to add member");
+      }
+    } catch {
+      toast.error("Failed to add member");
+    } finally {
+      setAddMemberLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -149,6 +190,11 @@ export default function TeamPage() {
           <p className="text-muted-foreground text-sm">Manage team members, leave requests, and agent access</p>
         </div>
         <div className="flex gap-2">
+          {tab === "team" && (
+            <Button size="sm" onClick={() => setAddMemberOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Member
+            </Button>
+          )}
           {tab === "leaves" && (
             <Button size="sm" onClick={() => setLeaveDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-1" /> Apply Leave
@@ -397,6 +443,61 @@ export default function TeamPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAccessDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleGrantAccess} disabled={!accessForm.userId || !accessForm.agentId}>Grant Access</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Team Member Dialog */}
+      <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Team Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Full Name *</Label>
+              <Input placeholder="e.g. John Smith" value={memberForm.name} onChange={(e) => setMemberForm(p => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input type="email" placeholder="e.g. john@trishulhub.com" value={memberForm.email} onChange={(e) => setMemberForm(p => ({ ...p, email: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Role *</Label>
+              <Select value={memberForm.role} onValueChange={(v) => setMemberForm(p => ({ ...p, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DEVELOPER">Developer</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                  <SelectItem value="CLIENT">Client</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Select value={memberForm.department} onValueChange={(v) => setMemberForm(p => ({ ...p, department: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Engineering">Engineering</SelectItem>
+                  <SelectItem value="Design">Design</SelectItem>
+                  <SelectItem value="Marketing">Marketing</SelectItem>
+                  <SelectItem value="Sales">Sales</SelectItem>
+                  <SelectItem value="Finance">Finance</SelectItem>
+                  <SelectItem value="Operations">Operations</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Password *</Label>
+              <Input type="password" placeholder="Minimum 6 characters" value={memberForm.password} onChange={(e) => setMemberForm(p => ({ ...p, password: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddMemberOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddMember} disabled={!memberForm.name || !memberForm.email || !memberForm.password || addMemberLoading}>
+              {addMemberLoading ? "Adding..." : "Add Member"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

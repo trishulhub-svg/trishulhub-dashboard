@@ -91,22 +91,51 @@ export async function POST(req: NextRequest) {
     }
 
     // Create the cross-agent message
-    const crossMsg = await db.crossAgentMessage.create({
-      data: {
-        fromAgentId,
-        toAgentId,
-        chatId: chatId || null,
-        linkedChatId: linkedChatId || null,
-        message,
-        type: type || "INFO",
-        status: "PENDING",
-        shareFullChat: shareFullChat || false,
-      },
-      include: {
-        fromAgent: { select: { id: true, name: true, type: true } },
-        toAgent: { select: { id: true, name: true, type: true } },
+    // Use try/catch for linkedChatId in case the column doesn't exist in production DB yet
+    let crossMsg;
+    try {
+      crossMsg = await db.crossAgentMessage.create({
+        data: {
+          fromAgentId,
+          toAgentId,
+          chatId: chatId || null,
+          linkedChatId: linkedChatId || null,
+          message,
+          type: type || "INFO",
+          status: "PENDING",
+          shareFullChat: shareFullChat || false,
+        },
+        include: {
+          fromAgent: { select: { id: true, name: true, type: true } },
+          toAgent: { select: { id: true, name: true, type: true } },
+        }
+      });
+    } catch (createError: any) {
+      // If linkedChatId column doesn't exist, try without it
+      if (createError.message?.includes("linkedChatId") || createError.message?.includes("shareFullChat")) {
+        crossMsg = await db.crossAgentMessage.create({
+          data: {
+            fromAgentId,
+            toAgentId,
+            chatId: chatId || null,
+            message,
+            type: type || "INFO",
+            status: "PENDING",
+          },
+          include: {
+            fromAgent: { select: { id: true, name: true, type: true } },
+            toAgent: { select: { id: true, name: true, type: true } },
+          }
+        });
+        // Auto-migrate: add missing columns
+        try {
+          await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT");
+          await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0");
+        } catch {}
+      } else {
+        throw createError;
       }
-    })
+    }
 
     // Process the message - have the receiving agent acknowledge/act on it
     try {

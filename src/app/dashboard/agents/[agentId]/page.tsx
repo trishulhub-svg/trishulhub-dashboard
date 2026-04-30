@@ -105,6 +105,7 @@ interface ScheduledTask {
   completedAt: string | null;
   createdAt: string;
   agent?: { id: string; name: string; type: string };
+  user?: { id: string; name: string };
 }
 
 interface CrossAgentMsg {
@@ -1178,6 +1179,7 @@ export default function AgentChatPage() {
               chatLockInfo={chatLockInfo}
               onEndChat={endChat}
               onReleaseLock={releaseChatLock}
+              scheduledTasks={scheduledTasks}
             />
           </TabsContent>
 
@@ -1483,6 +1485,7 @@ export default function AgentChatPage() {
           chatLockInfo={chatLockInfo}
           onEndChat={endChat}
           onReleaseLock={releaseChatLock}
+          scheduledTasks={scheduledTasks}
         />
       </div>
 
@@ -1818,6 +1821,7 @@ function ChatArea({
   chatLockInfo,
   onEndChat,
   onReleaseLock,
+  scheduledTasks,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -1849,6 +1853,7 @@ function ChatArea({
   chatLockInfo: { lockedBy: string | null; lockedByName: string | null; lockedAt: string | null };
   onEndChat: () => void;
   onReleaseLock: () => void;
+  scheduledTasks: ScheduledTask[];
 }) {
   return (
     <>
@@ -1908,6 +1913,44 @@ function ChatArea({
           >
             <X className="h-3 w-3 mr-1" /> End Chat
           </Button>
+        </div>
+      )}
+      {/* Scheduled Tasks Section - Show in chat area */}
+      {scheduledTasks.length > 0 && (
+        <div className="px-4 py-2 border-b bg-amber-50/50 dark:bg-amber-900/10">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Scheduled Tasks</span>
+              <Badge variant="secondary" className="text-[8px] h-3.5 ml-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                {scheduledTasks.filter(t => t.status !== "COMPLETED" && t.status !== "CANCELLED").length} active
+              </Badge>
+            </div>
+            <div className="space-y-1">
+              {scheduledTasks.slice(0, 5).map((task) => (
+                <div key={task.id} className={`flex items-center gap-2 px-2 py-1 rounded-md text-[10px] ${task.status === "COMPLETED" ? "bg-green-50 dark:bg-green-900/10 line-through opacity-60" : task.status === "IN_PROGRESS" ? "bg-blue-50 dark:bg-blue-900/10" : "bg-white dark:bg-slate-800/50 border border-border/30"}`}>
+                  {task.status === "COMPLETED" ? (
+                    <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                  ) : task.status === "IN_PROGRESS" ? (
+                    <Loader2Icon className="h-3 w-3 text-blue-500 shrink-0 animate-spin" />
+                  ) : (
+                    <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+                  )}
+                  <span className={`truncate flex-1 ${task.status === "COMPLETED" ? "text-green-600 dark:text-green-400" : "text-foreground"}`}>
+                    {task.title}
+                  </span>
+                  {task.user?.name && (
+                    <span className="text-muted-foreground shrink-0">
+                      by {task.user.name}
+                    </span>
+                  )}
+                  <Badge variant="outline" className={`text-[7px] h-3 px-1 shrink-0 ${task.status === "COMPLETED" ? "border-green-300 text-green-600" : task.status === "IN_PROGRESS" ? "border-blue-300 text-blue-600" : task.priority === "HIGH" ? "border-red-300 text-red-600" : "border-amber-300 text-amber-600"}`}>
+                    {task.status === "COMPLETED" ? "Done" : task.status === "IN_PROGRESS" ? "Running" : task.priority}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
       {/* Messages */}
@@ -2914,12 +2957,18 @@ function TasksTab({
       ) : (
         <div className="space-y-2">
           {tasks.map((task) => (
-            <Card key={task.id} className="p-3">
+            <Card key={task.id} className={`p-3 ${task.status === "COMPLETED" ? "border-green-200 dark:border-green-800/50 bg-green-50/30 dark:bg-green-900/10" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h5 className="text-xs font-medium truncate">{task.title}</h5>
+                  <div className="flex items-center gap-1.5">
+                    {task.status === "COMPLETED" && <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
+                    <h5 className={`text-xs font-medium truncate ${task.status === "COMPLETED" ? "line-through text-green-600 dark:text-green-400" : ""}`}>{task.title}</h5>
+                  </div>
                   {task.description && (
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{task.description}</p>
+                  )}
+                  {task.user?.name && (
+                    <p className="text-[9px] text-muted-foreground mt-0.5">Scheduled by {task.user.name}</p>
                   )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <Badge className={`text-[9px] h-4 ${priorityColors[task.priority] || ""}`}>
@@ -2932,6 +2981,9 @@ function TasksTab({
                   <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
                     <Clock className="h-2.5 w-2.5" />
                     {new Date(task.dueDate).toLocaleDateString()}
+                    {task.completedAt && (
+                      <span className="text-green-600 dark:text-green-400 ml-1">• Completed {new Date(task.completedAt).toLocaleDateString()}</span>
+                    )}
                   </div>
                 </div>
                 <DropdownMenu>

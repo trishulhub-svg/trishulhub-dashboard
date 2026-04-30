@@ -12,6 +12,29 @@ export async function GET() {
 export async function PATCH() {
   const logs: string[] = []
   try {
+    // ━━ Schema Migration: Add missing columns to production DB ━━
+    const migrations = [
+      { table: "CrossAgentMessage", column: "linkedChatId", type: "TEXT", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
+      { table: "CrossAgentMessage", column: "shareFullChat", type: "INTEGER", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
+      { table: "Chat", column: "lockedBy", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
+      { table: "Chat", column: "lockedAt", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
+      { table: "Chat", column: "lockedByName", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
+    ]
+
+    for (const migration of migrations) {
+      try {
+        // Check if column already exists
+        const columns = await db.$queryRawUnsafe(`PRAGMA table_info(${migration.table})`) as any[]
+        const columnExists = columns.some((col: any) => col.name === migration.column)
+        if (!columnExists) {
+          await db.$executeRawUnsafe(migration.sql)
+          logs.push(`Added column ${migration.column} to ${migration.table}`)
+        }
+      } catch (err: any) {
+        logs.push(`Migration ${migration.column}: ${err.message || 'already exists'}`)
+      }
+    }
+
     // Update all agents using deprecated model names to glm-4.5-flash
     const deprecatedModels = ["glm-4-flash-250414", "glm-4-air-250414", "glm-4-long-250414", "glm-4-flash", "glm-4-air", "glm-4-long", "glm-4.7-flash"]
     let updated = 0
