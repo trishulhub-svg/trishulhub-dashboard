@@ -284,6 +284,12 @@ export default function AgentChatPage() {
     messageId?: string;
   }>>([]);
   const [activatingStepId, setActivatingStepId] = useState<string | null>(null);
+  // Track auto-generated TODO items from live tool calls (not from plan_task)
+  const autoTodoCounterRef = useRef(0);
+  // Ref to access current todoItems in the stream completion handler
+  const todoItemsRef = useRef<typeof todoItems>([]);
+  // Keep ref in sync with state
+  useEffect(() => { todoItemsRef.current = todoItems; }, [todoItems]);
 
   // File upload state
   const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
@@ -523,7 +529,9 @@ export default function AgentChatPage() {
           if (lastAssistantMsg?.metadata) {
             try {
               const meta = JSON.parse(lastAssistantMsg.metadata);
-              if (meta.todoItems && meta.todoItems.length > 0) {
+              // Check for plan_task-based todoItems first, then auto-generated autoTodoItems
+              const items = meta.todoItems || meta.autoTodoItems;
+              if (items && items.length > 0) {
                 const executedSteps = new Set<number>();
                 for (const msg of msgs) {
                   if (msg.role === 'user') {
@@ -531,7 +539,7 @@ export default function AgentChatPage() {
                     if (match) executedSteps.add(parseInt(match[1]));
                   }
                 }
-                const restoredItems = meta.todoItems.map((item: any) => ({
+                const restoredItems = items.map((item: any) => ({
                   ...item,
                   status: executedSteps.has(item.step) ? 'completed' as const : item.status,
                   result: executedSteps.has(item.step) ? 'Step executed' : item.result,
@@ -583,7 +591,9 @@ export default function AgentChatPage() {
             if (lastAssistantMsg?.metadata) {
               try {
                 const meta = JSON.parse(lastAssistantMsg.metadata);
-                if (meta.todoItems && meta.todoItems.length > 0) {
+                // Check for plan_task-based todoItems first, then auto-generated autoTodoItems
+                const items = meta.todoItems || meta.autoTodoItems;
+                if (items && items.length > 0) {
                   const executedSteps = new Set<number>();
                   for (const msg of loadedMsgs) {
                     if (msg.role === 'user') {
@@ -591,7 +601,7 @@ export default function AgentChatPage() {
                       if (match) executedSteps.add(parseInt(match[1]));
                     }
                   }
-                  const restoredItems = meta.todoItems.map((item: any) => ({
+                  const restoredItems = items.map((item: any) => ({
                     ...item,
                     status: executedSteps.has(item.step) ? 'completed' as const : item.status,
                     result: executedSteps.has(item.step) ? 'Step executed' : item.result,
@@ -713,6 +723,7 @@ export default function AgentChatPage() {
     setActiveChatId(chatId);
     // Clear existing todoItems when switching chats
     setTodoItems([]);
+    autoTodoCounterRef.current = 0;
     fetchMessages(chatId).then((loadedMsgs) => {
       // After loading messages, check if this chat has active processing
       const procInfo = getProcessingInfo(chatId);
@@ -726,7 +737,9 @@ export default function AgentChatPage() {
         if (lastAssistantMsg?.metadata) {
           try {
             const meta = JSON.parse(lastAssistantMsg.metadata);
-            if (meta.todoItems && meta.todoItems.length > 0) {
+            // Check for plan_task-based todoItems first, then auto-generated autoTodoItems
+            const items = meta.todoItems || meta.autoTodoItems;
+            if (items && items.length > 0) {
               // Infer completed steps from conversation: check for user messages
               // that start with "[Executing Plan Step X:"
               const executedSteps = new Set<number>();
@@ -739,7 +752,7 @@ export default function AgentChatPage() {
                 }
               }
               // Update TODO items status based on executed steps
-              const restoredItems = meta.todoItems.map((item: any) => ({
+              const restoredItems = items.map((item: any) => ({
                 ...item,
                 status: executedSteps.has(item.step) ? 'completed' as const : item.status,
                 result: executedSteps.has(item.step) ? 'Step executed' : item.result,
@@ -917,6 +930,8 @@ export default function AgentChatPage() {
       setAgentSteps([]);
       setIsAgentic(true);
       setLiveSteps([]);
+      // Reset auto-todo counter for new message
+      autoTodoCounterRef.current = 0;
     }
 
     // Mark agent as processing in sessionStorage (persists across navigation)
@@ -1120,6 +1135,105 @@ export default function AgentChatPage() {
                   });
                   return updated;
                 });
+
+                // ── Auto-generate TODO items from live tool calls ──
+                // When the agent uses tools like write_file, edit_file, etc., auto-create
+                // TODO items so the user sees a progress list in real-time at the bottom
+                const CODE_TOOLS = ['write_file', 'edit_file', 'read_file', 'list_files', 'run_command', 'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code', 'web_search'];
+
+                if (step.type === "tool_call" && step.toolName && CODE_TOOLS.includes(step.toolName)) {
+                  // Only auto-generate if we don't already have plan_task-based TODOs
+                  if (collectedTodoItems.length === 0) {
+                    autoTodoCounterRef.current += 1;
+                    const todoStep = autoTodoCounterRef.current;
+                    let title = '';
+                    let description = '';
+                    const args = step.toolArgs || {};
+
+                    // Generate human-readable title from tool call
+                    switch (step.toolName) {
+                      case 'write_file':
+                        title = `Write ${args.path || 'file'}`;
+                        description = args.description || `Creating ${args.path || 'file'}`;
+                        break;
+                      case 'edit_file':
+                        title = `Edit ${args.path || 'file'}`;
+                        description = args.description || `Editing ${args.path || 'file'}`;
+                        break;
+                      case 'read_file':
+                        title = `Read ${args.path || 'file'}`;
+                        description = args.purpose || `Reading ${args.path || 'file'}`;
+                        break;
+                      case 'list_files':
+                        title = `List ${args.path || 'project'}`;
+                        description = 'Exploring project structure';
+                        break;
+                      case 'run_command':
+                        title = `Run: ${(args.command || '').substring(0, 40)}`;
+                        description = args.purpose || 'Executing command';
+                        break;
+                      case 'git_commit_push':
+                        title = `Git push`;
+                        description = args.message || 'Committing and pushing changes';
+                        break;
+                      case 'git_status':
+                        title = `Git status`;
+                        description = 'Checking repository status';
+                        break;
+                      case 'git_diff':
+                        title = `Git diff`;
+                        description = 'Reviewing changes';
+                        break;
+                      case 'git_create_branch':
+                        title = `Branch: ${args.name || 'new'}`;
+                        description = 'Creating new branch';
+                        break;
+                      case 'analyze_code':
+                        title = `Analyze ${args.path || 'code'}`;
+                        description = `Focus: ${args.focus || 'all'}`;
+                        break;
+                      case 'web_search':
+                        title = `Search: ${(args.query || '').substring(0, 30)}`;
+                        description = args.purpose || 'Searching the web';
+                        break;
+                      default:
+                        title = step.toolName;
+                        description = step.content || '';
+                    }
+
+                    const newTodo = {
+                      id: `auto-todo-${Date.now()}-${todoStep}`,
+                      step: todoStep,
+                      title,
+                      description,
+                      prompt: '',
+                      status: 'running' as const,
+                    };
+                    setTodoItems(prev => [...prev, newTodo]);
+                  }
+                }
+
+                if (step.type === "tool_result" && step.toolName && CODE_TOOLS.includes(step.toolName)) {
+                  // Only update auto-generated TODOs if we don't have plan_task-based TODOs
+                  if (collectedTodoItems.length === 0) {
+                    const success = step.content && !step.content.includes('failed');
+                    setTodoItems(prev => {
+                      // Find the last running item and mark it completed/failed
+                      const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
+                      if (lastRunningIdx >= 0) {
+                        const actualIdx = prev.length - 1 - lastRunningIdx;
+                        const updated = [...prev];
+                        updated[actualIdx] = {
+                          ...updated[actualIdx],
+                          status: success ? 'completed' as const : 'failed' as const,
+                          result: step.content?.substring(0, 200),
+                        };
+                        return updated;
+                      }
+                      return prev;
+                    });
+                  }
+                }
               } else if (event.type === "complete") {
                 finalData = event;
               } else if (event.type === "error") {
@@ -1223,6 +1337,39 @@ export default function AgentChatPage() {
                   });
                   return updated;
                 });
+
+                // ── Auto-generate TODO items from live tool calls (buffer drain) ──
+                const CODE_TOOLS_BUF = ['write_file', 'edit_file', 'read_file', 'list_files', 'run_command', 'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code', 'web_search'];
+                if (step.type === "tool_call" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                  autoTodoCounterRef.current += 1;
+                  const todoStep = autoTodoCounterRef.current;
+                  const args = step.toolArgs || {};
+                  let title = step.toolName;
+                  let description = '';
+                  switch (step.toolName) {
+                    case 'write_file': title = `Write ${args.path || 'file'}`; description = args.description || ''; break;
+                    case 'edit_file': title = `Edit ${args.path || 'file'}`; description = args.description || ''; break;
+                    case 'read_file': title = `Read ${args.path || 'file'}`; description = args.purpose || ''; break;
+                    case 'list_files': title = `List ${args.path || 'project'}`; description = 'Exploring project'; break;
+                    case 'run_command': title = `Run: ${(args.command || '').substring(0, 40)}`; description = args.purpose || ''; break;
+                    case 'git_commit_push': title = `Git push`; description = args.message || ''; break;
+                    default: description = step.content || '';
+                  }
+                  setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: '', status: 'running' as const }]);
+                }
+                if (step.type === "tool_result" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                  const success = step.content && !step.content.includes('failed');
+                  setTodoItems(prev => {
+                    const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
+                    if (lastRunningIdx >= 0) {
+                      const actualIdx = prev.length - 1 - lastRunningIdx;
+                      const updated = [...prev];
+                      updated[actualIdx] = { ...updated[actualIdx], status: success ? 'completed' as const : 'failed' as const, result: step.content?.substring(0, 200) };
+                      return updated;
+                    }
+                    return prev;
+                  });
+                }
               } else if (event.type === "error") {
                 toast.error(event.message || "Agent execution error", { duration: 6000 });
               }
@@ -1262,7 +1409,9 @@ export default function AgentChatPage() {
               usedTools: finalData.usedTools,
               steps: finalData.steps,
               thinkingPreview: finalData.thinkingPreview,
+              // Include both plan_task-based and auto-generated TODO items
               todoItems: collectedTodoItems.length > 0 ? collectedTodoItems : undefined,
+              autoTodoItems: collectedTodoItems.length === 0 ? todoItemsRef.current : undefined,
             }),
             createdAt: new Date().toISOString(),
           };
@@ -1428,19 +1577,23 @@ export default function AgentChatPage() {
   // ── Auto-save TODO items to DB when they change ──
   useEffect(() => {
     if (todoItems.length === 0 || !activeChatId) return;
-    // Find the last assistant message that has todoItems in metadata
+    // Find the last assistant message that has todoItems or autoTodoItems in metadata
     const planMsg = [...messages].reverse().find(m => {
       if (m.role !== 'assistant') return false;
       try {
         const meta = JSON.parse(m.metadata || "{}");
-        return meta.todoItems && meta.todoItems.length > 0;
+        return (meta.todoItems && meta.todoItems.length > 0) || (meta.autoTodoItems && meta.autoTodoItems.length > 0);
       } catch { return false; }
     });
     if (!planMsg) return;
     // Update the metadata with current todoItems state
     try {
       const meta = JSON.parse(planMsg.metadata || "{}");
-      const updatedMeta = { ...meta, todoItems };
+      // Update the correct field based on which type of todo items we have
+      const isAutoGenerated = !todoItems.some(t => t.prompt && t.prompt.length > 0);
+      const updatedMeta = isAutoGenerated
+        ? { ...meta, autoTodoItems: todoItems }
+        : { ...meta, todoItems };
       // Update in DB (fire-and-forget)
       fetch("/api/chats/messages", {
         method: "PATCH",
@@ -2897,7 +3050,7 @@ function ChatArea({
                           const meta = JSON.parse(msg.metadata || "{}");
                           // Get todoItems either from state (current message) or from metadata (historical)
                           const isLastAssistantMsg = messages.indexOf(msg) === messages.length - 1;
-                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (meta.todoItems || []);
+                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (meta.todoItems || meta.autoTodoItems || []);
                           if (!items || items.length === 0) return null;
 
                           const completedCount = items.filter((t: any) => t.status === 'completed').length;
@@ -3353,7 +3506,10 @@ function ChatArea({
               ) : (
                 <ListChecks className="h-4 w-4 text-amber-500" />
               )}
-              <span className="text-xs font-semibold text-foreground/80">Plan</span>
+              {/* Show "Plan" for plan_task items with prompts, "Progress" for auto-generated items */}
+              <span className="text-xs font-semibold text-foreground/80">
+                {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
+              </span>
               <span className="text-[10px] text-muted-foreground font-mono">
                 {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
               </span>
@@ -3368,19 +3524,22 @@ function ChatArea({
                   }}
                 />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
-                onClick={() => {
-                  const firstPending = todoItems.find(t => t.status === 'pending');
-                  if (firstPending) onActivateTodo(firstPending);
-                }}
-                disabled={sending || !todoItems.some(t => t.status === 'pending')}
-              >
-                <Zap className="h-2.5 w-2.5" />
-                {todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next'}
-              </Button>
+              {/* Only show "Run Next" for plan_task-based items that have prompts */}
+              {todoItems.some(t => t.prompt && t.prompt.length > 0) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+                  onClick={() => {
+                    const firstPending = todoItems.find(t => t.status === 'pending');
+                    if (firstPending) onActivateTodo(firstPending);
+                  }}
+                  disabled={sending || !todoItems.some(t => t.status === 'pending')}
+                >
+                  <Zap className="h-2.5 w-2.5" />
+                  {todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next'}
+                </Button>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {todoItems.map((item) => {
@@ -3388,17 +3547,19 @@ function ChatArea({
                 const isRunning = item.status === 'running';
                 const isCompleted = item.status === 'completed';
                 const isFailed = item.status === 'failed';
+                const hasPrompt = item.prompt && item.prompt.length > 0;
                 return (
                   <button
                     key={item.id || item.step}
-                    onClick={() => isPending && !sending ? onActivateTodo(item) : undefined}
+                    onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
                       isCompleted ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 line-through' :
                       isRunning ? 'bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700 animate-pulse' :
                       isFailed ? 'bg-red-100/60 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                      'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 cursor-pointer'
+                      hasPrompt ? 'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 cursor-pointer' :
+                      'bg-white/40 dark:bg-white/5 text-foreground/50'
                     }`}
-                    disabled={sending || !isPending}
+                    disabled={sending || !isPending || !hasPrompt}
                   >
                     {isCompleted ? <CheckCircle2 className="h-3 w-3" /> :
                      isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> :

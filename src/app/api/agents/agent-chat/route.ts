@@ -281,7 +281,7 @@ export async function POST(req: NextRequest) {
             try {
               const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
                 maxSteps: 15,
-                maxTokens: 8192,
+                maxTokens: 16384,
                 agentType: agent.type,
                 systemPrompt,
                 tools,
