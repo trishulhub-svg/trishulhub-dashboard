@@ -299,8 +299,8 @@ export const MODEL_OPTIONS = {
     { value: "glm-4.5-air-250414", label: "GLM-4.5 Air", cost: "$" },
     { value: "glm-4-air-250414", label: "GLM-4 Air", cost: "$" },
     { value: "glm-4-flash-250414", label: "GLM-4 Flash", cost: "$" },
-    { value: "glm-4.5-flash", label: "GLM-4.5 Flash (Free + Agentic)", cost: "Free" },
-    { value: "glm-4.7-flash", label: "GLM-4.7 Flash (Free)", cost: "Free" },
+    { value: "glm-4.5-flash", label: "GLM-4.5 Flash (Free + Agentic ✅)", cost: "Free" },
+    { value: "glm-4.7-flash", label: "GLM-4.7 Flash (Free - No Tool Calling)", cost: "Free" },
     { value: "glm-4-long-250414", label: "GLM-4 Long", cost: "$" },
   ],
 };

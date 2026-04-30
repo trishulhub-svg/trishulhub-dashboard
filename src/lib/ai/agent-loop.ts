@@ -424,7 +424,7 @@ export async function runAgentLoop(
   userMessage: string,
   conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
   apiKey: string,
-  model: string = "glm-4.7-flash",
+  model: string = "glm-4.5-flash",
   options?: {
     maxSteps?: number
     maxTokens?: number
