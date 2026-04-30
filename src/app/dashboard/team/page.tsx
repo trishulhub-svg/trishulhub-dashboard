@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import {
   User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot,
 } from "lucide-react";
@@ -37,6 +38,9 @@ export default function TeamPage() {
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [accessDialogOpen, setAccessDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const { data: session } = useSession();
+  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const [addMemberLoading, setAddMemberLoading] = useState(false);
 
   // Leave form
@@ -191,7 +195,7 @@ export default function TeamPage() {
         </div>
         <div className="flex gap-2">
           {tab === "team" && (
-            <Button size="sm" onClick={() => setAddMemberOpen(true)}>
+            <Button size="sm" onClick={() => setAddMemberOpen(true)} className="bg-primary hover:bg-primary/90">
               <Plus className="h-4 w-4 mr-1" /> Add Member
             </Button>
           )}

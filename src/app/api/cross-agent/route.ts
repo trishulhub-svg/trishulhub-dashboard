@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(messages)
   } catch (error: any) {
+    console.error("[cross-agent] GET error:", error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
@@ -111,29 +112,37 @@ export async function POST(req: NextRequest) {
         }
       });
     } catch (createError: any) {
-      // If linkedChatId column doesn't exist, try without it
-      if (createError.message?.includes("linkedChatId") || createError.message?.includes("shareFullChat")) {
-        crossMsg = await db.crossAgentMessage.create({
-          data: {
-            fromAgentId,
-            toAgentId,
-            chatId: chatId || null,
-            message,
-            type: type || "INFO",
-            status: "PENDING",
-          },
-          include: {
-            fromAgent: { select: { id: true, name: true, type: true } },
-            toAgent: { select: { id: true, name: true, type: true } },
-          }
-        });
-        // Auto-migrate: add missing columns
+      // If linkedChatId or shareFullChat columns don't exist, try without them
+      if (createError.message?.includes("linkedChatId") || createError.message?.includes("shareFullChat") || createError.message?.includes("no column") || createError.message?.includes("Unknown column") || createError.message?.includes("no such column")) {
         try {
-          await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT");
-          await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0");
-        } catch {}
+          crossMsg = await db.crossAgentMessage.create({
+            data: {
+              fromAgentId,
+              toAgentId,
+              chatId: chatId || null,
+              message,
+              type: type || "INFO",
+              status: "PENDING",
+            },
+            include: {
+              fromAgent: { select: { id: true, name: true, type: true } },
+              toAgent: { select: { id: true, name: true, type: true } },
+            }
+          });
+          // Auto-migrate: add missing columns
+          try {
+            await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT");
+          } catch {}
+          try {
+            await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0");
+          } catch {}
+        } catch (fallbackError: any) {
+          console.error("[cross-agent] Fallback create also failed:", fallbackError.message);
+          return NextResponse.json({ error: "Failed to create cross-agent message: " + fallbackError.message }, { status: 500 });
+        }
       } else {
-        throw createError;
+        console.error("[cross-agent] Create error:", createError.message);
+        return NextResponse.json({ error: "Failed to create cross-agent message: " + createError.message }, { status: 500 });
       }
     }
 

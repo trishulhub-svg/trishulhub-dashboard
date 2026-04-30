@@ -16,10 +16,10 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get("type")
 
     if (type === "users") {
-      // SUPER_ADMIN only: list all users for team management
+      // SUPER_ADMIN and ADMIN: list all users for team management
       const userRole = (session.user as any).role
-      if (userRole !== "SUPER_ADMIN") {
-        return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
+      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       const users = await db.user.findMany({
         where: { role: { not: "CLIENT" } },
@@ -159,10 +159,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === "user") {
-      // SUPER_ADMIN only: Create a new team member
+      // SUPER_ADMIN and ADMIN: Create a new team member
       const userRole = (session.user as any).role
-      if (userRole !== "SUPER_ADMIN") {
-        return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
+      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
 
       const { name, email, role, department, password } = data

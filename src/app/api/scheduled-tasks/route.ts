@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
     const where: any = {}
     if (agentId) where.agentId = agentId
     if (status) where.status = status
-    if (!all || userRole !== "SUPER_ADMIN") where.userId = userId
+    // If agentId is specified, show all tasks for that agent (so team can see who scheduled what)
+    // If no agentId, only show current user's tasks (unless admin viewing all)
+    if (!agentId && (!all || userRole !== "SUPER_ADMIN")) where.userId = userId
 
     const tasks = await db.scheduledTask.findMany({
       where,
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
       },
       include: {
         agent: { select: { id: true, name: true, type: true } },
+        user: { select: { id: true, name: true } },
       }
     })
 
@@ -132,21 +135,26 @@ export async function PATCH(req: NextRequest) {
       data,
       include: {
         agent: { select: { id: true, name: true, type: true } },
+        user: { select: { id: true, name: true } },
       }
     })
 
-    // Notify user if task completed
-    if (status === "COMPLETED" && task.userId !== userId) {
-      await db.notification.create({
-        data: {
-          userId: task.userId,
-          title: "Task Completed",
-          message: `"${task.title}" has been completed by ${task.agent?.name || "AI Agent"}`,
-          type: "SUCCESS",
-          link: `/dashboard/agents/${task.agentId}`,
-          metadata: JSON.stringify({ taskId: task.id }),
-        }
-      })
+    // Notify user if task completed (always notify, whether by owner, admin, or cron)
+    if (status === "COMPLETED") {
+      try {
+        await db.notification.create({
+          data: {
+            userId: task.userId,
+            title: "Task Completed",
+            message: `"${task.title}" has been marked as completed${task.userId !== userId ? ` by ${task.agent?.name || "another user"}` : ""}. Check the results in your scheduled tasks.`,
+            type: "SUCCESS",
+            link: `/dashboard/agents/${task.agentId}`,
+            metadata: JSON.stringify({ taskId: task.id }),
+          }
+        })
+      } catch (notifErr) {
+        console.error("[scheduled-tasks] Failed to send completion notification:", notifErr)
+      }
     }
 
     return NextResponse.json(task)

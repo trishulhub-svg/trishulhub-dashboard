@@ -104,6 +104,22 @@ export async function POST(req: NextRequest) {
           },
         })
 
+        // Notify the user who scheduled this task
+        try {
+          await db.notification.create({
+            data: {
+              userId: task.userId,
+              title: "Scheduled Task Completed",
+              message: `"${task.title}" has been completed automatically by ${task.agent.name}. Check the results in your scheduled tasks.`,
+              type: "SUCCESS",
+              link: `/dashboard/agents/${task.agentId}`,
+              metadata: JSON.stringify({ taskId: task.id, agentId: task.agentId }),
+            }
+          })
+        } catch (notifErr) {
+          console.error(`[cron] Failed to send completion notification for task ${task.id}:`, notifErr)
+        }
+
         // Log API usage
         await db.apiUsageLog.create({
           data: {
