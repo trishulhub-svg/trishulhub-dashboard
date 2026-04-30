@@ -415,6 +415,19 @@ export default function AgentChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
 
+  // ── Auto-release lock on unmount / navigation away ──
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (activeChatId) {
+        navigator.sendBeacon(`/api/chat-lock?chatId=${activeChatId}`);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeChatId]);
+
   // ── Select chat ──
   const selectChat = useCallback(async (chatId: string) => {
     // Check lock status before selecting
@@ -1032,20 +1045,6 @@ export default function AgentChatPage() {
 
   // ── Active chat ──
   const activeChat = chats.find((c) => c.id === activeChatId);
-
-  // ── Auto-release lock on unmount / navigation away ──
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (activeChatId) {
-        // Use sendBeacon for reliability during page unload
-        navigator.sendBeacon(`/api/chat-lock?chatId=${activeChatId}`);
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [activeChatId]);
 
   // ────────────────────────────────────────────────────────────────
   // RENDER
