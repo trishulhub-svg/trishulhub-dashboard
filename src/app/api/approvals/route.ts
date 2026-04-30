@@ -3,13 +3,16 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
-// GET /api/approvals - List approvals (pending by default)
+// GET /api/approvals - List approvals (ADMIN/SUPER_ADMIN only for full access)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const userRole = (session.user as any)?.role
+    const userId = (session.user as any)?.id
 
     const { searchParams } = new URL(req.url)
     const status = searchParams.get("status") || "PENDING"
@@ -20,6 +23,11 @@ export async function GET(req: NextRequest) {
     if (status) where.status = status
     if (type) where.type = type
     if (agentId) where.agentId = agentId
+
+    // Non-admin users can only see their own approvals
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      where.requesterId = userId
+    }
 
     const approvals = await db.approval.findMany({
       where,
@@ -103,7 +111,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
+    const userRole = (session.user as any)?.role
     const { id, status, feedback } = await req.json()
+
+    // Only ADMIN and SUPER_ADMIN can approve/reject
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Only administrators can approve or reject requests" }, { status: 403 })
+    }
 
     if (!id || !status) {
       return NextResponse.json({ error: "ID and status are required" }, { status: 400 })
@@ -120,6 +134,11 @@ export async function PATCH(req: NextRequest) {
 
     if (!approval) {
       return NextResponse.json({ error: "Approval not found" }, { status: 404 })
+    }
+
+    // Can only act on PENDING approvals
+    if (approval.status !== "PENDING") {
+      return NextResponse.json({ error: `This approval is already ${approval.status.toLowerCase()}` }, { status: 400 })
     }
 
     const updated = await db.approval.update({

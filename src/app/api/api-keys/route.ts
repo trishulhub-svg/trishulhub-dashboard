@@ -8,6 +8,13 @@ export async function GET() {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+    const userRole = (session.user as any)?.role
+
+    // Only SUPER_ADMIN and ADMIN can view API keys
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const keys = await db.apiKey.findMany({
       orderBy: { priority: "asc" },
       include: {
@@ -16,7 +23,14 @@ export async function GET() {
         },
       },
     })
-    return NextResponse.json(keys)
+
+    // Mask key values for non-SUPER_ADMIN users (show only last 4 chars)
+    const sanitizedKeys = keys.map((key) => ({
+      ...key,
+      keyValue: userRole === "SUPER_ADMIN" ? key.keyValue : `••••${key.keyValue.slice(-4)}`,
+    }))
+
+    return NextResponse.json(sanitizedKeys)
   } catch (error: any) {
     console.error("API Key GET error:", error)
     return NextResponse.json({ error: error.message || "Failed to fetch API keys" }, { status: 500 })
@@ -26,8 +40,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user || (session.user as any).role === "CLIENT") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const userRole = (session.user as any)?.role
+    // Only SUPER_ADMIN and ADMIN can create API keys
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const body = await req.json()
@@ -59,11 +77,15 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user || (session.user as any).role === "CLIENT") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const userRole = (session.user as any)?.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const { id, ...data } = await req.json()
+    if (!id) return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
     const key = await db.apiKey.update({ where: { id }, data })
     return NextResponse.json(key)
   } catch (error: any) {

@@ -919,21 +919,83 @@ export async function executeToolCall(
         break
 
       // ── Project Manager tools ──
-      case "break_down_project":
+      case "break_down_project": {
+        const techStack = args.tech_stack?.length > 0 ? args.tech_stack : ["To be determined"]
+        const reqLower = (args.requirements || "").toLowerCase()
+        const projectType = reqLower.includes("e-commerce") || reqLower.includes("ecommerce") || reqLower.includes("shop") ? "ecommerce"
+          : reqLower.includes("landing page") || reqLower.includes("marketing site") ? "landing"
+          : reqLower.includes("web app") || reqLower.includes("dashboard") || reqLower.includes("saas") ? "webapp"
+          : reqLower.includes("mobile") || reqLower.includes("app") ? "mobile"
+          : "website"
+
+        const phaseTemplates: Record<string, Array<{ phase: number; name: string; tasks: string[]; estimatedHours: number }>> = {
+          ecommerce: [
+            { phase: 1, name: "Discovery & Planning", tasks: ["Requirements gathering & stakeholder interviews", "Competitor analysis & market research", "Technical specification & architecture design", "Project plan & milestone creation"], estimatedHours: 40 },
+            { phase: 2, name: "UI/UX Design", tasks: ["User journey mapping & wireframes", "Product catalog & category design", "Checkout flow & payment UX", "Responsive design for mobile/tablet", "Design review & client approval"], estimatedHours: 60 },
+            { phase: 3, name: "Core Development", tasks: ["Product catalog & category system", "Shopping cart & checkout integration", "Payment gateway (Stripe/PayPal)", "User authentication & profiles", "Order management & tracking"], estimatedHours: 120 },
+            { phase: 4, name: "Extended Features", tasks: ["Search & filtering system", "Admin dashboard & inventory management", "Email notifications & order confirmations", "SEO optimization & analytics", "Performance optimization"], estimatedHours: 60 },
+            { phase: 5, name: "Testing & QA", tasks: ["Unit & integration testing", "Payment flow testing", "Cross-browser & responsive testing", "Load & performance testing", "User acceptance testing"], estimatedHours: 40 },
+            { phase: 6, name: "Deployment & Launch", tasks: ["Staging environment setup", "Production deployment", "SSL & security hardening", "Post-launch monitoring", "Client training & handover"], estimatedHours: 24 },
+          ],
+          landing: [
+            { phase: 1, name: "Discovery", tasks: ["Brand & messaging alignment", "Target audience analysis", "Content strategy & copywriting brief", "Technical specification"], estimatedHours: 16 },
+            { phase: 2, name: "Design", tasks: ["Hero section & visual hierarchy", "Feature sections & testimonials", "CTA optimization & form design", "Responsive mobile design", "Client review & revision"], estimatedHours: 32 },
+            { phase: 3, name: "Development", tasks: ["HTML/CSS/JS implementation", "Form integration & email setup", "Analytics & conversion tracking", "SEO & meta tag optimization", "Performance optimization"], estimatedHours: 40 },
+            { phase: 4, name: "Launch", tasks: ["Cross-browser testing", "Mobile responsiveness QA", "DNS & hosting setup", "Go-live & monitoring"], estimatedHours: 12 },
+          ],
+          webapp: [
+            { phase: 1, name: "Discovery & Architecture", tasks: ["Requirements gathering & user stories", "System architecture & data model design", "API specification & tech stack selection", "Project plan with sprint roadmap"], estimatedHours: 48 },
+            { phase: 2, name: "UI/UX Design", tasks: ["User flow & information architecture", "Wireframes for all key screens", "Interactive prototype", "Design system & component library", "Client approval"], estimatedHours: 64 },
+            { phase: 3, name: "Backend Development", tasks: ["Database schema & migrations", "API endpoints & authentication", "Business logic & data validation", "Third-party integrations", "API documentation"], estimatedHours: 100 },
+            { phase: 4, name: "Frontend Development", tasks: ["Component development & state management", "API integration & data fetching", "Form handling & validation", "Real-time features (WebSocket/SSE)", "Responsive design implementation"], estimatedHours: 100 },
+            { phase: 5, name: "Testing & QA", tasks: ["Unit & integration tests", "End-to-end testing", "Security audit & penetration testing", "Performance & load testing", "User acceptance testing"], estimatedHours: 48 },
+            { phase: 6, name: "Deployment & Launch", tasks: ["CI/CD pipeline setup", "Staging environment verification", "Production deployment", "Monitoring & alerting setup", "Documentation & handover"], estimatedHours: 24 },
+          ],
+          mobile: [
+            { phase: 1, name: "Discovery & Planning", tasks: ["Requirements & feature prioritization", "Platform strategy (iOS/Android/cross-platform)", "UX research & persona mapping", "Technical specification"], estimatedHours: 40 },
+            { phase: 2, name: "UI/UX Design", tasks: ["App flow & navigation design", "Screen wireframes for all views", "Interactive prototype", "Design system for mobile", "Usability testing"], estimatedHours: 56 },
+            { phase: 3, name: "Core Development", tasks: ["Authentication & user management", "Core feature implementation", "API integration & data sync", "Push notifications", "Offline support"], estimatedHours: 120 },
+            { phase: 4, name: "Polish & Testing", tasks: ["UI polish & animations", "Device testing & compatibility", "Performance optimization", "App Store preparation"], estimatedHours: 40 },
+            { phase: 5, name: "Launch", tasks: ["Beta testing program", "App Store submission", "Launch marketing", "Post-launch monitoring"], estimatedHours: 20 },
+          ],
+          website: [
+            { phase: 1, name: "Discovery & Planning", tasks: ["Requirements gathering", "Content strategy & sitemap", "Technical specification", "Project timeline"], estimatedHours: 24 },
+            { phase: 2, name: "Design", tasks: ["Homepage & key page designs", "Responsive layouts", "Brand alignment & style guide", "Client review & approval"], estimatedHours: 40 },
+            { phase: 3, name: "Development", tasks: ["Frontend build with CMS integration", "Content migration & formatting", "SEO optimization & meta tags", "Contact forms & email setup"], estimatedHours: 60 },
+            { phase: 4, name: "Testing & Launch", tasks: ["Cross-browser & device testing", "Performance & accessibility audit", "DNS configuration & deployment", "Client training"], estimatedHours: 20 },
+          ],
+        }
+
+        const phases = phaseTemplates[projectType] || phaseTemplates.website
+        const totalHours = phases.reduce((sum, p) => sum + p.estimatedHours, 0)
+
         result = JSON.stringify({
           project: args.project_name,
           requirements: args.requirements,
-          tech_stack: args.tech_stack || ["To be determined"],
+          tech_stack: techStack,
           deadline: args.deadline || "To be determined",
-          phases: [
-            { phase: 1, name: "Discovery & Planning", tasks: ["Requirements gathering", "Technical specification", "Project plan creation"] },
-            { phase: 2, name: "Design", tasks: ["UI/UX design", "Wireframes & mockups", "Design review & approval"] },
-            { phase: 3, name: "Development", tasks: ["Frontend development", "Backend development", "Integration & API"] },
-            { phase: 4, name: "Testing & QA", tasks: ["Unit testing", "Integration testing", "User acceptance testing"] },
-            { phase: 5, name: "Deployment & Launch", tasks: ["Staging deployment", "Final review", "Production deployment"] },
+          project_type_detected: projectType,
+          total_estimated_hours: totalHours,
+          phases: phases.map(p => ({
+            phase: p.phase,
+            name: p.name,
+            tasks: p.tasks,
+            estimatedHours: p.estimatedHours,
+          })),
+          dependencies: [
+            "Phase 2 depends on Phase 1 completion and approval",
+            "Phase 3 depends on Phase 2 design approval",
+            "Phase 4+ depends on Phase 3 core development",
+            "Each phase requires client review before proceeding",
           ],
+          recommended_team: {
+            design: "1 UI/UX Designer",
+            development: techStack.some((t: string) => t.toLowerCase().includes("react") || t.toLowerCase().includes("next")) ? "1-2 Full-stack Developers" : "1-2 Web Developers",
+            qa: "1 QA Engineer (part-time)",
+          },
         }, null, 2)
         break
+      }
 
       case "create_timeline":
         result = executeCreateTimeline(args)
@@ -1183,8 +1245,8 @@ async function executeSearchLeads(location: string, industry?: string, criteria?
 // ━━ Dev Agent Tool Implementations ━━
 
 async function executeReadFile(filePath: string, purpose?: string): Promise<string> {
-  const fullPath = path.join(PROJECT_ROOT, filePath)
-  if (!fullPath.startsWith(PROJECT_ROOT)) return `Error: Cannot read files outside project directory.`
+  const fullPath = path.resolve(PROJECT_ROOT, filePath)
+  if (!fullPath.startsWith(PROJECT_ROOT + path.sep) && fullPath !== PROJECT_ROOT) return `Error: Cannot read files outside project directory.`
   if (!fs.existsSync(fullPath)) return `Error: File not found: ${filePath}`
 
   try {
@@ -1201,8 +1263,15 @@ async function executeReadFile(filePath: string, purpose?: string): Promise<stri
 }
 
 async function executeWriteFile(filePath: string, content: string, description?: string): Promise<string> {
-  const fullPath = path.join(PROJECT_ROOT, filePath)
-  if (!fullPath.startsWith(PROJECT_ROOT)) return `Error: Cannot write files outside project directory.`
+  const fullPath = path.resolve(PROJECT_ROOT, filePath)
+  if (!fullPath.startsWith(PROJECT_ROOT + path.sep) && fullPath !== PROJECT_ROOT) return `Error: Cannot write files outside project directory.`
+
+  // Prevent overwriting critical files
+  const criticalFiles = ['.env', '.env.local', '.env.production', 'next.config.js', 'next.config.ts', 'next.config.mjs']
+  const basename = path.basename(fullPath)
+  if (criticalFiles.includes(basename)) {
+    return `Error: Cannot overwrite critical file: ${basename}. This file is protected for safety.`
+  }
 
   try {
     const dir = path.dirname(fullPath)
@@ -1216,8 +1285,8 @@ async function executeWriteFile(filePath: string, content: string, description?:
 }
 
 async function executeEditFile(filePath: string, oldContent: string, newContent: string, description?: string): Promise<string> {
-  const fullPath = path.join(PROJECT_ROOT, filePath)
-  if (!fullPath.startsWith(PROJECT_ROOT)) return `Error: Cannot edit files outside project directory.`
+  const fullPath = path.resolve(PROJECT_ROOT, filePath)
+  if (!fullPath.startsWith(PROJECT_ROOT + path.sep) && fullPath !== PROJECT_ROOT) return `Error: Cannot edit files outside project directory.`
   if (!fs.existsSync(fullPath)) return `Error: File not found: ${filePath}. Use write_file to create new files.`
 
   try {
@@ -1241,8 +1310,8 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
 }
 
 async function executeListFiles(dirPath: string, pattern?: string): Promise<string> {
-  const fullPath = path.join(PROJECT_ROOT, dirPath === "." ? "" : dirPath)
-  if (!fullPath.startsWith(PROJECT_ROOT)) return `Error: Cannot list files outside project directory.`
+  const fullPath = path.resolve(PROJECT_ROOT, dirPath === "." ? "" : dirPath)
+  if (!fullPath.startsWith(PROJECT_ROOT + path.sep) && fullPath !== PROJECT_ROOT) return `Error: Cannot list files outside project directory.`
   if (!fs.existsSync(fullPath)) return `Error: Directory not found: ${dirPath}`
 
   try {
@@ -1270,10 +1339,39 @@ async function executeListFiles(dirPath: string, pattern?: string): Promise<stri
 }
 
 async function executeRunCommand(command: string, purpose?: string): Promise<string> {
-  const blocked = ["rm -rf /", "mkfs", "dd if=", "> /dev/", "curl | bash", "wget | bash", "shutdown", "reboot", "format"]
-  const lowerCmd = command.toLowerCase()
-  for (const b of blocked) {
-    if (lowerCmd.includes(b)) return `Error: Command blocked for security: "${command}"`
+  // Blocklist: comprehensive dangerous patterns
+  const blockedPatterns = [
+    /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--)\s*\//i,  // rm -rf /, rm -f /
+    /mkfs/i,                                        // Format filesystem
+    /dd\s+if=/i,                                    // Disk dump
+    />\s*\/dev\//i,                                 // Redirect to /dev
+    /curl\s+.*\|\s*(bash|sh|zsh)/i,                 // Curl pipe to shell
+    /wget\s+.*\|\s*(bash|sh|zsh)/i,                 // Wget pipe to shell
+    /shutdown|reboot|halt|poweroff/i,                // System control
+    /format\s+[a-zA-Z]:/i,                           // Windows format
+    /:\s*(){\s*:|\|\s*&/i,                           // Fork bomb
+    /chmod\s+[0-7]*777/i,                            // chmod 777
+    />(\/etc\/|\/boot\/|\/usr\/sbin)/i,              // Overwrite system files
+  ]
+  for (const pattern of blockedPatterns) {
+    if (pattern.test(command)) return `Error: Command blocked for security: "${command}". This command pattern is not allowed.`
+  }
+
+  // Allowlist approach: only allow common development commands
+  const allowedPrefixes = [
+    'npm', 'npx', 'node', 'yarn', 'pnpm', 'bun',
+    'git ', 'ls', 'cat ', 'head ', 'tail ', 'wc ',
+    'grep ', 'rg ', 'find ', 'echo ',
+    'tsc', 'eslint', 'prettier',
+    'prisma',
+    'mkdir ', 'cp ', 'mv ', 'touch ',
+    'curl ',  // curl allowed but pipe-to-shell caught above
+    'python3 ', 'python ',
+  ]
+  const firstWord = command.trim().split(/\s+/)[0]
+  const isAllowed = allowedPrefixes.some(prefix => firstWord === prefix.trim() || command.trim().startsWith(prefix))
+  if (!isAllowed) {
+    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, cat, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch, curl, python3.`
   }
 
   try {
@@ -1295,8 +1393,8 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
 }
 
 async function executeAnalyzeCode(filePath: string, focus: string): Promise<string> {
-  const fullPath = path.join(PROJECT_ROOT, filePath)
-  if (!fullPath.startsWith(PROJECT_ROOT)) return `Error: Cannot analyze files outside project directory.`
+  const fullPath = path.resolve(PROJECT_ROOT, filePath)
+  if (!fullPath.startsWith(PROJECT_ROOT + path.sep) && fullPath !== PROJECT_ROOT) return `Error: Cannot analyze files outside project directory.`
   if (!fs.existsSync(fullPath)) return `Error: File not found: ${filePath}`
 
   try {
@@ -1313,7 +1411,7 @@ async function executeAnalyzeCode(filePath: string, focus: string): Promise<stri
       if ((focus === "security" || focus === "all") && trimmed.includes("eval(")) issues.push(`Line ${lineNum}: eval() usage - potential code injection risk`)
       if ((focus === "security" || focus === "all") && trimmed.includes("innerHTML") && !trimmed.includes("sanitize")) warnings.push(`Line ${lineNum}: innerHTML without sanitization`)
       if ((focus === "bugs" || focus === "all") && trimmed.includes("console.log")) info.push(`Line ${lineNum}: console.log found`)
-      if ((focus === "best-practices" || focus === "all") && trimmed.includes("any") && ext === ".ts") info.push(`Line ${lineNum}: 'any' type in TypeScript`)
+      if ((focus === "best-practices" || focus === "all") && ext === ".ts" && /: any\b|<any>|as any\b/.test(trimmed)) info.push(`Line ${lineNum}: 'any' type usage in TypeScript - consider using a specific type`)
     })
 
     return [
@@ -1357,8 +1455,10 @@ async function executeGitCreateBranch(name: string, purpose?: string): Promise<s
 
 async function executeGitDiff(filePath?: string, purpose?: string): Promise<string> {
   try {
-    const cmd = filePath
-      ? `git diff -- ${filePath}`
+    // Sanitize filePath to prevent command injection
+    const safeFilePath = (filePath || '').replace(/[^a-zA-Z0-9._\-\/]/g, '')
+    const cmd = safeFilePath
+      ? `git diff -- ${safeFilePath}`
       : "git diff --stat && echo '---DETAILED---' && git diff"
     const { stdout } = await execAsync(cmd, { cwd: PROJECT_ROOT, timeout: 15000, maxBuffer: 2 * 1024 * 1024 })
     if (!stdout.trim()) {
@@ -1380,7 +1480,13 @@ async function executeGitCommitPush(
 ): Promise<string> {
   try {
     // 1. Stage files
-    const filesArg = files.length === 1 && files[0] === "." ? "." : files.map(f => `"${f}"`).join(" ")
+    // Sanitize file paths - only allow relative paths without special chars
+    const safeFiles = files.map(f => {
+      const clean = f.replace(/[^a-zA-Z0-9._\-\/]/g, '')
+      return clean
+    }).filter(f => f.length > 0 && !f.startsWith('/') && !f.includes('..'))
+    if (safeFiles.length === 0) return "Error: No valid file paths provided."
+    const filesArg = safeFiles.length === 1 && safeFiles[0] === "." ? "." : safeFiles.map(f => `"${f}"`).join(" ")
     await execAsync(`git add ${filesArg}`, { cwd: PROJECT_ROOT, timeout: 15000 })
 
     // 2. Check what's staged
@@ -1390,15 +1496,17 @@ async function executeGitCommitPush(
     }
 
     // 3. Commit
-    const safeMessage = message.replace(/"/g, '\\"')
+    // Sanitize commit message - remove shell metacharacters
+    const safeMessage = message.replace(/["`$\\]/g, '').replace(/\n/g, ' ').substring(0, 200)
     const { stdout: commitOut } = await execAsync(`git commit -m "${safeMessage}"`, {
       cwd: PROJECT_ROOT,
       timeout: 30000,
     })
 
     // 4. Push
-    const branchArg = branch || ""
-    const pushCmd = branchArg ? `git push origin ${branchArg}` : "git push"
+    // Sanitize branch name for push
+    const safeBranch = (branch || '').replace(/[^a-zA-Z0-9\/_\-]/g, '')
+    const pushCmd = safeBranch ? `git push origin ${safeBranch}` : "git push"
     const { stdout: pushOut } = await execAsync(pushCmd, { cwd: PROJECT_ROOT, timeout: 60000 })
 
     return [

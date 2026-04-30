@@ -52,7 +52,7 @@ export default function FinancePage() {
     monthlyBudget: number;
   };
 
-  const invoices = (data.invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }[]) || [];
+  const invoices = (data.invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string; paidAt?: string; createdAt?: string }[]) || [];
   const recentInvoices = invoices.slice(0, 5);
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -71,14 +71,59 @@ export default function FinancePage() {
     { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
   ];
 
-  // Monthly revenue data for chart
-  const expenses = (data.expenses as { category: string; amount: number; date: string }[]) || [];
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-  const revenueData = months.map((month, i) => ({
-    month,
-    revenue: i === new Date().getMonth() ? stats.totalRevenue : Math.floor(stats.totalRevenue * (0.3 + Math.random() * 0.7)),
-    expenses: i === new Date().getMonth() ? stats.totalExpenses : Math.floor(stats.totalExpenses * (0.3 + Math.random() * 0.7)),
-  }));
+  // Monthly revenue data for chart - use actual data, no random values
+  const expenseItems = (data.expenses as { category: string; amount: number; date: string }[]) || [];
+  const now = new Date();
+  const months: string[] = [];
+  const revenueByMonth: Record<string, number> = {};
+  const expenseByMonth: Record<string, number> = {};
+
+  // Build last 6 months dynamically based on current date
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleString("default", { month: "short" });
+    months.push(label);
+    revenueByMonth[key] = 0;
+    expenseByMonth[key] = 0;
+  }
+
+  // Aggregate invoice revenue by month
+  for (const inv of invoices) {
+    const invDate = new Date(inv.paidAt || inv.createdAt || inv.dueDate);
+    const key = `${invDate.getFullYear()}-${String(invDate.getMonth() + 1).padStart(2, "0")}`;
+    if (key in revenueByMonth && inv.status === "PAID") {
+      revenueByMonth[key] += inv.total;
+    }
+  }
+
+  // Aggregate expenses by month
+  for (const exp of expenseItems) {
+    const expDate = new Date(exp.date);
+    const key = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, "0")}`;
+    if (key in expenseByMonth) {
+      expenseByMonth[key] += exp.amount;
+    }
+  }
+
+  // Current month gets the live totals if no paid invoices this month yet
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (revenueByMonth[currentKey] === 0 && stats.totalRevenue > 0) {
+    revenueByMonth[currentKey] = stats.totalRevenue;
+  }
+  if (expenseByMonth[currentKey] === 0 && stats.totalExpenses > 0) {
+    expenseByMonth[currentKey] = stats.totalExpenses;
+  }
+
+  const revenueData = months.map((month, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return {
+      month,
+      revenue: revenueByMonth[key] || 0,
+      expenses: expenseByMonth[key] || 0,
+    };
+  });
 
   return (
     <div className="space-y-6">
