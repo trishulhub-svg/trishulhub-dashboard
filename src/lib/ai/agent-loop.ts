@@ -33,16 +33,9 @@ export interface AgentLoopResult {
   thinkingContent?: string
 }
 
-interface ZaiContentPart {
-  type: "text" | "image_url" | "file_url"
-  text?: string
-  image_url?: { url: string }
-  file_url?: { url: string }
-}
-
 interface ZaiMessage {
   role: "system" | "user" | "assistant" | "tool"
-  content?: string | ZaiContentPart[] | null
+  content?: string | null
   tool_calls?: ZaiToolCall[]
   tool_call_id?: string
 }
@@ -432,7 +425,6 @@ export async function runAgentLoop(
     agentType?: string
     systemPrompt?: string
     tools?: AgentTool[]
-    fileUrls?: string[]
   }
 ): Promise<AgentLoopResult> {
   const maxSteps = options?.maxSteps || 30
@@ -459,25 +451,10 @@ export async function runAgentLoop(
     messages.push({ role: msg.role, content: msg.content })
   }
 
-  // Add current user message (with file attachments if any)
-  const fileUrls = options?.fileUrls || []
-  if (fileUrls.length > 0) {
-    // Build multimodal content for the user message (Z.ai supports OpenAI-compatible format)
-    const contentParts: ZaiContentPart[] = [
-      { type: "text", text: userMessage }
-    ]
-    for (const url of fileUrls) {
-      if (url.startsWith("data:image/")) {
-        contentParts.push({ type: "image_url", image_url: { url } })
-      } else {
-        // For non-image files (PDF, docs, etc.), use file_url type
-        contentParts.push({ type: "file_url", file_url: { url } })
-      }
-    }
-    messages.push({ role: "user", content: contentParts })
-  } else {
-    messages.push({ role: "user", content: userMessage })
-  }
+  // Add current user message
+  // Note: File attachments are pre-processed by the API route using Z.ai Vision
+  // and injected as text descriptions into the userMessage before reaching here
+  messages.push({ role: "user", content: userMessage })
 
   // Agent loop: keep going until model gives a final response (no tool calls)
   // or we hit the max step limit

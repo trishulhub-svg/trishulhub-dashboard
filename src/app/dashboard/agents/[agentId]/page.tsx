@@ -1611,9 +1611,9 @@ export default function AgentChatPage() {
       </div>
 
       {/* Center: Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Chat Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-card">
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-card shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
               <Icon className={`h-5 w-5 ${agentConfig?.color || "text-muted-foreground"}`} />
@@ -2098,7 +2098,7 @@ function ChatArea({
   };
 
   return (
-    <>
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
       {/* Feature 4: Chat Locked Overlay */}
       {isChatLockedByOther && (
         <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
@@ -2118,11 +2118,11 @@ function ChatArea({
       )}
       {/* Agent is thinking indicator - subtle gradient line */}
       {sending && (
-        <div className="h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-pulse" />
+        <div className="h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-pulse shrink-0" />
       )}
       {/* Feature 4: End Chat button in header when active */}
       {activeChat && !isChatLockedByOther && (
-        <div className="px-4 py-1.5 border-b bg-card flex items-center justify-between">
+        <div className="px-4 py-1.5 border-b bg-card flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[9px] h-4">
               {activeChat.status}
@@ -2144,7 +2144,7 @@ function ChatArea({
         </div>
       )}
       {/* Messages */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         {messagesLoading ? (
           <div className="p-6 space-y-4 max-w-3xl mx-auto">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -2677,7 +2677,7 @@ function ChatArea({
       </ScrollArea>
 
       {/* Input Area */}
-      <div className="p-3 border-t bg-card">
+      <div className="p-3 border-t bg-card shrink-0">
         {/* Suggested prompts for empty chats */}
         {messages.length === 0 && suggestedPrompts.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -2774,7 +2774,7 @@ function ChatArea({
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

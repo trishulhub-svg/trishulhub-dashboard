@@ -10,6 +10,85 @@ import { db } from "@/lib/db"
 import { runAgentLoop, AgentStep, AgentLoopResult } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 import { callAIWithFailover, AllKeysExhaustedError, getVisionModel } from "@/lib/ai/openrouter"
+import { SignJWT } from "jose"
+
+// ── Analyze file attachments with Z.ai Vision API ──
+// The agentic model (glm-4.5-flash) is text-only and doesn't support image_url.
+// So we first analyze images/files with the vision model, then pass the description as text.
+async function analyzeFileAttachments(
+  fileUrls: string[],
+  apiKey: string
+): Promise<string> {
+  const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+
+  // Generate JWT token for Z.ai
+  let token = apiKey
+  if (!apiKey.startsWith("eyJ")) {
+    const parts = apiKey.split(".")
+    if (parts.length === 2) {
+      const [id, secret] = parts
+      const secretBytes = new TextEncoder().encode(secret)
+      const nowSec = Math.floor(Date.now() / 1000)
+      token = await new SignJWT({ api_key: id, timestamp: Date.now(), exp: nowSec + 3600 })
+        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
+        .sign(secretBytes)
+    }
+  }
+
+  const descriptions: string[] = []
+
+  for (let i = 0; i < fileUrls.length; i++) {
+    const url = fileUrls[i]
+    const isImage = url.startsWith("data:image/")
+
+    try {
+      if (isImage) {
+        // Use Z.ai Vision model to analyze the image
+        const body = {
+          model: "glm-4v-flash", // Free vision model
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this image in detail. If it's a screenshot of a form, UI, or design, describe every visible element, field, layout, text, and button. Be thorough and specific - this description will be used by an AI agent to implement or work with what's shown." },
+              { type: "image_url", image_url: { url } }
+            ]
+          }],
+          max_tokens: 2048,
+        }
+
+        const response = await fetch(ZAI_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          const desc = data.choices?.[0]?.message?.content || "Image could not be analyzed"
+          descriptions.push(`[Attachment ${i + 1} - Image]: ${desc}`)
+        } else {
+          const errorText = await response.text()
+          console.error("[agent-chat] Vision API error:", response.status, errorText.substring(0, 200))
+          descriptions.push(`[Attachment ${i + 1} - Image]: (Image was attached but vision analysis failed. The user should describe what's in the image.)`)
+        }
+      } else {
+        // For non-image files (PDF, docs, etc.) - note the attachment
+        // Z.ai file_url support is limited, so we note the file type
+        const mimeMatch = url.match(/^data:([^;]+);/)
+        const mimeType = mimeMatch ? mimeMatch[1] : "unknown"
+        descriptions.push(`[Attachment ${i + 1} - File (${mimeType})]: A file of type ${mimeType} was attached. The user expects you to work with this file. Ask the user to describe the file contents if needed.`)
+      }
+    } catch (err: any) {
+      console.error("[agent-chat] File analysis error:", err.message)
+      descriptions.push(`[Attachment ${i + 1}]: File was attached but analysis failed: ${err.message}`)
+    }
+  }
+
+  return descriptions.join("\n\n")
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -159,6 +238,22 @@ export async function POST(req: NextRequest) {
     // Get agent-specific tools
     const tools = getToolsForAgentType(agent.type)
 
+    // ── Pre-process file attachments ──
+    // The agentic model (glm-4.5-flash) is text-only, so we analyze images with
+    // the Z.ai Vision model first, then inject the description as text context.
+    let enrichedMessage = message
+    if (fileUrls && fileUrls.length > 0 && eligibleKeys.length > 0) {
+      try {
+        const fileDescriptions = await analyzeFileAttachments(fileUrls, eligibleKeys[0].keyValue)
+        if (fileDescriptions) {
+          enrichedMessage = `${message}\n\n--- User's File Attachments (analyzed via vision) ---\n${fileDescriptions}\n--- End of attachments ---`
+        }
+      } catch (err: any) {
+        console.error("[agent-chat] File pre-processing failed:", err.message)
+        // Continue without file descriptions
+      }
+    }
+
     // ── STREAMING MODE ──
     if (stream) {
       const encoder = new TextEncoder()
@@ -167,15 +262,29 @@ export async function POST(req: NextRequest) {
           let lastError: Error | null = null
           let success = false
 
+          // Send "analyzing files" step if attachments are present
+          if (fileUrls && fileUrls.length > 0) {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "step",
+                step: {
+                  type: "tool_call",
+                  content: "Analyzing file attachments...",
+                  toolName: "vision_analysis",
+                  stepNumber: 0,
+                }
+              })}\n\n`))
+            } catch {}
+          }
+
           for (const key of eligibleKeys) {
             try {
-              const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
+              const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
                 maxSteps: 30,
                 maxTokens: 8192,
                 agentType: agent.type,
                 systemPrompt,
                 tools,
-                fileUrls: fileUrls && fileUrls.length > 0 ? fileUrls : undefined,
                 onStep: (step: AgentStep) => {
                   // Send each step as SSE event
                   try {
@@ -356,13 +465,12 @@ export async function POST(req: NextRequest) {
 
     for (const key of eligibleKeys) {
       try {
-        const result = await runAgentLoop(message, history, key.keyValue, agent.model, {
+        const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
           maxSteps: 30,
           maxTokens: 8192,
           agentType: agent.type,
           systemPrompt,
           tools,
-          fileUrls: fileUrls && fileUrls.length > 0 ? fileUrls : undefined,
           onStep: (step) => {
             allSteps.push(step)
           },
