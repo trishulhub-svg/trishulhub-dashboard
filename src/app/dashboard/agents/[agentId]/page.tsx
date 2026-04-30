@@ -1850,6 +1850,17 @@ function ChatArea({
   onEndChat: () => void;
   onReleaseLock: () => void;
 }) {
+  const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
+
+  const toggleMsgSteps = (msgId: string) => {
+    setExpandedMsgSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+
   return (
     <>
       {/* Feature 4: Chat Locked Overlay */}
@@ -1869,23 +1880,9 @@ function ChatArea({
           </div>
         </div>
       )}
-      {/* Feature 1: Agent is thinking indicator */}
+      {/* Agent is thinking indicator - subtle gradient line */}
       {sending && (
-        <div className="px-4 py-2 border-b bg-purple-50 dark:bg-purple-900/20 flex items-center gap-2">
-          <div className="relative">
-            <Brain className="h-4 w-4 text-purple-500" />
-            <div className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-purple-400 animate-ping" />
-          </div>
-          <span className="text-xs font-medium text-purple-700 dark:text-purple-300 animate-pulse">Agent is thinking...</span>
-          <div className="flex gap-0.5 ml-1">
-            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
-            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
-            <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
-          </div>
-          <Badge variant="secondary" className="text-[8px] h-4 ml-auto bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-            <Clock className="h-2.5 w-2.5 mr-0.5" /> {liveSteps.length > 0 ? `Step ${liveSteps.length}` : 'Starting...'}
-          </Badge>
-        </div>
+        <div className="h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-pulse" />
       )}
       {/* Feature 4: End Chat button in header when active */}
       {activeChat && !isChatLockedByOther && (
@@ -1948,19 +1945,19 @@ function ChatArea({
             )}
           </div>
         ) : (
-          <div className="space-y-4 p-4 max-w-3xl mx-auto">
+          <div className="space-y-6 p-4 max-w-3xl mx-auto">
             {messages.map((msg) => (
               <div
                 key={msg.id}
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-xl p-3 ${
+                  className={`max-w-[85%] p-3.5 ${
                     msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md"
                       : msg.role === "system"
-                      ? "bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"
-                      : "bg-muted"
+                      ? "bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl"
+                      : "bg-card border border-border/50 rounded-2xl rounded-bl-md"
                   }`}
                 >
                   {msg.role === "system" ? (
@@ -1969,16 +1966,19 @@ function ChatArea({
                     </div>
                   ) : (
                     <>
+                      {/* Z.ai-style agent header */}
                       {msg.role === "assistant" && (
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <Icon className={`h-3.5 w-3.5 ${agentConfig?.color}`} />
-                          <span className="text-xs font-medium">{agent.name}</span>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
+                            <Icon className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <span className="text-xs font-semibold text-foreground/80">{agent.name}</span>
                           {(() => {
                             try {
                               const meta = JSON.parse(msg.metadata || "{}");
                               if (meta.agentic) return (
-                                <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                                  <Zap className="h-2.5 w-2.5" /> Autonomous
+                                <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1.5 bg-gradient-to-r from-purple-500/10 to-blue-500/10 text-purple-600 dark:text-purple-400 border border-purple-200/50 dark:border-purple-800/50">
+                                  <Sparkles className="h-2.5 w-2.5" /> Agentic
                                 </Badge>
                               );
                             } catch {}
@@ -1986,81 +1986,81 @@ function ChatArea({
                           })()}
                         </div>
                       )}
-                      {/* Agentic Steps Preview - GLM 5.1 Style */}
+                      {/* Z.ai-style collapsible agentic steps timeline */}
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
                           if (meta.agentic && meta.steps && meta.steps.length > 0) {
+                            const isExpanded = expandedMsgSteps.has(msg.id);
+                            const displaySteps = isExpanded ? meta.steps : meta.steps.slice(0, 3);
                             return (
-                              <div className="mb-2 rounded-lg border border-purple-200 dark:border-purple-800/40 overflow-hidden">
-                                {/* Header */}
-                                <div className="flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/20">
-                                  <div className="flex items-center gap-2">
-                                    <Brain className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                                    <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                                      Agent Execution
+                              <div className="mb-3 rounded-lg border border-border/60 overflow-hidden bg-muted/30 dark:bg-black/20">
+                                {/* Collapsible Header */}
+                                <button 
+                                  onClick={() => toggleMsgSteps(msg.id)}
+                                  className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    {meta.steps.every((s: any) => s.type !== 'error') ? (
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                    ) : (
+                                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                    )}
+                                    <span className="text-[11px] font-medium text-foreground/70">
+                                      {meta.totalSteps || meta.steps.length} steps completed
                                     </span>
-                                    <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                                      {meta.totalSteps || meta.steps.length} steps
-                                    </Badge>
                                   </div>
-                                  <ListChecks className="h-3.5 w-3.5 text-purple-500" />
-                                </div>
-                                
-                                {/* Steps as Todo-like list */}
-                                <div className="px-3 py-2 bg-white dark:bg-card/50 space-y-1.5">
-                                  {meta.steps.slice(0, 6).map((step: any, idx: number) => (
-                                    <div key={idx} className="flex items-start gap-2">
-                                      {step.type === "thinking" ? (
-                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-purple-500 shrink-0" />
-                                      ) : step.type === "tool_call" ? (
-                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
-                                      ) : step.type === "tool_result" ? (
-                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-green-500 shrink-0" />
-                                      ) : step.type === "plan" ? (
-                                        <CircleCheck className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
-                                      ) : step.type === "error" ? (
-                                        <CircleX className="h-3.5 w-3.5 mt-0.5 text-red-500 shrink-0" />
-                                      ) : (
-                                        <Circle className="h-3.5 w-3.5 mt-0.5 text-gray-400 shrink-0" />
-                                      )}
-                                      <div className="flex-1 min-w-0">
-                                        <span className="text-[11px] font-medium text-foreground">
-                                          {step.type === "thinking" ? "Deep Reasoning" :
-                                           step.type === "tool_call" ? `Used ${step.toolName || 'tool'}` :
-                                           step.type === "tool_result" ? `${step.toolName || 'Tool'} result` :
-                                           step.type === "plan" ? "Planned approach" :
-                                           step.type === "response" ? "Final response" :
-                                           step.type === "error" ? "Error" : step.type}
+                                  {meta.usedTools && meta.usedTools.length > 0 && (
+                                    <div className="flex items-center gap-1 ml-2">
+                                      {meta.usedTools.slice(0, 3).map((tool: string) => (
+                                        <span key={tool} className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
+                                          {tool}
                                         </span>
-                                        {step.content && step.type !== "response" && (
-                                          <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">
-                                            {step.type === "tool_call"
-                                              ? step.content?.replace(/.*?\(/, "").replace(/\)$/, "")
-                                              : step.content?.substring(0, 100)}
-                                          </p>
-                                        )}
-                                      </div>
+                                      ))}
+                                      {meta.usedTools.length > 3 && (
+                                        <span className="text-[9px] text-muted-foreground">+{meta.usedTools.length - 3}</span>
+                                      )}
                                     </div>
-                                  ))}
-                                  {meta.steps.length > 6 && (
-                                    <span className="text-[10px] text-muted-foreground ml-5.5">
-                                      +{meta.steps.length - 6} more steps
-                                    </span>
                                   )}
-                                </div>
+                                  <ChevronRight className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                </button>
                                 
-                                {/* Used Tools Footer */}
-                                {meta.usedTools && meta.usedTools.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 px-3 py-1.5 border-t border-purple-100 dark:border-purple-800/30 bg-purple-50/50 dark:bg-purple-900/10">
-                                    {meta.usedTools.map((tool: string) => (
-                                      <Badge key={tool} variant="outline" className="text-[8px] h-3.5 px-1">
-                                        {tool === "web_search" ? <Globe className="h-2 w-2 mr-0.5" /> :
-                                         tool === "read_file" ? <FileCode className="h-2 w-2 mr-0.5" /> :
-                                         tool === "run_command" ? <Terminal className="h-2 w-2 mr-0.5" /> :
-                                         <Wrench className="h-2 w-2 mr-0.5" />}
-                                        {tool}
-                                      </Badge>
+                                {/* Steps Timeline */}
+                                {isExpanded && (
+                                  <div className="px-3 pb-2 space-y-1 border-t border-border/30">
+                                    {meta.steps.map((step: any, idx: number) => (
+                                      <div key={idx} className="flex items-start gap-2 py-1">
+                                        <div className="mt-1 shrink-0">
+                                          {step.type === "thinking" ? (
+                                            <div className="h-2 w-2 rounded-full bg-purple-500" />
+                                          ) : step.type === "tool_call" ? (
+                                            <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                          ) : step.type === "tool_result" ? (
+                                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                          ) : step.type === "plan" ? (
+                                            <div className="h-2 w-2 rounded-full bg-amber-500" />
+                                          ) : step.type === "error" ? (
+                                            <div className="h-2 w-2 rounded-full bg-red-500" />
+                                          ) : (
+                                            <div className="h-2 w-2 rounded-full bg-gray-400" />
+                                          )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <span className="text-[10px] font-medium text-foreground/60">
+                                            {step.type === "thinking" ? "Thinking" :
+                                             step.type === "tool_call" ? step.toolName || "Tool call" :
+                                             step.type === "tool_result" ? `${step.toolName || 'Tool'} result` :
+                                             step.type === "plan" ? "Planning" :
+                                             step.type === "response" ? "Response" :
+                                             step.type === "error" ? "Error" : step.type}
+                                          </span>
+                                          {step.content && step.type !== "response" && (
+                                            <p className="text-[9px] text-muted-foreground/70 mt-0.5 font-mono line-clamp-2">
+                                              {step.content?.substring(0, 150)}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
                                     ))}
                                   </div>
                                 )}
@@ -2105,18 +2105,18 @@ function ChatArea({
                         } catch {}
                         return null;
                       })()}
-                      <div className="text-sm whitespace-pre-wrap break-words">{msg.content}</div>
+                      <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
                     </>
                   )}
                   {msg.role === "assistant" && (
-                    <div className="flex gap-1 mt-2 pt-1.5 border-t border-border/30">
+                    <div className="flex gap-1 mt-2 pt-1.5 border-t border-border/20">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6"
+                              className="h-6 w-6 text-muted-foreground hover:text-foreground"
                               onClick={() => {
                                 navigator.clipboard.writeText(msg.content);
                                 toast.success("Copied!");
@@ -2134,7 +2134,7 @@ function ChatArea({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 text-green-600 hover:text-green-700"
+                              className="h-6 w-6 text-muted-foreground hover:text-emerald-600"
                               onClick={() => toast.success("Approved!")}
                             >
                               <CheckCircle2 className="h-3 w-3" />
@@ -2149,7 +2149,7 @@ function ChatArea({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 text-red-500 hover:text-red-600"
+                              className="h-6 w-6 text-muted-foreground hover:text-red-500"
                               onClick={() => toast.error("Rejected")}
                             >
                               <XCircle className="h-3 w-3" />
@@ -2165,120 +2165,92 @@ function ChatArea({
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="bg-muted rounded-xl p-4 max-w-[85%] w-full">
-                  {features?.agentic !== false ? (
-                    <div className="space-y-3">
-                      {/* Agentic Header */}
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <Brain className="h-5 w-5 text-purple-500" />
-                          <Sparkles className="h-3 w-3 text-purple-400 absolute -top-1 -right-1 animate-ping" />
-                        </div>
-                        <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">{agent.name} is working</span>
-                        <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 animate-pulse">
-                          <Zap className="h-2.5 w-2.5" /> Autonomous
-                        </Badge>
+                <div className="max-w-[85%] w-full rounded-xl overflow-hidden border border-border/50 bg-card">
+                  {/* Agent header */}
+                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/30">
+                    <div className="relative">
+                      <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                        <Icon className="h-3.5 w-3.5 text-white" />
                       </div>
-
-                      {/* Live Steps Progress - GLM 5.1 style */}
-                      {liveSteps.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {liveSteps.map((step, idx) => (
-                            <div key={idx} className="flex items-center gap-2.5">
-                              {/* Status Icon */}
-                              {step.status === 'running' ? (
-                                <div className="relative shrink-0">
-                                  {step.type === 'thinking' ? (
-                                    <Brain className="h-4 w-4 text-purple-500 animate-pulse" />
-                                  ) : step.type === 'tool_call' ? (
-                                    <Wrench className="h-4 w-4 text-blue-500 animate-bounce" />
-                                  ) : step.type === 'tool_result' ? (
-                                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                  ) : step.type === 'plan' ? (
-                                    <Lightbulb className="h-4 w-4 text-amber-500 animate-pulse" />
-                                  ) : (
-                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                                  )}
-                                </div>
-                              ) : step.status === 'done' ? (
-                                <CircleCheck className="h-4 w-4 text-green-500 shrink-0" />
-                              ) : (
-                                <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-                              )}
-                              
-                              {/* Step Content */}
-                              <span className={`text-xs ${step.status === 'running' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
-                                {step.content}
-                              </span>
-                              
-                              {/* Running indicator */}
-                              {step.status === 'running' && (
-                                <div className="flex gap-0.5 ml-auto shrink-0">
-                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
-                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
-                                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : agentSteps.length > 0 ? (
-                        /* Fallback to agentSteps if liveSteps not available */
-                        <div className="space-y-1.5">
-                          {agentSteps.slice(-5).map((step, idx) => (
-                            <div key={idx} className="flex items-center gap-2.5">
-                              {step.type === "thinking" ? (
-                                <Brain className="h-3.5 w-3.5 text-purple-500 shrink-0 animate-pulse" />
-                              ) : step.type === "tool_call" ? (
-                                <Wrench className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                              ) : step.type === "tool_result" ? (
-                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                              ) : step.type === "plan" ? (
-                                <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                              ) : step.type === "error" ? (
-                                <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                              ) : (
-                                <CircleDot className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                              )}
-                              <span className="text-xs text-muted-foreground">
-                                {step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
-                                 step.type === "thinking" ? "Thinking..." :
-                                 step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
-                                 step.content?.substring(0, 80)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        /* Initial state - no steps yet */
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin text-purple-500" />
-                          <span className="text-xs text-muted-foreground">Starting agent execution...</span>
-                        </div>
-                      )}
-
-                      {/* Progress bar */}
-                      {liveSteps.length > 0 && (
-                        <div className="mt-2">
-                          <div className="h-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min((liveSteps.filter(s => s.status === 'done').length / Math.max(liveSteps.length, 1)) * 100, 95)}%` }}
-                            />
-                          </div>
-                          <div className="flex justify-between mt-1">
-                            <span className="text-[9px] text-muted-foreground">{liveSteps.filter(s => s.status === 'done').length}/{liveSteps.length} steps done</span>
-                            <span className="text-[9px] text-muted-foreground">
-                              {liveSteps.some(s => s.status === 'running') ? 'In progress...' : 'Almost done...'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
+                      <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Loader2Icon className="h-4 w-4 animate-spin" />
-                      <span className="text-sm text-muted-foreground">{agent.name} is thinking...</span>
+                    <span className="text-sm font-semibold">{agent.name}</span>
+                    <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 animate-pulse">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Working
+                    </Badge>
+                    {liveSteps.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground ml-auto font-mono">
+                        {liveSteps.filter(s => s.status === 'done').length}/{liveSteps.length}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Steps - Terminal style */}
+                  <div className="px-4 py-3 space-y-2 bg-[#0d1117] dark:bg-[#0d1117]">
+                    {liveSteps.length > 0 ? (
+                      <>
+                        {liveSteps.map((step, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">{idx + 1}</span>
+                            {step.status === 'running' ? (
+                              <div className="flex items-center gap-1.5">
+                                {step.type === 'thinking' ? (
+                                  <span className="text-purple-400 animate-pulse">◈</span>
+                                ) : step.type === 'tool_call' ? (
+                                  <span className="text-blue-400 animate-pulse">▸</span>
+                                ) : (
+                                  <span className="text-yellow-400 animate-pulse">◉</span>
+                                )}
+                                <span className="text-[11px] text-slate-300 font-mono">{step.content}</span>
+                                <span className="text-[9px] text-slate-600 animate-pulse">...</span>
+                              </div>
+                            ) : step.status === 'done' ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-emerald-500">✓</span>
+                                <span className="text-[11px] text-slate-500 font-mono">{step.content}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-red-500">✗</span>
+                                <span className="text-[11px] text-red-400 font-mono">{step.content}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {/* Blinking cursor */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">_</span>
+                          <span className="text-emerald-400 animate-pulse font-mono">▋</span>
+                        </div>
+                      </>
+                    ) : agentSteps.length > 0 ? (
+                      agentSteps.slice(-5).map((step, idx) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <span className="text-[10px] text-slate-500 font-mono shrink-0 w-4 text-right">{idx + 1}</span>
+                          <span className="text-slate-500 font-mono">✓</span>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                             step.type === "thinking" ? "Thinking..." :
+                             step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                             step.content?.substring(0, 60)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 animate-pulse font-mono">▋</span>
+                        <span className="text-[11px] text-slate-500 font-mono">Initializing agent...</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Progress bar */}
+                  {liveSteps.length > 1 && (
+                    <div className="h-0.5 bg-slate-800">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 via-blue-500 to-emerald-500 transition-all duration-500"
+                        style={{ width: `${Math.min((liveSteps.filter(s => s.status === 'done').length / Math.max(liveSteps.length, 1)) * 100, 95)}%` }}
+                      />
                     </div>
                   )}
                 </div>
@@ -2545,116 +2517,139 @@ function LiveTab({
   const totalSteps = allSteps.length;
   const progressPct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
-  const getStepIcon = (type: string, status: string) => {
-    if (status === 'running') {
-      switch (type) {
-        case 'thinking': return <Brain className="h-3.5 w-3.5 text-purple-500 animate-pulse" />;
-        case 'tool_call': return <Wrench className="h-3.5 w-3.5 text-blue-500 animate-bounce" />;
-        case 'tool_result': return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
-        case 'plan': return <Lightbulb className="h-3.5 w-3.5 text-amber-500 animate-pulse" />;
-        case 'error': return <CircleX className="h-3.5 w-3.5 text-red-500" />;
-        default: return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />;
-      }
-    }
-    switch (type) {
-      case 'thinking': return <Brain className="h-3.5 w-3.5 text-purple-500" />;
-      case 'tool_call': return <Wrench className="h-3.5 w-3.5 text-blue-500" />;
-      case 'tool_result': return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
-      case 'plan': return <Lightbulb className="h-3.5 w-3.5 text-amber-500" />;
-      case 'error': return <CircleX className="h-3.5 w-3.5 text-red-500" />;
-      default: return <CircleCheck className="h-3.5 w-3.5 text-muted-foreground" />;
-    }
-  };
-
-  const getStepBadge = (type: string) => {
-    switch (type) {
-      case 'thinking': return <Badge className="text-[8px] h-4 px-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">🧠 Thinking</Badge>;
-      case 'tool_call': return <Badge className="text-[8px] h-4 px-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">🔧 Tool Call</Badge>;
-      case 'tool_result': return <Badge className="text-[8px] h-4 px-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">✅ Result</Badge>;
-      case 'plan': return <Badge className="text-[8px] h-4 px-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">📋 Planning</Badge>;
-      case 'error': return <Badge className="text-[8px] h-4 px-1 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">❌ Error</Badge>;
-      default: return <Badge className="text-[8px] h-4 px-1 bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300">📝 Response</Badge>;
-    }
-  };
-
   return (
-    <div className="flex flex-col h-full">
-      {/* Terminal Header */}
-      <div className="p-3 border-b bg-slate-50 dark:bg-slate-900/50">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${agentConfig?.color || "text-muted-foreground"}`} />
-            <span className="text-xs font-semibold">Agent Execution</span>
-            {sending && (
-              <Badge variant="secondary" className="text-[8px] h-4 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 animate-pulse">
-                ● LIVE
-              </Badge>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground font-mono">
-            {completedSteps}/{totalSteps} steps
-          </span>
+    <div className="flex flex-col h-full bg-[#0d1117]">
+      {/* Terminal Title Bar */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-[#30363d]">
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-3 rounded-full bg-[#f85149] opacity-80" />
+          <div className="h-3 w-3 rounded-full bg-[#d29922] opacity-80" />
+          <div className="h-3 w-3 rounded-full bg-[#3fb950] opacity-80" />
         </div>
-        {/* Progress bar */}
-        <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
+        <span className="text-[10px] text-[#8b949e] font-mono ml-1">agent — bash</span>
+        {sending && (
+          <Badge className="text-[8px] h-3.5 px-1.5 bg-[#3fb950]/20 text-[#3fb950] border border-[#3fb950]/30 animate-pulse font-mono">
+            ● LIVE
+          </Badge>
+        )}
+        <span className="text-[9px] text-[#484f58] font-mono ml-auto">
+          {completedSteps}/{totalSteps}
+        </span>
+      </div>
+      
+      {/* Progress bar */}
+      {(totalSteps > 0) && (
+        <div className="h-0.5 bg-[#21262d]">
+          <div 
+            className="h-full bg-gradient-to-r from-[#8957e5] via-[#58a6ff] to-[#3fb950] transition-all duration-500"
             style={{ width: `${sending ? Math.min(progressPct, 95) : progressPct}%` }}
           />
         </div>
-      </div>
-
+      )}
+      
       {/* Terminal Content */}
-      <div ref={liveRef} className="flex-1 overflow-y-auto p-3 font-mono text-[11px] space-y-2 bg-white dark:bg-black/20 max-h-96" style={{ scrollbarWidth: 'thin' }}>
+      <div ref={liveRef} className="flex-1 overflow-y-auto p-3 font-mono text-[11px] space-y-1 max-h-96" style={{ scrollbarWidth: 'thin', scrollbarColor: '#30363d #0d1117' }}>
         {!sending && allSteps.length === 0 && (
           <div className="text-center py-8">
-            <Terminal className="h-8 w-8 mx-auto text-muted-foreground opacity-30 mb-2" />
-            <p className="text-xs text-muted-foreground">No agent activity yet</p>
-            <p className="text-[10px] text-muted-foreground mt-1">Steps will appear here when the agent is working</p>
+            <Terminal className="h-8 w-8 mx-auto text-[#30363d] mb-2" />
+            <p className="text-[11px] text-[#484f58] font-mono">$ agent --status</p>
+            <p className="text-[10px] text-[#484f58] mt-1">No activity yet. Send a message to start.</p>
           </div>
         )}
         {allSteps.map((step, idx) => (
-          <div key={idx} className="rounded-md border border-border/50 overflow-hidden">
-            {/* Step header */}
-            <div
-              className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => {
-                const next = new Set(expandedSteps);
-                if (next.has(idx)) next.delete(idx);
-                else next.add(idx);
-                setExpandedSteps(next);
-              }}
-            >
-              {getStepIcon(step.type, step.status)}
-              {getStepBadge(step.type)}
-              {step.toolName && (
-                <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">{step.toolName}</span>
-              )}
-              {step.status === 'running' && (
-                <div className="flex gap-0.5 ml-auto">
-                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.3s]" />
-                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]" />
-                  <div className="h-1 w-1 rounded-full bg-purple-500 animate-bounce" />
+          <div key={idx} className="group">
+            {step.status === 'running' ? (
+              <div className="flex items-start gap-2 py-0.5">
+                <span className="text-[#484f58] shrink-0 w-4 text-right select-none">{idx + 1}</span>
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  {step.type === 'thinking' ? (
+                    <span className="text-[#d2a8ff] animate-pulse shrink-0">◈</span>
+                  ) : step.type === 'tool_call' ? (
+                    <span className="text-[#79c0ff] animate-pulse shrink-0">▸</span>
+                  ) : step.type === 'tool_result' ? (
+                    <span className="text-[#7ee787] shrink-0">✓</span>
+                  ) : step.type === 'plan' ? (
+                    <span className="text-[#ffa657] animate-pulse shrink-0">◆</span>
+                  ) : step.type === 'error' ? (
+                    <span className="text-[#f85149] shrink-0">✗</span>
+                  ) : (
+                    <span className="text-[#8b949e] animate-pulse shrink-0">○</span>
+                  )}
+                  <span className="text-[#c9d1d9] truncate">
+                    {step.type === 'thinking' ? 'Thinking...' :
+                     step.type === 'tool_call' ? `Calling ${step.toolName || 'tool'}()` :
+                     step.type === 'tool_result' ? `${step.toolName || 'Tool'} → done` :
+                     step.type === 'plan' ? 'Planning...' :
+                     step.type === 'error' ? 'Error occurred' :
+                     step.content?.substring(0, 60)}
+                  </span>
+                  <span className="text-[#484f58] text-[9px] animate-pulse shrink-0">running</span>
                 </div>
-              )}
-              {step.status === 'done' && (
-                <ChevronRight className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${expandedSteps.has(idx) ? 'rotate-90' : ''}`} />
-              )}
-            </div>
-            {/* Step content (collapsible) */}
-            {(step.status === 'running' || expandedSteps.has(idx)) && step.content && (
-              <div className="px-3 py-1.5 border-t border-border/30 bg-slate-50/50 dark:bg-slate-900/30">
-                <p className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words line-clamp-6">
-                  {step.content.substring(0, 500)}
-                </p>
+              </div>
+            ) : step.status === 'done' ? (
+              <div>
+                <div 
+                  className="flex items-start gap-2 py-0.5 cursor-pointer hover:bg-[#161b22] -mx-1 px-1 rounded"
+                  onClick={() => {
+                    const next = new Set(expandedSteps);
+                    if (next.has(idx)) next.delete(idx);
+                    else next.add(idx);
+                    setExpandedSteps(next);
+                  }}
+                >
+                  <span className="text-[#484f58] shrink-0 w-4 text-right select-none">{idx + 1}</span>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    {step.type === 'thinking' ? (
+                      <span className="text-[#d2a8ff] shrink-0">◈</span>
+                    ) : step.type === 'tool_call' ? (
+                      <span className="text-[#79c0ff] shrink-0">▸</span>
+                    ) : step.type === 'tool_result' ? (
+                      <span className="text-[#7ee787] shrink-0">✓</span>
+                    ) : step.type === 'plan' ? (
+                      <span className="text-[#ffa657] shrink-0">◆</span>
+                    ) : step.type === 'error' ? (
+                      <span className="text-[#f85149] shrink-0">✗</span>
+                    ) : (
+                      <span className="text-[#8b949e] shrink-0">○</span>
+                    )}
+                    <span className="text-[#8b949e] truncate">
+                      {step.type === 'thinking' ? 'Thinking' :
+                       step.type === 'tool_call' ? `${step.toolName || 'tool'}()` :
+                       step.type === 'tool_result' ? `${step.toolName || 'Tool'} result` :
+                       step.type === 'plan' ? 'Planning' :
+                       step.type === 'error' ? 'Error' :
+                       step.content?.substring(0, 60)}
+                    </span>
+                    <ChevronRight className={`h-3 w-3 text-[#484f58] shrink-0 transition-transform ${expandedSteps.has(idx) ? 'rotate-90' : ''}`} />
+                  </div>
+                </div>
+                {expandedSteps.has(idx) && step.content && (
+                  <div className="ml-6 mb-1 p-2 rounded bg-[#161b22] border border-[#30363d]">
+                    <pre className="text-[10px] text-[#8b949e] whitespace-pre-wrap break-words font-mono line-clamp-8">
+                      {step.content.substring(0, 800)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 py-0.5">
+                <span className="text-[#484f58] shrink-0 w-4 text-right select-none">{idx + 1}</span>
+                <span className="text-[#f85149] shrink-0">✗</span>
+                <span className="text-[#f85149]">{step.content?.substring(0, 60)}</span>
               </div>
             )}
           </div>
         ))}
         {sending && allSteps.length === 0 && (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span>Waiting for agent to start...</span>
+          <div className="flex items-center gap-2 text-[#8b949e]">
+            <span className="text-[#3fb950] animate-pulse">▋</span>
+            <span className="font-mono">Initializing agent...</span>
+          </div>
+        )}
+        {sending && allSteps.length > 0 && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[#484f58] shrink-0 w-4 text-right select-none font-mono">_</span>
+            <span className="text-[#3fb950] animate-pulse font-mono">▋</span>
           </div>
         )}
       </div>
