@@ -284,6 +284,7 @@ export default function AgentChatPage() {
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
@@ -344,19 +345,22 @@ export default function AgentChatPage() {
   }, [agentId]);
 
   // ── Fetch Messages ──
-  const fetchMessages = useCallback(async (chatId: string) => {
+  const fetchMessages = useCallback(async (chatId: string): Promise<ChatMessage[]> => {
     setMessagesLoading(true);
     try {
       const res = await fetch(`/api/chats/messages?chatId=${chatId}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setMessages((data.messages || data) as ChatMessage[]);
+        const msgs = (data.messages || data) as ChatMessage[];
+        setMessages(msgs);
+        return msgs;
       }
     } catch (err) {
       console.error("Failed to fetch messages:", err);
     } finally {
       setMessagesLoading(false);
     }
+    return [];
   }, []);
 
   // ── Fetch Scheduled Tasks ──
@@ -397,6 +401,96 @@ export default function AgentChatPage() {
     }
   }, [agentId]);
 
+  // ── SessionStorage helpers for persisting agent processing state ──
+  const getProcessingKey = useCallback((cId: string) => `agentProcessing_${agentId}_${cId}`, [agentId]);
+
+  const markProcessingStart = useCallback((cId: string, msgCount: number) => {
+    try {
+      sessionStorage.setItem(getProcessingKey(cId), JSON.stringify({
+        chatId: cId,
+        agentId,
+        startedAt: Date.now(),
+        lastMessageCount: msgCount,
+      }));
+    } catch {}
+  }, [getProcessingKey, agentId]);
+
+  const markProcessingEnd = useCallback((cId: string) => {
+    try {
+      sessionStorage.removeItem(getProcessingKey(cId));
+    } catch {}
+  }, [getProcessingKey]);
+
+  const getProcessingInfo = useCallback((cId: string): { chatId: string; agentId: string; startedAt: number; lastMessageCount: number } | null => {
+    try {
+      const raw = sessionStorage.getItem(getProcessingKey(cId));
+      if (!raw) return null;
+      const info = JSON.parse(raw);
+      // Auto-expire after 10 minutes
+      if (Date.now() - info.startedAt > 10 * 60 * 1000) {
+        sessionStorage.removeItem(getProcessingKey(cId));
+        return null;
+      }
+      return info;
+    } catch { return null; }
+  }, [getProcessingKey]);
+
+  // ── Poll for completion when resuming after navigation ──
+  const startPollingForCompletion = useCallback((cId: string, knownMsgCount: number) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+
+    setSending(true);
+    setIsAgentic(true);
+    setLiveSteps([{ type: 'resuming', content: 'Agent is still working...', status: 'running' }]);
+
+    let checkCount = 0;
+    const MAX_CHECKS = 240; // 240 * 2.5s = 10 minutes max
+
+    pollingRef.current = setInterval(async () => {
+      checkCount++;
+      if (checkCount > MAX_CHECKS) {
+        // Timeout - stop polling
+        setSending(false);
+        setIsAgentic(false);
+        setLiveSteps([]);
+        markProcessingEnd(cId);
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/chats/messages?chatId=${cId}`, { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const msgs = (data.messages || data) as ChatMessage[];
+
+        // Update messages display in real-time
+        setMessages(msgs);
+
+        // Check if there's a new assistant message since we started processing
+        const assistantMsgs = msgs.filter((m: ChatMessage) => m.role === 'assistant');
+        if (assistantMsgs.length > 0 && msgs.length > knownMsgCount) {
+          // Agent has responded - update messages and stop animation
+          setSending(false);
+          setIsAgentic(false);
+          setLiveSteps([]);
+          markProcessingEnd(cId);
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          // Refresh chat list to reflect updated state
+          fetchChats();
+        }
+      } catch {
+        // Continue polling on error
+      }
+    }, 2500); // Poll every 2.5s
+  }, [markProcessingEnd, fetchChats]);
+
   // ── Init ──
   useEffect(() => {
     fetchAgent();
@@ -409,6 +503,42 @@ export default function AgentChatPage() {
       fetchCrossAgent();
     }
   }, [agent, fetchChats, fetchTasks, fetchCrossAgent]);
+
+  // ── Check for active processing on mount (navigation resume) ──
+  useEffect(() => {
+    // After chats are loaded, check if any chat has active processing
+    if (chats.length === 0 || !agentId) return;
+
+    for (const chat of chats) {
+      const info = getProcessingInfo(chat.id);
+      if (info) {
+        // Found an active processing chat - first fetch messages to see if agent already finished
+        setActiveChatId(chat.id);
+        fetchMessages(chat.id).then((loadedMsgs) => {
+          // Check if there's already an assistant response newer than our start time
+          const assistantMsgs = loadedMsgs.filter((m: ChatMessage) => m.role === 'assistant');
+          if (assistantMsgs.length > 0 && loadedMsgs.length > info.lastMessageCount) {
+            // Agent already finished while we were away - no need to animate
+            markProcessingEnd(chat.id);
+          } else {
+            // Agent is still working - resume animation and poll for completion
+            startPollingForCompletion(chat.id, info.lastMessageCount);
+          }
+        });
+        break;
+      }
+    }
+  }, [chats, agentId, getProcessingInfo, fetchMessages, startPollingForCompletion, markProcessingEnd]);
+
+  // ── Cleanup polling on unmount ──
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Auto-scroll ──
   useEffect(() => {
@@ -459,9 +589,15 @@ export default function AgentChatPage() {
     }
 
     setActiveChatId(chatId);
-    fetchMessages(chatId);
+    fetchMessages(chatId).then(() => {
+      // After loading messages, check if this chat has active processing
+      const procInfo = getProcessingInfo(chatId);
+      if (procInfo) {
+        startPollingForCompletion(chatId, procInfo.lastMessageCount);
+      }
+    });
     if (isMobile) setMobileTab("messages");
-  }, [fetchMessages, isMobile, activeChatId, session]);
+  }, [fetchMessages, isMobile, activeChatId, session, getProcessingInfo, startPollingForCompletion]);
 
   // ── Release chat lock ──
   const releaseChatLock = useCallback(async () => {
@@ -599,6 +735,12 @@ export default function AgentChatPage() {
       setAgentSteps([]);
       setIsAgentic(true);
       setLiveSteps([]);
+    }
+
+    // Mark agent as processing in sessionStorage (persists across navigation)
+    const currentMsgCount = messages.length + 1; // +1 for the temp user msg
+    if (activeChatId) {
+      markProcessingStart(activeChatId, currentMsgCount);
     }
 
     try {
@@ -781,6 +923,7 @@ export default function AgentChatPage() {
 
           if (!activeChatId && finalData.chatId) {
             setActiveChatId(finalData.chatId);
+            markProcessingStart(finalData.chatId, currentMsgCount);
             await fetchChats();
           }
         }
@@ -818,6 +961,7 @@ export default function AgentChatPage() {
 
           if (!activeChatId && data.chatId) {
             setActiveChatId(data.chatId);
+            markProcessingStart(data.chatId, currentMsgCount);
             await fetchChats();
           }
         } else {
@@ -837,12 +981,22 @@ export default function AgentChatPage() {
       setSending(false);
       setIsAgentic(false);
       setLiveSteps([]);
+      // Clear processing marker from sessionStorage (use activeChatId or the one set during send)
+      const chatIdToClear = activeChatId;
+      if (chatIdToClear) {
+        markProcessingEnd(chatIdToClear);
+      }
+      // Also stop any polling if running
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
       // Mark all plan steps as completed when done
       if (planSteps.length > 0) {
         setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
       }
     }
-  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps]);
+  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd]);
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -2175,8 +2329,15 @@ function ChatArea({
                       <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
                     </div>
                     <span className="text-sm font-semibold">{agent.name}</span>
-                    <Badge variant="secondary" className="text-[9px] h-4 gap-0.5 px-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 animate-pulse">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Working
+                    <Badge variant="secondary" className={`text-[9px] h-4 gap-0.5 px-1.5 animate-pulse ${
+                      liveSteps.some(s => s.type === 'resuming')
+                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50'
+                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50'
+                    }`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        liveSteps.some(s => s.type === 'resuming') ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`} />
+                      {liveSteps.some(s => s.type === 'resuming') ? 'Resuming' : 'Working'}
                     </Badge>
                     {liveSteps.length > 0 && (
                       <span className="text-[10px] text-muted-foreground ml-auto font-mono">
@@ -2198,6 +2359,8 @@ function ChatArea({
                                   <span className="text-purple-400 animate-pulse">◈</span>
                                 ) : step.type === 'tool_call' ? (
                                   <span className="text-blue-400 animate-pulse">▸</span>
+                                ) : step.type === 'resuming' ? (
+                                  <span className="text-amber-400 animate-pulse">↻</span>
                                 ) : (
                                   <span className="text-yellow-400 animate-pulse">◉</span>
                                 )}
