@@ -1178,7 +1178,6 @@ export default function AgentChatPage() {
               chatLockInfo={chatLockInfo}
               onEndChat={endChat}
               onReleaseLock={releaseChatLock}
-              scheduledTasks={scheduledTasks}
             />
           </TabsContent>
 
@@ -1484,7 +1483,6 @@ export default function AgentChatPage() {
           chatLockInfo={chatLockInfo}
           onEndChat={endChat}
           onReleaseLock={releaseChatLock}
-          scheduledTasks={scheduledTasks}
         />
       </div>
 
@@ -1820,7 +1818,6 @@ function ChatArea({
   chatLockInfo,
   onEndChat,
   onReleaseLock,
-  scheduledTasks,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -1852,7 +1849,6 @@ function ChatArea({
   chatLockInfo: { lockedBy: string | null; lockedByName: string | null; lockedAt: string | null };
   onEndChat: () => void;
   onReleaseLock: () => void;
-  scheduledTasks: ScheduledTask[];
 }) {
   return (
     <>
@@ -1913,10 +1909,6 @@ function ChatArea({
             <X className="h-3 w-3 mr-1" /> End Chat
           </Button>
         </div>
-      )}
-      {/* Scheduled Tasks Section - Collapsible in chat area */}
-      {scheduledTasks.length > 0 && (
-        <ScheduledTasksSection scheduledTasks={scheduledTasks} />
       )}
       {/* Messages */}
       <ScrollArea className="flex-1">
@@ -2770,132 +2762,6 @@ function FeaturesTab({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// SCHEDULED TASKS SECTION (Collapsible, in-chat)
-// ──────────────────────────────────────────────────────────────────
-function ScheduledTasksSection({
-  scheduledTasks,
-}: {
-  scheduledTasks: ScheduledTask[];
-}) {
-  const [isExpanded, setIsExpanded] = useState(true);
-
-  const activeTasks = scheduledTasks.filter(t => t.status !== "COMPLETED" && t.status !== "CANCELLED");
-  const completedTasks = scheduledTasks.filter(t => t.status === "COMPLETED");
-  const runningTasks = scheduledTasks.filter(t => t.status === "IN_PROGRESS");
-
-  const handleUpdateStatus = async (taskId: string, status: string) => {
-    try {
-      const res = await fetch("/api/scheduled-tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: taskId, status }),
-      });
-      if (res.ok) {
-        toast.success(`Task marked as ${status.toLowerCase()}`);
-      } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to update task");
-      }
-    } catch {
-      toast.error("Failed to update task");
-    }
-  };
-
-  return (
-    <div className="px-4 py-2 border-b bg-amber-50/50 dark:bg-amber-900/10">
-      <div className="max-w-3xl mx-auto">
-        {/* Collapsible Header */}
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-1.5 w-full text-left hover:opacity-80 transition-opacity"
-        >
-          <Calendar className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Scheduled Tasks</span>
-          {activeTasks.length > 0 && (
-            <Badge variant="secondary" className="text-[8px] h-3.5 ml-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-              {activeTasks.length} active
-            </Badge>
-          )}
-          {runningTasks.length > 0 && (
-            <Badge variant="secondary" className="text-[8px] h-3.5 ml-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-              {runningTasks.length} running
-            </Badge>
-          )}
-          {completedTasks.length > 0 && (
-            <Badge variant="secondary" className="text-[8px] h-3.5 ml-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-              {completedTasks.length} done
-            </Badge>
-          )}
-          <ChevronRight className={`h-3 w-3 text-amber-500 ml-auto transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-        </button>
-
-        {/* Expandable Content */}
-        {isExpanded && (
-          <div className="mt-2 space-y-1.5">
-            {/* Active & Running Tasks */}
-            {activeTasks.map((task) => (
-              <div key={task.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[10px] ${task.status === "IN_PROGRESS" ? "bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800" : "bg-white dark:bg-slate-800/50 border border-border/30"}`}>
-                {task.status === "IN_PROGRESS" ? (
-                  <Loader2 className="h-3 w-3 text-blue-500 shrink-0 animate-spin" />
-                ) : (
-                  <Clock className="h-3 w-3 text-amber-500 shrink-0" />
-                )}
-                <span className="truncate flex-1 font-medium text-foreground">
-                  {task.title}
-                </span>
-                {task.user?.name && (
-                  <span className="text-muted-foreground shrink-0 flex items-center gap-0.5">
-                    <Users className="h-2.5 w-2.5" /> {task.user.name}
-                  </span>
-                )}
-                <Badge variant="outline" className={`text-[7px] h-3 px-1 shrink-0 ${task.status === "IN_PROGRESS" ? "border-blue-300 text-blue-600" : task.priority === "HIGH" ? "border-red-300 text-red-600" : task.priority === "URGENT" ? "border-red-400 text-red-700" : "border-amber-300 text-amber-600"}`}>
-                  {task.status === "IN_PROGRESS" ? "Running" : task.priority}
-                </Badge>
-                <span className="text-[9px] text-muted-foreground shrink-0">
-                  {new Date(task.dueDate).toLocaleDateString()}
-                </span>
-              </div>
-            ))}
-
-            {/* Completed Tasks - separate section with visual distinction */}
-            {completedTasks.length > 0 && (
-              <>
-                <div className="flex items-center gap-1 pt-1">
-                  <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
-                  <span className="text-[9px] font-medium text-green-600 dark:text-green-400">Completed</span>
-                </div>
-                {completedTasks.map((task) => (
-                  <div key={task.id} className="flex items-center gap-2 px-2.5 py-1 rounded-md text-[10px] bg-green-50/50 dark:bg-green-900/5 border border-green-100 dark:border-green-900/20">
-                    <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
-                    <span className="truncate flex-1 text-green-700 dark:text-green-400 line-through opacity-70">
-                      {task.title}
-                    </span>
-                    {task.user?.name && (
-                      <span className="text-green-600/60 dark:text-green-400/60 shrink-0 flex items-center gap-0.5">
-                        <Users className="h-2.5 w-2.5" /> {task.user.name}
-                      </span>
-                    )}
-                    <Badge variant="outline" className="text-[7px] h-3 px-1 shrink-0 border-green-300 text-green-600">
-                      Finished
-                    </Badge>
-                    {task.completedAt && (
-                      <span className="text-[8px] text-green-500/60 shrink-0">
-                        {new Date(task.completedAt).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
