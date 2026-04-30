@@ -188,7 +188,7 @@ export default function ProjectDetailPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Budget</p>
-            <p className="text-sm font-medium mt-1">₹{((project.budget as number) || 0).toLocaleString("en-IN")}</p>
+            <p className="text-sm font-medium mt-1">£{((project.budget as number) || 0).toLocaleString("en-GB")}</p>
           </CardContent>
         </Card>
         <Card>

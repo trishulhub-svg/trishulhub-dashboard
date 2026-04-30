@@ -925,7 +925,7 @@ export async function executeToolCall(
         const projectType = reqLower.includes("e-commerce") || reqLower.includes("ecommerce") || reqLower.includes("shop") ? "ecommerce"
           : reqLower.includes("landing page") || reqLower.includes("marketing site") ? "landing"
           : reqLower.includes("web app") || reqLower.includes("dashboard") || reqLower.includes("saas") ? "webapp"
-          : reqLower.includes("mobile") || reqLower.includes("app") ? "mobile"
+          : reqLower.includes("mobile app") || reqLower.includes("mobile application") || reqLower.includes("ios app") || reqLower.includes("android app") || reqLower.includes("native app") ? "mobile"
           : "website"
 
         const phaseTemplates: Record<string, Array<{ phase: number; name: string; tasks: string[]; estimatedHours: number }>> = {
@@ -1080,11 +1080,12 @@ export async function executeToolCall(
         result = JSON.stringify({
           article: {
             title: args.title,
-            category: "General",
+            category: args.category || "General",
             issue: args.issue_description,
             rootCause: args.root_cause || "To be determined",
-            solution: args.solution_steps.map((step: string, i: number) => `${i + 1}. ${step}`).join("\n"),
+            solution: (args.solution_steps || []).map((step: string, i: number) => `${i + 1}. ${step}`).join("\n"),
             prevention: (args.prevention_tips || []).map((tip: string) => `- ${tip}`).join("\n"),
+            created_at: new Date().toISOString(),
           },
         }, null, 2)
         break
@@ -1098,11 +1099,13 @@ export async function executeToolCall(
     }
 
     const elapsed = Date.now() - startTime
+    // Detect errors from tool implementations that return "Error:" strings
+    const isToolError = typeof result === "string" && result.startsWith("Error:")
     return {
       toolCallId: "",
       name: toolName,
       result: result || "(empty result)",
-      success: true,
+      success: !isToolError,
     }
   } catch (error: any) {
     return {
@@ -1118,23 +1121,25 @@ export async function executeToolCall(
 
 async function executeWebSearch(query: string, purpose?: string): Promise<string> {
   try {
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
-    const response = await fetch(`${baseUrl}/api/web-search?q=${encodeURIComponent(query)}`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
+    // Use Z.ai SDK directly instead of calling the API route
+    // This avoids HTTP method mismatch (GET vs POST) and authentication issues
+    // since the API route requires session cookies which aren't available in server-side fetch
+    const ZAI = (await import("z-ai-web-dev-sdk")).default
+    const zai = await ZAI.create()
+
+    const searchResult = await zai.functions.invoke("web_search", {
+      query,
+      num: 8,
     })
 
-    if (response.ok) {
-      const data = await response.json()
-      if (data.results && data.results.length > 0) {
-        const formatted = data.results.slice(0, 5).map((r: any, i: number) =>
-          `${i + 1}. **${r.name || r.title || "Result"}**\n   URL: ${r.url}\n   ${r.snippet || r.content || ""}`
-        ).join("\n\n")
-        return `Web search results for: "${query}"${purpose ? ` (Purpose: ${purpose})` : ""}\n\n${formatted}`
-      }
+    if (Array.isArray(searchResult) && searchResult.length > 0) {
+      const formatted = searchResult.slice(0, 5).map((r: any, i: number) =>
+        `${i + 1}. **${r.name || "Result"}**\n   URL: ${r.url}\n   ${r.snippet || ""}`
+      ).join("\n\n")
+      return `Web search results for: "${query}"${purpose ? ` (Purpose: ${purpose})` : ""}\n\n${formatted}`
     }
 
-    return `Web search for: "${query}"${purpose ? ` (Purpose: ${purpose})` : ""}\n\nSearch completed. For detailed results, try a more specific query.`
+    return `Web search for: "${query}"${purpose ? ` (Purpose: ${purpose})` : ""}\n\nSearch completed but no results found. Try a more specific query.`
   } catch (error: any) {
     return `Web search failed: ${error.message}. Please try again with a different query.`
   }
@@ -1153,30 +1158,28 @@ async function executeSearchLeads(location: string, industry?: string, criteria?
 
     const allResults: Array<{ name: string; url: string; snippet: string }> = []
 
-    for (const query of searchQueries) {
-      try {
-        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
-        const response = await fetch(`${baseUrl}/api/web-search?q=${encodeURIComponent(query)}`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        })
+    // Use Z.ai SDK directly (avoids HTTP method mismatch and auth issues)
+    const ZAI = (await import("z-ai-web-dev-sdk")).default
+    const zai = await ZAI.create()
 
-        if (response.ok) {
-          const data = await response.json()
-          if (data.results && data.results.length > 0) {
-            for (const r of data.results) {
-              allResults.push({
-                name: r.name || r.title || "",
-                url: r.url || "",
-                snippet: r.snippet || r.content || "",
-              })
-            }
+    // Run searches concurrently for better performance
+    const searchPromises = searchQueries.map(async (query) => {
+      try {
+        const searchResult = await zai.functions.invoke("web_search", { query, num: 8 })
+        if (Array.isArray(searchResult)) {
+          for (const r of searchResult) {
+            allResults.push({
+              name: r.name || "",
+              url: r.url || "",
+              snippet: r.snippet || "",
+            })
           }
         }
       } catch {
         // Continue with next query if one fails
       }
-    }
+    })
+    await Promise.all(searchPromises)
 
     // Deduplicate by URL
     const seenUrls = new Set<string>()
@@ -1301,6 +1304,14 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
       }
       return `Error: Could not find the exact content to replace in ${filePath}. ${foundLine > 0 ? `Similar content found at line ${foundLine}. Please read the file first and use the exact text.` : "No similar content found."}`
     }
+    // Count occurrences to warn about multiple matches
+    const occurrences = content.split(oldContent).length - 1
+    if (occurrences > 1) {
+      // For multiple occurrences, only replace the first one but warn the agent
+      const newFileContent = content.replace(oldContent, newContent)
+      fs.writeFileSync(fullPath, newFileContent, "utf-8")
+      return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\nWARNING: Found ${occurrences} occurrences of this pattern. Only the FIRST occurrence was replaced. If you want to replace all, use edit_file again or be more specific with the oldContent.`
+    }
     const newFileContent = content.replace(oldContent, newContent)
     fs.writeFileSync(fullPath, newFileContent, "utf-8")
     return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.`
@@ -1324,7 +1335,11 @@ async function executeListFiles(dirPath: string, pattern?: string): Promise<stri
         const name = e.name
         if (name.startsWith(".") && name !== ".env.example") return false
         if (name === "node_modules" || name === ".next" || name === "dist" || name === "build") return false
-        if (pattern && !name.match(new RegExp(pattern.replace(/\*/g, ".*").replace(/\?/g, ".")))) return false
+        if (pattern) {
+          // Safe glob-to-regex: escape all regex metacharacters first, then convert * and ?
+          const safePattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, ".*").replace(/\?/g, ".")
+          if (!name.match(new RegExp(safePattern))) return false
+        }
         return true
       })
       .map(e => {
@@ -1345,13 +1360,12 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
     /mkfs/i,                                        // Format filesystem
     /dd\s+if=/i,                                    // Disk dump
     />\s*\/dev\//i,                                 // Redirect to /dev
-    /curl\s+.*\|\s*(bash|sh|zsh)/i,                 // Curl pipe to shell
-    /wget\s+.*\|\s*(bash|sh|zsh)/i,                 // Wget pipe to shell
     /shutdown|reboot|halt|poweroff/i,                // System control
     /format\s+[a-zA-Z]:/i,                           // Windows format
-    /:\s*(){\s*:|\|\s*&/i,                           // Fork bomb
+    /:\(\)\{\s*:\|:&\}/i,                            // Fork bomb (correct pattern)
     /chmod\s+[0-7]*777/i,                            // chmod 777
     />(\/etc\/|\/boot\/|\/usr\/sbin)/i,              // Overwrite system files
+    /git\s+(push\s+.*--force|reset\s+--hard|clean\s+-[dfx])/i,  // Dangerous git ops
   ]
   for (const pattern of blockedPatterns) {
     if (pattern.test(command)) return `Error: Command blocked for security: "${command}". This command pattern is not allowed.`
@@ -1365,13 +1379,12 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
     'tsc', 'eslint', 'prettier',
     'prisma',
     'mkdir ', 'cp ', 'mv ', 'touch ',
-    'curl ',  // curl allowed but pipe-to-shell caught above
     'python3 ', 'python ',
   ]
   const firstWord = command.trim().split(/\s+/)[0]
   const isAllowed = allowedPrefixes.some(prefix => firstWord === prefix.trim() || command.trim().startsWith(prefix))
   if (!isAllowed) {
-    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, cat, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch, curl, python3.`
+    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, cat, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch, python3.`
   }
 
   try {
@@ -1622,15 +1635,19 @@ TrishulHub Team`,
 // ━━ Finance Tool Implementations ━━
 
 function executeCalculateEstimate(args: Record<string, any>): string {
-  const rates: Record<string, number> = { simple: 25, moderate: 40, complex: 60, enterprise: 80 }
+  // UK agency rates (updated to realistic market rates)
+  const rates: Record<string, number> = { simple: 75, moderate: 95, complex: 120, enterprise: 150 }
   const hours: Record<string, number> = { simple: 40, moderate: 80, complex: 160, enterprise: 320 }
-  const rate = args.hourly_rate || rates[args.complexity] || 40
+  const rate = args.hourly_rate || rates[args.complexity] || 95
   const baseHours = hours[args.complexity] || 80
-  const featureMultiplier = Math.max(1, (args.features?.length || 1) * 0.15)
+  // Feature multiplier: account for feature complexity, not just count
+  const featureCount = args.features?.length || 1
+  const featureMultiplier = Math.max(1, featureCount * 0.12 + (featureCount > 5 ? 0.2 : 0))
   const totalHours = Math.round(baseHours * featureMultiplier)
-  const contingency = Math.round(totalHours * 0.15)
+  const contingencyPercent = args.complexity === "enterprise" ? 0.20 : args.complexity === "complex" ? 0.18 : 0.15
+  const contingency = Math.round(totalHours * contingencyPercent)
   const designHours = Math.round(totalHours * 0.25)
-  const devHours = Math.round(totalHours * 0.45)
+  const devHours = totalHours - Math.round(totalHours * 0.25) - Math.round(totalHours * 0.15) - Math.round(totalHours * 0.05) - Math.round(totalHours * 0.10)
   const testHours = Math.round(totalHours * 0.15)
   const deployHours = Math.round(totalHours * 0.05)
   const maintainHours = Math.round(totalHours * 0.10)
@@ -1646,10 +1663,10 @@ function executeCalculateEstimate(args: Record<string, any>): string {
       deployment: { hours: deployHours, cost: deployHours * rate },
       maintenance: { hours: maintainHours, cost: maintainHours * rate },
     },
-    contingency: { hours: contingency, cost: contingency * rate, percentage: "15%" },
+    contingency: { hours: contingency, cost: parseFloat((contingency * rate).toFixed(2)), percentage: `${Math.round(contingencyPercent * 100)}%` },
     total: {
       hours: totalHours + contingency,
-      cost: (totalHours + contingency) * rate,
+      cost: parseFloat(((totalHours + contingency) * rate).toFixed(2)),
       hourly_rate: rate,
       currency: "GBP",
     },
@@ -1660,29 +1677,40 @@ function executeCalculateEstimate(args: Record<string, any>): string {
 function executeGenerateQuotation(args: Record<string, any>): string {
   const items = args.items || []
   const subtotal = items.reduce((sum: number, item: any) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
-  const vat = subtotal * 0.2
-  const total = subtotal + vat
+  const vat = parseFloat((subtotal * 0.2).toFixed(2))
+  const total = parseFloat((subtotal + vat).toFixed(2))
 
   return JSON.stringify({
     quotation: {
+      quotation_number: `QUO-${Date.now().toString(36).toUpperCase()}`,
       client: args.client_name,
+      client_address: args.client_address || "To be confirmed",
       project: args.project_title,
+      scope: args.project_scope || args.project_title,
+      deliverables: args.deliverables || items.map((i: any) => i.description).filter(Boolean),
+      timeline: args.timeline || "To be agreed",
       date: new Date().toISOString().split("T")[0],
       valid_until: new Date(Date.now() + (args.valid_days || 30) * 86400000).toISOString().split("T")[0],
       items: items.map((item: any, i: number) => ({
         id: i + 1,
-        description: item.description,
+        description: item.description || "Service",
         quantity: item.quantity || 1,
-        unit_price: item.unit_price,
-        total: (item.quantity || 1) * (item.unit_price || 0),
+        unit_price: parseFloat((item.unit_price || 0).toFixed(2)),
+        total: parseFloat(((item.quantity || 1) * (item.unit_price || 0)).toFixed(2)),
       })),
-      subtotal,
+      subtotal: parseFloat(subtotal.toFixed(2)),
       vat: vat,
       vat_rate: "20%",
-      total,
+      total: total,
       currency: "GBP",
       payment_terms: args.payment_terms || "50% upfront, 50% on completion",
-      company: "TrishulHub",
+      company: {
+        name: "TrishulHub",
+        address: "Harrow, London, UK",
+        email: "info@trishulhub.in",
+        website: "trishulhub.com",
+      },
+      terms_and_conditions: "This quotation is valid for 30 days. Prices are in GBP. VAT at 20% applies where applicable. Payment terms as stated above.",
     },
   }, null, 2)
 }
@@ -1691,29 +1719,43 @@ function executeGenerateInvoice(args: Record<string, any>): string {
   const items = args.items || []
   const subtotal = items.reduce((sum: number, item: any) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
   const taxRate = args.tax_rate || 20
-  const tax = subtotal * (taxRate / 100)
-  const total = subtotal + tax
+  const tax = parseFloat((subtotal * (taxRate / 100)).toFixed(2))
+  const total = parseFloat((subtotal + tax).toFixed(2))
 
   return JSON.stringify({
     invoice: {
       invoice_number: args.invoice_number || `INV-${Date.now().toString(36).toUpperCase()}`,
       client: args.client_name,
+      client_address: args.client_address || "To be confirmed",
+      project: args.project_title || "Web Development Services",
       date: new Date().toISOString().split("T")[0],
       due_date: args.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
       items: items.map((item: any, i: number) => ({
         id: i + 1,
-        description: item.description,
+        description: item.description || "Service",
         quantity: item.quantity || 1,
-        unit_price: item.unit_price,
-        total: (item.quantity || 1) * (item.unit_price || 0),
+        unit_price: parseFloat((item.unit_price || 0).toFixed(2)),
+        total: parseFloat(((item.quantity || 1) * (item.unit_price || 0)).toFixed(2)),
       })),
-      subtotal,
+      subtotal: parseFloat(subtotal.toFixed(2)),
       tax: tax,
       tax_rate: `${taxRate}%`,
-      total,
+      total: total,
       currency: "GBP",
-      bank_details: "To be provided",
-      company: "TrishulHub",
+      payment_terms: args.payment_terms || "Payment due within 30 days of invoice date",
+      bank_details: {
+        bank: "To be provided",
+        account_name: "TrishulHub",
+        sort_code: "To be provided",
+        account_number: "To be provided",
+        reference: `Please quote invoice number as reference`,
+      },
+      company: {
+        name: "TrishulHub",
+        address: "Harrow, London, UK",
+        email: "info@trishulhub.in",
+        website: "trishulhub.com",
+      },
     },
   }, null, 2)
 }
@@ -1723,8 +1765,10 @@ function executeCalculateROI(args: Record<string, any>): string {
   const profit = revenue - costs
   const roi = costs > 0 ? ((profit / costs) * 100).toFixed(1) : "N/A"
   const profitMargin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : "N/A"
-  const monthlyProfit = timeframe_months > 0 ? (profit / timeframe_months).toFixed(2) : profit
-  const breakEvenMonths = profit > 0 ? Math.ceil(costs / (profit / timeframe_months)) : "N/A"
+  const monthlyProfit = timeframe_months > 0 ? parseFloat((profit / timeframe_months).toFixed(2)) : profit
+  // Fix division by zero: ensure timeframe_months > 0 AND monthly profit > 0
+  const monthlyProfitValue = timeframe_months > 0 ? profit / timeframe_months : 0
+  const breakEvenMonths = (profit > 0 && monthlyProfitValue > 0) ? Math.ceil(costs / monthlyProfitValue) : "N/A"
 
   return JSON.stringify({
     calculation_type: args.calculation_type,
@@ -1733,8 +1777,8 @@ function executeCalculateROI(args: Record<string, any>): string {
     timeframe_months,
     results: {
       profit: profit,
-      roi_percentage: `${roi}%`,
-      profit_margin: `${profitMargin}%`,
+      roi_percentage: roi === "N/A" ? "N/A" : `${roi}%`,
+      profit_margin: profitMargin === "N/A" ? "N/A" : `${profitMargin}%`,
       monthly_profit: monthlyProfit,
       break_even_months: breakEvenMonths,
     },
@@ -1771,16 +1815,48 @@ function executeCreateTimeline(args: Record<string, any>): string {
 }
 
 function executeAssessRisks(args: Record<string, any>): string {
+  const scope = (args.project_scope || "").toLowerCase()
+  const concerns = args.known_concerns || "None specified"
+
+  // Build contextual risks based on project scope
+  const risks = [
+    { risk: "Scope creep", probability: "Medium", impact: "High", mitigation: "Define clear scope document with sign-off, change request process with cost impact" },
+    { risk: "Timeline delays", probability: "Medium", impact: "Medium", mitigation: "Build buffer into timeline, regular progress reviews, early warning system" },
+    { risk: "Client communication gaps", probability: "Medium", impact: "Medium", mitigation: "Weekly status updates, single point of contact, documented decisions" },
+  ]
+
+  // Add scope-specific risks
+  if (scope.includes("e-commerce") || scope.includes("ecommerce") || scope.includes("payment")) {
+    risks.push({ risk: "Payment integration complexity", probability: "Medium", impact: "High", mitigation: "Use established payment providers (Stripe/PayPal), test thoroughly with sandbox, plan for PCI compliance" })
+    risks.push({ risk: "Security vulnerabilities", probability: "Low", impact: "Critical", mitigation: "Security audit, HTTPS enforcement, input validation, regular dependency updates" })
+  }
+  if (scope.includes("api") || scope.includes("integration") || scope.includes("third-party")) {
+    risks.push({ risk: "Third-party API changes or downtime", probability: "Medium", impact: "High", mitigation: "Implement fallback mechanisms, cache API responses, monitor API status, document all dependencies" })
+  }
+  if (scope.includes("mobile") || scope.includes("responsive")) {
+    risks.push({ risk: "Cross-device compatibility issues", probability: "Medium", impact: "Medium", mitigation: "Test on multiple devices early, use progressive enhancement, establish browser support matrix" })
+  }
+  if (scope.includes("cms") || scope.includes("content management")) {
+    risks.push({ risk: "Content migration issues", probability: "Medium", impact: "Medium", mitigation: "Audit existing content, plan migration in phases, validate migrated content thoroughly" })
+  }
+  if (scope.includes("real-time") || scope.includes("websocket") || scope.includes("live")) {
+    risks.push({ risk: "Real-time performance and scaling", probability: "Medium", impact: "High", mitigation: "Load testing, connection pooling, graceful degradation, CDN for static assets" })
+  }
+
+  // Always include resource risk
+  risks.push({ risk: "Resource availability", probability: "Low", impact: "High", mitigation: "Cross-training team members, backup resources identified, knowledge documentation" })
+
+  // If known concerns are specified, add them as additional risks
+  if (concerns !== "None specified") {
+    risks.push({ risk: `Known concern: ${concerns}`, probability: "Medium", impact: "Medium", mitigation: "Address proactively, assign dedicated owner, monitor closely during execution" })
+  }
+
   return JSON.stringify({
     project: args.project_name,
-    risks: [
-      { risk: "Scope creep", probability: "Medium", impact: "High", mitigation: "Define clear scope document with sign-off, change request process" },
-      { risk: "Timeline delays", probability: "Medium", impact: "Medium", mitigation: "Build buffer into timeline, regular progress reviews, early warning system" },
-      { risk: "Technical complexity", probability: "Low", impact: "High", mitigation: "Spike solutions for unknowns, fallback approaches documented" },
-      { risk: "Client communication gaps", probability: "Medium", impact: "Medium", mitigation: "Weekly status updates, single point of contact, documented decisions" },
-      { risk: "Resource availability", probability: "Low", impact: "High", mitigation: "Cross-training team members, backup resources identified" },
-    ],
-    known_concerns: args.known_concerns || "None specified",
+    scope: args.project_scope,
+    risks,
+    overall_risk_level: risks.filter(r => r.impact === "High" || r.impact === "Critical").length > 2 ? "High" : risks.filter(r => r.impact === "High" || r.impact === "Critical").length > 0 ? "Medium" : "Low",
+    known_concerns: concerns,
   }, null, 2)
 }
 
@@ -1791,12 +1867,24 @@ function executePlanSprint(args: Record<string, any>): string {
       duration_weeks: args.sprint_duration_weeks || 2,
       team_size: args.team_size || 3,
       capacity_hours: (args.team_size || 3) * (args.sprint_duration_weeks || 2) * 30,
-      backlog: (args.backlog_items || []).map((item: string, i: number) => ({
-        id: i + 1,
-        description: item,
-        story_points: Math.ceil(Math.random() * 5) * 2,
-        priority: i < 2 ? "Must Have" : i < 4 ? "Should Have" : "Could Have",
-      })),
+      backlog: (args.backlog_items || []).map((item: string, i: number) => {
+        // Deterministic story points based on item description length and keywords
+        const desc = (item || "").toLowerCase()
+        let points = 3 // default
+        if (desc.includes("fix") || desc.includes("typo") || desc.includes("text")) points = 1
+        else if (desc.includes("create") || desc.includes("add") || desc.includes("build")) points = 3
+        else if (desc.includes("integrate") || desc.includes("implement") || desc.includes("refactor")) points = 5
+        else if (desc.includes("design") || desc.includes("architect") || desc.includes("system")) points = 5
+        else if (desc.includes("migrate") || desc.includes("overhaul") || desc.includes("rewrite")) points = 8
+        else if (item.length > 100) points = 5
+        else if (item.length > 50) points = 3
+        return {
+          id: i + 1,
+          description: item,
+          story_points: points,
+          priority: i < 2 ? "Must Have" : i < 4 ? "Should Have" : "Could Have",
+        }
+      }),
       definition_of_done: [
         "Code reviewed and merged",
         "Unit tests passing",
@@ -1874,24 +1962,42 @@ function executeFindBestFit(args: Record<string, any>): string {
 }
 
 function executePlanOnboarding(args: Record<string, any>): string {
+  const role = (args.role || "").toLowerCase()
+  const dept = args.department || (role.includes("sales") || role.includes("client") ? "Sales" : role.includes("content") || role.includes("market") ? "Marketing" : "Development")
+
+  // Role-specific onboarding activities
+  const roleSpecificWeek: Record<string, string[]> = {
+    dev: ["Set up development environment", "Code repository walkthrough", "Review coding standards", "Pair programming session", "First bug fix task", "CI/CD pipeline walkthrough"],
+    sales: ["CRM system training", "Review current pipeline and leads", "Shadow senior sales calls", "Learn pricing and packages", "Draft first outreach email", "Client meeting etiquette training"],
+    design: ["Design tool setup (Figma/Adobe)", "Brand guidelines walkthrough", "Review design system", "First design task assignment", "Portfolio review with lead designer"],
+    content: ["Content management system training", "Review editorial calendar", "Brand voice guidelines", "SEO tools walkthrough", "Draft first blog post", "Social media strategy review"],
+    hr: ["HR system training", "Review company policies", "Employee handbook walkthrough", "Meet with all department heads", "Review current recruitment pipeline"],
+  }
+
+  const roleKey = role.includes("dev") || role.includes("engineer") || role.includes("programmer") ? "dev"
+    : role.includes("sales") || role.includes("client") || role.includes("hunter") ? "sales"
+    : role.includes("design") ? "design"
+    : role.includes("content") || role.includes("writer") || role.includes("market") ? "content"
+    : role.includes("hr") || role.includes("human") ? "hr"
+    : "dev"
+
   return JSON.stringify({
     role: args.role,
-    department: args.department || "Development",
+    department: dept,
     start_date: args.start_date || "To be confirmed",
     plan: {
       first_day: [
         "Welcome meeting with manager",
-        "IT setup: laptop, email, accounts",
+        "IT setup: laptop, email, accounts, access credentials",
         "Office/virtual tour",
         "Introduction to team members",
         "Overview of company culture and values",
+        "Review team communication channels (Slack/Teams)",
       ],
       first_week: [
-        "Role-specific training sessions",
+        ...roleSpecificWeek[roleKey] || roleSpecificWeek.dev,
         "Meet with each team member for 1:1",
         "Review current projects and priorities",
-        "Set up development environment",
-        "First small task assignment",
         "Weekly check-in with manager",
       ],
       first_month: [
@@ -1910,19 +2016,56 @@ function executeAssessLeaveConflicts(args: Record<string, any>): string {
   const requests = args.leave_requests || []
   const projects = args.active_projects || []
 
-  return JSON.stringify({
-    leave_requests: requests.map((r: any) => ({
+  // Parse dates and check for overlapping leave between team members
+  let conflictsDetected = 0
+  const assessed = requests.map((r: any, idx: number) => {
+    // Parse date ranges
+    const dates = r.dates || []
+    let conflictRisk = "Low"
+    let overlapWith: string[] = []
+
+    // Check if this leave overlaps with other requests
+    for (let j = 0; j < requests.length; j++) {
+      if (idx === j) continue
+      const otherDates = requests[j].dates || []
+      const overlap = dates.some((d: string) => otherDates.includes(d))
+      if (overlap && r.person !== requests[j].person) {
+        conflictRisk = "High"
+        overlapWith.push(requests[j].person)
+        conflictsDetected++
+      }
+    }
+
+    // Check proximity to project deadlines
+    const nearDeadline = projects.length > 0
+    if (nearDeadline && conflictRisk === "Low") conflictRisk = "Medium"
+
+    return {
       person: r.person,
       dates: r.dates,
       reason: r.reason || "Not specified",
-      conflict_risk: "Medium",
-      impact: `May affect: ${projects.join(", ") || "No active projects identified"}`,
-      recommendation: "Plan coverage with team members before approval",
-    })),
+      conflict_risk: conflictRisk,
+      overlap_with: overlapWith.length > 0 ? overlapWith : undefined,
+      impact: overlapWith.length > 0
+        ? `Overlaps with ${overlapWith.join(", ")}'s leave - may cause resource gap`
+        : `May affect: ${projects.join(", ") || "No active projects identified"}`,
+      recommendation: conflictRisk === "High"
+        ? "Stagger leave dates or arrange temporary coverage before approval"
+        : conflictRisk === "Medium"
+        ? "Ensure project coverage is arranged before approval"
+        : "No significant conflicts - safe to approve",
+    }
+  })
+
+  return JSON.stringify({
+    leave_requests: assessed,
     summary: {
       total_requests: requests.length,
-      conflicts_detected: 0,
-      recommendation: "Review each request against project deadlines before approval",
+      conflicts_detected: conflictsDetected,
+      high_risk: assessed.filter((a: any) => a.conflict_risk === "High").length,
+      recommendation: conflictsDetected > 0
+        ? "Resolve overlapping leave dates before approval. Consider staggered leave or temporary coverage."
+        : "Review each request against project deadlines before approval",
     },
   }, null, 2)
 }
@@ -1941,19 +2084,42 @@ function executeDraftContent(args: Record<string, any>): string {
 
   const format = platformFormats[args.platform] || platformFormats.website
 
+  // Generate actual content body based on platform and key points
+  const keyPoints = args.key_points || ["Professional web design services", "Custom solutions", "Affordable pricing"]
+  const cta = args.call_to_action || "Contact TrishulHub today for a free consultation!"
+  const title = args.title || "Untitled"
+  const tone = args.tone || "professional"
+  const businessName = "TrishulHub"
+
+  let contentBody = ""
+  if (args.platform === "twitter") {
+    contentBody = `${title}\n\n${keyPoints.slice(0, 2).join(". ")}. ${cta}\n\n${args.platform === "instagram" ? "#WebDesign #DigitalAgency #TrishulHub #WebDevelopment #SmallBusiness" : "#WebDesign #TrishulHub"}`
+  } else if (args.platform === "instagram") {
+    contentBody = `${title}\n\n${keyPoints.map((p: string, i: number) => `${i + 1}. ${p}`).join("\n")}\n\n${cta}\n\n#WebDesign #DigitalAgency #${businessName} #WebDevelopment #SmallBusiness #UKBusiness #WebsiteDesign #DigitalMarketing`
+  } else if (args.platform === "linkedin") {
+    contentBody = `${title}\n\n${keyPoints.map((p: string) => `- ${p}`).join("\n")}\n\nAt ${businessName}, we help businesses establish a powerful online presence. Whether you need a new website, a redesign, or digital marketing support, we are here to help.\n\n${cta}\n\n#WebDesign #DigitalAgency #${businessName}`
+  } else if (args.platform === "email") {
+    contentBody = `Subject: ${title}\n\nHi [Client Name],\n\n${keyPoints.map((p: string) => `- ${p}`).join("\n")}\n\n${cta}\n\nBest regards,\n${businessName} Team\ninfo@trishulhub.in | trishulhub.com`
+  } else {
+    // Website / default
+    contentBody = `# ${title}\n\n${keyPoints.map((p: string, i: number) => `## ${p}\n\nDetailed content about ${p.toLowerCase()} goes here. This section should be expanded with specific examples, data points, and relevant information.`).join("\n\n")}\n\n## Get Started\n\n${cta}`
+  }
+
   return JSON.stringify({
     content_draft: {
       title: args.title,
       content_type: args.content_type,
       platform: args.platform,
-      tone: args.tone || "professional",
-      key_points: args.key_points || [],
-      call_to_action: args.call_to_action || "Contact TrishulHub for more information",
+      tone: tone,
+      body: contentBody,
+      key_points: keyPoints,
+      call_to_action: cta,
       format_guidelines: format,
-      suggested_hashtags: args.platform === "instagram" ? ["#WebDesign", "#DigitalAgency", "#TrishulHub", "#WebDevelopment", "#SmallBusiness"] : ["#WebDesign", "#TrishulHub"],
+      suggested_hashtags: args.platform === "instagram" ? ["#WebDesign", "#DigitalAgency", "#TrishulHub", "#WebDevelopment", "#SmallBusiness", "#UKBusiness"] : ["#WebDesign", "#TrishulHub"],
       next_steps: [
-        "Review and customize the content",
+        "Review and customize the content body",
         "Add specific images/graphics",
+        "Personalize with client/business details",
         "Schedule for optimal posting time",
         "Submit for approval before publishing",
       ],

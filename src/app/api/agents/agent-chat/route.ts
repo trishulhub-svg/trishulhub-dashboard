@@ -383,6 +383,74 @@ export async function POST(req: NextRequest) {
                 data: { currentSpend: { increment: result.cost } },
               })
 
+              // Cross-agent automation: check triggers after successful agentic response
+              try {
+                const lowerMsg = enrichedMessage.toLowerCase()
+                const lowerResp = result.finalResponse.toLowerCase()
+
+                // CLIENT_HUNTER finds lead → Notify Finance
+                if (agent.type === "CLIENT_HUNTER" &&
+                    (lowerMsg.includes("find") || lowerMsg.includes("search") || lowerMsg.includes("client")) &&
+                    (lowerResp.includes("potential client") || lowerResp.includes("lead") || lowerResp.includes("business"))) {
+                  const financeAgent = await db.agent.findFirst({ where: { type: "FINANCE" } })
+                  if (financeAgent) {
+                    await db.crossAgentMessage.create({
+                      data: {
+                        fromAgentId: agent.id, toAgentId: financeAgent.id, chatId: chat.id,
+                        message: `New lead found by Client Hunter. Please prepare cost estimation. Summary: ${result.finalResponse.substring(0, 300)}`,
+                        type: "REQUEST", status: "PENDING",
+                      }
+                    })
+                  }
+                }
+
+                // PROJECT_MANAGER assigns dev work → Notify Dev Agent
+                if (agent.type === "PROJECT_MANAGER" &&
+                    (lowerResp.includes("assign") || lowerResp.includes("task") || lowerResp.includes("phase")) &&
+                    lowerResp.includes("develop")) {
+                  const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+                  if (devAgent) {
+                    await db.crossAgentMessage.create({
+                      data: {
+                        fromAgentId: agent.id, toAgentId: devAgent.id, chatId: chat.id,
+                        message: `New development task assigned by PM. Details: ${result.finalResponse.substring(0, 300)}`,
+                        type: "REQUEST", status: "PENDING",
+                      }
+                    })
+                  }
+                }
+
+                // SUPPORT escalates → Notify Dev Agent
+                if (agent.type === "SUPPORT" && lowerResp.includes("escalat")) {
+                  const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+                  if (devAgent) {
+                    await db.crossAgentMessage.create({
+                      data: {
+                        fromAgentId: agent.id, toAgentId: devAgent.id, chatId: chat.id,
+                        message: `Support ticket escalated. Issue: ${result.finalResponse.substring(0, 300)}`,
+                        type: "ALERT", status: "PENDING",
+                      }
+                    })
+                  }
+                }
+
+                // HR workload alert → Notify PM
+                if (agent.type === "HR" && (lowerResp.includes("overwork") || lowerResp.includes("capacity"))) {
+                  const pmAgent = await db.agent.findFirst({ where: { type: "PROJECT_MANAGER" } })
+                  if (pmAgent) {
+                    await db.crossAgentMessage.create({
+                      data: {
+                        fromAgentId: agent.id, toAgentId: pmAgent.id, chatId: chat.id,
+                        message: `HR workload alert: ${result.finalResponse.substring(0, 300)}`,
+                        type: "ALERT", status: "PENDING",
+                      }
+                    })
+                  }
+                }
+              } catch (automationErr: any) {
+                console.error("[agent-chat] Automation trigger error:", automationErr.message)
+              }
+
               // Feature 6: Don't set agent status back to IDLE after each chat
               // This was causing interference when multiple users work on different chats
               // Agent status will be managed separately if needed
@@ -538,6 +606,31 @@ export async function POST(req: NextRequest) {
           where: { id: key.id },
           data: { currentSpend: { increment: result.cost } },
         })
+
+        // Cross-agent automation triggers (same as streaming path)
+        try {
+          const lowerMsg = enrichedMessage.toLowerCase()
+          const lowerResp = result.finalResponse.toLowerCase()
+
+          if (agent.type === "CLIENT_HUNTER" && (lowerMsg.includes("find") || lowerMsg.includes("search") || lowerMsg.includes("client")) && (lowerResp.includes("lead") || lowerResp.includes("business"))) {
+            const financeAgent = await db.agent.findFirst({ where: { type: "FINANCE" } })
+            if (financeAgent) await db.crossAgentMessage.create({ data: { fromAgentId: agent.id, toAgentId: financeAgent.id, chatId: chat.id, message: `New lead found. Prepare cost estimation: ${result.finalResponse.substring(0, 300)}`, type: "REQUEST", status: "PENDING" } })
+          }
+          if (agent.type === "PROJECT_MANAGER" && lowerResp.includes("assign") && lowerResp.includes("develop")) {
+            const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+            if (devAgent) await db.crossAgentMessage.create({ data: { fromAgentId: agent.id, toAgentId: devAgent.id, chatId: chat.id, message: `Dev task assigned: ${result.finalResponse.substring(0, 300)}`, type: "REQUEST", status: "PENDING" } })
+          }
+          if (agent.type === "SUPPORT" && lowerResp.includes("escalat")) {
+            const devAgent = await db.agent.findFirst({ where: { type: "DEV" } })
+            if (devAgent) await db.crossAgentMessage.create({ data: { fromAgentId: agent.id, toAgentId: devAgent.id, chatId: chat.id, message: `Support escalation: ${result.finalResponse.substring(0, 300)}`, type: "ALERT", status: "PENDING" } })
+          }
+          if (agent.type === "HR" && (lowerResp.includes("overwork") || lowerResp.includes("capacity"))) {
+            const pmAgent = await db.agent.findFirst({ where: { type: "PROJECT_MANAGER" } })
+            if (pmAgent) await db.crossAgentMessage.create({ data: { fromAgentId: agent.id, toAgentId: pmAgent.id, chatId: chat.id, message: `HR workload alert: ${result.finalResponse.substring(0, 300)}`, type: "ALERT", status: "PENDING" } })
+          }
+        } catch (automationErr: any) {
+          console.error("[agent-chat] Automation trigger error:", automationErr.message)
+        }
 
         // Feature 6: Don't set agent status back to IDLE (per-chat independence)
 

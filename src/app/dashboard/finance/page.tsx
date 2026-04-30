@@ -55,7 +55,7 @@ export default function FinancePage() {
   const invoices = (data.invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string; paidAt?: string; createdAt?: string }[]) || [];
   const recentInvoices = invoices.slice(0, 5);
 
-  const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+  const formatCurrency = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
   const invoiceStatusColors: Record<string, string> = {
     DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
