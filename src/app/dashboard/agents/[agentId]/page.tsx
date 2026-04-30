@@ -52,6 +52,9 @@ import { toast } from "sonner";
 import { STATUS_COLORS, AGENT_TYPES, MODEL_OPTIONS } from "@/lib/types";
 import type { AgentStatus, AgentType } from "@/lib/types";
 import { useIsMobile } from "@/hooks/use-mobile";
+import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 // ─── Icon Map ───────────────────────────────────────────────────
 const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -493,10 +496,22 @@ export default function AgentChatPage() {
         // Check if there's a new assistant message since we started processing
         const assistantMsgs = msgs.filter((m: ChatMessage) => m.role === 'assistant');
         if (assistantMsgs.length > 0 && msgs.length > knownMsgCount) {
+          // Mark last live step as done before clearing
+          setLiveSteps((prev) => {
+            if (prev.length > 0) {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+              return updated;
+            }
+            return prev;
+          });
           // Agent has responded - update messages and stop animation
           setSending(false);
-          setIsAgentic(false);
-          setLiveSteps([]);
+          // Delay clearing animation state so message renders first
+          setTimeout(() => {
+            setIsAgentic(false);
+            setLiveSteps([]);
+          }, 300);
           markProcessingEnd(cId);
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
@@ -1116,25 +1131,121 @@ export default function AgentChatPage() {
           }
         }
 
-        // Handle final response (fallback if no streaming events)
-        if (!finalData) {
-          // Non-streaming fallback — parse as regular JSON
-          setLiveSteps([]);
-          setAgentSteps([]);
-          const textRes = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              agentId,
-              message: userContent,
-              chatId: activeChatId || undefined,
-            }),
-          });
-          if (textRes.ok) {
-            finalData = await textRes.json();
-            if (finalData.steps) setAgentSteps(finalData.steps);
+        // Process remaining buffer content (Bug 2: SSE buffer not fully processed)
+        if (buffer.trim()) {
+          const remainingLines = buffer.split("\n");
+          for (const line of remainingLines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const event = JSON.parse(data);
+              if (event.type === "complete") {
+                finalData = event;
+              } else if (event.type === "step") {
+                const step = event.step;
+                collectedSteps.push(step);
+                setAgentSteps([...collectedSteps]);
+
+                // Check for plan_task steps
+                if (step.type === "tool_call" && step.toolName === "plan_task") {
+                  try {
+                    const argsStr = step.content || "";
+                    const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                    if (stepsMatch) {
+                      const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
+                      setPlanSteps(stepsData.map((s: any, idx: number) => ({
+                        step: s.step || idx + 1,
+                        title: s.title || `Step ${idx + 1}`,
+                        description: s.description || "",
+                        status: idx === 0 ? 'running' as const : 'pending' as const,
+                      })));
+                    }
+                  } catch {}
+                }
+
+                // Parse plan_task tool_result to extract TODO items
+                if (step.type === "tool_result" && step.toolName === "plan_task") {
+                  try {
+                    const resultStr = step.toolResult || step.content || "";
+                    const planData = JSON.parse(resultStr);
+                    if (planData.requiresActivation && planData.steps && planData.steps.length > 0) {
+                      const newTodos = planData.steps.map((s: any) => ({
+                        id: s.id || `todo-${Date.now()}-${s.step}`,
+                        step: s.step,
+                        title: s.title,
+                        description: s.description || "",
+                        prompt: s.prompt || s.description || "",
+                        status: 'pending' as const,
+                      }));
+                      collectedTodoItems = newTodos;
+                      setTodoItems(newTodos);
+                    }
+                  } catch {
+                    try {
+                      const resultStr = step.toolResult || step.content || "";
+                      const stepsMatch = resultStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                      if (stepsMatch) {
+                        const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
+                        if (stepsData.length > 0 && stepsData[0].prompt) {
+                          const newTodos = stepsData.map((s: any, idx: number) => ({
+                            id: s.id || `todo-${Date.now()}-${idx}`,
+                            step: s.step || idx + 1,
+                            title: s.title || `Step ${idx + 1}`,
+                            description: s.description || "",
+                            prompt: s.prompt || s.description || "",
+                            status: 'pending' as const,
+                          }));
+                          collectedTodoItems = newTodos;
+                          setTodoItems(newTodos);
+                        }
+                      }
+                    } catch {}
+                  }
+                }
+
+                // Update live steps with status
+                setLiveSteps((prev) => {
+                  const updated = [...prev];
+                  if (updated.length > 0) {
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+                  }
+                  updated.push({
+                    type: step.type,
+                    content: step.type === "thinking" ? "Thinking..." :
+                             step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                             step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                             step.type === "plan" ? "Planning approach..." :
+                             step.type === "error" ? "Error occurred" :
+                             "Preparing response...",
+                    toolName: step.toolName,
+                    status: 'running',
+                  });
+                  return updated;
+                });
+              } else if (event.type === "error") {
+                toast.error(event.message || "Agent execution error", { duration: 6000 });
+              }
+            } catch {}
           }
+        }
+
+        // Bug 3: Removed non-streaming fallback that made duplicate API call.
+        // If SSE stream didn't complete properly, show an error instead.
+        if (!finalData) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              chatId: activeChatId || "",
+              role: "system",
+              content: "Agent response stream was interrupted. Please try again.",
+              createdAt: new Date().toISOString(),
+              metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
+            },
+          ]);
+          setLastFailedPrompt(userContent);
+          setFailedMsgId(tempUserMsg.id);
         }
 
         if (finalData) {
@@ -1240,8 +1351,11 @@ export default function AgentChatPage() {
       ]);
     } finally {
       setSending(false);
-      setIsAgentic(false);
-      setLiveSteps([]);
+      // Delay clearing animation state so message renders first
+      setTimeout(() => {
+        setIsAgentic(false);
+        setLiveSteps([]);
+      }, 300);
       // Clear processing marker from sessionStorage
       if (resolvedChatId) {
         markProcessingEnd(resolvedChatId);
@@ -2968,7 +3082,52 @@ function ChatArea({
                         } catch {}
                         return null;
                       })()}
-                      <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
+                      <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none [&_pre]:bg-[#1e1e2e] [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border/30 [&_pre]:p-3 [&_code]:text-[12px] [&_code]:font-mono [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ol]:mb-2 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-purple-400 [&_blockquote]:pl-3 [&_blockquote]:italic">
+                        <ReactMarkdown
+                          components={{
+                            code({ className, children, ...props }) {
+                              const match = /language-(\w+)/.exec(className || "");
+                              const codeString = String(children).replace(/\n$/, "");
+                              const isInline = !match && !codeString.includes('\n');
+                              return isInline ? (
+                                <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-mono text-purple-600 dark:text-purple-400" {...props}>
+                                  {children}
+                                </code>
+                              ) : (
+                                <div className="relative group my-2">
+                                  <div className="flex items-center justify-between px-3 py-1.5 bg-[#1e1e2e] border border-border/30 border-b-0 rounded-t-lg text-[10px] text-muted-foreground/60">
+                                    <span>{match ? match[1] : "code"}</span>
+                                    <button
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(codeString);
+                                        toast.success("Code copied!");
+                                      }}
+                                    >
+                                      <Copy className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                  <SyntaxHighlighter
+                                    style={oneDark}
+                                    language={match ? match[1] : "typescript"}
+                                    PreTag="div"
+                                    customStyle={{
+                                      margin: 0,
+                                      borderRadius: "0 0 0.5rem 0.5rem",
+                                      fontSize: "12px",
+                                    }}
+                                    {...props}
+                                  >
+                                    {codeString}
+                                  </SyntaxHighlighter>
+                                </div>
+                              );
+                            },
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     </>
                   )}
                   {msg.role === "assistant" && (
@@ -3182,6 +3341,77 @@ function ChatArea({
       </ScrollArea>
 
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
+      {/* Z.ai-style TODO panel at chat bottom */}
+      {todoItems.length > 0 && activeChat?.status !== "ENDED" && (
+        <div className="border-t border-amber-200/50 dark:border-amber-800/30 bg-gradient-to-r from-amber-50/80 to-orange-50/60 dark:from-amber-950/30 dark:to-orange-950/20 shrink-0">
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-2 mb-2">
+              {todoItems.every(t => t.status === 'completed') ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              ) : todoItems.some(t => t.status === 'running') ? (
+                <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />
+              ) : (
+                <ListChecks className="h-4 w-4 text-amber-500" />
+              )}
+              <span className="text-xs font-semibold text-foreground/80">Plan</span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
+              </span>
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-[100px]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
+                    background: todoItems.every(t => t.status === 'completed')
+                      ? 'linear-gradient(90deg, #10b981, #059669)'
+                      : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                  }}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+                onClick={() => {
+                  const firstPending = todoItems.find(t => t.status === 'pending');
+                  if (firstPending) onActivateTodo(firstPending);
+                }}
+                disabled={sending || !todoItems.some(t => t.status === 'pending')}
+              >
+                <Zap className="h-2.5 w-2.5" />
+                {todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next'}
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {todoItems.map((item) => {
+                const isPending = item.status === 'pending';
+                const isRunning = item.status === 'running';
+                const isCompleted = item.status === 'completed';
+                const isFailed = item.status === 'failed';
+                return (
+                  <button
+                    key={item.id || item.step}
+                    onClick={() => isPending && !sending ? onActivateTodo(item) : undefined}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      isCompleted ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 line-through' :
+                      isRunning ? 'bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700 animate-pulse' :
+                      isFailed ? 'bg-red-100/60 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
+                      'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 cursor-pointer'
+                    }`}
+                    disabled={sending || !isPending}
+                  >
+                    {isCompleted ? <CheckCircle2 className="h-3 w-3" /> :
+                     isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> :
+                     isFailed ? <XCircle className="h-3 w-3" /> :
+                     <Circle className="h-3 w-3" />}
+                    <span>{item.step}. {item.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {activeChat?.status === "ENDED" ? (
         <div className="p-3 border-t bg-muted/30 shrink-0">
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground flex-wrap">
