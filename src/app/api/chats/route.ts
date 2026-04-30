@@ -15,9 +15,11 @@ export async function GET(req: NextRequest) {
     const userRole = (session.user as any).role
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
-    const status = searchParams.get("status") || "ACTIVE"
+    const statusParam = searchParams.get("status") || "ACTIVE"
+    // Support comma-separated statuses (e.g., "ACTIVE,ENDED")
+    const statuses = statusParam.split(",").map(s => s.trim()).filter(Boolean)
 
-    const where: any = { userId, status }
+    const where: any = { userId, status: { in: statuses } }
     if (agentId) where.agentId = agentId
 
     const chats = await db.chat.findMany({

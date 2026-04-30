@@ -336,7 +336,8 @@ export default function AgentChatPage() {
     if (!agentId) return;
     setChatsLoading(true);
     try {
-      const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE`, { credentials: "include" });
+      // Fetch both ACTIVE and ENDED chats so ended chats remain visible in sidebar
+      const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setChats(data as Chat[]);
@@ -626,10 +627,9 @@ export default function AgentChatPage() {
         body: JSON.stringify({ id: activeChatId, status: "ENDED" }),
       });
       setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
-      setActiveChatId(null);
-      setMessages([]);
+      // Keep the chat selected so user can see messages, just update the chat list
       await fetchChats();
-      toast.success("Chat ended and lock released");
+      toast.success("Chat ended — you can still view messages");
     } catch {
       toast.error("Failed to end chat");
     }
@@ -1885,6 +1885,10 @@ function ChatSidebar({
     );
   }
 
+  // Separate active and ended chats for sidebar display
+  const activeChats = chats.filter(c => c.status === "ACTIVE");
+  const endedChats = chats.filter(c => c.status === "ENDED");
+
   return (
     <ScrollArea className="flex-1">
       <div className={`space-y-0.5 p-2 ${isMobile ? "pb-20" : ""}`}>
@@ -1897,121 +1901,158 @@ function ChatSidebar({
             </Button>
           </div>
         ) : (
-          chats.map((chat) => (
-            <div key={chat.id}>
-              {renamingChatId === chat.id ? (
-                <div className="flex items-center gap-1 p-2 rounded-lg bg-accent">
-                  <Input
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onRename(chat.id, renameValue);
-                      if (e.key === "Escape") setRenamingChatId(null);
-                    }}
-                    className="h-7 text-xs"
-                    autoFocus
-                  />
-                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)}>
-                    <Check className="h-3 w-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)}>
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ) : (
-                <div
-                  className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                    activeChatId === chat.id
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/50"
-                  }`}
-                  onClick={() => onSelect(chat.id)}
-                >
-                  <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-medium truncate">{chat.title}</span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <MoreVertical className="h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-36">
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRenamingChatId(chat.id);
-                              setRenameValue(chat.title);
-                            }}
-                          >
-                            <Pencil className="h-3 w-3 mr-2" /> Rename
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onArchive(chat.id);
-                            }}
-                          >
-                            <Archive className="h-3 w-3 mr-2" /> Archive
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+          <>
+            {activeChats.map((chat) => (
+              <div key={chat.id}>
+                {renamingChatId === chat.id ? (
+                  <div className="flex items-center gap-1 p-2 rounded-lg bg-accent">
+                    <Input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") onRename(chat.id, renameValue);
+                        if (e.key === "Escape") setRenamingChatId(null);
+                      }}
+                      className="h-7 text-xs"
+                      autoFocus
+                    />
+                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)}>
+                      <Check className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                      activeChatId === chat.id
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-accent/50"
+                    }`}
+                    onClick={() => onSelect(chat.id)}
+                  >
+                    <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-medium truncate">{chat.title}</span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreVertical className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-36">
                             <DropdownMenuItem
-                              className="text-orange-600"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (onDeleteDialog) onDeleteDialog(chat.id);
-                                else onDelete(chat.id);
+                                setRenamingChatId(chat.id);
+                                setRenameValue(chat.title);
                               }}
                             >
-                              <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
+                              <Pencil className="h-3 w-3 mr-2" /> Rename
                             </DropdownMenuItem>
-                          ) : (
                             <DropdownMenuItem
-                              className="text-red-600"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (onDeleteDialog) onDeleteDialog(chat.id);
-                                else onDelete(chat.id);
+                                onArchive(chat.id);
                               }}
                             >
-                              <Trash2 className="h-3 w-3 mr-2" /> Delete
+                              <Archive className="h-3 w-3 mr-2" /> Archive
                             </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {chat.messages && chat.messages.length > 0 && (
-                        <span className="text-[10px] text-muted-foreground truncate">
-                          {truncate(chat.messages[0].content, 30)}
+                            <DropdownMenuSeparator />
+                            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
+                              <DropdownMenuItem
+                                className="text-orange-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onDeleteDialog) onDeleteDialog(chat.id);
+                                  else onDelete(chat.id);
+                                }}
+                              >
+                                <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onDeleteDialog) onDeleteDialog(chat.id);
+                                  else onDelete(chat.id);
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {chat.messages && chat.messages.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {truncate(chat.messages[0].content, 30)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {chat.lockedByName && (
+                          <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
+                            🔒 {chat.lockedByName}
+                          </Badge>
+                        )}
+                        <span className="text-[10px] text-muted-foreground">
+                          {chat._count?.messages || 0} msgs
                         </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {chat.lockedByName && (
-                        <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
-                          🔒 {chat.lockedByName}
-                        </Badge>
-                      )}
-                      <span className="text-[10px] text-muted-foreground">
-                        {chat._count?.messages || 0} msgs
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatRelativeTime(chat.updatedAt)}
-                      </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatRelativeTime(chat.updatedAt)}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
+            ))}
+            {endedChats.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 px-2 pt-3 pb-1">
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Ended</span>
+                  <div className="flex-1 h-px bg-border" />
                 </div>
-              )}
-            </div>
-          ))
+                {endedChats.map((chat) => (
+                  <div
+                    key={chat.id}
+                    className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors opacity-60 hover:opacity-80 ${
+                      activeChatId === chat.id
+                        ? "bg-accent text-accent-foreground opacity-100"
+                        : "hover:bg-accent/50"
+                    }`}
+                    onClick={() => onSelect(chat.id)}
+                  >
+                    <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-medium truncate">{chat.title}</span>
+                        <Badge variant="outline" className="text-[8px] h-3 px-1 text-muted-foreground shrink-0">ENDED</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">
+                          {chat._count?.messages || 0} msgs
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatRelativeTime(chat.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
         )}
       </div>
     </ScrollArea>
@@ -2676,7 +2717,15 @@ function ChatArea({
         )}
       </ScrollArea>
 
-      {/* Input Area */}
+      {/* Input Area - or "Chat Ended" banner for ended chats */}
+      {activeChat?.status === "ENDED" ? (
+        <div className="p-3 border-t bg-muted/30 shrink-0">
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline" className="text-[9px] h-4">ENDED</Badge>
+            <span>This chat has ended. Start a new chat to continue.</span>
+          </div>
+        </div>
+      ) : (
       <div className="p-3 border-t bg-card shrink-0">
         {/* Suggested prompts for empty chats */}
         {messages.length === 0 && suggestedPrompts.length > 0 && (
@@ -2774,6 +2823,7 @@ function ChatArea({
           </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }
