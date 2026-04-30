@@ -175,6 +175,7 @@ export async function POST(req: NextRequest) {
                 agentType: agent.type,
                 systemPrompt,
                 tools,
+                fileUrls: fileUrls && fileUrls.length > 0 ? fileUrls : undefined,
                 onStep: (step: AgentStep) => {
                   // Send each step as SSE event
                   try {
@@ -361,6 +362,7 @@ export async function POST(req: NextRequest) {
           agentType: agent.type,
           systemPrompt,
           tools,
+          fileUrls: fileUrls && fileUrls.length > 0 ? fileUrls : undefined,
           onStep: (step) => {
             allSteps.push(step)
           },

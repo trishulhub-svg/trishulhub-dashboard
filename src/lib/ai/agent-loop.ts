@@ -33,9 +33,16 @@ export interface AgentLoopResult {
   thinkingContent?: string
 }
 
+interface ZaiContentPart {
+  type: "text" | "image_url" | "file_url"
+  text?: string
+  image_url?: { url: string }
+  file_url?: { url: string }
+}
+
 interface ZaiMessage {
   role: "system" | "user" | "assistant" | "tool"
-  content?: string | null
+  content?: string | ZaiContentPart[] | null
   tool_calls?: ZaiToolCall[]
   tool_call_id?: string
 }
@@ -86,6 +93,9 @@ const AGENTIC_SYSTEM_PROMPTS: Record<string, string> = {
 - For features, create a branch like "feature/feature-name"
 
 ## Important Rules
+- Users may attach images (screenshots, mockups, designs) or files (PDFs, documents) to their messages. ALWAYS analyze and use these attachments - they contain critical context the user wants you to work with.
+- When a user shares a screenshot or image, describe what you see and use it as requirements for your implementation. NEVER say "I can't see the image" - the image IS provided to you.
+- When a user shares a document/form, read and understand its contents, then implement based on what it contains.
 - ALWAYS read existing files before modifying them to avoid overwriting important code
 - For complex tasks, create a plan first using plan_task
 - When implementing features, break them into small, testable steps
@@ -422,6 +432,7 @@ export async function runAgentLoop(
     agentType?: string
     systemPrompt?: string
     tools?: AgentTool[]
+    fileUrls?: string[]
   }
 ): Promise<AgentLoopResult> {
   const maxSteps = options?.maxSteps || 30
@@ -448,8 +459,25 @@ export async function runAgentLoop(
     messages.push({ role: msg.role, content: msg.content })
   }
 
-  // Add current user message
-  messages.push({ role: "user", content: userMessage })
+  // Add current user message (with file attachments if any)
+  const fileUrls = options?.fileUrls || []
+  if (fileUrls.length > 0) {
+    // Build multimodal content for the user message (Z.ai supports OpenAI-compatible format)
+    const contentParts: ZaiContentPart[] = [
+      { type: "text", text: userMessage }
+    ]
+    for (const url of fileUrls) {
+      if (url.startsWith("data:image/")) {
+        contentParts.push({ type: "image_url", image_url: { url } })
+      } else {
+        // For non-image files (PDF, docs, etc.), use file_url type
+        contentParts.push({ type: "file_url", file_url: { url } })
+      }
+    }
+    messages.push({ role: "user", content: contentParts })
+  } else {
+    messages.push({ role: "user", content: userMessage })
+  }
 
   // Agent loop: keep going until model gives a final response (no tool calls)
   // or we hit the max step limit

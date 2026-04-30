@@ -715,9 +715,10 @@ export default function AgentChatPage() {
 
   // ── Send message ──
   const handleSend = useCallback(async () => {
-    if (!input.trim() || sending) return;
+    // Allow sending with just text, just attachments, or both
+    if ((!input.trim() && attachedFiles.length === 0) || sending || uploading) return;
 
-    const userContent = input.trim();
+    const userContent = input.trim() || "Please analyze the attached file(s).";
     const currentAttachments = [...attachedFiles];
     setInput("");
     setAttachedFiles([]);
@@ -1050,7 +1051,7 @@ export default function AgentChatPage() {
         setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
       }
     }
-  }, [input, sending, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd]);
+  }, [input, sending, uploading, attachedFiles, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd]);
 
   // ── Retry failed prompt ──
   const handleRetry = useCallback((prompt: string) => {
@@ -1077,6 +1078,8 @@ export default function AgentChatPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // Block sending while uploading
+      if (uploading) return;
       handleSend();
     }
   };
@@ -2692,25 +2695,44 @@ function ChatArea({
             ))}
           </div>
         )}
+        {/* Upload progress indicator */}
+        {uploading && (
+          <div className="flex items-center gap-2 mb-2 max-w-3xl mx-auto px-1">
+            <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-1.5 text-xs text-blue-400 animate-pulse">
+              <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+              <span>Uploading file{attachedFiles.length > 0 ? `s (${attachedFiles.length} ready)` : ''}...</span>
+            </div>
+          </div>
+        )}
         {/* Attached files preview */}
-        {attachedFiles.length > 0 && (
+        {(attachedFiles.length > 0 || uploading) && (
           <div className="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto">
             {attachedFiles.map((file) => (
-              <div key={file.url} className="flex items-center gap-1.5 bg-muted/50 rounded-lg px-2 py-1 text-xs">
+              <div key={file.url} className="flex items-center gap-1.5 bg-muted/50 rounded-lg px-2 py-1 text-xs relative">
                 {file.isImage ? (
                   <img src={file.url} alt={file.name} className="h-8 w-8 rounded object-cover" />
                 ) : (
                   <FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
                 )}
                 <span className="max-w-[100px] truncate">{file.name}</span>
-                <button
-                  onClick={() => onRemoveAttachment(file.url)}
-                  className="text-muted-foreground hover:text-destructive shrink-0"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                {uploading ? (
+                  <Loader2Icon className="h-3 w-3 animate-spin text-blue-400 shrink-0" />
+                ) : (
+                  <button
+                    onClick={() => onRemoveAttachment(file.url)}
+                    className="text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
+            {uploading && (
+              <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1 text-xs text-muted-foreground animate-pulse">
+                <Loader2Icon className="h-3 w-3 animate-spin" />
+                <span>Processing...</span>
+              </div>
+            )}
           </div>
         )}
         <div className="flex gap-2 max-w-3xl mx-auto">
@@ -2742,13 +2764,13 @@ function ChatArea({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={sending ? "Agent is working... please wait" : `Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
+            placeholder={uploading ? "Uploading files... please wait" : sending ? "Agent is working... please wait" : `Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
             className="min-h-[44px] max-h-32 resize-none"
             rows={1}
-            disabled={sending}
+            disabled={sending || uploading}
           />
-          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending} className="shrink-0">
-            {sending ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />}
+          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending || uploading} className="shrink-0">
+            {sending ? <Loader2Icon className="h-4 w-4 animate-spin" /> : uploading ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />}
           </Button>
         </div>
       </div>

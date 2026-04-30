@@ -140,12 +140,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Add current user message
-    const hasImages = fileUrls && fileUrls.length > 0
-    if (hasImages) {
+    const hasFiles = fileUrls && fileUrls.length > 0
+    if (hasFiles) {
       const contentParts: any[] = [{ type: "text", text: message }]
       if (fileUrls) {
         for (const url of fileUrls) {
-          contentParts.push({ type: "image_url", image_url: { url } })
+          if (url.startsWith("data:image/")) {
+            contentParts.push({ type: "image_url", image_url: { url } })
+          } else {
+            // For non-image files (PDF, docs, etc.), use file_url type
+            contentParts.push({ type: "file_url", file_url: { url } })
+          }
         }
       }
       chatMessages.push({ role: "user", content: contentParts })
@@ -153,7 +158,7 @@ export async function POST(req: NextRequest) {
       chatMessages.push({ role: "user", content: message })
     }
 
-    const model = hasImages ? getVisionModel(agent.model) : agent.model
+    const model = hasFiles ? getVisionModel(agent.model) : agent.model
 
     // Update agent status
     await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
