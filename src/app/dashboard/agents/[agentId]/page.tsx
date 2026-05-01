@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, startTransition } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -352,6 +352,15 @@ export default function AgentChatPage() {
   // Keep ref in sync with state
   useEffect(() => { todoItemsRef.current = todoItems; }, [todoItems]);
 
+  // Ref to access current messages without adding them to useEffect dependency arrays
+  // This prevents React error #185 (cannot update component while rendering another)
+  const messagesRef = useRef<typeof messages>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Ref to access current planSteps inside SSE stream processing (avoids stale closure)
+  const planStepsRef = useRef<typeof planSteps>([]);
+  useEffect(() => { planStepsRef.current = planSteps; }, [planSteps]);
+
   // File upload state
   const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
   const [uploading, setUploading] = useState(false);
@@ -696,6 +705,9 @@ export default function AgentChatPage() {
   }, [agent, fetchChats, fetchTasks, fetchCrossAgent]);
 
   // ── Check for active processing on mount (navigation resume) ──
+  // FIX: Wrap cascading setState calls inside startTransition to prevent React error #185.
+  // This effect calls setActiveChatId() + setTodoItems() in response to `chats` changing,
+  // which can conflict with renders already in progress from the chats update.
   useEffect(() => {
     // After chats are loaded, check if any chat has active processing
     if (chats.length === 0 || !agentId) return;
@@ -704,7 +716,7 @@ export default function AgentChatPage() {
       const info = getProcessingInfo(chat.id);
       if (info) {
         // Found an active processing chat - first fetch messages to see if agent already finished
-        setActiveChatId(chat.id);
+        startTransition(() => { setActiveChatId(chat.id); });
         fetchMessages(chat.id).then((loadedMsgs) => {
           // Check if there's already an assistant response newer than our start time
           const assistantMsgs = loadedMsgs.filter((m: ChatMessage) => m.role === 'assistant');
@@ -731,7 +743,7 @@ export default function AgentChatPage() {
                     status: executedSteps.has(item.step) ? 'completed' as const : item.status,
                     result: executedSteps.has(item.step) ? 'Step executed' : item.result,
                   }));
-                  setTodoItems(restoredItems);
+                  startTransition(() => { setTodoItems(restoredItems); });
                 }
               } catch {}
             }
@@ -1226,100 +1238,67 @@ export default function AgentChatPage() {
                   toolArgs: step.toolArgs || undefined,
                   toolResult: step.toolResult || undefined,
                 });
-                setAgentSteps([...collectedSteps]);
 
-                // Check for plan_task steps (Feature 2)
-                if (step.type === "tool_call" && step.toolName === "plan_task") {
-                  try {
-                    const argsStr = step.content || "";
-                    const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
-                    if (stepsMatch) {
-                      const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
-                      setPlanSteps(stepsData.map((s: any, idx: number) => ({
-                        step: s.step || idx + 1,
-                        title: s.title || `Step ${idx + 1}`,
-                        description: s.description || "",
-                        status: idx === 0 ? 'running' as const : 'pending' as const,
-                      })));
-                    }
-                  } catch {}
-                }
+                // FIX: Batch all SSE state updates inside startTransition to prevent
+                // React error #185 (cannot update a component while rendering a different component).
+                // Without batching, each setState triggers an immediate re-render, and when
+                // multiple setStates fire in rapid succession during SSE streaming, React can
+                // detect a component being updated while another is mid-render.
+                startTransition(() => {
+                  setAgentSteps([...collectedSteps]);
 
-                // Parse plan_task tool_result to extract TODO items with prompts
-                if (step.type === "tool_result" && step.toolName === "plan_task") {
-                  try {
-                    const resultStr = step.toolResult || step.content || "";
-                    const planData = JSON.parse(resultStr);
-                    if (planData.requiresActivation && planData.steps && planData.steps.length > 0) {
-                      const newTodos = planData.steps.map((s: any) => ({
-                        id: s.id || `todo-${Date.now()}-${s.step}`,
-                        step: s.step,
-                        title: s.title,
-                        description: s.description || "",
-                        prompt: s.prompt || s.description || "",
-                        status: 'pending' as const,
-                      }));
-                      collectedTodoItems = newTodos;
-                      setTodoItems(newTodos);
-                    }
-                  } catch {
-                    // If JSON parsing fails, try regex fallback
+                  // Check for plan_task steps (Feature 2)
+                  if (step.type === "tool_call" && step.toolName === "plan_task") {
                     try {
-                      const resultStr = step.toolResult || step.content || "";
-                      const stepsMatch = resultStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                      const argsStr = step.content || "";
+                      const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
                       if (stepsMatch) {
                         const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
-                        if (stepsData.length > 0 && stepsData[0].prompt) {
-                          const newTodos = stepsData.map((s: any, idx: number) => ({
-                            id: s.id || `todo-${Date.now()}-${idx}`,
-                            step: s.step || idx + 1,
-                            title: s.title || `Step ${idx + 1}`,
-                            description: s.description || "",
-                            prompt: s.prompt || s.description || "",
-                            status: 'pending' as const,
-                          }));
-                          collectedTodoItems = newTodos;
-                          setTodoItems(newTodos);
-                        }
+                        setPlanSteps(stepsData.map((s: any, idx: number) => ({
+                          step: s.step || idx + 1,
+                          title: s.title || `Step ${idx + 1}`,
+                          description: s.description || "",
+                          status: idx === 0 ? 'running' as const : 'pending' as const,
+                        })));
                       }
                     } catch {}
                   }
-                }
 
-                // Update plan step status as tools execute
-                if (step.type === "tool_result" && planSteps.length > 0) {
-                  setPlanSteps(prev => {
+                  // Update live steps with status
+                  setLiveSteps((prev) => {
                     const updated = [...prev];
-                    const runningIdx = updated.findIndex(s => s.status === 'running');
-                    if (runningIdx >= 0) {
-                      updated[runningIdx] = { ...updated[runningIdx], status: 'completed' as const };
-                      if (runningIdx + 1 < updated.length) {
-                        updated[runningIdx + 1] = { ...updated[runningIdx + 1], status: 'running' as const };
-                      }
+                    // Mark previous steps as done
+                    if (updated.length > 0) {
+                      updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
                     }
+                    updated.push({
+                      type: step.type,
+                      content: step.type === "thinking" ? "Thinking..." :
+                               step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                               step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                               step.type === "plan" ? "Planning approach..." :
+                               step.type === "error" ? "Error occurred" :
+                               "Preparing response...",
+                      toolName: step.toolName,
+                      status: 'running',
+                    });
                     return updated;
                   });
-                }
 
-                // Update live steps with status
-                setLiveSteps((prev) => {
-                  const updated = [...prev];
-                  // Mark previous steps as done
-                  if (updated.length > 0) {
-                    updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+                  // Update plan step status as tools execute
+                  if (step.type === "tool_result" && planStepsRef.current.length > 0) {
+                    setPlanSteps(prev => {
+                      const updated = [...prev];
+                      const runningIdx = updated.findIndex(s => s.status === 'running');
+                      if (runningIdx >= 0) {
+                        updated[runningIdx] = { ...updated[runningIdx], status: 'completed' as const };
+                        if (runningIdx + 1 < updated.length) {
+                          updated[runningIdx + 1] = { ...updated[runningIdx + 1], status: 'running' as const };
+                        }
+                      }
+                      return updated;
+                    });
                   }
-                  updated.push({
-                    type: step.type,
-                    content: step.type === "thinking" ? "Thinking..." :
-                             step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
-                             step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
-                             step.type === "plan" ? "Planning approach..." :
-                             step.type === "error" ? "Error occurred" :
-                             "Preparing response...",
-                    toolName: step.toolName,
-                    status: 'running',
-                  });
-                  return updated;
                 });
 
                 // ── Auto-generate TODO items from live tool calls ──
@@ -1421,7 +1400,8 @@ export default function AgentChatPage() {
                       prompt: autoPrompt,
                       status: 'running' as const,
                     };
-                    setTodoItems(prev => [...prev, newTodo]);
+                    // FIX: Wrap in startTransition to prevent React error #185
+                    startTransition(() => { setTodoItems(prev => [...prev, newTodo]); });
                   }
                 }
 
@@ -1429,20 +1409,23 @@ export default function AgentChatPage() {
                   // Only update auto-generated TODOs if we don't have plan_task-based TODOs
                   if (collectedTodoItems.length === 0) {
                     const success = step.content && !step.content.includes('failed');
-                    setTodoItems(prev => {
-                      // Find the last running item and mark it completed/failed
-                      const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
-                      if (lastRunningIdx >= 0) {
-                        const actualIdx = prev.length - 1 - lastRunningIdx;
-                        const updated = [...prev];
-                        updated[actualIdx] = {
-                          ...updated[actualIdx],
-                          status: success ? 'completed' as const : 'failed' as const,
-                          result: step.content?.substring(0, 200),
-                        };
-                        return updated;
-                      }
-                      return prev;
+                    // FIX: Wrap in startTransition to prevent React error #185
+                    startTransition(() => {
+                      setTodoItems(prev => {
+                        // Find the last running item and mark it completed/failed
+                        const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
+                        if (lastRunningIdx >= 0) {
+                          const actualIdx = prev.length - 1 - lastRunningIdx;
+                          const updated = [...prev];
+                          updated[actualIdx] = {
+                            ...updated[actualIdx],
+                            status: success ? 'completed' as const : 'failed' as const,
+                            result: step.content?.substring(0, 200),
+                          };
+                          return updated;
+                        }
+                        return prev;
+                      });
                     });
                   }
                 }
@@ -1471,83 +1454,87 @@ export default function AgentChatPage() {
               } else if (event.type === "step") {
                 const step = event.step;
                 collectedSteps.push(step);
-                setAgentSteps([...collectedSteps]);
 
-                // Check for plan_task steps
-                if (step.type === "tool_call" && step.toolName === "plan_task") {
-                  try {
-                    const argsStr = step.content || "";
-                    const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
-                    if (stepsMatch) {
-                      const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
-                      setPlanSteps(stepsData.map((s: any, idx: number) => ({
-                        step: s.step || idx + 1,
-                        title: s.title || `Step ${idx + 1}`,
-                        description: s.description || "",
-                        status: idx === 0 ? 'running' as const : 'pending' as const,
-                      })));
-                    }
-                  } catch {}
-                }
+                // FIX: Batch all SSE state updates inside startTransition (same as main loop)
+                startTransition(() => {
+                  setAgentSteps([...collectedSteps]);
 
-                // Parse plan_task tool_result to extract TODO items
-                if (step.type === "tool_result" && step.toolName === "plan_task") {
-                  try {
-                    const resultStr = step.toolResult || step.content || "";
-                    const planData = JSON.parse(resultStr);
-                    if (planData.requiresActivation && planData.steps && planData.steps.length > 0) {
-                      const newTodos = planData.steps.map((s: any) => ({
-                        id: s.id || `todo-${Date.now()}-${s.step}`,
-                        step: s.step,
-                        title: s.title,
-                        description: s.description || "",
-                        prompt: s.prompt || s.description || "",
-                        status: 'pending' as const,
-                      }));
-                      collectedTodoItems = newTodos;
-                      setTodoItems(newTodos);
-                    }
-                  } catch {
+                  // Check for plan_task steps
+                  if (step.type === "tool_call" && step.toolName === "plan_task") {
                     try {
-                      const resultStr = step.toolResult || step.content || "";
-                      const stepsMatch = resultStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                      const argsStr = step.content || "";
+                      const stepsMatch = argsStr.match(/"steps":\s*\[([\s\S]*?)\]/);
                       if (stepsMatch) {
                         const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
-                        if (stepsData.length > 0 && stepsData[0].prompt) {
-                          const newTodos = stepsData.map((s: any, idx: number) => ({
-                            id: s.id || `todo-${Date.now()}-${idx}`,
-                            step: s.step || idx + 1,
-                            title: s.title || `Step ${idx + 1}`,
-                            description: s.description || "",
-                            prompt: s.prompt || s.description || "",
-                            status: 'pending' as const,
-                          }));
-                          collectedTodoItems = newTodos;
-                          setTodoItems(newTodos);
-                        }
+                        setPlanSteps(stepsData.map((s: any, idx: number) => ({
+                          step: s.step || idx + 1,
+                          title: s.title || `Step ${idx + 1}`,
+                          description: s.description || "",
+                          status: idx === 0 ? 'running' as const : 'pending' as const,
+                        })));
                       }
                     } catch {}
                   }
-                }
 
-                // Update live steps with status
-                setLiveSteps((prev) => {
-                  const updated = [...prev];
-                  if (updated.length > 0) {
-                    updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+                  // Parse plan_task tool_result to extract TODO items
+                  if (step.type === "tool_result" && step.toolName === "plan_task") {
+                    try {
+                      const resultStr = step.toolResult || step.content || "";
+                      const planData = JSON.parse(resultStr);
+                      if (planData.requiresActivation && planData.steps && planData.steps.length > 0) {
+                        const newTodos = planData.steps.map((s: any) => ({
+                          id: s.id || `todo-${Date.now()}-${s.step}`,
+                          step: s.step,
+                          title: s.title,
+                          description: s.description || "",
+                          prompt: s.prompt || s.description || "",
+                          status: 'pending' as const,
+                        }));
+                        collectedTodoItems = newTodos;
+                        setTodoItems(newTodos);
+                      }
+                    } catch {
+                      try {
+                        const resultStr = step.toolResult || step.content || "";
+                        const stepsMatch = resultStr.match(/"steps":\s*\[([\s\S]*?)\]/);
+                        if (stepsMatch) {
+                          const stepsData = JSON.parse(`[${stepsMatch[1]}]`);
+                          if (stepsData.length > 0 && stepsData[0].prompt) {
+                            const newTodos = stepsData.map((s: any, idx: number) => ({
+                              id: s.id || `todo-${Date.now()}-${idx}`,
+                              step: s.step || idx + 1,
+                              title: s.title || `Step ${idx + 1}`,
+                              description: s.description || "",
+                              prompt: s.prompt || s.description || "",
+                              status: 'pending' as const,
+                            }));
+                            collectedTodoItems = newTodos;
+                            setTodoItems(newTodos);
+                          }
+                        }
+                      } catch {}
+                    }
                   }
-                  updated.push({
-                    type: step.type,
-                    content: step.type === "thinking" ? "Thinking..." :
-                             step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
-                             step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
-                             step.type === "plan" ? "Planning approach..." :
-                             step.type === "error" ? "Error occurred" :
-                             "Preparing response...",
-                    toolName: step.toolName,
-                    status: 'running',
+
+                  // Update live steps with status
+                  setLiveSteps((prev) => {
+                    const updated = [...prev];
+                    if (updated.length > 0) {
+                      updated[updated.length - 1] = { ...updated[updated.length - 1], status: 'done' };
+                    }
+                    updated.push({
+                      type: step.type,
+                      content: step.type === "thinking" ? "Thinking..." :
+                               step.type === "tool_call" ? `Using ${step.toolName || 'tool'}...` :
+                               step.type === "tool_result" ? `${step.toolName || 'Tool'} completed` :
+                               step.type === "plan" ? "Planning approach..." :
+                               step.type === "error" ? "Error occurred" :
+                               "Preparing response...",
+                      toolName: step.toolName,
+                      status: 'running',
+                    });
+                    return updated;
                   });
-                  return updated;
                 });
 
                 // ── Auto-generate TODO items from live tool calls (buffer drain) ──
@@ -1571,19 +1558,25 @@ export default function AgentChatPage() {
                     step.toolName === 'edit_file' ? `Edit file ${args.path || 'unknown'}` :
                     step.toolName === 'run_command' ? `Run: ${args.command || ''}` :
                     `${step.toolName}: ${title}`;
-                  setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
+                  // FIX: Wrap in startTransition to prevent React error #185
+                  startTransition(() => {
+                    setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
+                  });
                 }
                 if (step.type === "tool_result" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
                   const success = step.content && !step.content.includes('failed');
-                  setTodoItems(prev => {
-                    const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
-                    if (lastRunningIdx >= 0) {
-                      const actualIdx = prev.length - 1 - lastRunningIdx;
-                      const updated = [...prev];
-                      updated[actualIdx] = { ...updated[actualIdx], status: success ? 'completed' as const : 'failed' as const, result: step.content?.substring(0, 200) };
-                      return updated;
-                    }
-                    return prev;
+                  // FIX: Wrap in startTransition to prevent React error #185
+                  startTransition(() => {
+                    setTodoItems(prev => {
+                      const lastRunningIdx = [...prev].reverse().findIndex(t => t.status === 'running');
+                      if (lastRunningIdx >= 0) {
+                        const actualIdx = prev.length - 1 - lastRunningIdx;
+                        const updated = [...prev];
+                        updated[actualIdx] = { ...updated[actualIdx], status: success ? 'completed' as const : 'failed' as const, result: step.content?.substring(0, 200) };
+                        return updated;
+                      }
+                      return prev;
+                    });
                   });
                 }
               } else if (event.type === "error") {
@@ -1876,41 +1869,53 @@ export default function AgentChatPage() {
   }, [activeChatId, markProcessingEnd, fetchMessages]);
 
   // ── Auto-save TODO items to DB when they change ──
+  // FIX: Removed `messages` from dependency array and use messagesRef instead.
+  // Previously, `messages` was in deps + setMessages() was called inside = circular re-render = React error #185.
+  // Also added debounce (500ms) to prevent rapid-fire updates during SSE streaming.
   useEffect(() => {
     if (todoItems.length === 0 || !activeChatId) return;
 
-    // Save TODO items to Chat model (persists across navigation)
-    fetch("/api/chats", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ id: activeChatId, todoItems, isProcessing: todoItems.some(t => t.status === 'running') }),
-    }).catch(() => {});
-
-    // Also save to message metadata (legacy support)
-    const planMsg = [...messages].reverse().find(m => {
-      if (m.role !== 'assistant') return false;
-      try {
-        const meta = JSON.parse(m.metadata || "{}");
-        return (meta.todoItems && meta.todoItems.length > 0) || (meta.autoTodoItems && meta.autoTodoItems.length > 0);
-      } catch { return false; }
-    });
-    if (!planMsg) return;
-    try {
-      const meta = JSON.parse(planMsg.metadata || "{}");
-      const isAutoGenerated = !todoItems.some(t => t.prompt && t.prompt.length > 0);
-      const updatedMeta = isAutoGenerated
-        ? { ...meta, autoTodoItems: todoItems }
-        : { ...meta, todoItems };
-      fetch("/api/chats/messages", {
+    // Debounce: wait 500ms before saving to avoid rapid-fire DB writes during streaming
+    const timer = setTimeout(() => {
+      // Save TODO items to Chat model (persists across navigation)
+      fetch("/api/chats", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ messageId: planMsg.id, metadata: updatedMeta }),
+        body: JSON.stringify({ id: activeChatId, todoItems, isProcessing: todoItems.some(t => t.status === 'running') }),
       }).catch(() => {});
-      setMessages(prev => prev.map(m => m.id === planMsg.id ? { ...m, metadata: JSON.stringify(updatedMeta) } : m));
-    } catch {}
-  }, [todoItems, activeChatId, messages]);
+
+      // Also save to message metadata (legacy support)
+      // FIX: Use messagesRef.current instead of messages (from closure/dependency)
+      const planMsg = [...messagesRef.current].reverse().find(m => {
+        if (m.role !== 'assistant') return false;
+        try {
+          const meta = JSON.parse(m.metadata || "{}");
+          return (meta.todoItems && meta.todoItems.length > 0) || (meta.autoTodoItems && meta.autoTodoItems.length > 0);
+        } catch { return false; }
+      });
+      if (!planMsg) return;
+      try {
+        const meta = JSON.parse(planMsg.metadata || "{}");
+        const isAutoGenerated = !todoItems.some(t => t.prompt && t.prompt.length > 0);
+        const updatedMeta = isAutoGenerated
+          ? { ...meta, autoTodoItems: todoItems }
+          : { ...meta, todoItems };
+        fetch("/api/chats/messages", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ messageId: planMsg.id, metadata: updatedMeta }),
+        }).catch(() => {});
+        // FIX: Wrap setMessages in startTransition to avoid triggering React error #185
+        startTransition(() => {
+          setMessages(prev => prev.map(m => m.id === planMsg.id ? { ...m, metadata: JSON.stringify(updatedMeta) } : m));
+        });
+      } catch {}
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [todoItems, activeChatId]); // FIX: `messages` removed from deps
 
   // ── Key handler ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
