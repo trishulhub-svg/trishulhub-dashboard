@@ -213,13 +213,71 @@ const taskStatusColors: Record<string, string> = {
   CANCELLED: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+// ─── Safe Markdown Renderer ─────────────────────────────────────
+// Wraps ReactMarkdown + SyntaxHighlighter in error boundary
+// so malformed AI output doesn't crash the entire page
+function SafeMarkdown({ content }: { content: string }) {
+  try {
+    return (
+      <ReactMarkdown
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const codeStr = String(children).replace(/\n$/, "");
+            const isInline = !match && !codeStr.includes("\n");
+            if (isInline) {
+              return <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-mono text-purple-600 dark:text-purple-400" {...props}>{children}</code>;
+            }
+            try {
+              return (
+                <div className="relative group my-2">
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-[#1e1e2e] border border-border/30 border-b-0 rounded-t-lg text-[10px] text-muted-foreground/60">
+                    <span>{match ? match[1] : "code"}</span>
+                    <button
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        navigator.clipboard.writeText(codeStr);
+                        toast.success("Code copied!");
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <SyntaxHighlighter
+                    style={oneDark}
+                    language={match ? match[1] : "typescript"}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: "0 0 0.5rem 0.5rem",
+                      fontSize: "12px",
+                    }}
+                  >
+                    {codeStr}
+                  </SyntaxHighlighter>
+                </div>
+              );
+            } catch {
+              return <pre className="bg-muted p-2 rounded text-xs overflow-auto">{codeStr}</pre>;
+            }
+          },
+        }}
+      >
+        {content || ""}
+      </ReactMarkdown>
+    );
+  } catch {
+    return <pre className="whitespace-pre-wrap text-sm">{content}</pre>;
+  }
+}
+
 // ─── Main Component ─────────────────────────────────────────────
 export default function AgentChatPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const isMobile = useIsMobile();
-  const agentId = params.agentId as string;
+  const agentId = (params?.agentId as string) || "";
 
   // Core state
   const [agent, setAgent] = useState<AgentData | null>(null);
@@ -340,11 +398,17 @@ export default function AgentChatPage() {
 
   // ── Fetch Agent ──
   const fetchAgent = useCallback(async () => {
+    if (!agentId) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch("/api/agents", { credentials: "include" });
       if (res.ok) {
-        const agents = await res.json();
-        const found = (agents as AgentData[]).find((a) => a.id === agentId);
+        const data = await res.json();
+        // Handle API error responses that return objects instead of arrays
+        const agents = Array.isArray(data) ? data : [];
+        const found = agents.find((a) => a.id === agentId);
         if (found) {
           setAgent(found);
           setAllAgents(agents);
@@ -366,7 +430,7 @@ export default function AgentChatPage() {
       const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setChats(data as Chat[]);
+        setChats(Array.isArray(data) ? data as Chat[] : []);
       }
     } catch (err) {
       console.error("Failed to fetch chats:", err);
@@ -382,7 +446,7 @@ export default function AgentChatPage() {
       const res = await fetch(`/api/chats/messages?chatId=${chatId}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        const msgs = (data.messages || data) as ChatMessage[];
+        const msgs = (Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : []) as ChatMessage[];
         setMessages(msgs);
         return msgs;
       }
@@ -3268,33 +3332,39 @@ function ChatArea({
                                                 </div>
                                                 {step.toolArgs?.content && (
                                                   <div className="relative">
-                                                    <SyntaxHighlighter
-                                                      style={oneDark}
-                                                      language={
-                                                        (() => {
-                                                          const p = step.toolArgs?.path || step.toolArgs?.file_path || '';
-                                                          const ext = p.split('.').pop() || '';
-                                                          const langMap: Record<string, string> = {
-                                                            ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-                                                            py: "python", css: "css", html: "html", json: "json",
-                                                            sh: "bash", sql: "sql", md: "markdown",
-                                                          };
-                                                          return langMap[ext] || ext || "typescript";
-                                                        })()
+                                                    {(() => {
+                                                      try {
+                                                        const p = step.toolArgs?.path || step.toolArgs?.file_path || '';
+                                                        const ext = p.split('.').pop() || '';
+                                                        const langMap: Record<string, string> = {
+                                                          ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+                                                          py: "python", css: "css", html: "html", json: "json",
+                                                          sh: "bash", sql: "sql", md: "markdown",
+                                                        };
+                                                        const lang = langMap[ext] || ext || "typescript";
+                                                        const codeContent = step.toolArgs.content.length > 5000
+                                                          ? step.toolArgs.content.substring(0, 5000) + `\n... (${step.toolArgs.content.length - 5000} more characters)`
+                                                          : step.toolArgs.content;
+                                                        return (
+                                                          <SyntaxHighlighter
+                                                            style={oneDark}
+                                                            language={lang}
+                                                            PreTag="div"
+                                                            customStyle={{
+                                                              margin: 0,
+                                                              borderRadius: 0,
+                                                              fontSize: "9px",
+                                                              maxHeight: "200px",
+                                                              overflow: "auto",
+                                                            }}
+                                                          >
+                                                            {codeContent}
+                                                          </SyntaxHighlighter>
+                                                        );
+                                                      } catch {
+                                                        return <pre className="text-[9px] font-mono p-2 overflow-auto max-h-48">{step.toolArgs.content?.substring(0, 2000)}</pre>;
                                                       }
-                                                      PreTag="div"
-                                                      customStyle={{
-                                                        margin: 0,
-                                                        borderRadius: 0,
-                                                        fontSize: "9px",
-                                                        maxHeight: "200px",
-                                                        overflow: "auto",
-                                                      }}
-                                                    >
-                                                      {step.toolArgs.content.length > 5000
-                                                        ? step.toolArgs.content.substring(0, 5000) + `\n... (${step.toolArgs.content.length - 5000} more characters)`
-                                                        : step.toolArgs.content}
-                                                    </SyntaxHighlighter>
+                                                    })()}
                                                   </div>
                                                 )}
                                               </div>
@@ -3408,22 +3478,31 @@ function ChatArea({
                                         >
                                           <Copy className="h-2.5 w-2.5" />
                                         </button>
-                                        <SyntaxHighlighter
-                                          style={oneDark}
-                                          language={file.language || "typescript"}
-                                          PreTag="div"
-                                          customStyle={{
-                                            margin: 0,
-                                            borderRadius: 0,
-                                            fontSize: "10px",
-                                            maxHeight: "300px",
-                                            overflow: "auto",
-                                          }}
-                                        >
-                                          {file.codeContent.length > 5000
-                                            ? file.codeContent.substring(0, 5000) + `\n... (${file.codeContent.length - 5000} more characters)`
-                                            : file.codeContent}
-                                        </SyntaxHighlighter>
+                                        {(() => {
+                                          try {
+                                            const codeContent = file.codeContent.length > 5000
+                                              ? file.codeContent.substring(0, 5000) + `\n... (${file.codeContent.length - 5000} more characters)`
+                                              : file.codeContent;
+                                            return (
+                                              <SyntaxHighlighter
+                                                style={oneDark}
+                                                language={file.language || "typescript"}
+                                                PreTag="div"
+                                                customStyle={{
+                                                  margin: 0,
+                                                  borderRadius: 0,
+                                                  fontSize: "10px",
+                                                  maxHeight: "300px",
+                                                  overflow: "auto",
+                                                }}
+                                              >
+                                                {codeContent}
+                                              </SyntaxHighlighter>
+                                            );
+                                          } catch {
+                                            return <pre className="text-[9px] font-mono p-2 overflow-auto max-h-64">{file.codeContent?.substring(0, 5000)}</pre>;
+                                          }
+                                        })()}
                                       </div>
                                     ) : file.resultContent ? (
                                       <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all leading-tight">
@@ -3636,50 +3715,7 @@ function ChatArea({
                         return null;
                       })()}
                       <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none [&_pre]:bg-[#1e1e2e] [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border/30 [&_pre]:p-3 [&_code]:text-[12px] [&_code]:font-mono [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ol]:mb-2 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-purple-400 [&_blockquote]:pl-3 [&_blockquote]:italic">
-                        <ReactMarkdown
-                          components={{
-                            code({ className, children, ...props }) {
-                              const match = /language-(\w+)/.exec(className || "");
-                              const codeString = String(children).replace(/\n$/, "");
-                              const isInline = !match && !codeString.includes('\n');
-                              return isInline ? (
-                                <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-mono text-purple-600 dark:text-purple-400" {...props}>
-                                  {children}
-                                </code>
-                              ) : (
-                                <div className="relative group my-2">
-                                  <div className="flex items-center justify-between px-3 py-1.5 bg-[#1e1e2e] border border-border/30 border-b-0 rounded-t-lg text-[10px] text-muted-foreground/60">
-                                    <span>{match ? match[1] : "code"}</span>
-                                    <button
-                                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(codeString);
-                                        toast.success("Code copied!");
-                                      }}
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                  <SyntaxHighlighter
-                                    style={oneDark}
-                                    language={match ? match[1] : "typescript"}
-                                    PreTag="div"
-                                    customStyle={{
-                                      margin: 0,
-                                      borderRadius: "0 0 0.5rem 0.5rem",
-                                      fontSize: "12px",
-                                    }}
-                                    {...props}
-                                  >
-                                    {codeString}
-                                  </SyntaxHighlighter>
-                                </div>
-                              );
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                        <SafeMarkdown content={msg.content || ""} />
                       </div>
                     </>
                   )}

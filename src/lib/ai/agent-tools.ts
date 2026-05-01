@@ -13,46 +13,64 @@ const execAsync = promisify(exec)
 // On Vercel (serverless), process.cwd() is /var/task/ which is READ-ONLY.
 // We must use /tmp/agent-workspace/ for file write operations.
 // On local dev, process.cwd() is writable so we use it directly.
+//
+// CRITICAL FIX: These are now lazy-initialized (not at module import time).
+// Previously, fs.writeFileSync at import time could crash the entire module
+// on Vercel's read-only filesystem, causing ALL API routes that import
+// this module to fail with a 500 error.
 const PROJECT_ROOT = process.cwd()
-const IS_READ_ONLY_FS = (() => {
+
+let _isReadOnlyFs: boolean | null = null
+let _workspaceRoot: string | null = null
+
+function isReadOnlyFS(): boolean {
+  if (_isReadOnlyFs !== null) return _isReadOnlyFs
   try {
     const testFile = path.join(PROJECT_ROOT, '.write-test-' + Date.now())
     fs.writeFileSync(testFile, 'test', 'utf-8')
     fs.unlinkSync(testFile)
-    return false
+    _isReadOnlyFs = false
   } catch {
-    return true // Filesystem is read-only (e.g., Vercel /var/task/)
+    _isReadOnlyFs = true // Filesystem is read-only (e.g., Vercel /var/task/)
   }
-})()
+  return _isReadOnlyFs
+}
 
-// Use /tmp/agent-workspace/ as writable root when filesystem is read-only
-const WORKSPACE_ROOT = IS_READ_ONLY_FS
-  ? (() => {
-      const tmpDir = '/tmp/agent-workspace'
+function getWorkspaceRoot(): string {
+  if (_workspaceRoot !== null) return _workspaceRoot
+  if (isReadOnlyFS()) {
+    const tmpDir = '/tmp/agent-workspace'
+    try {
       if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-      return tmpDir
-    })()
-  : PROJECT_ROOT
+    } catch {}
+    _workspaceRoot = tmpDir
+  } else {
+    _workspaceRoot = PROJECT_ROOT
+  }
+  return _workspaceRoot
+}
 
 /**
  * Resolve a file path to the appropriate workspace root.
- * Uses WORKSPACE_ROOT (writable) for write operations,
+ * Uses workspace root (writable) for write operations,
  * falls back to PROJECT_ROOT for read-only operations.
  */
 function resolveWorkspacePath(filePath: string, forWrite: boolean = false): string {
-  // For write operations, always use WORKSPACE_ROOT (writable)
+  // For write operations, always use workspace root (writable)
   if (forWrite) {
-    return path.resolve(WORKSPACE_ROOT, filePath)
+    return path.resolve(getWorkspaceRoot(), filePath)
   }
-  // For read operations, try PROJECT_ROOT first, then WORKSPACE_ROOT
+  // For read operations, try PROJECT_ROOT first, then workspace root
   const projectPath = path.resolve(PROJECT_ROOT, filePath)
-  if (fs.existsSync(projectPath)) return projectPath
-  const workspacePath = path.resolve(WORKSPACE_ROOT, filePath)
+  try {
+    if (fs.existsSync(projectPath)) return projectPath
+  } catch {}
+  const workspacePath = path.resolve(getWorkspaceRoot(), filePath)
   return workspacePath
 }
 
 function isPathWithinWorkspace(fullPath: string, forWrite: boolean = false): boolean {
-  const root = forWrite ? WORKSPACE_ROOT : PROJECT_ROOT
+  const root = forWrite ? getWorkspaceRoot() : PROJECT_ROOT
   return fullPath.startsWith(root + path.sep) || fullPath === root
 }
 
@@ -1448,7 +1466,7 @@ async function executeListFiles(dirPath: string, pattern?: string): Promise<stri
   if (!isPathWithinWorkspace(fullPath, false)) return `Error: Cannot list files outside project directory.`
   if (!fs.existsSync(fullPath)) {
     // Try workspace root
-    const wsPath = path.resolve(WORKSPACE_ROOT, dirPath === "." ? "" : dirPath)
+    const wsPath = path.resolve(getWorkspaceRoot(), dirPath === "." ? "" : dirPath)
     if (fs.existsSync(wsPath)) {
       return listDirContents(wsPath, dirPath, pattern)
     }
@@ -1521,7 +1539,7 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
 
   try {
     const { stdout, stderr } = await execAsync(command, {
-      cwd: WORKSPACE_ROOT,
+      cwd: getWorkspaceRoot(),
       timeout: 30000,
       maxBuffer: 1024 * 1024,
     })
@@ -1575,7 +1593,7 @@ async function executeAnalyzeCode(filePath: string, focus: string): Promise<stri
 async function executeGitStatus(purpose?: string): Promise<string> {
   try {
     const { stdout } = await execAsync("git status --porcelain && echo '---BRANCH---' && git branch --show-current && echo '---REMOTE---' && git remote -v", {
-      cwd: WORKSPACE_ROOT,
+      cwd: getWorkspaceRoot(),
       timeout: 15000,
     })
     return `Git Status${purpose ? ` (Purpose: ${purpose})` : ""}:\n${stdout.trim()}`
@@ -1590,8 +1608,8 @@ async function executeGitCreateBranch(name: string, purpose?: string): Promise<s
     return `Error: Invalid branch name "${name}". Use only letters, numbers, hyphens, underscores, and slashes.`
   }
   try {
-    const { stdout: currentBranch } = await execAsync("git branch --show-current", { cwd: WORKSPACE_ROOT, timeout: 10000 })
-    const { stdout } = await execAsync(`git checkout -b ${name}`, { cwd: WORKSPACE_ROOT, timeout: 15000 })
+    const { stdout: currentBranch } = await execAsync("git branch --show-current", { cwd: getWorkspaceRoot(), timeout: 10000 })
+    const { stdout } = await execAsync(`git checkout -b ${name}`, { cwd: getWorkspaceRoot(), timeout: 15000 })
     return `Created and switched to branch "${name}" from "${currentBranch.trim()}"${purpose ? `\nPurpose: ${purpose}` : ""}\n${stdout.trim()}\n\nYou can now make changes on this branch. Use git_commit_push to push when ready.`
   } catch (error: any) {
     return `Error creating branch: ${error.message}`
@@ -1605,7 +1623,7 @@ async function executeGitDiff(filePath?: string, purpose?: string): Promise<stri
     const cmd = safeFilePath
       ? `git diff -- ${safeFilePath}`
       : "git diff --stat && echo '---DETAILED---' && git diff"
-    const { stdout } = await execAsync(cmd, { cwd: WORKSPACE_ROOT, timeout: 15000, maxBuffer: 2 * 1024 * 1024 })
+    const { stdout } = await execAsync(cmd, { cwd: getWorkspaceRoot(), timeout: 15000, maxBuffer: 2 * 1024 * 1024 })
     if (!stdout.trim()) {
       return "No unstaged changes found. (Staged changes not shown - use 'git diff --cached' to see staged changes)"
     }
@@ -1632,10 +1650,10 @@ async function executeGitCommitPush(
     }).filter(f => f.length > 0 && !f.startsWith('/') && !f.includes('..'))
     if (safeFiles.length === 0) return "Error: No valid file paths provided."
     const filesArg = safeFiles.length === 1 && safeFiles[0] === "." ? "." : safeFiles.map(f => `"${f}"`).join(" ")
-    await execAsync(`git add ${filesArg}`, { cwd: WORKSPACE_ROOT, timeout: 15000 })
+    await execAsync(`git add ${filesArg}`, { cwd: getWorkspaceRoot(), timeout: 15000 })
 
     // 2. Check what's staged
-    const { stdout: staged } = await execAsync("git diff --cached --stat", { cwd: WORKSPACE_ROOT, timeout: 15000 })
+    const { stdout: staged } = await execAsync("git diff --cached --stat", { cwd: getWorkspaceRoot(), timeout: 15000 })
     if (!staged.trim()) {
       return "No changes to commit. All files are already up to date."
     }
@@ -1644,7 +1662,7 @@ async function executeGitCommitPush(
     // Sanitize commit message - remove shell metacharacters
     const safeMessage = message.replace(/["`$\\]/g, '').replace(/\n/g, ' ').substring(0, 200)
     const { stdout: commitOut } = await execAsync(`git commit -m "${safeMessage}"`, {
-      cwd: WORKSPACE_ROOT,
+      cwd: getWorkspaceRoot(),
       timeout: 30000,
     })
 
@@ -1652,7 +1670,7 @@ async function executeGitCommitPush(
     // Sanitize branch name for push
     const safeBranch = (branch || '').replace(/[^a-zA-Z0-9\/_\-]/g, '')
     const pushCmd = safeBranch ? `git push origin ${safeBranch}` : "git push"
-    const { stdout: pushOut } = await execAsync(pushCmd, { cwd: WORKSPACE_ROOT, timeout: 60000 })
+    const { stdout: pushOut } = await execAsync(pushCmd, { cwd: getWorkspaceRoot(), timeout: 60000 })
 
     return [
       `✅ Git commit & push successful!`,

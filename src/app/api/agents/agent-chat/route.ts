@@ -404,7 +404,6 @@ export async function POST(req: NextRequest) {
                     const { exec } = require("child_process")
                     const { promisify } = require("util")
                     const execAsync = promisify(exec)
-                    // Use /tmp/agent-workspace on Vercel (read-only /var/task/)
                     const fs = require("fs")
                     const path = require("path")
                     let projectRoot = process.cwd()
@@ -414,7 +413,9 @@ export async function POST(req: NextRequest) {
                       fs.unlinkSync(testFile)
                     } catch {
                       projectRoot = '/tmp/agent-workspace'
-                      if (!fs.existsSync(projectRoot)) fs.mkdirSync(projectRoot, { recursive: true })
+                      try {
+                        if (!fs.existsSync(projectRoot)) fs.mkdirSync(projectRoot, { recursive: true })
+                      } catch {}
                     }
                     
                     // Configure git remote with token if needed
@@ -429,7 +430,7 @@ export async function POST(req: NextRequest) {
                     const { stdout: statusOut } = await execAsync(`git -C "${projectRoot}" status --porcelain`, { timeout: 10000 }).catch(() => ({ stdout: '' }))
                     if (statusOut.trim()) {
                       const commitMsg = `Auto-push by ${agent.name}: ${enrichedMessage.substring(0, 80)}`
-                      await execAsync(`git -C "${projectRoot}" commit -m "${commitMsg.replace(/["\n$`]/g, '')}"`, { timeout: 15000 }).catch(() => {})
+                      await execAsync(`git -C "${projectRoot}" commit -m "${commitMsg.replace(/["\n$\`]/g, '')}"`, { timeout: 15000 }).catch(() => {})
                       await execAsync(`git -C "${projectRoot}" push origin HEAD`, { timeout: 60000 }).catch(() => {})
                       console.log(`[agent-chat] Auto-pushed to GitHub for agent ${agent.name}`)
                     }
