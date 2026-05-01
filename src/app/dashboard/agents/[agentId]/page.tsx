@@ -3072,14 +3072,21 @@ function ChatArea({
                             </p>
                           </div>
                           {isError && retryPrompt && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs gap-1.5 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              onClick={() => onRetry(retryPrompt)}
-                            >
-                              <RotateCw className="h-3 w-3" /> Retry
-                            </Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-7 w-7 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    onClick={() => onRetry(retryPrompt)}
+                                  >
+                                    <RotateCw className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Retry</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           )}
                         </div>
                       );
@@ -3477,23 +3484,28 @@ function ChatArea({
                                   />
                                 </div>
                                 <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${todoExpanded ? "rotate-90" : ""}`} />
-                                {/* Run All button */}
+                                {/* Run All button - icon only like z.ai */}
                                 {!allCompleted && !hasRunning && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0 ml-1"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      // Auto-activate the first pending step
-                                      const firstPending = items.find((t: any) => t.status === 'pending');
-                                      if (firstPending) onActivateTodo(firstPending);
-                                    }}
-                                    disabled={sending}
-                                  >
-                                    <Zap className="h-2.5 w-2.5" />
-                                    Run Next
-                                  </Button>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-5 w-5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0 ml-1"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const firstPending = items.find((t: any) => t.status === 'pending');
+                                            if (firstPending) onActivateTodo(firstPending);
+                                          }}
+                                          disabled={sending}
+                                        >
+                                          <Zap className="h-3 w-3" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Run Next Step</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                 )}
                               </button>
 
@@ -3895,52 +3907,58 @@ function ChatArea({
       </ScrollArea>
 
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
-      {/* Z.ai-style TODO panel at chat bottom */}
+      {/* z.ai-style TODO panel at chat bottom - vertical list with progress bar */}
       {todoItems.length > 0 && (
-        <div className="border-t border-emerald-200/50 dark:border-emerald-800/30 bg-gradient-to-r from-emerald-50/80 to-green-50/60 dark:from-emerald-950/30 dark:to-green-950/20 shrink-0">
+        <div className="border-t border-border/50 bg-card/95 backdrop-blur-sm shrink-0">
           <div className="px-3 py-2">
-            <div className="flex items-center gap-2 mb-2">
+            {/* Header: Plan label + progress bar + Run Next */}
+            <div className="flex items-center gap-2 mb-1.5">
               {todoItems.every(t => t.status === 'completed') ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
               ) : todoItems.some(t => t.status === 'running') ? (
-                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 text-emerald-500 animate-spin shrink-0" />
               ) : (
-                <ListChecks className="h-4 w-4 text-emerald-500" />
+                <ListChecks className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
               )}
-              {/* Show "Plan" for plan_task items with prompts, "Progress" for auto-generated items */}
-              <span className="text-xs font-semibold text-foreground/80">
+              <span className="text-[11px] font-semibold text-foreground/80">
                 {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
               </span>
-              <span className="text-[10px] text-muted-foreground font-mono">
+              <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
                 {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
               </span>
-              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-[100px]">
+              <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-all duration-500 bg-emerald-500"
                   style={{
                     width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
-                    background: 'linear-gradient(90deg, #10b981, #059669)',
                   }}
                 />
               </div>
-              {/* Only show "Run Next" for plan_task-based items that have prompts, and not for ended chats */}
+              {/* Run Next button - icon only like z.ai */}
               {todoItems.some(t => t.prompt && t.prompt.length > 0) && activeChat?.status !== "ENDED" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
-                  onClick={() => {
-                    const firstPending = todoItems.find(t => t.status === 'pending');
-                    if (firstPending) onActivateTodo(firstPending);
-                  }}
-                  disabled={sending || !todoItems.some(t => t.status === 'pending')}
-                >
-                  <Zap className="h-2.5 w-2.5" />
-                  {todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next'}
-                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
+                        onClick={() => {
+                          const firstPending = todoItems.find(t => t.status === 'pending');
+                          if (firstPending) onActivateTodo(firstPending);
+                        }}
+                        disabled={sending || !todoItems.some(t => t.status === 'pending')}
+                      >
+                        <Zap className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next Step'}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            {/* z.ai-style vertical TODO list - compact rows */}
+            <div className="space-y-0.5 max-h-[120px] overflow-y-auto">
               {todoItems.map((item) => {
                 const isPending = item.status === 'pending';
                 const isRunning = item.status === 'running';
@@ -3951,20 +3969,20 @@ function ChatArea({
                   <button
                     key={item.id || item.step}
                     onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                      isCompleted ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 line-through' :
-                      isRunning ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700 animate-pulse' :
-                      isFailed ? 'bg-red-100/60 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                      hasPrompt ? 'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 cursor-pointer' :
-                      'bg-white/40 dark:bg-white/5 text-foreground/50'
+                    className={`flex items-center gap-2 w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all text-left ${
+                      isCompleted ? 'text-emerald-600 dark:text-emerald-400 line-through' :
+                      isRunning ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' :
+                      isFailed ? 'text-red-600 dark:text-red-400' :
+                      hasPrompt ? 'text-foreground/70 hover:bg-muted/50 cursor-pointer' :
+                      'text-muted-foreground'
                     }`}
                     disabled={sending || !isPending || !hasPrompt}
                   >
-                    {isCompleted ? <CheckCircle2 className="h-3 w-3" /> :
-                     isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> :
-                     isFailed ? <XCircle className="h-3 w-3" /> :
-                     <Circle className="h-3 w-3" />}
-                    <span>{item.step}. {item.title}</span>
+                    {isCompleted ? <CheckCircle2 className="h-3 w-3 shrink-0" /> :
+                     isRunning ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> :
+                     isFailed ? <XCircle className="h-3 w-3 shrink-0" /> :
+                     <Circle className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
+                    <span className="truncate">{item.step}. {item.title}</span>
                   </button>
                 );
               })}

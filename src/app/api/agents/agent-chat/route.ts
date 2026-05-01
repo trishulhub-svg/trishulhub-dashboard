@@ -404,7 +404,18 @@ export async function POST(req: NextRequest) {
                     const { exec } = require("child_process")
                     const { promisify } = require("util")
                     const execAsync = promisify(exec)
-                    const projectRoot = process.cwd()
+                    // Use /tmp/agent-workspace on Vercel (read-only /var/task/)
+                    const fs = require("fs")
+                    const path = require("path")
+                    let projectRoot = process.cwd()
+                    try {
+                      const testFile = path.join(projectRoot, '.write-test-' + Date.now())
+                      fs.writeFileSync(testFile, 'test', 'utf-8')
+                      fs.unlinkSync(testFile)
+                    } catch {
+                      projectRoot = '/tmp/agent-workspace'
+                      if (!fs.existsSync(projectRoot)) fs.mkdirSync(projectRoot, { recursive: true })
+                    }
                     
                     // Configure git remote with token if needed
                     const repoUrl = agent.roleConfig.githubRepo

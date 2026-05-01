@@ -33,7 +33,15 @@ export default function AgentsPage() {
       const res = await fetch("/api/agents", { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setAgents(data);
+        // Handle API error responses that return objects instead of arrays
+        if (Array.isArray(data)) {
+          setAgents(data);
+        } else if (data && typeof data === 'object' && data.error) {
+          console.error('API error fetching agents:', data.error, data.details);
+          setAgents([]);
+        } else {
+          setAgents([]);
+        }
       } else {
         console.error('Failed to fetch agents:', res.status, await res.text().catch(() => ''));
       }
@@ -74,7 +82,15 @@ export default function AgentsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {(agents as any[]).map((agent) => {
+        {(agents as any[]).length === 0 ? (
+          <div className="col-span-full text-center py-12">
+            <Bot className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No agents found. Please check your database configuration.</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); fetchAgents(); }}>
+              Refresh
+            </Button>
+          </div>
+        ) : (agents as any[]).map((agent) => {
           const Icon = agentIcons[agent.type] || Bot;
           const agentConfig = AGENT_TYPES[agent.type as AgentType];
           const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
