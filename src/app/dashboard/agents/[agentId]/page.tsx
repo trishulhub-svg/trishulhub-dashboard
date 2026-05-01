@@ -193,7 +193,8 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function truncate(str: string, len: number): string {
+function truncate(str: string | null | undefined, len: number): string {
+  if (!str) return "";
   if (str.length <= len) return str;
   return str.substring(0, len) + "...";
 }
@@ -479,7 +480,7 @@ export default function AgentChatPage() {
       const res = await fetch(`/api/scheduled-tasks?agentId=${agentId}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setScheduledTasks(data as ScheduledTask[]);
+        setScheduledTasks(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error("Failed to fetch scheduled tasks:", err);
@@ -499,7 +500,7 @@ export default function AgentChatPage() {
       ]);
       const inData = incoming.ok ? await incoming.json() : [];
       const outData = outgoing.ok ? await outgoing.json() : [];
-      setCrossAgentMsgs([...(inData as CrossAgentMsg[]), ...(outData as CrossAgentMsg[])].sort(
+      setCrossAgentMsgs([...(Array.isArray(inData) ? inData : []), ...(Array.isArray(outData) ? outData : [])].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ));
     } catch (err) {
@@ -586,7 +587,8 @@ export default function AgentChatPage() {
             const chatRes = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
             if (chatRes.ok) {
               const chatList = await chatRes.json();
-              const currentChat = (chatList as Chat[]).find(c => c.id === cId);
+              const chatArray = Array.isArray(chatList) ? chatList : [];
+              const currentChat = chatArray.find((c: Chat) => c.id === cId);
               if (currentChat && !currentChat.isProcessing) {
                 // Backend says not processing anymore - check if there's a new assistant message
                 const assistantMsgs = msgs.filter((m: ChatMessage) => m.role === 'assistant');
@@ -780,7 +782,8 @@ export default function AgentChatPage() {
         const res = await fetch("/api/notifications?unread=true", { credentials: "include" });
         if (res.ok) {
           const notifications = await res.json();
-          const taskNotifs = (notifications as any[]).filter(
+          const notifArray = Array.isArray(notifications) ? notifications : [];
+          const taskNotifs = notifArray.filter(
             (n: any) => n.type === "SUCCESS" && n.metadata && (() => {
               try { const meta = JSON.parse(n.metadata || "{}"); return meta.taskId; } catch { return false; }
             })()
@@ -2852,7 +2855,7 @@ function ChatSidebar({
                       <div className="flex items-center gap-2 mt-0.5">
                         {chat.messages && chat.messages.length > 0 && (
                           <span className="text-[10px] text-muted-foreground truncate">
-                            {truncate(chat.messages[0].content, 30)}
+                            {truncate(chat.messages[0]?.content, 30)}
                           </span>
                         )}
                       </div>
@@ -3194,7 +3197,7 @@ function ChatArea({
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
-                          if (meta.agentic && meta.steps && meta.steps.length > 0) {
+                          if (meta.agentic && Array.isArray(meta.steps) && meta.steps.length > 0) {
                             // BUG FIX: Auto-expand steps that contain code (write_file/edit_file)
                             const hasCodeSteps = meta.steps.some((s: any) => 
                               s.type === 'tool_call' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
@@ -3225,7 +3228,7 @@ function ChatArea({
                                   <span className="text-xs font-medium text-foreground/80">
                                     {meta.totalSteps || meta.steps.length} steps
                                   </span>
-                                  {meta.usedTools && meta.usedTools.length > 0 && (
+                                  {Array.isArray(meta.usedTools) && meta.usedTools.length > 0 && (
                                     <div className="flex items-center gap-1 ml-1 flex-wrap">
                                       {meta.usedTools.slice(0, 5).map((tool: string) => (
                                         <span key={tool} className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
@@ -3405,7 +3408,7 @@ function ChatArea({
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
-                          if (!meta.agentic || !meta.steps) return null;
+                          if (!meta.agentic || !Array.isArray(meta.steps)) return null;
                           // Extract all write_file and edit_file tool results
                           const codeSteps = meta.steps.filter((s: any) =>
                             s.type === 'tool_result' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
@@ -3539,7 +3542,7 @@ function ChatArea({
                           const meta = JSON.parse(msg.metadata || "{}");
                           // Get todoItems either from state (current message) or from metadata (historical)
                           const isLastAssistantMsg = messages.indexOf(msg) === messages.length - 1;
-                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (meta.todoItems || meta.autoTodoItems || []);
+                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (Array.isArray(meta.todoItems) ? meta.todoItems : Array.isArray(meta.autoTodoItems) ? meta.autoTodoItems : []);
                           if (!items || items.length === 0) return null;
 
                           const completedCount = items.filter((t: any) => t.status === 'completed').length;
@@ -3696,7 +3699,7 @@ function ChatArea({
                       {msg.role === "user" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
-                          if (meta.attachments && meta.attachments.length > 0) {
+                          if (Array.isArray(meta.attachments) && meta.attachments.length > 0) {
                             return (
                               <div className="flex flex-wrap gap-1.5 mb-1.5">
                                 {meta.attachments.map((att: { url: string; name?: string; type: string }, idx: number) => (
@@ -5426,7 +5429,7 @@ function CrossAgentDialog({
       const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setTargetChats(data as Chat[]);
+        setTargetChats(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error("Failed to fetch target agent chats:", err);
