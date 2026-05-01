@@ -342,19 +342,38 @@ export async function POST(req: NextRequest) {
                 agentType: agent.type,
                 totalSteps: result.totalSteps,
                 usedTools: result.usedTools,
-                steps: result.steps.map(s => ({
-                  type: s.type,
-                  toolName: s.toolName,
-                  content: s.type === "thinking"
-                    ? s.content.substring(0, 500)
-                    : s.type === "tool_result"
-                      ? s.content.substring(0, 2000)
-                      : s.type === "tool_call"
-                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                steps: result.steps.map(s => {
+                  // BUG FIX: For tool_call steps, preserve full toolArgs so the frontend
+                  // Code Generated section can show actual code content from toolArgs.content
+                  // For write_file/edit_file, toolArgs.content contains the actual code
+                  if (s.type === "tool_call" && s.toolArgs) {
+                    // Smart truncation: keep path/description full, truncate content to 50KB
+                    const truncatedArgs: Record<string, any> = {};
+                    for (const [k, v] of Object.entries(s.toolArgs)) {
+                      if (typeof v === 'string' && v.length > 50000) {
+                        truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated ${v.length - 50000} chars)`;
+                      } else {
+                        truncatedArgs[k] = v;
+                      }
+                    }
+                    return {
+                      type: s.type,
+                      toolName: s.toolName,
+                      content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`,
+                      toolArgs: truncatedArgs,
+                    };
+                  }
+                  return {
+                    type: s.type,
+                    toolName: s.toolName,
+                    content: s.type === "thinking"
+                      ? s.content.substring(0, 500)
+                      : s.type === "tool_result"
+                        ? s.content.substring(0, 2000)
                         : s.content.substring(0, 2000),
-                  toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
-                  toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
-                })),
+                    toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined,
+                  };
+                }),
               }
 
               if (result.thinkingContent) {
@@ -516,20 +535,37 @@ export async function POST(req: NextRequest) {
                 agentType: agent.type,
                 totalSteps: result.totalSteps,
                 usedTools: result.usedTools,
-                steps: result.steps.map(s => ({
-                  type: s.type,
-                  content: s.type === "thinking"
-                    ? s.content.substring(0, 500)
-                    : s.type === "tool_result"
-                      ? (s.toolResult || s.content).substring(0, 2000)
-                      : s.type === "tool_call"
-                        ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                steps: result.steps.map(s => {
+                  // BUG FIX: Preserve full toolArgs in SSE complete event for frontend code display
+                  if (s.type === "tool_call" && s.toolArgs) {
+                    const truncatedArgs: Record<string, any> = {};
+                    for (const [k, v] of Object.entries(s.toolArgs)) {
+                      if (typeof v === 'string' && v.length > 50000) {
+                        truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated)`;
+                      } else {
+                        truncatedArgs[k] = v;
+                      }
+                    }
+                    return {
+                      type: s.type,
+                      content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`,
+                      toolName: s.toolName,
+                      toolArgs: truncatedArgs,
+                      stepNumber: s.stepNumber,
+                    };
+                  }
+                  return {
+                    type: s.type,
+                    content: s.type === "thinking"
+                      ? s.content.substring(0, 500)
+                      : s.type === "tool_result"
+                        ? (s.toolResult || s.content).substring(0, 5000)
                         : s.content.substring(0, 2000),
-                  toolName: s.toolName,
-                  toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
-                  toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
-                  stepNumber: s.stepNumber,
-                })),
+                    toolName: s.toolName,
+                    toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined,
+                    stepNumber: s.stepNumber,
+                  };
+                }),
                 thinkingPreview: result.thinkingContent?.substring(0, 500),
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
@@ -611,19 +647,35 @@ export async function POST(req: NextRequest) {
           agentType: agent.type,
           totalSteps: result.totalSteps,
           usedTools: result.usedTools,
-          steps: result.steps.map(s => ({
-            type: s.type,
-            toolName: s.toolName,
-            content: s.type === "thinking"
-              ? s.content.substring(0, 500)
-              : s.type === "tool_result"
-                ? s.content.substring(0, 2000)
-                : s.type === "tool_call"
-                  ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+          steps: result.steps.map(s => {
+            // BUG FIX: Preserve full toolArgs in non-streaming path too
+            if (s.type === "tool_call" && s.toolArgs) {
+              const truncatedArgs: Record<string, any> = {};
+              for (const [k, v] of Object.entries(s.toolArgs)) {
+                if (typeof v === 'string' && v.length > 50000) {
+                  truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated)`;
+                } else {
+                  truncatedArgs[k] = v;
+                }
+              }
+              return {
+                type: s.type,
+                toolName: s.toolName,
+                content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`,
+                toolArgs: truncatedArgs,
+              };
+            }
+            return {
+              type: s.type,
+              toolName: s.toolName,
+              content: s.type === "thinking"
+                ? s.content.substring(0, 500)
+                : s.type === "tool_result"
+                  ? s.content.substring(0, 2000)
                   : s.content.substring(0, 2000),
-            toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
-            toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
-          })),
+              toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined,
+            };
+          }),
         }
 
         if (result.thinkingContent) {
@@ -701,20 +753,36 @@ export async function POST(req: NextRequest) {
           agentType: agent.type,
           totalSteps: result.totalSteps,
           usedTools: result.usedTools,
-          steps: result.steps.map(s => ({
-            type: s.type,
-            content: s.type === "thinking"
-              ? s.content.substring(0, 500)
-              : s.type === "tool_result"
-                ? (s.toolResult || s.content).substring(0, 2000)
-                : s.type === "tool_call"
-                  ? `${s.toolName}(${Object.entries(s.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+          steps: result.steps.map(s => {
+            if (s.type === "tool_call" && s.toolArgs) {
+              const truncatedArgs: Record<string, any> = {};
+              for (const [k, v] of Object.entries(s.toolArgs)) {
+                if (typeof v === 'string' && v.length > 50000) {
+                  truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated)`;
+                } else {
+                  truncatedArgs[k] = v;
+                }
+              }
+              return {
+                type: s.type,
+                content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`,
+                toolName: s.toolName,
+                toolArgs: truncatedArgs,
+                stepNumber: s.stepNumber,
+              };
+            }
+            return {
+              type: s.type,
+              content: s.type === "thinking"
+                ? s.content.substring(0, 500)
+                : s.type === "tool_result"
+                  ? (s.toolResult || s.content).substring(0, 5000)
                   : s.content.substring(0, 2000),
-            toolName: s.toolName,
-            toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 2000) : undefined,
-            toolArgs: s.type === "tool_call" ? s.toolArgs : undefined,
-            stepNumber: s.stepNumber,
-          })),
+              toolName: s.toolName,
+              toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined,
+              stepNumber: s.stepNumber,
+            };
+          }),
           thinkingPreview: result.thinkingContent?.substring(0, 500),
         })
       } catch (err: any) {

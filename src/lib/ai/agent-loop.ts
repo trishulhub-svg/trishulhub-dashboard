@@ -610,7 +610,9 @@ export async function runAgentLoop(
 
       // No tool calls - this is the final response
       if (result.content) {
-        // Enhance the final response with a code changes summary + actual code from tool results
+        // Enhance the final response with a code changes summary + actual code
+        // BUG FIX: Get actual code from toolArgs.content (the full file content passed to write_file),
+        // NOT from tool_result which only contains a truncated preview
         let enhancedResponse = result.content
         const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
         if (writeSteps.length > 0) {
@@ -620,38 +622,56 @@ export async function runAgentLoop(
             return `- ${action}: \`${filePath}\``
           }).join("\n")
           
-          // Collect actual code from tool results for each write/edit
+          // Collect actual code from toolArgs.content (the full file content)
           const codeResults: string[] = []
           for (const writeStep of writeSteps) {
             const filePath = writeStep.toolArgs?.path || writeStep.toolArgs?.file_path || "unknown"
-            // Find the corresponding tool_result step
-            const resultIdx = steps.findIndex(s => 
-              s.type === "tool_result" && 
-              s.toolName === writeStep.toolName &&
-              s.stepNumber >= writeStep.stepNumber &&
-              s.stepNumber <= writeStep.stepNumber + 1
-            )
-            if (resultIdx >= 0 && steps[resultIdx].toolResult) {
-              const toolResult = steps[resultIdx].toolResult || ""
-              // Extract code block from tool result if it contains one
-              const codeMatch = toolResult.match(/```[\w]*\n([\s\S]*?)```/)
-              if (codeMatch) {
-                codeResults.push(`### ${filePath}\n\`\`\`\n${codeMatch[1]}\n\`\`\``)
-              } else {
-                // Just include the file summary
-                codeResults.push(`### ${filePath}\n${toolResult.substring(0, 500)}`)
+            const codeContent = writeStep.toolArgs?.content
+            
+            if (codeContent) {
+              // BUG FIX: Use the actual code from toolArgs.content, not the truncated tool_result
+              // Detect language from file extension
+              const ext = filePath.split('.').pop() || ''
+              const langMap: Record<string, string> = {
+                ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+                py: "python", css: "css", html: "html", json: "json", php: "php",
+                sql: "sql", sh: "bash", rb: "ruby", go: "go", rs: "rust", java: "java",
+              }
+              const lang = langMap[ext] || ext
+              // Truncate very large files in the text response (frontend has full code in Code Generated section)
+              const maxLen = 3000
+              const truncated = codeContent.length > maxLen
+                ? codeContent.substring(0, maxLen) + `\n... (${codeContent.length - maxLen} more characters - see Code Generated section for full code)`
+                : codeContent
+              codeResults.push(`### ${filePath}\n\`\`\`${lang}\n${truncated}\n\`\`\``)
+            } else {
+              // Fallback: try to find code from tool_result (which includes a preview)
+              const resultIdx = steps.findIndex(s => 
+                s.type === "tool_result" && 
+                s.toolName === writeStep.toolName &&
+                s.stepNumber >= writeStep.stepNumber &&
+                s.stepNumber <= writeStep.stepNumber + 2
+              )
+              if (resultIdx >= 0 && steps[resultIdx].toolResult) {
+                const toolResult = steps[resultIdx].toolResult || ""
+                const codeMatch = toolResult.match(/```[\w]*\n([\s\S]*?)```/)
+                if (codeMatch) {
+                  codeResults.push(`### ${filePath}\n\`\`\`\n${codeMatch[1]}\n\`\`\``)
+                } else {
+                  codeResults.push(`### ${filePath}\n${toolResult.substring(0, 500)}`)
+                }
               }
             }
           }
           
           // Build the enhanced response with files + code
           const codeSection = codeResults.length > 0 
-            ? `\n\n---\n### 📝 Code Generated\n${codeResults.join("\n\n")}\n---\n`
+            ? `\n\n---\n### Code Generated\n${codeResults.join("\n\n")}\n---\n`
             : ""
           
           // Only add summary if the response doesn't already list the files
           if (!enhancedResponse.includes(fileSummary.split("\n")[0]?.split("`")[1] || "___NOMATCH___")) {
-            enhancedResponse = `\n📁 **Files Modified:**\n${fileSummary}${codeSection}\n\n${enhancedResponse}`
+            enhancedResponse = `\n**Files Modified:**\n${fileSummary}${codeSection}\n\n${enhancedResponse}`
           } else if (codeResults.length > 0) {
             // Files already listed but code section is new
             enhancedResponse = `${enhancedResponse}${codeSection}`

@@ -501,6 +501,50 @@ export default function AgentChatPage() {
         // Update messages display in real-time
         setMessages(msgs);
 
+        // BUG FIX: Also check isProcessing flag from chat data
+        // If backend set isProcessing=false but there's no new assistant message,
+        // it means the agent errored without saving a response
+        if (checkCount % 4 === 0) { // Check every 10 seconds (4 * 2.5s)
+          try {
+            const chatRes = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
+            if (chatRes.ok) {
+              const chatList = await chatRes.json();
+              const currentChat = (chatList as Chat[]).find(c => c.id === cId);
+              if (currentChat && !currentChat.isProcessing) {
+                // Backend says not processing anymore - check if there's a new assistant message
+                const assistantMsgs = msgs.filter((m: ChatMessage) => m.role === 'assistant');
+                if (assistantMsgs.length > 0 && msgs.length > knownMsgCount) {
+                  // Found the response - proceed with completion
+                } else {
+                  // Backend finished but no new assistant message - agent errored
+                  setSending(false);
+                  setTimeout(() => {
+                    setIsAgentic(false);
+                    setLiveSteps([]);
+                  }, 300);
+                  markProcessingEnd(cId);
+                  if (pollingRef.current) {
+                    clearInterval(pollingRef.current);
+                    pollingRef.current = null;
+                  }
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `info-${Date.now()}`,
+                      chatId: cId,
+                      role: "system",
+                      content: "Agent processing has ended but no response was saved. The agent may have encountered an error. Please try again.",
+                      createdAt: new Date().toISOString(),
+                    },
+                  ]);
+                  fetchChats();
+                  return;
+                }
+              }
+            }
+          } catch {}
+        }
+
         // Check if there's a new assistant message since we started processing
         const assistantMsgs = msgs.filter((m: ChatMessage) => m.role === 'assistant');
         if (assistantMsgs.length > 0 && msgs.length > knownMsgCount) {
@@ -1047,12 +1091,39 @@ export default function AgentChatPage() {
         const decoder = new TextDecoder();
         let buffer = "";
         let finalData: any = null;
-        const collectedSteps: Array<{ type: string; content: string; toolName?: string; stepNumber: number }> = [];
+        const collectedSteps: Array<{ type: string; content: string; toolName?: string; toolArgs?: any; toolResult?: string; stepNumber: number }> = [];
         let collectedTodoItems: Array<{ id: string; step: number; title: string; description: string; prompt: string; status: 'pending' | 'running' | 'completed' | 'failed'; result?: string }> = [];
 
+        // BUG FIX: Add stream read timeout to prevent "still working" forever
+        // If the backend takes too long or the connection drops, we need to detect it
+        const STREAM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max
+        let lastActivityTime = Date.now();
+
         while (true) {
-          const { done, value } = await reader.read();
+          // BUG FIX: Check for stream timeout
+          if (Date.now() - lastActivityTime > STREAM_TIMEOUT_MS) {
+            console.warn('[agent-chat] Stream timeout after 5 minutes');
+            break;
+          }
+
+          // BUG FIX: Use Promise.race with timeout for reader.read()
+          let readResult: { done: boolean; value: Uint8Array | undefined };
+          try {
+            readResult = await Promise.race([
+              reader.read(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Stream read timeout')), 30000) // 30s per chunk
+              ),
+            ]);
+          } catch (readErr: any) {
+            // Stream read timed out or failed - break out and check backend
+            console.warn('[agent-chat] Stream read error:', readErr.message);
+            break;
+          }
+
+          const { done, value } = readResult;
           if (done) break;
+          lastActivityTime = Date.now();
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
@@ -1069,7 +1140,12 @@ export default function AgentChatPage() {
               if (event.type === "step") {
                 // Real-time step update
                 const step = event.step;
-                collectedSteps.push(step);
+                // BUG FIX: Preserve toolArgs for code display (was being lost)
+                collectedSteps.push({
+                  ...step,
+                  toolArgs: step.toolArgs || undefined,
+                  toolResult: step.toolResult || undefined,
+                });
                 setAgentSteps([...collectedSteps]);
 
                 // Check for plan_task steps (Feature 2)
@@ -1231,12 +1307,38 @@ export default function AgentChatPage() {
                         description = step.content || '';
                     }
 
+                    // BUG FIX: Auto-generated TODO items need a prompt field for re-execution
+                    // Store the tool call details as the prompt
+                    let autoPrompt = '';
+                    switch (step.toolName) {
+                      case 'write_file':
+                        autoPrompt = `Write file ${args.path || 'unknown'} with the specified content`;
+                        break;
+                      case 'edit_file':
+                        autoPrompt = `Edit file ${args.path || 'unknown'}: ${args.description || 'Apply changes'}`;
+                        break;
+                      case 'read_file':
+                        autoPrompt = `Read file ${args.path || 'unknown'}`;
+                        break;
+                      case 'list_files':
+                        autoPrompt = `List files in ${args.path || 'project'}`;
+                        break;
+                      case 'run_command':
+                        autoPrompt = `Run command: ${args.command || ''}`;
+                        break;
+                      case 'git_commit_push':
+                        autoPrompt = `Git commit and push: ${args.message || ''}`;
+                        break;
+                      default:
+                        autoPrompt = `${step.toolName}: ${title}`;
+                    }
+
                     const newTodo = {
                       id: `auto-todo-${Date.now()}-${todoStep}`,
                       step: todoStep,
                       title,
                       description,
-                      prompt: '',
+                      prompt: autoPrompt,
                       status: 'running' as const,
                     };
                     setTodoItems(prev => [...prev, newTodo]);
@@ -1385,7 +1487,11 @@ export default function AgentChatPage() {
                     case 'git_commit_push': title = `Git push`; description = args.message || ''; break;
                     default: description = step.content || '';
                   }
-                  setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: '', status: 'running' as const }]);
+                  const bufPrompt = step.toolName === 'write_file' ? `Write file ${args.path || 'unknown'}` :
+                    step.toolName === 'edit_file' ? `Edit file ${args.path || 'unknown'}` :
+                    step.toolName === 'run_command' ? `Run: ${args.command || ''}` :
+                    `${step.toolName}: ${title}`;
+                  setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
                 }
                 if (step.type === "tool_result" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
                   const success = step.content && !step.content.includes('failed');
@@ -1407,8 +1513,46 @@ export default function AgentChatPage() {
           }
         }
 
-        // Bug 3: Removed non-streaming fallback that made duplicate API call.
-        // If SSE stream didn't complete properly, show an error instead.
+        // BUG FIX: When SSE stream ends without finalData (stream broke/timeout),
+        // check the backend for a completed assistant message before showing error.
+        // The backend agent loop may have completed successfully even though the SSE
+        // stream was interrupted.
+        if (!finalData && resolvedChatId) {
+          try {
+            // Wait a moment for backend to finish saving if it's still running
+            await new Promise(r => setTimeout(r, 2000));
+            const checkRes = await fetch(`/api/chats/messages?chatId=${resolvedChatId}`, { credentials: "include" });
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              const dbMsgs = (checkData.messages || checkData) as ChatMessage[];
+              // Find an assistant message that wasn't in our original message list
+              const existingIds = new Set(messages.map(m => m.id));
+              const newAssistantMsg = [...dbMsgs].reverse().find(
+                (m: ChatMessage) => m.role === 'assistant' && !existingIds.has(m.id)
+              );
+              if (newAssistantMsg) {
+                // Backend completed and saved the message - use it as finalData
+                finalData = { content: newAssistantMsg.content, chatId: resolvedChatId, messageId: newAssistantMsg.id };
+                // Also update messages from DB
+                setMessages(dbMsgs);
+                // Restore TODO items from message metadata
+                if (newAssistantMsg.metadata) {
+                  try {
+                    const meta = JSON.parse(newAssistantMsg.metadata);
+                    const items = meta.todoItems || meta.autoTodoItems;
+                    if (items && items.length > 0) {
+                      setTodoItems(items);
+                    }
+                  } catch {}
+                }
+              }
+            }
+          } catch {
+            // Check failed - continue with error handling below
+          }
+        }
+
+        // If still no finalData after backend check, show error
         if (!finalData) {
           setMessages((prev) => [
             ...prev,
@@ -1416,7 +1560,9 @@ export default function AgentChatPage() {
               id: `error-${Date.now()}`,
               chatId: activeChatId || "",
               role: "system",
-              content: "Agent response stream was interrupted. Please try again.",
+              content: collectedSteps.length > 0
+                ? `Agent completed ${collectedSteps.length} steps but the response stream was interrupted. Check the chat history - your code may have been saved. Try refreshing or sending another message.`
+                : "Agent response stream was interrupted. Please try again.",
               createdAt: new Date().toISOString(),
               metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
             },
@@ -1428,6 +1574,18 @@ export default function AgentChatPage() {
         if (finalData) {
           if (finalData.steps) setAgentSteps(finalData.steps);
 
+          // BUG FIX: Include collectedSteps with full toolArgs/toolResult in metadata
+          // so the Code Changes section can show actual code
+          const stepsForMeta = finalData.steps || collectedSteps;
+          // Merge toolArgs from collected steps into the steps for metadata
+          const enrichedSteps = stepsForMeta.map((s: any, idx: number) => {
+            const collected = collectedSteps[idx];
+            if (collected && s.type === 'tool_call' && !s.toolArgs && collected.toolArgs) {
+              return { ...s, toolArgs: collected.toolArgs };
+            }
+            return s;
+          });
+
           const assistantMsg: ChatMessage = {
             id: finalData.messageId || `temp-assistant-${Date.now()}`,
             chatId: finalData.chatId || activeChatId || "",
@@ -1437,7 +1595,7 @@ export default function AgentChatPage() {
               agentic: finalData.agentic,
               totalSteps: finalData.totalSteps,
               usedTools: finalData.usedTools,
-              steps: finalData.steps,
+              steps: enrichedSteps,
               thinkingPreview: finalData.thinkingPreview,
               // Include both plan_task-based and auto-generated TODO items
               todoItems: collectedTodoItems.length > 0 ? collectedTodoItems : undefined,
@@ -1610,6 +1768,29 @@ export default function AgentChatPage() {
       activeTodoIdRef.current = null;
     }
   }, [sending, todoItems, handleSend]);
+
+  // ── Cancel waiting for agent response ──
+  const handleCancelWaiting = useCallback(() => {
+    setSending(false);
+    setIsAgentic(false);
+    setLiveSteps([]);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    if (activeChatId) {
+      markProcessingEnd(activeChatId);
+      fetch("/api/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: activeChatId, isProcessing: false }),
+      }).catch(() => {});
+      // Reload messages from DB in case the response was saved
+      fetchMessages(activeChatId);
+    }
+    toast.info("Stopped waiting. Check chat history for any saved response.");
+  }, [activeChatId, markProcessingEnd, fetchMessages]);
 
   // ── Auto-save TODO items to DB when they change ──
   useEffect(() => {
@@ -1991,6 +2172,7 @@ export default function AgentChatPage() {
               onResumeChat={resumeChat}
               todoItems={todoItems}
               onActivateTodo={handleActivateTodo}
+              onCancelWaiting={handleCancelWaiting}
             />
           </TabsContent>
 
@@ -2301,6 +2483,7 @@ export default function AgentChatPage() {
           onResumeChat={resumeChat}
           todoItems={todoItems}
           onActivateTodo={handleActivateTodo}
+          onCancelWaiting={handleCancelWaiting}
         />
       </div>
 
@@ -2704,6 +2887,7 @@ function ChatArea({
   onResumeChat,
   todoItems,
   onActivateTodo,
+  onCancelWaiting,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -2739,6 +2923,7 @@ function ChatArea({
   onResumeChat: (chatId?: string) => void;
   todoItems: Array<{ id: string; step: number; title: string; description: string; prompt: string; status: 'pending' | 'running' | 'completed' | 'failed'; result?: string }>;
   onActivateTodo: (item: typeof todoItems[0]) => void;
+  onCancelWaiting: () => void;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
   const [todoExpanded, setTodoExpanded] = useState(true);
@@ -2923,7 +3108,11 @@ function ChatArea({
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
                           if (meta.agentic && meta.steps && meta.steps.length > 0) {
-                            const isExpanded = expandedMsgSteps.has(msg.id);
+                            // BUG FIX: Auto-expand steps that contain code (write_file/edit_file)
+                            const hasCodeSteps = meta.steps.some((s: any) => 
+                              s.type === 'tool_call' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
+                            );
+                            const isExpanded = expandedMsgSteps.has(msg.id) || hasCodeSteps;
                             const hasError = meta.steps.some((s: any) => s.type === 'error');
                             // Deduplicate steps: merge tool_call + tool_result pairs
                             const dedupedSteps: any[] = [];
@@ -3108,36 +3297,58 @@ function ChatArea({
                           );
                           if (codeSteps.length === 0 && codeCallSteps.length === 0) return null;
 
-                          // Build a map of file paths from tool calls
-                          const fileMap: Record<string, { action: string; content: string; path: string }> = {};
-                          for (const call of codeCallSteps) {
-                            const p = call.toolArgs?.path || call.toolArgs?.file_path || 'unknown';
+                          // BUG FIX: Build file map from tool_calls (which have toolArgs.content = actual code)
+                          // NOT from tool_results (which just say "File written successfully")
+                          const fileMap: Record<string, { action: string; codeContent: string; resultContent: string; path: string; language: string }> = {};
+                          // First pass: collect actual code from tool_call steps
+                          for (let i = 0; i < codeCallSteps.length; i++) {
+                            const call = codeCallSteps[i];
+                            const p = call.toolArgs?.path || call.toolArgs?.file_path || `file-${i}`;
                             if (!fileMap[p]) {
+                              // Detect language from file extension
+                              const ext = p.split('.').pop() || '';
+                              const langMap: Record<string, string> = {
+                                ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+                                py: "python", css: "css", html: "html", json: "json", php: "php",
+                                sql: "sql", sh: "bash", rb: "ruby", go: "go", rs: "rust",
+                                java: "java", scss: "scss", yaml: "yaml", yml: "yaml", md: "markdown",
+                              };
                               fileMap[p] = {
                                 action: call.toolName === 'write_file' ? 'Created' : 'Edited',
-                                content: '',
+                                codeContent: call.toolArgs?.content || '', // ACTUAL CODE from toolArgs
+                                resultContent: '',
                                 path: p,
+                                language: langMap[ext] || ext,
                               };
+                            } else {
+                              // Update with more recent code (in case of multiple writes to same file)
+                              if (call.toolArgs?.content) {
+                                fileMap[p].codeContent = call.toolArgs.content;
+                              }
                             }
                           }
+                          // Second pass: add result info (success/failure messages)
                           for (const result of codeSteps) {
                             const resultText = result.toolResult || result.content || '';
-                            // Try to find the matching call for path info
-                            const matchCall = codeCallSteps.find((c: any) => c.toolName === result.toolName);
-                            const p = matchCall?.toolArgs?.path || matchCall?.toolArgs?.file_path || '';
-                            if (p && fileMap[p]) {
-                              fileMap[p].content = resultText;
+                            // Find the matching call by index (tool_results come in same order as tool_calls)
+                            const resultIdx = codeSteps.indexOf(result);
+                            if (resultIdx < codeCallSteps.length) {
+                              const matchCall = codeCallSteps[resultIdx];
+                              const p = matchCall?.toolArgs?.path || matchCall?.toolArgs?.file_path || '';
+                              if (p && fileMap[p]) {
+                                fileMap[p].resultContent = resultText;
+                              }
                             }
                           }
 
-                          const files = Object.values(fileMap).filter(f => f.path);
+                          const files = Object.values(fileMap).filter(f => f.path && f.path !== 'unknown');
                           if (files.length === 0) return null;
 
                           return (
                             <div className="mb-3 rounded-lg border border-emerald-200/40 dark:border-emerald-800/30 overflow-hidden bg-gradient-to-b from-emerald-50/50 to-green-50/30 dark:from-emerald-950/20 dark:to-green-950/10">
                               <div className="px-3 py-2 flex items-center gap-2 bg-emerald-100/30 dark:bg-emerald-900/20">
                                 <Code2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Code Changes</span>
+                                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Code Generated</span>
                                 <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-emerald-100/60 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400">
                                   {files.length} file{files.length !== 1 ? 's' : ''}
                                 </Badge>
@@ -3150,10 +3361,43 @@ function ChatArea({
                                       <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{file.path}</span>
                                       <Badge variant="outline" className="text-[8px] h-3.5 px-1 ml-1">{file.action}</Badge>
                                     </div>
-                                    <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all leading-tight">
-                                      {file.content.substring(0, 2000)}
-                                      {file.content.length > 2000 && <span className="text-muted-foreground/40">... ({file.content.length} chars total)</span>}
-                                    </pre>
+                                    {/* BUG FIX: Show actual code from toolArgs.content, not tool result message */}
+                                    {file.codeContent ? (
+                                      <div className="relative">
+                                        <button
+                                          className="absolute top-1 right-1 z-10 h-5 w-5 flex items-center justify-center rounded bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(file.codeContent);
+                                            toast.success("Code copied!");
+                                          }}
+                                        >
+                                          <Copy className="h-2.5 w-2.5" />
+                                        </button>
+                                        <SyntaxHighlighter
+                                          style={oneDark}
+                                          language={file.language || "typescript"}
+                                          PreTag="div"
+                                          customStyle={{
+                                            margin: 0,
+                                            borderRadius: 0,
+                                            fontSize: "10px",
+                                            maxHeight: "300px",
+                                            overflow: "auto",
+                                          }}
+                                        >
+                                          {file.codeContent.length > 5000
+                                            ? file.codeContent.substring(0, 5000) + `\n... (${file.codeContent.length - 5000} more characters)`
+                                            : file.codeContent}
+                                        </SyntaxHighlighter>
+                                      </div>
+                                    ) : file.resultContent ? (
+                                      <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all leading-tight">
+                                        {file.resultContent.substring(0, 2000)}
+                                        {file.resultContent.length > 2000 && <span className="text-muted-foreground/40">... ({file.resultContent.length} chars total)</span>}
+                                      </pre>
+                                    ) : (
+                                      <p className="text-[9px] text-muted-foreground/50 p-2">No code content available</p>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -3603,6 +3847,19 @@ function ChatArea({
                       />
                     </div>
                   )}
+                  {/* BUG FIX: Cancel button - let users stop waiting if agent is stuck */}
+                  <div className="px-3.5 pb-2 pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 w-full"
+                      onClick={() => {
+                        onCancelWaiting();
+                      }}
+                    >
+                      <X className="h-3 w-3" /> Stop Waiting
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
