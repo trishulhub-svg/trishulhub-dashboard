@@ -1197,6 +1197,20 @@ export async function executeToolCall(
 
 async function executeWebSearch(query: string, purpose?: string): Promise<string> {
   try {
+    // Ensure .z-ai-config exists for the SDK (same fix as web-search route)
+    const fs = await import("fs")
+    const path = await import("path")
+    const configPath = path.join(process.cwd(), ".z-ai-config")
+    try {
+      fs.accessSync(configPath)
+    } catch {
+      const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
+      const apiKey = process.env.ZAI_API_KEY
+      if (baseUrl && apiKey) {
+        fs.writeFileSync(configPath, JSON.stringify({ baseUrl, apiKey }), "utf-8")
+      }
+    }
+
     // Use Z.ai SDK directly instead of calling the API route
     // This avoids HTTP method mismatch (GET vs POST) and authentication issues
     // since the API route requires session cookies which aren't available in server-side fetch

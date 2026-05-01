@@ -3191,6 +3191,7 @@ function ChatArea({
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
   const [todoExpanded, setTodoExpanded] = useState(true);
+  const [bottomTodoMinimized, setBottomTodoMinimized] = useState(false);
 
   const toggleMsgSteps = (msgId: string) => {
     setExpandedMsgSteps((prev) => {
@@ -4140,33 +4141,42 @@ function ChatArea({
       </ScrollArea>
 
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
-      {/* z.ai-style TODO panel at chat bottom - vertical list with progress bar */}
+      {/* z.ai-style TODO panel at chat bottom - minimizable with smooth collapse */}
       {todoItems.length > 0 && (
         <div className="border-t border-border/50 bg-card/95 backdrop-blur-sm shrink-0">
           <div className="px-3 py-2">
-            {/* Header: Plan label + progress bar + Run Next */}
-            <div className="flex items-center gap-2 mb-1.5">
-              {todoItems.every(t => t.status === 'completed') ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              ) : todoItems.some(t => t.status === 'running') ? (
-                <Loader2 className="h-3.5 w-3.5 text-emerald-500 animate-spin shrink-0" />
-              ) : (
-                <ListChecks className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              )}
-              <span className="text-[11px] font-semibold text-foreground/80">
-                {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
-              </span>
-              <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
-                {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
-              </span>
-              <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500 bg-emerald-500"
-                  style={{
-                    width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
-                  }}
-                />
-              </div>
+            {/* Header: Plan label + progress bar + minimize toggle + Run Next */}
+            <div className="flex items-center gap-2 mb-0">
+              {/* Minimize/Collapse toggle - like z.ai */}
+              <button
+                onClick={() => setBottomTodoMinimized(!bottomTodoMinimized)}
+                className="flex items-center gap-1.5 hover:bg-muted/50 rounded px-1 py-0.5 transition-colors flex-1 min-w-0"
+              >
+                {todoItems.every(t => t.status === 'completed') ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                ) : todoItems.some(t => t.status === 'running') ? (
+                  <Loader2 className="h-3.5 w-3.5 text-emerald-500 animate-spin shrink-0" />
+                ) : (
+                  <ListChecks className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                )}
+                <span className="text-[11px] font-semibold text-foreground/80">
+                  {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
+                </span>
+                <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                  {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
+                </span>
+                {/* Progress bar */}
+                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden max-w-[120px]">
+                  <div
+                    className="h-full rounded-full transition-all duration-500 bg-emerald-500"
+                    style={{
+                      width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
+                    }}
+                  />
+                </div>
+                {/* Chevron toggle */}
+                <ChevronRight className={`h-3 w-3 text-muted-foreground transition-transform duration-200 ${bottomTodoMinimized ? "" : "rotate-90"}`} />
+              </button>
               {/* Run Next button - icon only like z.ai */}
               {todoItems.some(t => t.prompt && t.prompt.length > 0) && activeChat?.status !== "ENDED" && (
                 <TooltipProvider>
@@ -4190,36 +4200,38 @@ function ChatArea({
                 </TooltipProvider>
               )}
             </div>
-            {/* z.ai-style vertical TODO list - compact rows */}
-            <div className="space-y-0.5 max-h-[120px] overflow-y-auto">
-              {todoItems.map((item) => {
-                const isPending = item.status === 'pending';
-                const isRunning = item.status === 'running';
-                const isCompleted = item.status === 'completed';
-                const isFailed = item.status === 'failed';
-                const hasPrompt = item.prompt && item.prompt.length > 0;
-                return (
-                  <button
-                    key={item.id || item.step}
-                    onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
-                    className={`flex items-center gap-2 w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all text-left ${
-                      isCompleted ? 'text-emerald-600 dark:text-emerald-400 line-through' :
-                      isRunning ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' :
-                      isFailed ? 'text-red-600 dark:text-red-400' :
-                      hasPrompt ? 'text-foreground/70 hover:bg-muted/50 cursor-pointer' :
-                      'text-muted-foreground'
-                    }`}
-                    disabled={sending || !isPending || !hasPrompt}
-                  >
-                    {isCompleted ? <CheckCircle2 className="h-3 w-3 shrink-0" /> :
-                     isRunning ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> :
-                     isFailed ? <XCircle className="h-3 w-3 shrink-0" /> :
-                     <Circle className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
-                    <span className="truncate">{item.step}. {item.title}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Collapsible TODO list - smooth collapse like z.ai */}
+            {!bottomTodoMinimized && (
+              <div className="space-y-0.5 max-h-[120px] overflow-y-auto mt-1.5">
+                {todoItems.map((item) => {
+                  const isPending = item.status === 'pending';
+                  const isRunning = item.status === 'running';
+                  const isCompleted = item.status === 'completed';
+                  const isFailed = item.status === 'failed';
+                  const hasPrompt = item.prompt && item.prompt.length > 0;
+                  return (
+                    <button
+                      key={item.id || item.step}
+                      onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
+                      className={`flex items-center gap-2 w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all text-left ${
+                        isCompleted ? 'text-emerald-600 dark:text-emerald-400 line-through' :
+                        isRunning ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' :
+                        isFailed ? 'text-red-600 dark:text-red-400' :
+                        hasPrompt ? 'text-foreground/70 hover:bg-muted/50 cursor-pointer' :
+                        'text-muted-foreground'
+                      }`}
+                      disabled={sending || !isPending || !hasPrompt}
+                    >
+                      {isCompleted ? <CheckCircle2 className="h-3 w-3 shrink-0" /> :
+                       isRunning ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> :
+                       isFailed ? <XCircle className="h-3 w-3 shrink-0" /> :
+                       <Circle className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
+                      <span className="truncate">{item.step}. {item.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
