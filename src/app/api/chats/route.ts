@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 // GET /api/chats - List chats for an agent or all chats for user
+// ADMIN/SUPER_ADMIN: Can see all users' chats (grouped by user in frontend)
+// DEVELOPER/CLIENT: Only see their own chats
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -16,10 +18,16 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const statusParam = searchParams.get("status") || "ACTIVE"
+    const includeAllUsers = searchParams.get("includeAllUsers") === "true"
     // Support comma-separated statuses (e.g., "ACTIVE,ENDED")
     const statuses = statusParam.split(",").map(s => s.trim()).filter(Boolean)
 
-    const where: any = { userId, status: { in: statuses } }
+    // ADMIN/SUPER_ADMIN can see all users' chats when includeAllUsers=true
+    const where: any = { status: { in: statuses } }
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    if (!isAdmin || !includeAllUsers) {
+      where.userId = userId
+    }
     if (agentId) where.agentId = agentId
 
     const chats = await db.chat.findMany({
@@ -27,6 +35,9 @@ export async function GET(req: NextRequest) {
       include: {
         agent: {
           select: { id: true, name: true, type: true, status: true }
+        },
+        user: {
+          select: { id: true, name: true, role: true, avatar: true }
         },
         messages: {
           select: { id: true, role: true, content: true, createdAt: true },
@@ -96,6 +107,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const userId = (session.user as any).id
+    const userRole = (session.user as any).role
     const body = await req.json()
     const { id, title, status, isShared, todoItems, isProcessing } = body
 
@@ -104,7 +116,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     const chat = await db.chat.findUnique({ where: { id } })
-    if (!chat || chat.userId !== userId) {
+    // ADMIN/SUPER_ADMIN can update any chat; other users can only update their own
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    if (!chat || (!isAdmin && chat.userId !== userId)) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
     }
 
@@ -148,8 +162,17 @@ export async function DELETE(req: NextRequest) {
       where: { id },
       include: { agent: { select: { id: true, name: true } } }
     })
-    if (!chat || chat.userId !== userId) {
+    // ADMIN/SUPER_ADMIN can delete any chat; other users can only delete their own
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    if (!chat || (!isAdmin && chat.userId !== userId)) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+    }
+
+    // ADMIN/SUPER_ADMIN can delete directly (any user's chat)
+    if (isAdmin) {
+      await db.chatMessage.deleteMany({ where: { chatId: id } })
+      await db.chat.delete({ where: { id } })
+      return NextResponse.json({ success: true })
     }
 
     // DEVELOPER users must request approval for chat deletion

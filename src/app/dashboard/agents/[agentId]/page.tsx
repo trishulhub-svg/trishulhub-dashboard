@@ -7,13 +7,13 @@ import {
   Send, ArrowLeft, Settings, Paperclip, CheckCircle2, XCircle,
   Code2, Crosshair, DollarSign, ClipboardList, Users, PenTool, HeadphonesIcon,
   Bot, Loader2, Copy, Plus, MessageSquare, Trash2, Archive,
-  Pencil, Check, X, ChevronRight, ChevronLeft, Zap, Command,
+  Pencil, Check, X, ChevronRight, ChevronLeft, ChevronDown, Zap, Command,
   Lightbulb, Calendar, Clock, AlertTriangle, ArrowRightLeft,
   PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose,
   MoreVertical, Search, SendHorizontal, ShieldAlert,
   Wrench, Brain, Eye, FileCode, Globe, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Unlink, FileUp, Upload, RotateCw,
+  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { STATUS_COLORS, AGENT_TYPES, MODEL_OPTIONS } from "@/lib/types";
 import type { AgentStatus, AgentType } from "@/lib/types";
@@ -92,6 +93,7 @@ interface Chat {
   todoItems?: string;       // JSON string of TODO items
   isProcessing?: boolean;   // Whether agent is currently processing
   agent?: { id: string; name: string; type: string; status: string };
+  user?: { id: string; name: string; role: string; avatar?: string | null }; // Chat owner info (for admin view)
   messages?: { id: string; role: string; content: string; createdAt: string }[];
   _count?: { messages: number };
 }
@@ -450,7 +452,10 @@ export default function AgentChatPage() {
     setChatsLoading(true);
     try {
       // Fetch both ACTIVE and ENDED chats so ended chats remain visible in sidebar
-      const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
+      // ADMIN/SUPER_ADMIN: include all users' chats for folder view
+      const isAdmin = (session?.user as { role?: string })?.role === "SUPER_ADMIN" || (session?.user as { role?: string })?.role === "ADMIN";
+      const allUsersParam = isAdmin ? "&includeAllUsers=true" : "";
+      const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED${allUsersParam}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setChats(Array.isArray(data) ? data as Chat[] : []);
@@ -460,7 +465,7 @@ export default function AgentChatPage() {
     } finally {
       setChatsLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, session]);
 
   // ── Fetch Messages ──
   const fetchMessages = useCallback(async (chatId: string): Promise<ChatMessage[]> => {
@@ -2221,6 +2226,7 @@ export default function AgentChatPage() {
               isMobile
               onDeleteDialog={(id) => setDeleteDialogChatId(id)}
               onResumeChat={resumeChat}
+              currentUserId={currentUserId}
             />
           </TabsContent>
 
@@ -2331,24 +2337,38 @@ export default function AgentChatPage() {
             <div className="py-3">
               {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
                 <p className="text-sm text-muted-foreground">
-                  Your deletion request will be sent to admins (Taroon and Pruthvi) for review. 
+                  Your deletion request will be sent to admins for review. 
                   The chat will only be deleted after one of them approves it.
+                </p>
+              ) : deleteDialogChatId && chats.find(c => c.id === deleteDialogChatId)?.userId !== currentUserId ? (
+                <p className="text-sm text-muted-foreground">
+                  You are deleting a chat that belongs to another user. This action cannot be undone. 
+                  The chat and all its messages will be permanently deleted.
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   This action cannot be undone. The chat and all its messages will be permanently deleted.
                 </p>
               )}
-              {deleteDialogChatId && (
-                <div className="mt-3 p-2 rounded-lg bg-muted">
-                  <p className="text-sm font-medium">
-                    {chats.find(c => c.id === deleteDialogChatId)?.title || "Untitled Chat"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {chats.find(c => c.id === deleteDialogChatId)?._count?.messages || 0} messages
-                  </p>
-                </div>
-              )}
+              {deleteDialogChatId && (() => {
+                const chatToDelete = chats.find(c => c.id === deleteDialogChatId);
+                const isOtherUsersChat = chatToDelete && chatToDelete.userId !== currentUserId;
+                return (
+                  <div className="mt-3 p-2 rounded-lg bg-muted">
+                    <p className="text-sm font-medium">
+                      {chatToDelete?.title || "Untitled Chat"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {chatToDelete?._count?.messages || 0} messages
+                    </p>
+                    {isOtherUsersChat && chatToDelete?.user && (
+                      <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                        Owner: {chatToDelete.user.name} ({chatToDelete.user.role})
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
@@ -2433,6 +2453,7 @@ export default function AgentChatPage() {
               userRole={userRole}
               onDeleteDialog={(id) => setDeleteDialogChatId(id)}
               onResumeChat={resumeChat}
+              currentUserId={currentUserId}
             />
           </>
         ) : (
@@ -2644,24 +2665,38 @@ export default function AgentChatPage() {
           <div className="py-3">
             {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
               <p className="text-sm text-muted-foreground">
-                Your deletion request will be sent to admins (Taroon and Pruthvi) for review. 
+                Your deletion request will be sent to admins for review. 
                 The chat will only be deleted after one of them approves it.
+              </p>
+            ) : deleteDialogChatId && chats.find(c => c.id === deleteDialogChatId)?.userId !== currentUserId ? (
+              <p className="text-sm text-muted-foreground">
+                You are deleting a chat that belongs to another user. This action cannot be undone. 
+                The chat and all its messages will be permanently deleted.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
                 This action cannot be undone. The chat and all its messages will be permanently deleted.
               </p>
             )}
-            {deleteDialogChatId && (
-              <div className="mt-3 p-2 rounded-lg bg-muted">
-                <p className="text-sm font-medium">
-                  {chats.find(c => c.id === deleteDialogChatId)?.title || "Untitled Chat"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {chats.find(c => c.id === deleteDialogChatId)?._count?.messages || 0} messages
-                </p>
-              </div>
-            )}
+            {deleteDialogChatId && (() => {
+              const chatToDelete = chats.find(c => c.id === deleteDialogChatId);
+              const isOtherUsersChat = chatToDelete && chatToDelete.userId !== currentUserId;
+              return (
+                <div className="mt-3 p-2 rounded-lg bg-muted">
+                  <p className="text-sm font-medium">
+                    {chatToDelete?.title || "Untitled Chat"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {chatToDelete?._count?.messages || 0} messages
+                  </p>
+                  {isOtherUsersChat && chatToDelete?.user && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                      Owner: {chatToDelete.user.name} ({chatToDelete.user.role})
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
@@ -2714,6 +2749,7 @@ function ChatSidebar({
   isMobile,
   onDeleteDialog,
   onResumeChat,
+  currentUserId,
 }: {
   chats: Chat[];
   activeChatId: string | null;
@@ -2731,7 +2767,20 @@ function ChatSidebar({
   isMobile?: boolean;
   onDeleteDialog?: (id: string) => void;
   onResumeChat?: (chatId: string) => void;
+  currentUserId?: string;
 }) {
+  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // Track which user folders are expanded (for admin view)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([currentUserId || ""]));
+  const toggleFolder = (userId: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
   if (loading) {
     return (
       <div className="p-3 space-y-2">
@@ -2746,6 +2795,277 @@ function ChatSidebar({
   const activeChats = chats.filter(c => c.status === "ACTIVE");
   const endedChats = chats.filter(c => c.status === "ENDED");
 
+  // ── Helper: Render a single chat item ──
+  const renderChatItem = (chat: Chat, isEnded = false) => {
+    if (renamingChatId === chat.id) {
+      return (
+        <div className="flex items-center gap-1 p-2 rounded-lg bg-accent">
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onRename(chat.id, renameValue);
+              if (e.key === "Escape") setRenamingChatId(null);
+            }}
+            className="h-7 text-xs"
+            autoFocus
+          />
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)}>
+            <Check className="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      );
+    }
+
+    const isOwnChat = !currentUserId || chat.userId === currentUserId;
+
+    return (
+      <div
+        className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${isEnded ? "opacity-60 hover:opacity-80" : ""} ${
+          activeChatId === chat.id
+            ? "bg-accent text-accent-foreground" + (isEnded ? " opacity-100" : "")
+            : "hover:bg-accent/50"
+        }`}
+        onClick={() => onSelect(chat.id)}
+      >
+        <div className="relative">
+          <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+          {chat.isProcessing && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-xs font-medium truncate">{chat.title}</span>
+            <div className="flex items-center gap-0.5 shrink-0">
+              {/* ── Visible Delete button (shows on hover) for ADMIN/SUPER_ADMIN ── */}
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
+                  title={isOwnChat ? "Delete chat" : "Delete this user's chat"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onDeleteDialog) onDeleteDialog(chat.id);
+                    else onDelete(chat.id);
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
+              {/* ── Visible "Request Deletion" button for non-admin ── */}
+              {!isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 opacity-0 group-hover:opacity-100 text-orange-500 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-opacity"
+                  title="Request deletion"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onDeleteDialog) onDeleteDialog(chat.id);
+                    else onDelete(chat.id);
+                  }}
+                >
+                  <ShieldAlert className="h-3 w-3" />
+                </Button>
+              )}
+              {/* ── Three-dot menu for additional options ── */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingChatId(chat.id);
+                      setRenameValue(chat.title);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3 mr-2" /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchive(chat.id);
+                    }}
+                  >
+                    <Archive className="h-3 w-3 mr-2" /> Archive
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {isAdmin ? (
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onDeleteDialog) onDeleteDialog(chat.id);
+                        else onDelete(chat.id);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3 mr-2" /> Delete
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      className="text-orange-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onDeleteDialog) onDeleteDialog(chat.id);
+                        else onDelete(chat.id);
+                      }}
+                    >
+                      <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {chat.messages && chat.messages.length > 0 && (
+              <span className="text-[10px] text-muted-foreground truncate">
+                {truncate(chat.messages[0]?.content, 30)}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {chat.lockedByName && (
+              <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
+                🔒 {chat.lockedByName}
+              </Badge>
+            )}
+            <span className="text-[10px] text-muted-foreground">
+              {chat._count?.messages || 0} msgs
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatRelativeTime(chat.updatedAt)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Admin view: Group chats by user with collapsible folders ──
+  if (isAdmin && chats.length > 0) {
+    // Group chats by user
+    const userGroups = new Map<string, { user: { id: string; name: string; role: string; avatar?: string | null }; chats: Chat[] }>();
+    
+    for (const chat of chats) {
+      const uid = chat.userId;
+      if (!userGroups.has(uid)) {
+        userGroups.set(uid, {
+          user: chat.user || { id: uid, name: uid, role: "UNKNOWN" },
+          chats: []
+        });
+      }
+      userGroups.get(uid)!.chats.push(chat);
+    }
+
+    // Sort: current user's folder first
+    const sortedUserIds = [...userGroups.keys()].sort((a, b) => {
+      if (a === currentUserId) return -1;
+      if (b === currentUserId) return 1;
+      return (userGroups.get(a)?.user.name || "").localeCompare(userGroups.get(b)?.user.name || "");
+    });
+
+    return (
+      <ScrollArea className="flex-1">
+        <div className={`space-y-1 p-2 ${isMobile ? "pb-20" : ""}`}>
+          {sortedUserIds.map((uid) => {
+            const group = userGroups.get(uid)!;
+            const isOwnFolder = uid === currentUserId;
+            const userActiveChats = group.chats.filter(c => c.status === "ACTIVE");
+            const userEndedChats = group.chats.filter(c => c.status === "ENDED");
+            const isExpanded = expandedFolders.has(uid);
+            const totalChats = group.chats.length;
+
+            return (
+              <Collapsible
+                key={uid}
+                open={isExpanded}
+                onOpenChange={() => toggleFolder(uid)}
+              >
+                <CollapsibleTrigger asChild>
+                  <div className={`flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors ${isOwnFolder ? "bg-accent/30" : ""}`}>
+                    <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                    <div className="flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary shrink-0">
+                      {group.user.avatar ? (
+                        <img src={group.user.avatar} alt="" className="h-5 w-5 rounded-full" />
+                      ) : (
+                        <User className="h-3 w-3" />
+                      )}
+                    </div>
+                    <span className="text-xs font-medium truncate flex-1">
+                      {isOwnFolder ? "My Chats" : group.user.name}
+                    </span>
+                    <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0">
+                      {totalChats}
+                    </Badge>
+                    {!isOwnFolder && (
+                      <Badge variant="outline" className="text-[8px] h-3 px-1 text-muted-foreground shrink-0">
+                        {group.user.role}
+                      </Badge>
+                    )}
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="ml-2 space-y-0.5">
+                    {userActiveChats.map((chat) => (
+                      <div key={chat.id}>{renderChatItem(chat)}</div>
+                    ))}
+                    {userEndedChats.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2 px-2 pt-2 pb-1">
+                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Ended</span>
+                          <div className="flex-1 h-px bg-border" />
+                        </div>
+                        {userEndedChats.map((chat) => (
+                          <div key={chat.id} className="relative">
+                            {renderChatItem(chat, true)}
+                            {/* Resume button for ended chats */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-1 top-1 h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onResumeChat?.(chat.id);
+                              }}
+                            >
+                              <Zap className="h-2.5 w-2.5 mr-0.5" /> Resume
+                            </Button>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {group.chats.length === 0 && (
+                      <p className="text-[10px] text-muted-foreground px-2 py-1">No chats</p>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // ── Non-admin view: Simple flat list (existing behavior) ──
   return (
     <ScrollArea className="flex-1">
       <div className={`space-y-0.5 p-2 ${isMobile ? "pb-20" : ""}`}>
@@ -2760,127 +3080,7 @@ function ChatSidebar({
         ) : (
           <>
             {activeChats.map((chat) => (
-              <div key={chat.id}>
-                {renamingChatId === chat.id ? (
-                  <div className="flex items-center gap-1 p-2 rounded-lg bg-accent">
-                    <Input
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") onRename(chat.id, renameValue);
-                        if (e.key === "Escape") setRenamingChatId(null);
-                      }}
-                      className="h-7 text-xs"
-                      autoFocus
-                    />
-                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)}>
-                      <Check className="h-3 w-3" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div
-                    className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                      activeChatId === chat.id
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/50"
-                    }`}
-                    onClick={() => onSelect(chat.id)}
-                  >
-                    <div className="relative">
-                      <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                      {chat.isProcessing && (
-                        <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-medium truncate">{chat.title}</span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreVertical className="h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-36">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRenamingChatId(chat.id);
-                                setRenameValue(chat.title);
-                              }}
-                            >
-                              <Pencil className="h-3 w-3 mr-2" /> Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onArchive(chat.id);
-                              }}
-                            >
-                              <Archive className="h-3 w-3 mr-2" /> Archive
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-                              <DropdownMenuItem
-                                className="text-orange-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onDeleteDialog) onDeleteDialog(chat.id);
-                                  else onDelete(chat.id);
-                                }}
-                              >
-                                <ShieldAlert className="h-3 w-3 mr-2" /> Request Deletion
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onDeleteDialog) onDeleteDialog(chat.id);
-                                  else onDelete(chat.id);
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3 mr-2" /> Delete
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {chat.messages && chat.messages.length > 0 && (
-                          <span className="text-[10px] text-muted-foreground truncate">
-                            {truncate(chat.messages[0]?.content, 30)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {chat.lockedByName && (
-                          <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
-                            🔒 {chat.lockedByName}
-                          </Badge>
-                        )}
-                        <span className="text-[10px] text-muted-foreground">
-                          {chat._count?.messages || 0} msgs
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatRelativeTime(chat.updatedAt)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <div key={chat.id}>{renderChatItem(chat)}</div>
             ))}
             {endedChats.length > 0 && (
               <>
@@ -2889,43 +3089,19 @@ function ChatSidebar({
                   <div className="flex-1 h-px bg-border" />
                 </div>
                 {endedChats.map((chat) => (
-                  <div
-                    key={chat.id}
-                    className={`group flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors opacity-60 hover:opacity-80 ${
-                      activeChatId === chat.id
-                        ? "bg-accent text-accent-foreground opacity-100"
-                        : "hover:bg-accent/50"
-                    }`}
-                    onClick={() => onSelect(chat.id)}
-                  >
-                    <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-medium truncate">{chat.title}</span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onResumeChat?.(chat.id);
-                            }}
-                          >
-                            <Zap className="h-2.5 w-2.5 mr-0.5" /> Resume
-                          </Button>
-                          <Badge variant="outline" className="text-[8px] h-3 px-1 text-muted-foreground">ENDED</Badge>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">
-                          {chat._count?.messages || 0} msgs
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatRelativeTime(chat.updatedAt)}
-                        </span>
-                      </div>
-                    </div>
+                  <div key={chat.id} className="relative">
+                    {renderChatItem(chat, true)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1 h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onResumeChat?.(chat.id);
+                      }}
+                    >
+                      <Zap className="h-2.5 w-2.5 mr-0.5" /> Resume
+                    </Button>
                   </div>
                 ))}
               </>
