@@ -13,7 +13,7 @@ import {
   MoreVertical, Search, SendHorizontal, ShieldAlert,
   Wrench, Brain, Eye, FileCode, Globe, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Unlink, FileUp, Upload,
+  Link2, Unlink, FileUp, Upload, RotateCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1112,7 +1112,7 @@ export default function AgentChatPage() {
             readResult = await Promise.race([
               reader.read(),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Stream read timeout')), 30000) // 30s per chunk
+                setTimeout(() => reject(new Error('Stream read timeout')), 120000) // 120s per chunk
               ),
             ]);
           } catch (readErr: any) {
@@ -1552,17 +1552,21 @@ export default function AgentChatPage() {
           }
         }
 
-        // If still no finalData after backend check, show error
-        if (!finalData) {
+        // If still no finalData after backend check, start polling instead of showing error immediately
+        if (!finalData && resolvedChatId) {
+          // Start polling for the response - the backend may still be processing
+          startPollingForCompletion(resolvedChatId, messages.length + 1);
+          setSending(false);
+          // Don't show error - the polling will handle it
+        } else if (!finalData) {
+          // No chatId either - show error only as last resort
           setMessages((prev) => [
             ...prev,
             {
               id: `error-${Date.now()}`,
               chatId: activeChatId || "",
               role: "system",
-              content: collectedSteps.length > 0
-                ? `Agent completed ${collectedSteps.length} steps but the response stream was interrupted. Check the chat history - your code may have been saved. Try refreshing or sending another message.`
-                : "Agent response stream was interrupted. Please try again.",
+              content: "Agent response stream was interrupted and no chat was created. Please try again.",
               createdAt: new Date().toISOString(),
               metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
             },
@@ -1718,7 +1722,7 @@ export default function AgentChatPage() {
 
   // ── Retry failed prompt ──
   const handleRetry = useCallback((prompt: string) => {
-    // Remove the error message and the failed assistant message from chat
+    // Remove the error message from chat
     setMessages((prev) => prev.filter((m) => {
       try {
         const meta = JSON.parse(m.metadata || "{}");
@@ -1727,15 +1731,14 @@ export default function AgentChatPage() {
     }));
     setLastFailedPrompt(null);
     setFailedMsgId(null);
-    // Set the prompt and auto-send after a tick
-    setInput(prompt);
-    // Use setTimeout to ensure state update before sending
+    // Auto-send the retry prompt directly instead of just filling the input
+    directMessageRef.current = prompt;
+    setInput(""); // Clear input
+    // Trigger send after a tick to let state settle
     setTimeout(() => {
-      // Directly call the send logic instead of relying on input state
-      // since setInput is async
-      if (chatInputRef.current) chatInputRef.current.focus();
-    }, 100);
-  }, []);
+      handleSend();
+    }, 50);
+  }, [handleSend]);
 
   // ── Activate a TODO plan step ──
   const handleActivateTodo = useCallback(async (item: typeof todoItems[0]) => {
@@ -3075,7 +3078,7 @@ function ChatArea({
                               className="h-7 text-xs gap-1.5 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
                               onClick={() => onRetry(retryPrompt)}
                             >
-                              <Zap className="h-3 w-3" /> Retry
+                              <RotateCw className="h-3 w-3" /> Retry
                             </Button>
                           )}
                         </div>
@@ -3257,10 +3260,35 @@ function ChatArea({
                                                   {step.toolName === 'write_file' ? 'Writing' : 'Editing'}: {step.toolArgs?.path || step.toolArgs?.file_path || ''}
                                                 </div>
                                                 {step.toolArgs?.content && (
-                                                  <pre className="text-[9px] font-mono text-blue-700 dark:text-blue-300 p-2 overflow-x-auto max-h-40 whitespace-pre-wrap break-all leading-tight">
-                                                    {step.toolArgs.content.substring(0, 1500)}
-                                                    {step.toolArgs.content.length > 1500 && <span className="text-muted-foreground/40">... ({step.toolArgs.content.length} chars total)</span>}
-                                                  </pre>
+                                                  <div className="relative">
+                                                    <SyntaxHighlighter
+                                                      style={oneDark}
+                                                      language={
+                                                        (() => {
+                                                          const p = step.toolArgs?.path || step.toolArgs?.file_path || '';
+                                                          const ext = p.split('.').pop() || '';
+                                                          const langMap: Record<string, string> = {
+                                                            ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+                                                            py: "python", css: "css", html: "html", json: "json",
+                                                            sh: "bash", sql: "sql", md: "markdown",
+                                                          };
+                                                          return langMap[ext] || ext || "typescript";
+                                                        })()
+                                                      }
+                                                      PreTag="div"
+                                                      customStyle={{
+                                                        margin: 0,
+                                                        borderRadius: 0,
+                                                        fontSize: "9px",
+                                                        maxHeight: "200px",
+                                                        overflow: "auto",
+                                                      }}
+                                                    >
+                                                      {step.toolArgs.content.length > 5000
+                                                        ? step.toolArgs.content.substring(0, 5000) + `\n... (${step.toolArgs.content.length - 5000} more characters)`
+                                                        : step.toolArgs.content}
+                                                    </SyntaxHighlighter>
+                                                  </div>
                                                 )}
                                               </div>
                                             </div>
@@ -3421,18 +3449,18 @@ function ChatArea({
                           const allCompleted = completedCount === totalCount;
 
                           return (
-                            <div className="mb-3 rounded-lg border border-border/40 overflow-hidden bg-gradient-to-b from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10">
+                            <div className="mb-3 rounded-lg border border-emerald-200/40 dark:border-emerald-800/30 overflow-hidden bg-gradient-to-b from-emerald-50/50 to-green-50/30 dark:from-emerald-950/20 dark:to-green-950/10">
                               {/* TODO Header */}
                               <button
                                 onClick={() => setTodoExpanded(!todoExpanded)}
-                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-amber-100/30 dark:hover:bg-amber-900/20 transition-colors text-left"
+                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-emerald-100/30 dark:hover:bg-emerald-900/20 transition-colors text-left"
                               >
                                 {allCompleted ? (
                                   <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                                 ) : hasRunning ? (
-                                  <Loader2 className="h-4 w-4 text-amber-500 shrink-0 animate-spin" />
+                                  <Loader2 className="h-4 w-4 text-emerald-500 shrink-0 animate-spin" />
                                 ) : (
-                                  <ListChecks className="h-4 w-4 text-amber-500 shrink-0" />
+                                  <ListChecks className="h-4 w-4 text-emerald-500 shrink-0" />
                                 )}
                                 <span className="text-xs font-semibold text-foreground/80">Plan</span>
                                 <span className="text-[10px] text-muted-foreground font-mono">
@@ -3444,9 +3472,7 @@ function ChatArea({
                                     className="h-full rounded-full transition-all duration-500"
                                     style={{
                                       width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
-                                      background: allCompleted
-                                        ? 'linear-gradient(90deg, #10b981, #059669)'
-                                        : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                                      background: 'linear-gradient(90deg, #10b981, #059669)',
                                     }}
                                   />
                                 </div>
@@ -3456,7 +3482,7 @@ function ChatArea({
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-5 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0 ml-1"
+                                    className="h-5 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0 ml-1"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       // Auto-activate the first pending step
@@ -3473,7 +3499,7 @@ function ChatArea({
 
                               {/* TODO Items */}
                               {todoExpanded && (
-                                <div className="px-3 pb-2.5 space-y-1 border-t border-amber-200/30 dark:border-amber-800/20">
+                                <div className="px-3 pb-2.5 space-y-1 border-t border-emerald-200/30 dark:border-emerald-800/20">
                                   {items.map((item: any) => {
                                     const isPending = item.status === 'pending';
                                     const isRunning = item.status === 'running';
@@ -3486,12 +3512,12 @@ function ChatArea({
                                           {/* Status icon */}
                                           <div className="mt-0.5 shrink-0">
                                             {isPending ? (
-                                              <div className="h-4 w-4 rounded border-2 border-amber-300 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
-                                                <Circle className="h-2 w-2 text-amber-400" />
+                                              <div className="h-4 w-4 rounded border-2 border-emerald-300 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
+                                                <Circle className="h-2 w-2 text-emerald-400" />
                                               </div>
                                             ) : isRunning ? (
-                                              <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30 animate-pulse">
-                                                <Loader2 className="h-2.5 w-2.5 text-amber-500 animate-spin" />
+                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30 animate-pulse">
+                                                <Loader2 className="h-2.5 w-2.5 text-emerald-500 animate-spin" />
                                               </div>
                                             ) : isCompleted ? (
                                               <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
@@ -3543,7 +3569,7 @@ function ChatArea({
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+                                              className="h-6 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
                                               onClick={() => onActivateTodo(item)}
                                               disabled={sending}
                                             >
@@ -3684,10 +3710,10 @@ function ChatArea({
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-6 w-6 text-muted-foreground hover:text-amber-500"
+                                        className="h-6 w-6 text-muted-foreground hover:text-emerald-500"
                                         onClick={() => onRetry(retryPrompt)}
                                       >
-                                        <Zap className="h-3 w-3" />
+                                        <RotateCw className="h-3 w-3" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>Retry</TooltipContent>
@@ -3871,15 +3897,15 @@ function ChatArea({
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
       {/* Z.ai-style TODO panel at chat bottom */}
       {todoItems.length > 0 && (
-        <div className="border-t border-amber-200/50 dark:border-amber-800/30 bg-gradient-to-r from-amber-50/80 to-orange-50/60 dark:from-amber-950/30 dark:to-orange-950/20 shrink-0">
+        <div className="border-t border-emerald-200/50 dark:border-emerald-800/30 bg-gradient-to-r from-emerald-50/80 to-green-50/60 dark:from-emerald-950/30 dark:to-green-950/20 shrink-0">
           <div className="px-3 py-2">
             <div className="flex items-center gap-2 mb-2">
               {todoItems.every(t => t.status === 'completed') ? (
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
               ) : todoItems.some(t => t.status === 'running') ? (
-                <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />
+                <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
               ) : (
-                <ListChecks className="h-4 w-4 text-amber-500" />
+                <ListChecks className="h-4 w-4 text-emerald-500" />
               )}
               {/* Show "Plan" for plan_task items with prompts, "Progress" for auto-generated items */}
               <span className="text-xs font-semibold text-foreground/80">
@@ -3893,9 +3919,7 @@ function ChatArea({
                   className="h-full rounded-full transition-all duration-500"
                   style={{
                     width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
-                    background: todoItems.every(t => t.status === 'completed')
-                      ? 'linear-gradient(90deg, #10b981, #059669)'
-                      : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                    background: 'linear-gradient(90deg, #10b981, #059669)',
                   }}
                 />
               </div>
@@ -3904,7 +3928,7 @@ function ChatArea({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 text-[9px] px-2 gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+                  className="h-6 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
                   onClick={() => {
                     const firstPending = todoItems.find(t => t.status === 'pending');
                     if (firstPending) onActivateTodo(firstPending);
@@ -3929,9 +3953,9 @@ function ChatArea({
                     onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
                       isCompleted ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 line-through' :
-                      isRunning ? 'bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700 animate-pulse' :
+                      isRunning ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700 animate-pulse' :
                       isFailed ? 'bg-red-100/60 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                      hasPrompt ? 'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 cursor-pointer' :
+                      hasPrompt ? 'bg-white/60 dark:bg-white/5 text-foreground/70 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 cursor-pointer' :
                       'bg-white/40 dark:bg-white/5 text-foreground/50'
                     }`}
                     disabled={sending || !isPending || !hasPrompt}
