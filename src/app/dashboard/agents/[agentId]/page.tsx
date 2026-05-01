@@ -407,15 +407,28 @@ export default function AgentChatPage() {
       if (res.ok) {
         const data = await res.json();
         // Handle API error responses that return objects instead of arrays
+        // Also handle cases where data is null/undefined
         const agents = Array.isArray(data) ? data : [];
-        const found = agents.find((a) => a.id === agentId);
+        const found = agents.find((a) => a && a.id === agentId);
         if (found) {
+          // Ensure roleConfig fields are properly initialized to prevent null access errors
+          if (!found.roleConfig) {
+            found.roleConfig = null;
+          }
           setAgent(found);
           setAllAgents(agents);
+        } else {
+          console.warn("[AgentChat] Agent not found in API response. agentId:", agentId);
         }
+      } else {
+        console.error("[AgentChat] Failed to fetch agents, status:", res.status);
+        try {
+          const errData = await res.json();
+          console.error("[AgentChat] API error:", errData.error || errData.message);
+        } catch {}
       }
-    } catch (err) {
-      console.error("Failed to fetch agent:", err);
+    } catch (err: any) {
+      console.error("[AgentChat] Failed to fetch agent:", err?.message || err);
     } finally {
       setLoading(false);
     }

@@ -293,22 +293,35 @@ You are autonomous and dedicated. Help TrishulHub's clients get fast, effective 
 
 // ━━ Generate Z.ai JWT Token ━━
 async function generateZaiToken(apiKey: string): Promise<string> {
+  if (!apiKey || typeof apiKey !== 'string') {
+    throw new Error("Invalid API key: key is empty or not a string")
+  }
   if (apiKey.startsWith("eyJ")) return apiKey
 
   const parts = apiKey.split(".")
   if (parts.length === 2) {
     const [id, secret] = parts
-    const secretBytes = new TextEncoder().encode(secret)
-    const nowSec = Math.floor(Date.now() / 1000)
-    const token = await new SignJWT({
-      api_key: id,
-      timestamp: Date.now(),
-      exp: nowSec + 3600,
-    })
-      .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
-      .sign(secretBytes)
-    return token
+    if (!id || !secret) {
+      throw new Error("Invalid Z.ai API key format: missing id or secret part")
+    }
+    try {
+      const secretBytes = new TextEncoder().encode(secret)
+      const nowSec = Math.floor(Date.now() / 1000)
+      const token = await new SignJWT({
+        api_key: id,
+        timestamp: Date.now(),
+        exp: nowSec + 3600,
+      })
+        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
+        .sign(secretBytes)
+      return token
+    } catch (jwtErr: any) {
+      console.error("[agent-loop] JWT generation failed:", jwtErr.message)
+      throw new Error(`Failed to generate Z.ai JWT token: ${jwtErr.message}`)
+    }
   }
+  // If not in id.secret format and not a JWT, use as-is (might be a newer format or raw token)
+  console.warn("[agent-loop] API key is not in expected id.secret format, using as-is")
   return apiKey
 }
 

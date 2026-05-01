@@ -265,6 +265,9 @@ export async function POST(req: NextRequest) {
       const encoder = new TextEncoder()
       const stream = new ReadableStream({
         async start(controller) {
+          // Wrap the entire stream body in a try-catch to prevent unhandled errors
+          // from crashing the stream without sending a proper error event
+          try {
           let lastError: Error | null = null
           let success = false
 
@@ -611,6 +614,26 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorData)}\n\n`))
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
           controller.close()
+
+          } catch (streamErr: any) {
+            // Outer catch: handle any unhandled errors in the stream
+            console.error("[agent-chat] Unhandled stream error:", streamErr.message)
+            try {
+              // Clear processing state
+              await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+              // Try to send an error event before closing
+              const errData = {
+                type: "error",
+                message: `Agent chat error: ${streamErr.message || "Unknown error"}. Please try again.`,
+                chatId: chat.id,
+              }
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(errData)}\n\n`))
+              controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+            } catch {
+              // If we can't send error event, just close
+              try { controller.close() } catch {}
+            }
+          }
         },
       })
 
