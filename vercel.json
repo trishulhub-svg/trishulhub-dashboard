@@ -20,5 +20,16 @@
       "path": "/api/cron/execute-tasks",
       "schedule": "0 5 * * *"
     }
+  ],
+  "headers": [
+    {
+      "source": "/api/cron/(.*)",
+      "headers": [
+        {
+          "key": "x-cron-secret",
+          "value": "cron-trishulhub-secret-2024"
+        }
+      ]
+    }
   ]
 }
