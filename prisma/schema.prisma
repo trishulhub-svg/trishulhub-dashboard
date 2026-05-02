@@ -31,6 +31,8 @@ model User {
   agentAccess        UserAgentAccess[]
   approvalActions    Approval[]       @relation("ApprovalActions")
   timeEntries        TimeEntry[]
+  organizedMeetings  Meeting[]
+  meetingAttendances MeetingAttendee[]
 }
 
 // ━━ API Keys ━━
@@ -262,6 +264,7 @@ model Project {
   tasks       Task[]
   invoices    Invoice[]
   timeEntries TimeEntry[]
+  meetings    Meeting[]
 }
 
 // ━━ Tasks ━━
@@ -461,6 +464,44 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([createdAt])
+}
+
+// ━━ Meetings ━━
+model Meeting {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  date         DateTime
+  startTime    String   // Format: "HH:mm" e.g., "09:30"
+  endTime      String?  // Format: "HH:mm" e.g., "10:30"
+  organizerId  String
+  meetingType  String   @default("VIRTUAL") // VIRTUAL, IN_PERSON, PHONE
+  meetingLink  String?  // Google Meet link
+  projectId    String?
+  status       String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizer    User     @relation(fields: [organizerId], references: [id])
+  project      Project? @relation(fields: [projectId], references: [id])
+  attendees    MeetingAttendee[]
+
+  @@index([organizerId])
+  @@index([projectId])
+  @@index([date])
+}
+
+model MeetingAttendee {
+  id         String  @id @default(cuid())
+  meetingId  String
+  userId     String
+  rsvpStatus String  @default("PENDING") // PENDING, ACCEPTED, DECLINED
+
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user       User    @relation(fields: [userId], references: [id])
+
+  @@unique([meetingId, userId])
 }
 
 // ━━ Expenses ━━

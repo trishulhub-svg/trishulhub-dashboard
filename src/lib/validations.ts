@@ -91,6 +91,34 @@ export const updateTimeEntrySchema = z.object({
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
 })
 
+export const createMeetingSchema = z.object({
+  title: z.string().min(1, "Meeting title is required").max(200),
+  description: z.string().max(2000).optional(),
+  date: z.string().min(1, "Date is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().optional(),
+  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
+  meetingLink: z.string().optional(),
+  projectId: z.string().optional(),
+  attendeeIds: z.array(z.string()).optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+export const updateMeetingSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).optional(),
+  date: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
+  meetingLink: z.string().optional(),
+  projectId: z.string().optional(),
+  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+  attendeeIds: z.array(z.string()).optional(),
+  notes: z.string().max(2000).optional(),
+})
+
 /**
  * Validates data against a schema and returns either the validated data or an error response
  */
