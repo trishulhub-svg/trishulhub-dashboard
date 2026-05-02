@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     const userId = (session.user as any).id
     const userRole = (session.user as any).role
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
 
     const { searchParams } = new URL(req.url)
     const filterUserId = searchParams.get("userId")
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     // Non-admins can only see their own entries
     const where: any = {}
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       where.userId = userId
     } else if (filterUserId) {
       where.userId = filterUserId

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import fs from "fs"
-import path from "path"
 
 // POST /api/web-search - Search the web using Z.ai SDK
 export async function POST(req: NextRequest) {
@@ -17,19 +15,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Search query is required" }, { status: 400 })
     }
 
-    // Ensure .z-ai-config exists for the SDK. If missing (e.g., Vercel deployment),
-    // create it from environment variables so web search works everywhere.
-    const configPath = path.join(process.cwd(), ".z-ai-config")
-    try {
-      fs.accessSync(configPath)
-    } catch {
-      // Config file doesn't exist — create it from env vars if available
-      const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
-      const apiKey = process.env.ZAI_API_KEY
-      if (baseUrl && apiKey) {
-        fs.writeFileSync(configPath, JSON.stringify({ baseUrl, apiKey }), "utf-8")
-      }
-    }
+    // SECURITY FIX: Use environment variables directly instead of writing config to disk.
+    // Vercel's filesystem is read-only — writing .z-ai-config fails silently.
+    // Also, writing API keys to plain JSON files on disk is a security risk.
+    // Set env vars before importing the SDK so it picks them up.
+    const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
+    const apiKey = process.env.ZAI_API_KEY
+    if (baseUrl) process.env.ZAI_BASE_URL = baseUrl
+    if (apiKey) process.env.ZAI_API_KEY = apiKey
 
     // Dynamic import to avoid build-time issues
     const { default: ZAI } = await import("z-ai-web-dev-sdk")

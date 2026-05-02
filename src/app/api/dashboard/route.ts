@@ -58,11 +58,27 @@ export async function GET() {
   const leads = isAdmin(role) ? await db.lead.findMany() : []
 
   // Fix #16: Mask API key values for non-SUPER_ADMIN users
+  // SECURITY: Developers should NOT see API keys at all - that page is SUPER_ADMIN only
   const safeApiKeys = role === "SUPER_ADMIN"
     ? apiKeys
-    : apiKeys.map(k => ({
-        ...k,
-        keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "",
+    : isAdmin(role)
+      ? apiKeys.map(k => ({
+          ...k,
+          keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "",
+        }))
+      : [] // Developers get no API key data
+
+  // SECURITY: Developers should NOT see usage logs with full agent details
+  const safeUsageLogs = isAdmin(role)
+    ? usageLogs
+    : usageLogs.map(log => ({
+        id: log.id,
+        model: log.model,
+        inputTokens: log.inputTokens,
+        outputTokens: log.outputTokens,
+        cost: log.cost,
+        createdAt: log.createdAt,
+        agent: log.agent ? { id: log.agent.id, name: log.agent.name, type: log.agent.type } : null,
       }))
 
   const totalApiSpend = apiKeys.reduce((sum, k) => sum + k.currentSpend, 0)
@@ -87,7 +103,7 @@ export async function GET() {
     invoices: isAdmin(role) ? invoices : [],
     expenses: isAdmin(role) ? expenses : [],
     apiKeys: safeApiKeys,
-    usageLogs,
+    usageLogs: safeUsageLogs,
     supportTickets: isAdmin(role) ? supportTickets : [],
     tasks,
     stats: {

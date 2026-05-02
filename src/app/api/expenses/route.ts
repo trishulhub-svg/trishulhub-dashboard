@@ -143,7 +143,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE /api/expenses - Delete expense (SUPER_ADMIN only)
+// DELETE /api/expenses - Delete expense (SUPER_ADMIN and ADMIN only)
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

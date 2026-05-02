@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     const userId = (session.user as any).id
     const userRole = (session.user as any).role
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
 
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type") || "employee" // employee | project
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Non-admins only see their own
-    if (!isAdmin) {
+    if (!isAdminUser) {
       where.userId = userId
     } else if (filterUserId) {
       where.userId = filterUserId

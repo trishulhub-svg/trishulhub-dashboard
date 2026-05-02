@@ -144,10 +144,25 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
   }
 
+  // SECURITY: Apply same allowed fields whitelist as PATCH handler
+  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "sentById", "paidAt"]
+  const sanitizedData: Record<string, any> = {}
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      if (key === "items" && typeof data[key] !== "string") {
+        sanitizedData[key] = JSON.stringify(data[key])
+      } else if (key === "dueDate" || key === "paidAt") {
+        sanitizedData[key] = data[key] ? new Date(data[key]) : null
+      } else {
+        sanitizedData[key] = data[key]
+      }
+    }
+  }
+
   try {
     const invoice = await db.invoice.update({
       where: { id },
-      data,
+      data: sanitizedData,
       include: { client: true, project: true },
     })
     return NextResponse.json(invoice)

@@ -127,9 +127,14 @@ export async function POST(req: NextRequest) {
     const { type, ...data } = body
 
     if (type === "leave") {
+      // SECURITY: Non-admin users can only create leave for themselves
+      const sessionUserId = (session.user as any).id
+      const sessionUserRole = (session.user as any).role
+      const leaveUserId = !isAdmin(sessionUserRole) ? sessionUserId : (data.userId || sessionUserId)
+
       const leave = await db.leaveRequest.create({
         data: {
-          userId: data.userId,
+          userId: leaveUserId,
           type: data.leaveType || "CASUAL",
           startDate: new Date(data.startDate),
           endDate: new Date(data.endDate),
@@ -142,7 +147,7 @@ export async function POST(req: NextRequest) {
       const admins = await db.user.findMany({
         where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
       })
-      const user = await db.user.findUnique({ where: { id: data.userId } })
+      const user = await db.user.findUnique({ where: { id: leaveUserId } })
       for (const admin of admins) {
         await db.notification.create({
           data: {
@@ -160,8 +165,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === "attendance") {
+      // SECURITY: Only admins can create attendance records
+      const attendanceUserRole = (session.user as any).role
+      if (!isAdmin(attendanceUserRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
+      // Sanitize attendance data - only allow specific fields
+      const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
       const attendance = await db.attendance.create({
-        data: { date: new Date(data.date), ...data },
+        data: {
+          date: new Date(date),
+          userId: attUserId || (session.user as any).id,
+          ...(attStatus && { status: attStatus }),
+          ...(checkIn && { checkIn }),
+          ...(checkOut && { checkOut }),
+          ...(notes && { notes }),
+        },
       })
       return NextResponse.json(attendance, { status: 201 })
     }
@@ -256,6 +275,11 @@ export async function PATCH(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
 
     if (type === "leave") {
+      // SECURITY: Only admins can approve/reject leave requests
+      const leavePatchRole = (session.user as any).role
+      if (data.status && !isAdmin(leavePatchRole)) {
+        return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
+      }
       const leave = await db.leaveRequest.update({
         where: { id },
         data: {
@@ -281,12 +305,22 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (type === "attendance") {
-      const attendance = await db.attendance.update({ where: { id }, data })
+      // SECURITY: Sanitize attendance update data
+      const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
+      const sanitizedAttData: Record<string, any> = {}
+      for (const key of allowedAttFields) {
+        if (data[key] !== undefined) sanitizedAttData[key] = data[key]
+      }
+      const attendance = await db.attendance.update({ where: { id }, data: sanitizedAttData })
       return NextResponse.json(attendance)
     }
 
     if (type === "agent-access") {
-      // Update agent access for a user
+      // SECURITY: Only admins can update agent access
+      const patchRole = (session.user as any).role
+      if (!isAdmin(patchRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       const access = await db.userAgentAccess.update({
         where: { id },
         data: {
@@ -354,6 +388,11 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
 
     if (type === "agent-access") {
+      // SECURITY: Only admins can delete agent access
+      const deleteRole = (session.user as any).role
+      if (!isAdmin(deleteRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       await db.userAgentAccess.delete({ where: { id } })
       return NextResponse.json({ success: true })
     }

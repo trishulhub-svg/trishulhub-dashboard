@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const userId = (session.user as any).id
+    const userRole = (session.user as any).role
+
     const chatId = req.nextUrl.searchParams.get("chatId")
     if (!chatId) {
       return NextResponse.json({ error: "chatId is required" }, { status: 400 })
@@ -22,11 +25,32 @@ export async function GET(req: NextRequest) {
 
     const chat = await db.chat.findUnique({
       where: { id: chatId },
-      select: { lockedBy: true, lockedAt: true, lockedByName: true },
+      select: { lockedBy: true, lockedAt: true, lockedByName: true, userId: true },
     })
 
     if (!chat) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+    }
+
+    // SECURITY: Only the chat owner or admin can check lock status
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && chat.userId !== userId) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+
+    // Auto-release stale locks (older than 30 minutes)
+    const LOCK_TTL_MS = 30 * 60 * 1000
+    if (chat.lockedBy && chat.lockedAt && (Date.now() - new Date(chat.lockedAt).getTime() > LOCK_TTL_MS)) {
+      await db.chat.update({
+        where: { id: chatId },
+        data: { lockedBy: null, lockedAt: null, lockedByName: null },
+      })
+      return NextResponse.json({
+        locked: false,
+        lockedBy: null,
+        lockedByName: null,
+        lockedAt: null,
+        message: "Stale lock auto-released",
+      })
     }
 
     return NextResponse.json({

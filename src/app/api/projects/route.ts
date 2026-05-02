@@ -60,7 +60,25 @@ export async function POST(req: NextRequest) {
   }
   
   const data = await req.json()
-  const project = await db.project.create({ data })
+  
+  // SECURITY: Sanitize project creation data (whitelist allowed fields)
+  const { name, description, status, clientId, budget, deadline } = data
+  if (!name) {
+    return NextResponse.json({ error: "Project name is required" }, { status: 400 })
+  }
+  if (!clientId) {
+    return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
+  }
+  const project = await db.project.create({
+    data: {
+      name,
+      description: description || null,
+      status: status || "PLANNING",
+      clientId,
+      budget: budget || null,
+      deadline: deadline ? new Date(deadline) : null,
+    },
+  })
   return NextResponse.json(project)
 }
 
@@ -75,6 +93,20 @@ export async function PUT(req: NextRequest) {
   }
   
   const { id, ...data } = await req.json()
-  const project = await db.project.update({ where: { id }, data })
+  
+  // SECURITY: Sanitize project update data (whitelist allowed fields)
+  const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
+  const sanitizedData: Record<string, any> = {}
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      if (key === "deadline") {
+        sanitizedData[key] = data[key] ? new Date(data[key]) : null
+      } else {
+        sanitizedData[key] = data[key]
+      }
+    }
+  }
+  
+  const project = await db.project.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(project)
 }

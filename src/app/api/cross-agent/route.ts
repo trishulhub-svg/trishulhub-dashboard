@@ -74,6 +74,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "From agent, to agent, and message are required" }, { status: 400 })
     }
 
+    // SECURITY: Verify user has access to both agents
+    const userRole = (session.user as any).role
+    const userId = (session.user as any).id
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      const [fromAccess, toAccess] = await Promise.all([
+        db.userAgentAccess.findFirst({ where: { userId, agentId: fromAgentId, canChat: true } }),
+        db.userAgentAccess.findFirst({ where: { userId, agentId: toAgentId, canView: true } }),
+      ])
+      if (!fromAccess) {
+        return NextResponse.json({ error: "You do not have chat access to the source agent" }, { status: 403 })
+      }
+      if (!toAccess) {
+        return NextResponse.json({ error: "You do not have access to the target agent" }, { status: 403 })
+      }
+    }
+
     // Verify both agents exist
     const [fromAgent, toAgent] = await Promise.all([
       db.agent.findUnique({ where: { id: fromAgentId } }),

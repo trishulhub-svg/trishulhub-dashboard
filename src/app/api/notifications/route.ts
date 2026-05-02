@@ -13,10 +13,9 @@ export async function GET(req: NextRequest) {
 
     const userId = (session.user as any).id
     const { searchParams } = new URL(req.url)
-    const targetUserId = userId
     const unreadOnly = searchParams.get("unread") === "true"
 
-    const where: any = { userId: targetUserId }
+    const where: any = { userId }
     if (unreadOnly) where.isRead = false
 
     const notifications = await db.notification.findMany({
@@ -102,6 +101,14 @@ export async function PUT(req: NextRequest) {
     const { id } = await req.json()
     if (!id) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
+    }
+
+    // SECURITY: Verify notification belongs to the requesting user
+    const notification = await db.notification.findFirst({
+      where: { id, userId: (session.user as any).id },
+    })
+    if (!notification) {
+      return NextResponse.json({ error: "Notification not found" }, { status: 404 })
     }
 
     await db.notification.update({ where: { id }, data: { isRead: true } })

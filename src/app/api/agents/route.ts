@@ -95,15 +95,30 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Agent ID required" }, { status: 400 })
     }
 
+    // SECURITY: Whitelist allowed fields for agent update (prevent mass assignment)
+    const allowedAgentFields = ["name", "description", "systemPrompt", "model", "status", "apiKeyId"]
+    const sanitizedAgentData: Record<string, any> = {}
+    for (const key of allowedAgentFields) {
+      if (data[key] !== undefined) {
+        sanitizedAgentData[key] = data[key]
+      }
+    }
+
     // Update agent basic data
     const agent = await db.agent.update({
       where: { id },
-      data,
+      data: sanitizedAgentData,
       include: { roleConfig: true },
     })
 
     // Update role config if provided
     if (roleConfig) {
+      // SECURITY: Only allow GitHub fields for DEV agent type
+      const isDevAgent = agent.type === "DEV"
+      const githubRepo = isDevAgent ? (roleConfig.githubRepo ?? "") : ""
+      const githubToken = isDevAgent ? (roleConfig.githubToken ?? "") : ""
+      const autoPushEnabled = isDevAgent ? (roleConfig.autoPushEnabled ?? false) : false
+
       await db.agentRoleConfig.upsert({
         where: { agentId: id },
         create: {
@@ -114,9 +129,9 @@ export async function PATCH(req: NextRequest) {
           features: JSON.stringify(roleConfig.features || {}),
           suggestedPrompts: JSON.stringify(roleConfig.suggestedPrompts || []),
           autoWorkflows: JSON.stringify(roleConfig.autoWorkflows || []),
-          githubRepo: roleConfig.githubRepo || "",
-          githubToken: roleConfig.githubToken || "",
-          autoPushEnabled: roleConfig.autoPushEnabled || false,
+          githubRepo,
+          githubToken,
+          autoPushEnabled,
         },
         update: {
           ...(roleConfig.rolePrompt !== undefined && { rolePrompt: roleConfig.rolePrompt }),
@@ -125,9 +140,11 @@ export async function PATCH(req: NextRequest) {
           ...(roleConfig.features !== undefined && { features: JSON.stringify(roleConfig.features) }),
           ...(roleConfig.suggestedPrompts !== undefined && { suggestedPrompts: JSON.stringify(roleConfig.suggestedPrompts) }),
           ...(roleConfig.autoWorkflows !== undefined && { autoWorkflows: JSON.stringify(roleConfig.autoWorkflows) }),
-          ...(roleConfig.githubRepo !== undefined && { githubRepo: roleConfig.githubRepo }),
-          ...(roleConfig.githubToken !== undefined && { githubToken: roleConfig.githubToken }),
-          ...(roleConfig.autoPushEnabled !== undefined && { autoPushEnabled: roleConfig.autoPushEnabled }),
+          // GitHub fields: only set for DEV agent, always clear for others
+          ...(isDevAgent && roleConfig.githubRepo !== undefined && { githubRepo: roleConfig.githubRepo }),
+          ...(isDevAgent && roleConfig.githubToken !== undefined && { githubToken: roleConfig.githubToken }),
+          ...(isDevAgent && roleConfig.autoPushEnabled !== undefined && { autoPushEnabled: roleConfig.autoPushEnabled }),
+          ...(!isDevAgent && { githubRepo: "", githubToken: "", autoPushEnabled: false }),
         }
       })
     }

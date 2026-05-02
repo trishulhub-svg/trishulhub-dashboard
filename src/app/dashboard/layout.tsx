@@ -219,7 +219,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await fetch("/api/notifications?userId=" + userId, { credentials: "include" });
+      const res = await fetch("/api/notifications", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setNotifications(data);
@@ -233,7 +233,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (status === "unauthenticated") {
       router.push("/login");
     }
-  }, [status, router]);
+    // SECURITY: CLIENT role users should be redirected to /portal, not /dashboard
+    if (status === "authenticated" && userRole === "CLIENT") {
+      router.push("/portal");
+    }
+  }, [status, router, userRole]);
 
   useEffect(() => {
     if (session) {

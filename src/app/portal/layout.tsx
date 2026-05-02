@@ -78,7 +78,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     );
   }
 
-  if (!session) return null;
+  // SECURITY: Prevent non-CLIENT users from seeing portal content (even briefly)
+  if (!session || (session.user && (session.user as any)?.role && (session.user as any).role !== "CLIENT")) {
+    return null
+  }
 
   const userName = session.user?.name || "Client";
 

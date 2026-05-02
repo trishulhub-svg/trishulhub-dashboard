@@ -412,7 +412,9 @@ async function callGoogleAIAPI(
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
   const mappedModel = getModelForProvider(model, "GOOGLE_AI")
-  const url = `${GOOGLE_AI_API_URL}/${mappedModel}:generateContent?key=${apiKey}`
+  // SECURITY FIX: Use x-goog-api-key header instead of URL parameter to prevent
+  // API key from being logged by proxies, CDNs, or server access logs
+  const url = `${GOOGLE_AI_API_URL}/${mappedModel}:generateContent`
 
   console.log(`[google-ai] Calling with model: ${mappedModel} (original: ${model})`)
 
@@ -449,7 +451,10 @@ async function callGoogleAIAPI(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify(body),
   })
 

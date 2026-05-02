@@ -112,8 +112,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Lead ID is required" }, { status: 400 })
   }
 
+  // SECURITY: Apply same allowed fields whitelist as PATCH handler
+  const allowedFields = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"]
+  const sanitizedData: Record<string, any> = {}
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      sanitizedData[key] = data[key]
+    }
+  }
+
   try {
-    const lead = await db.lead.update({ where: { id }, data })
+    const lead = await db.lead.update({ where: { id }, data: sanitizedData })
     return NextResponse.json(lead)
   } catch (error: any) {
     return NextResponse.json({ error: "Lead not found or update failed" }, { status: 404 })
