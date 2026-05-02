@@ -34,12 +34,21 @@ export async function GET() {
     db.task.findMany(),
   ])
 
+  // Fix #16: Mask API key values for non-SUPER_ADMIN users
+  const safeApiKeys = role === "SUPER_ADMIN"
+    ? apiKeys
+    : apiKeys.map(k => ({
+        ...k,
+        keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "",
+      }))
+
+  const totalApiSpend = apiKeys.reduce((sum, k) => sum + k.currentSpend, 0)
+  const monthlyBudget = apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0)
+
   const totalRevenue = invoices.filter(i => i.status === "PAID").reduce((sum, i) => sum + i.total, 0)
   const pendingAmount = invoices.filter(i => i.status === "SENT").reduce((sum, i) => sum + i.total, 0)
   const overdueAmount = invoices.filter(i => i.status === "OVERDUE").reduce((sum, i) => sum + i.total, 0)
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
-  const totalApiSpend = apiKeys.reduce((sum, k) => sum + k.currentSpend, 0)
-  const monthlyBudget = apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0)
 
   const newLeadsCount = leads.filter(l => l.status === "NEW").length
   const activeProjects = projects.filter(p => !["COMPLETED", "DEPLOYED"].includes(p.status)).length
@@ -53,7 +62,7 @@ export async function GET() {
     leads,
     invoices,
     expenses,
-    apiKeys,
+    apiKeys: safeApiKeys,
     usageLogs,
     supportTickets,
     tasks,

@@ -53,7 +53,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(chats)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats] GET error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -94,7 +95,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(chat, { status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -137,7 +139,8 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(updated)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats] PATCH error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -250,6 +253,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats] DELETE error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

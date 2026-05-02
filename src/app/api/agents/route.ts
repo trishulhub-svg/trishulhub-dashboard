@@ -39,8 +39,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(agents)
   } catch (error: any) {
-    console.error("[agents] Failed to fetch agents:", error.message, error.stack)
-    return NextResponse.json({ error: "Failed to fetch agents", details: error.message }, { status: 500 })
+    console.error("[agents] GET error:", error.message); return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
   }
 }
 
@@ -50,6 +49,10 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userRole = (session.user as any)?.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden: Only admins can update agent settings" }, { status: 403 })
     }
 
     const body = await req.json()
@@ -104,6 +107,7 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(updated)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to update agent" }, { status: 500 })
+    console.error("[agents] PATCH error:", error.message, error.stack)
+    return NextResponse.json({ error: "Failed to update agent" }, { status: 500 })
   }
 }

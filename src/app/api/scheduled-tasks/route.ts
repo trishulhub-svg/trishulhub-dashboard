@@ -36,7 +36,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(tasks)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[scheduled-tasks] GET error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -88,7 +89,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(task, { status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[scheduled-tasks] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -159,7 +161,8 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(task)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[scheduled-tasks] PATCH error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -193,6 +196,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[scheduled-tasks] DELETE error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

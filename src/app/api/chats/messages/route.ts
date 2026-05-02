@@ -37,7 +37,8 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ success: true, message: updated })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats/messages] PATCH error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -81,6 +82,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ messages, total })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[chats/messages] GET error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

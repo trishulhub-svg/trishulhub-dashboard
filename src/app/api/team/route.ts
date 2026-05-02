@@ -83,7 +83,8 @@ export async function GET(req: NextRequest) {
     })
     return NextResponse.json(users)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to fetch team data" }, { status: 500 })
+    console.error("[team] GET error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -205,7 +206,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to create record" }, { status: 500 })
+    console.error("[team] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -301,7 +303,8 @@ export async function PATCH(req: NextRequest) {
     })
     return NextResponse.json(user)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to update record" }, { status: 500 })
+    console.error("[team] PATCH error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -326,6 +329,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to delete" }, { status: 500 })
+    console.error("[team] DELETE error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

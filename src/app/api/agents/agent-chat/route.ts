@@ -11,6 +11,7 @@ import { runAgentLoop, AgentStep, AgentLoopResult } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 import { callAIWithFailover, AllKeysExhaustedError, getVisionModel } from "@/lib/ai/openrouter"
 import { SignJWT } from "jose"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // ── Analyze file attachments with Z.ai Vision API ──
 // The agentic model (glm-4.5-flash) is text-only and doesn't support image_url.
@@ -83,7 +84,7 @@ async function analyzeFileAttachments(
       }
     } catch (err: any) {
       console.error("[agent-chat] File analysis error:", err.message)
-      descriptions.push(`[Attachment ${i + 1}]: File was attached but analysis failed: ${err.message}`)
+      descriptions.push(`[Attachment ${i + 1}]: File was attached but analysis failed`)
     }
   }
 
@@ -101,6 +102,38 @@ export async function POST(req: NextRequest) {
     const { agentId, message, chatId, stream, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
+    }
+
+    // Fix #25: Rate limiting for agentic chat
+    const { success: rateLimitOk, remaining } = rateLimit(
+      `agent-chat:${userId}:${agentId}`,
+      RATE_LIMITS.agentChat.limit,
+      RATE_LIMITS.agentChat.windowMs
+    )
+    if (!rateLimitOk) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment before trying again." },
+        { status: 429 }
+      )
+    }
+
+    // Fix #17: Validate file attachment limits
+    const MAX_FILES = 5
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+    if (fileUrls && Array.isArray(fileUrls)) {
+      if (fileUrls.length > MAX_FILES) {
+        return NextResponse.json({ error: `Maximum ${MAX_FILES} files allowed per message` }, { status: 400 })
+      }
+      for (let i = 0; i < fileUrls.length; i++) {
+        const url = fileUrls[i]
+        if (url && url.startsWith("data:")) {
+          const base64Part = url.split(",")[1] || ""
+          const fileSize = Buffer.byteLength(base64Part, "base64")
+          if (fileSize > MAX_FILE_SIZE) {
+            return NextResponse.json({ error: `File ${i + 1} exceeds maximum size of 5MB` }, { status: 400 })
+          }
+        }
+      }
     }
 
     // Check user access
@@ -399,7 +432,7 @@ export async function POST(req: NextRequest) {
                 data: { isProcessing: false },
               }).catch(() => {})
 
-              // Auto-push to GitHub if enabled and code was written
+              // Fix #2, #9, #18: Secure auto-push using GIT_ASKPASS (token never in URL). Commit only — push requires approval.
               if (agent.roleConfig?.autoPushEnabled && agent.roleConfig.githubRepo && agent.roleConfig.githubToken) {
                 const hasCodeChanges = result.usedTools.includes('write_file') || result.usedTools.includes('edit_file')
                 if (hasCodeChanges) {
@@ -409,6 +442,7 @@ export async function POST(req: NextRequest) {
                     const execAsync = promisify(exec)
                     const fs = require("fs")
                     const path = require("path")
+                    const crypto = require("crypto")
                     let projectRoot = process.cwd()
                     try {
                       const testFile = path.join(projectRoot, '.write-test-' + Date.now())
@@ -420,25 +454,51 @@ export async function POST(req: NextRequest) {
                         if (!fs.existsSync(projectRoot)) fs.mkdirSync(projectRoot, { recursive: true })
                       } catch {}
                     }
-                    
-                    // Configure git remote with token if needed
+
+                    // Set remote URL WITHOUT token
                     const repoUrl = agent.roleConfig.githubRepo
                     const token = agent.roleConfig.githubToken
-                    // Construct authenticated URL
-                    const authUrl = repoUrl.replace('https://', `https://${token}@`)
-                    
-                    // Set remote and push
-                    await execAsync(`git -C "${projectRoot}" remote set-url origin ${authUrl} 2>/dev/null || git -C "${projectRoot}" remote add origin ${authUrl}`, { timeout: 10000 }).catch(() => {})
-                    await execAsync(`git -C "${projectRoot}" add -A`, { timeout: 15000 }).catch(() => {})
-                    const { stdout: statusOut } = await execAsync(`git -C "${projectRoot}" status --porcelain`, { timeout: 10000 }).catch(() => ({ stdout: '' }))
-                    if (statusOut.trim()) {
-                      const commitMsg = `Auto-push by ${agent.name}: ${enrichedMessage.substring(0, 80)}`
-                      await execAsync(`git -C "${projectRoot}" commit -m "${commitMsg.replace(/["\n$\`]/g, '')}"`, { timeout: 15000 }).catch(() => {})
-                      await execAsync(`git -C "${projectRoot}" push origin HEAD`, { timeout: 60000 }).catch(() => {})
-                      console.log(`[agent-chat] Auto-pushed to GitHub for agent ${agent.name}`)
+
+                    // Create a temporary GIT_ASKPASS script that provides the token
+                    const askpassId = crypto.randomBytes(8).toString('hex')
+                    const askpassPath = `/tmp/git-askpass-${askpassId}.sh`
+                    const credsPath = `/tmp/git-creds-${askpassId}`
+                    fs.writeFileSync(askpassPath, `#!/bin/sh\ncat ${credsPath}\n`, { mode: 0o755 })
+                    fs.writeFileSync(credsPath, `protocol=https\nhost=${new URL(repoUrl).hostname}\nusername=TrishulHub\npassword=${token}\n`)
+
+                    try {
+                      // Set remote without token
+                      await execAsync(`git -C "${projectRoot}" remote set-url origin ${repoUrl}`, { timeout: 10000 }).catch(() => {})
+                      await execAsync(`git -C "${projectRoot}" add -A`, { timeout: 15000 }).catch(() => {})
+                      const { stdout: statusOut } = await execAsync(`git -C "${projectRoot}" status --porcelain`, { timeout: 10000 }).catch(() => ({ stdout: '' }))
+
+                      if (statusOut.trim()) {
+                        // Sanitize commit message (no shell metacharacters)
+                        const rawMsg = `Auto-push by ${agent.name}: ${enrichedMessage.substring(0, 80)}`
+                        const safeMessage = rawMsg.replace(/[^a-zA-Z0-9 .,\-_@\/:()]/g, ' ').substring(0, 200)
+
+                        await execAsync(`git -C "${projectRoot}" commit -m "${safeMessage}"`, { timeout: 15000 }).catch(() => {})
+
+                        // Fix #18: Commit but do NOT auto-push. Notify admin instead.
+                        console.log(`[agent-chat] Code committed by ${agent.name}, push requires approval`)
+
+                        // Notify admin about pending push
+                        await db.notification.create({
+                          data: {
+                            userId,
+                            title: `Code ready to push - ${agent.name}`,
+                            message: `${agent.name} has committed code changes. Review and push when ready. Commit: "${safeMessage}"`,
+                            type: "AGENT",
+                            link: `/dashboard/agents/${agent.id}`,
+                            metadata: JSON.stringify({ agentId: agent.id, autoPush: true, commitMessage: safeMessage }),
+                          },
+                        }).catch(() => {})
+                      }
+                    } finally {
+                      // CRITICAL: Always clean up credential files
+                      try { fs.unlinkSync(askpassPath) } catch {}
+                      try { fs.unlinkSync(credsPath) } catch {}
                     }
-                    // Reset remote URL to remove token for security
-                    await execAsync(`git -C "${projectRoot}" remote set-url origin ${repoUrl}`, { timeout: 10000 }).catch(() => {})
                   } catch (gitErr: any) {
                     console.error(`[agent-chat] Auto-push failed:`, gitErr.message)
                   }
@@ -604,11 +664,12 @@ export async function POST(req: NextRequest) {
           await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
           const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
+          console.error("[agent-chat] All keys failed:", lastError?.message)
           const errorData = {
             type: "error",
             message: isRateLimit
               ? "AI model is currently busy. Please try again in a moment."
-              : `Agentic execution failed: ${lastError?.message || "All API keys failed"}. Please check your Z.ai API key.`,
+              : "Agentic execution failed. Please check your Z.ai API key.",
             chatId: chat.id,
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorData)}\n\n`))
@@ -624,7 +685,7 @@ export async function POST(req: NextRequest) {
               // Try to send an error event before closing
               const errData = {
                 type: "error",
-                message: `Agent chat error: ${streamErr.message || "Unknown error"}. Please try again.`,
+                message: "An agent chat error occurred. Please try again.",
                 chatId: chat.id,
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(errData)}\n\n`))
@@ -837,10 +898,11 @@ export async function POST(req: NextRequest) {
     await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
     const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
+    console.error("[agent-chat] All keys failed:", lastError?.message)
     return NextResponse.json({
       error: isRateLimit
         ? "AI model is currently busy. Please try again in a moment."
-        : `Agentic execution failed: ${lastError?.message || "All API keys failed"}. Please check your Z.ai API key.`,
+        : "Agentic execution failed. Please check your Z.ai API key.",
       chatId: chat.id,
       steps: allSteps.map(s => ({
         type: s.type,
@@ -851,7 +913,7 @@ export async function POST(req: NextRequest) {
     }, { status: isRateLimit ? 503 : 500 })
 
   } catch (error: any) {
-    console.error("[agent-chat] Unhandled error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[agent-chat] POST error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

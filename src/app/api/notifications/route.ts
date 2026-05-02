@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     const userId = (session.user as any).id
     const { searchParams } = new URL(req.url)
-    const targetUserId = searchParams.get("userId") || userId
+    const targetUserId = userId
     const unreadOnly = searchParams.get("unread") === "true"
 
     const where: any = { userId: targetUserId }
@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(notifications)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[notifications] error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -44,14 +45,20 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
     }
 
-    const notification = await db.notification.update({
+    const notification = await db.notification.findFirst({
+      where: { id, userId: (session.user as any).id },
+    })
+    if (!notification) {
+      return NextResponse.json({ error: "Notification not found" }, { status: 404 })
+    }
+    const updated = await db.notification.update({
       where: { id },
       data: { isRead: isRead !== undefined ? isRead : true },
     })
-
-    return NextResponse.json(notification)
+    return NextResponse.json(updated)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[notifications] error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -70,11 +77,17 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
     }
 
+    const notification = await db.notification.findFirst({
+      where: { id, userId: (session.user as any).id },
+    })
+    if (!notification) {
+      return NextResponse.json({ error: "Notification not found" }, { status: 404 })
+    }
     await db.notification.delete({ where: { id } })
-
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[notifications] error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -94,6 +107,7 @@ export async function PUT(req: NextRequest) {
     await db.notification.update({ where: { id }, data: { isRead: true } })
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[notifications] error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

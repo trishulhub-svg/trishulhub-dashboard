@@ -32,8 +32,8 @@ export async function GET() {
 
     return NextResponse.json(sanitizedKeys)
   } catch (error: any) {
-    console.error("API Key GET error:", error)
-    return NextResponse.json({ error: error.message || "Failed to fetch API keys" }, { status: 500 })
+    console.error("[api-keys] GET error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json(key)
   } catch (error: any) {
-    console.error("API Key POST error:", error)
-    return NextResponse.json({ error: error.message || "Failed to create API key" }, { status: 500 })
+    console.error("[api-keys] POST error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -89,8 +89,8 @@ export async function PUT(req: NextRequest) {
     const key = await db.apiKey.update({ where: { id }, data })
     return NextResponse.json(key)
   } catch (error: any) {
-    console.error("API Key PUT error:", error)
-    return NextResponse.json({ error: error.message || "Failed to update API key" }, { status: 500 })
+    console.error("[api-keys] PUT error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -136,7 +136,7 @@ export async function DELETE(req: NextRequest) {
     await db.apiKey.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error("API Key DELETE error:", error)
-    return NextResponse.json({ error: error.message || "Failed to delete API key" }, { status: 500 })
+    console.error("[api-keys] DELETE error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

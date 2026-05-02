@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(leaves)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[leave] GET error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -85,7 +86,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(leave, { status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[leave] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -150,6 +152,7 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(leave)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[leave] PATCH error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

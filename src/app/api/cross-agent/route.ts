@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(messages)
   } catch (error: any) {
     console.error("[cross-agent] GET error:", error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -138,11 +138,11 @@ export async function POST(req: NextRequest) {
           } catch {}
         } catch (fallbackError: any) {
           console.error("[cross-agent] Fallback create also failed:", fallbackError.message);
-          return NextResponse.json({ error: "Failed to create cross-agent message: " + fallbackError.message }, { status: 500 });
+          return NextResponse.json({ error: "Failed to create cross-agent message" }, { status: 500 });
         }
       } else {
         console.error("[cross-agent] Create error:", createError.message);
-        return NextResponse.json({ error: "Failed to create cross-agent message: " + createError.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create cross-agent message" }, { status: 500 });
       }
     }
 
@@ -238,6 +238,7 @@ export async function POST(req: NextRequest) {
       })
     } catch (aiError: any) {
       // Still record the message even if AI processing fails
+      console.error("[cross-agent] AI processing error:", aiError.message);
       await db.crossAgentMessage.update({
         where: { id: crossMsg.id },
         data: { status: "PENDING" },
@@ -245,11 +246,12 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ...crossMsg,
-        aiResponse: `Message delivered but processing failed: ${aiError.message}`,
+        aiResponse: "Message delivered but processing failed",
       })
     }
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[cross-agent] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -294,6 +296,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true, message: "Cross-agent connection deleted" })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[cross-agent] DELETE error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

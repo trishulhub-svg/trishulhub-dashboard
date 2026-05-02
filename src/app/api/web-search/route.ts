@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[web-search] Error:", error.message)
     return NextResponse.json(
-      { error: `Web search failed: ${error.message}` },
+      { error: "Web search failed" },
       { status: 500 }
     )
   }

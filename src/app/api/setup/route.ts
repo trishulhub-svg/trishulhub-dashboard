@@ -5,6 +5,15 @@ import { db } from "@/lib/db"
 
 // GET handler - visit in browser to set up everything
 export async function GET() {
+  // Fix #3: Require SUPER_ADMIN for setup
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userRole = (session.user as any)?.role
+  if (userRole !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can access setup" }, { status: 403 })
+  }
   return POST()
 }
 
@@ -92,7 +101,7 @@ export async function PATCH() {
 
     return NextResponse.json({ status: "success", migrated: updated, featuresUpdated, logs })
   } catch (error: any) {
-    return NextResponse.json({ status: "error", error: error.message, logs }, { status: 500 })
+    console.error("[setup] PATCH error:", error.message); return NextResponse.json({ status: "error", error: "Migration failed", logs }, { status: 500 })
   }
 }
 
@@ -100,6 +109,16 @@ export async function POST() {
   const logs: string[] = []
 
   try {
+    // Fix #3: Require SUPER_ADMIN for seeding
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userRole = (session.user as any)?.role
+    if (userRole !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
+    }
+
     // Step 1: Check if already seeded
     logs.push("Step 1: Checking database...")
     let existingUsers = 0
@@ -117,7 +136,6 @@ export async function POST() {
         users: existingUsers,
         login: {
           email: "taroon@trishulhub.in",
-          password: "password123"
         },
         logs
       })
@@ -244,7 +262,7 @@ export async function POST() {
     return NextResponse.json({
       status: "success",
       message: "Database set up and seeded successfully!",
-      login: { email: "taroon@trishulhub.in", password: "password123" },
+      login: { email: "taroon@trishulhub.in" },
       created: { users: 5, agents: 7, clients: 3, projects: 3, leads: 3, expenses: 3 },
       logs
     })
@@ -252,7 +270,7 @@ export async function POST() {
   } catch (error: any) {
     return NextResponse.json({
       status: "error",
-      error: error.message,
+      error: "Setup failed",
       logs
     }, { status: 500 })
   }

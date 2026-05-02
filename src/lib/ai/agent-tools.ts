@@ -2,12 +2,25 @@
 // Multi-agent tool system: each agent type gets role-specific tools
 // All agents share web_search and plan_task, plus unique tools per role
 
-import { exec } from "child_process"
+import { exec, execFile } from "child_process"
 import { promisify } from "util"
 import fs from "fs"
 import path from "path"
 
 const execAsync = promisify(exec)
+
+/**
+ * Safe alternative to execAsync that uses execFile to avoid shell injection.
+ * Passes args as an array so they are never interpreted by a shell.
+ */
+function execSafe(cmd: string, args: string[], options: any): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, options, (error, stdout, stderr) => {
+      if (error) reject(error)
+      else resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') })
+    })
+  })
+}
 
 // ━━ Workspace Root ━━
 // On Vercel (serverless), process.cwd() is /var/task/ which is READ-ONLY.
@@ -1340,6 +1353,28 @@ async function executeSearchLeads(location: string, industry?: string, criteria?
 async function executeReadFile(filePath: string, purpose?: string): Promise<string> {
   const fullPath = resolveWorkspacePath(filePath, false)
   if (!isPathWithinWorkspace(fullPath, false)) return `Error: Cannot read files outside project directory.`
+
+  // SECURITY: Block reading sensitive files
+  const blockedReadPatterns = [
+    /\.env(\.|$)/i,           // .env, .env.local, .env.production, etc.
+    /\.git(\/|$)/i,           // .git directory and its contents
+    /\.key$/i,                // Private key files
+    /\.pem$/i,                // Certificate files
+    /\.p12$/i,                // PKCS12 files
+    /\.cert$/i,               // Certificate files
+    /credentials\.json/i,     // Google/AWS credentials
+    /serviceAccountKey/i,     // Firebase service account
+    /id_rsa/i,                // SSH private keys
+    /id_ed25519/i,            // SSH private keys
+  ]
+  const readBasename = path.basename(fullPath)
+  const relativePath = filePath.replace(/\\/g, '/')
+  for (const pattern of blockedReadPatterns) {
+    if (pattern.test(readBasename) || pattern.test(relativePath)) {
+      return `Error: Cannot read sensitive file: ${filePath}. This file is protected for security.`
+    }
+  }
+
   if (!fs.existsSync(fullPath)) return `Error: File not found: ${filePath}`
 
   try {
@@ -1389,9 +1424,7 @@ async function executeWriteFile(filePath: string, content: string, description?:
     const lang = langMap[ext] || ext
     return `File written successfully: ${filePath}\nLines: ${lines}\nSize: ${Math.round(content.length / 1024)}KB${description ? `\nDescription: ${description}` : ""}\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   } catch (error: any) {
-    // CRITICAL FALLBACK: Even if disk write fails, return success with code content
-    // so the agent continues generating code and the user sees it in the chat.
-    // The code is already captured in toolArgs.content for the frontend to display.
+    const isVirtual = isReadOnlyFS()
     const lines = content.split("\n").length
     const previewLines = content.split("\n").slice(0, 30)
     const preview = previewLines.length < lines
@@ -1406,8 +1439,11 @@ async function executeWriteFile(filePath: string, content: string, description?:
       php: "php",
     }
     const lang = langMap[ext] || ext
-    console.warn(`[agent-tools] write_file disk write failed (${error.message}), returning virtual success for ${filePath}`)
-    return `File written successfully: ${filePath}\nLines: ${lines}\nSize: ${Math.round(content.length / 1024)}KB${description ? `\nDescription: ${description}` : ""}\n\n\`\`\`${lang}\n${preview}\n\`\`\``
+    if (isVirtual) {
+      return `⚠️ Virtual file (read-only server): ${filePath}\nLines: ${lines}${description ? `\nDescription: ${description}` : ""}\n\nNote: This server has a read-only filesystem. The file was created in memory but will be lost when this session ends. To persist changes, use git_commit_push to save to GitHub.\n\n\`\`\`${lang}\n${preview}\n\`\`\``
+    }
+    console.error(`[agent-tools] write_file failed for ${filePath}:`, error.message)
+    return `Error writing file ${filePath}: ${error.message}\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   }
 }
 
@@ -1518,6 +1554,12 @@ function listDirContents(fullPath: string, dirPath: string, pattern?: string): s
 }
 
 async function executeRunCommand(command: string, purpose?: string): Promise<string> {
+  // Block shell metacharacters that enable command chaining
+  const dangerousChars = /[;|&$`]/
+  if (dangerousChars.test(command)) {
+    return `Error: Command contains blocked shell metacharacters (; | & $ \`). Only simple commands are allowed.`
+  }
+
   // Blocklist: comprehensive dangerous patterns
   const blockedPatterns = [
     /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--)\s*\//i,  // rm -rf /, rm -f /
@@ -1530,6 +1572,8 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
     /chmod\s+[0-7]*777/i,                            // chmod 777
     />(\/etc\/|\/boot\/|\/usr\/sbin)/i,              // Overwrite system files
     /git\s+(push\s+.*--force|reset\s+--hard|clean\s+-[dfx])/i,  // Dangerous git ops
+    /curl\s/i, /wget\s/i, /nc\s/i, /socat\s/i,
+    /perl\s/i, /ruby\s/i,
   ]
   for (const pattern of blockedPatterns) {
     if (pattern.test(command)) return `Error: Command blocked for security: "${command}". This command pattern is not allowed.`
@@ -1538,17 +1582,16 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
   // Allowlist approach: only allow common development commands
   const allowedPrefixes = [
     'npm', 'npx', 'node', 'yarn', 'pnpm', 'bun',
-    'git ', 'ls', 'cat ', 'head ', 'tail ', 'wc ',
+    'git ', 'ls', 'head ', 'tail ', 'wc ',
     'grep ', 'rg ', 'find ', 'echo ',
     'tsc', 'eslint', 'prettier',
     'prisma',
     'mkdir ', 'cp ', 'mv ', 'touch ',
-    'python3 ', 'python ',
   ]
   const firstWord = command.trim().split(/\s+/)[0]
   const isAllowed = allowedPrefixes.some(prefix => firstWord === prefix.trim() || command.trim().startsWith(prefix))
   if (!isAllowed) {
-    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, cat, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch, python3.`
+    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch.`
   }
 
   try {
@@ -1606,11 +1649,18 @@ async function executeAnalyzeCode(filePath: string, focus: string): Promise<stri
 
 async function executeGitStatus(purpose?: string): Promise<string> {
   try {
-    const { stdout } = await execAsync("git status --porcelain && echo '---BRANCH---' && git branch --show-current && echo '---REMOTE---' && git remote -v", {
-      cwd: getWorkspaceRoot(),
-      timeout: 15000,
-    })
-    return `Git Status${purpose ? ` (Purpose: ${purpose})` : ""}:\n${stdout.trim()}`
+    const opts = { cwd: getWorkspaceRoot(), timeout: 15000 }
+    const [{ stdout: statusOut }, { stdout: branchOut }, { stdout: remoteOut }] = await Promise.all([
+      execSafe('git', ['status', '--porcelain'], opts),
+      execSafe('git', ['branch', '--show-current'], opts),
+      execSafe('git', ['remote', '-v'], opts),
+    ])
+    const output = `${statusOut.trim()}
+---BRANCH---
+${branchOut.trim()}
+---REMOTE---
+${remoteOut.trim()}`
+    return `Git Status${purpose ? ` (Purpose: ${purpose})` : ""}:\n${output}`
   } catch (error: any) {
     return `Error checking git status: ${error.message}`
   }
@@ -1622,8 +1672,8 @@ async function executeGitCreateBranch(name: string, purpose?: string): Promise<s
     return `Error: Invalid branch name "${name}". Use only letters, numbers, hyphens, underscores, and slashes.`
   }
   try {
-    const { stdout: currentBranch } = await execAsync("git branch --show-current", { cwd: getWorkspaceRoot(), timeout: 10000 })
-    const { stdout } = await execAsync(`git checkout -b ${name}`, { cwd: getWorkspaceRoot(), timeout: 15000 })
+    const { stdout: currentBranch } = await execSafe('git', ['branch', '--show-current'], { cwd: getWorkspaceRoot(), timeout: 10000 })
+    const { stdout } = await execSafe('git', ['checkout', '-b', name], { cwd: getWorkspaceRoot(), timeout: 15000 })
     return `Created and switched to branch "${name}" from "${currentBranch.trim()}"${purpose ? `\nPurpose: ${purpose}` : ""}\n${stdout.trim()}\n\nYou can now make changes on this branch. Use git_commit_push to push when ready.`
   } catch (error: any) {
     return `Error creating branch: ${error.message}`
@@ -1634,10 +1684,10 @@ async function executeGitDiff(filePath?: string, purpose?: string): Promise<stri
   try {
     // Sanitize filePath to prevent command injection
     const safeFilePath = (filePath || '').replace(/[^a-zA-Z0-9._\-\/]/g, '')
-    const cmd = safeFilePath
-      ? `git diff -- ${safeFilePath}`
-      : "git diff --stat && echo '---DETAILED---' && git diff"
-    const { stdout } = await execAsync(cmd, { cwd: getWorkspaceRoot(), timeout: 15000, maxBuffer: 2 * 1024 * 1024 })
+    const opts = { cwd: getWorkspaceRoot(), timeout: 15000, maxBuffer: 2 * 1024 * 1024 }
+    const { stdout } = safeFilePath
+      ? await execSafe('git', ['diff', '--', safeFilePath], opts)
+      : await execSafe('git', ['diff', '--stat'], opts)
     if (!stdout.trim()) {
       return "No unstaged changes found. (Staged changes not shown - use 'git diff --cached' to see staged changes)"
     }
@@ -1664,10 +1714,11 @@ async function executeGitCommitPush(
     }).filter(f => f.length > 0 && !f.startsWith('/') && !f.includes('..'))
     if (safeFiles.length === 0) return "Error: No valid file paths provided."
     const filesArg = safeFiles.length === 1 && safeFiles[0] === "." ? "." : safeFiles.map(f => `"${f}"`).join(" ")
-    await execAsync(`git add ${filesArg}`, { cwd: getWorkspaceRoot(), timeout: 15000 })
+    const addArgs = safeFiles.length === 1 && safeFiles[0] === "." ? ['add', '.'] : ['add', ...safeFiles]
+    await execSafe('git', addArgs, { cwd: getWorkspaceRoot(), timeout: 15000 })
 
     // 2. Check what's staged
-    const { stdout: staged } = await execAsync("git diff --cached --stat", { cwd: getWorkspaceRoot(), timeout: 15000 })
+    const { stdout: staged } = await execSafe('git', ['diff', '--cached', '--stat'], { cwd: getWorkspaceRoot(), timeout: 15000 })
     if (!staged.trim()) {
       return "No changes to commit. All files are already up to date."
     }
@@ -1675,7 +1726,7 @@ async function executeGitCommitPush(
     // 3. Commit
     // Sanitize commit message - remove shell metacharacters
     const safeMessage = message.replace(/["`$\\]/g, '').replace(/\n/g, ' ').substring(0, 200)
-    const { stdout: commitOut } = await execAsync(`git commit -m "${safeMessage}"`, {
+    const { stdout: commitOut } = await execSafe('git', ['commit', '-m', safeMessage], {
       cwd: getWorkspaceRoot(),
       timeout: 30000,
     })
@@ -1683,8 +1734,8 @@ async function executeGitCommitPush(
     // 4. Push
     // Sanitize branch name for push
     const safeBranch = (branch || '').replace(/[^a-zA-Z0-9\/_\-]/g, '')
-    const pushCmd = safeBranch ? `git push origin ${safeBranch}` : "git push"
-    const { stdout: pushOut } = await execAsync(pushCmd, { cwd: getWorkspaceRoot(), timeout: 60000 })
+    const pushArgs = safeBranch ? ['push', 'origin', safeBranch] : ['push']
+    const { stdout: pushOut } = await execSafe('git', pushArgs, { cwd: getWorkspaceRoot(), timeout: 60000 })
 
     return [
       `✅ Git commit & push successful!`,

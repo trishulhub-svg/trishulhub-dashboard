@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (error: any) {
     console.error("[chat-lock] GET error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: userName, message: "Lock acquired" })
   } catch (error: any) {
     console.error("[chat-lock] POST error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -147,6 +147,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ locked: false, message: "Lock released" })
   } catch (error: any) {
     console.error("[chat-lock] DELETE error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

@@ -135,7 +135,8 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
       },
     })
 
-    return { success: false, error: error.message }
+    console.error(`[cron/execute-tasks] Task ${task.id} failed:`, error.message)
+    return { success: false, error: "An error occurred while executing the task" }
   }
 }
 
@@ -146,7 +147,10 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      return NextResponse.json({ error: "CRON_SECRET not configured in environment variables" }, { status: 500 })
+    }
+    if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -184,8 +188,8 @@ export async function POST(req: NextRequest) {
       results,
     })
   } catch (error: any) {
-    console.error("[cron/execute-tasks] Error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[cron/execute-tasks] POST error:", error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -211,16 +215,25 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const taskId = searchParams.get("taskId")
 
-    // Re-use the POST logic by creating a fake request
+    // GET is session-protected (admin only), so we bypass CRON_SECRET check
+    // by calling executeSingleTask directly for single-task execution
+    if (taskId) {
+      const result = await executeSingleTask(taskId)
+      return NextResponse.json(result)
+    }
+    
+    // For bulk execution from UI, require CRON_SECRET
+    if (!process.env.CRON_SECRET) {
+      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 })
+    }
     const fakeRequest = new NextRequest(req.url, {
       method: "POST",
-      headers: { authorization: `Bearer ${process.env.CRON_SECRET || "manual"}` },
-      body: JSON.stringify(taskId ? { taskId } : {}),
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+      body: JSON.stringify({}),
     })
-
     return POST(fakeRequest)
   } catch (error: any) {
     console.error("[cron/execute-tasks] GET error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

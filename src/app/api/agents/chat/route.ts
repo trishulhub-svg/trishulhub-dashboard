@@ -373,7 +373,7 @@ export async function POST(req: NextRequest) {
     }
   } catch (error: any) {
     console.error("[chat] Unhandled error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 

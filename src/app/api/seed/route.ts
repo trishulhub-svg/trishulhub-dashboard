@@ -1,14 +1,31 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 
 // GET handler - allows seeding by visiting URL in browser
 export async function GET() {
+  // Fix #3: Require SUPER_ADMIN
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   return POST()
 }
 
 export async function POST() {
   try {
+    // Fix #3: Require SUPER_ADMIN for seeding
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userRole = (session.user as any)?.role
+    if (userRole !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
+    }
+
     // Check if already seeded
     const existingUsers = await db.user.count()
     if (existingUsers > 0) {
@@ -189,6 +206,7 @@ export async function POST() {
       invoices: 2,
     })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("[seed] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

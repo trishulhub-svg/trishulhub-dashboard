@@ -1,17 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Vercel handles serverless deployment automatically
-  // No need for standalone output on Vercel
   images: {
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
+      { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      { protocol: "https", hostname: "trishulhub.com" },
+      { protocol: "https", hostname: "*.trishulhub.com" },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "cdn.jsdelivr.net" },
+      { protocol: "https", hostname: "ui-avatars.com" },
+      { protocol: "https", hostname: "**.googleusercontent.com" },
+      { protocol: "https", hostname: "res.cloudinary.com" },
     ],
   },
-  // Allow Prisma to work in Vercel serverless functions
   serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client"],
 };
 
