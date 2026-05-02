@@ -37,6 +37,9 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
 
+    // Auto-migrate: ensure SmtpConfig table exists
+    await ensureTablesExist()
+
     const configs = await db.smtpConfig.findMany({
       orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       select: {
@@ -78,6 +81,9 @@ export async function POST(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
+
+    // Auto-migrate: ensure SmtpConfig and EmailVerification tables exist
+    await ensureTablesExist()
 
     const body = await req.json()
     const { host, port, username, password, fromEmail, fromName, secure, isPrimary } = body
@@ -141,8 +147,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(config, { status: 201 })
   } catch (error: any) {
-    console.error("[smtp] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[smtp] POST error:", error)
+    // Return more specific error for debugging while not leaking sensitive info
+    const errorMsg = error.code === "P2021" || error.code === "P2022" 
+      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
+      : error.code === "P2002"
+      ? "An SMTP config with these details already exists."
+      : "Failed to save SMTP configuration. Please try again."
+    return NextResponse.json({ error: errorMsg, detail: process.env.NODE_ENV === "development" ? error.message : undefined }, { status: 500 })
   }
 }
 
@@ -220,8 +232,11 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(config)
   } catch (error: any) {
-    console.error("[smtp] PATCH error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[smtp] PATCH error:", error)
+    const errorMsg = error.code === "P2021" || error.code === "P2022" 
+      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
+      : "Failed to update SMTP configuration. Please try again."
+    return NextResponse.json({ error: errorMsg }, { status: 500 })
   }
 }
 
@@ -256,8 +271,11 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error("[smtp] DELETE error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[smtp] DELETE error:", error)
+    const errorMsg = error.code === "P2021" || error.code === "P2022" 
+      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
+      : "Failed to delete SMTP configuration. Please try again."
+    return NextResponse.json({ error: errorMsg }, { status: 500 })
   }
 }
 
@@ -294,4 +312,68 @@ async function testSmtpConnection(config: {
     try { await transporter.close() } catch {}
     return { success: false, error: error.message }
   }
+}
+
+// Helper: Auto-migrate - create SmtpConfig and EmailVerification tables if they don't exist
+// This avoids needing to run `npx prisma db push` manually on Turso
+let tablesChecked = false
+async function ensureTablesExist() {
+  if (tablesChecked) return // Only check once per serverless instance lifecycle
+
+  try {
+    // Quick check: try to count SmtpConfig - if table exists, this succeeds
+    await db.smtpConfig.count({ take: 1 })
+    tablesChecked = true
+    return
+  } catch {
+    // Table doesn't exist - create it
+    console.log("[smtp] SmtpConfig table not found, auto-creating...")
+  }
+
+  try {
+    await db.$executeSqlUnsafe(`
+      CREATE TABLE IF NOT EXISTS "SmtpConfig" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "host" TEXT NOT NULL,
+        "port" INTEGER NOT NULL DEFAULT 587,
+        "username" TEXT NOT NULL,
+        "password" TEXT NOT NULL,
+        "fromEmail" TEXT NOT NULL,
+        "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
+        "secure" BOOLEAN NOT NULL DEFAULT false,
+        "isPrimary" BOOLEAN NOT NULL DEFAULT true,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    console.log("[smtp] SmtpConfig table created successfully")
+  } catch (err: any) {
+    console.error("[smtp] Failed to create SmtpConfig table:", err.message)
+  }
+
+  try {
+    await db.$executeSqlUnsafe(`
+      CREATE TABLE IF NOT EXISTS "EmailVerification" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "userId" TEXT NOT NULL,
+        "newEmail" TEXT NOT NULL,
+        "otp" TEXT NOT NULL,
+        "verified" BOOLEAN NOT NULL DEFAULT false,
+        "attempts" INTEGER NOT NULL DEFAULT 0,
+        "expiresAt" DATETIME NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    `)
+    // Create indexes
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+    console.log("[smtp] EmailVerification table created successfully")
+  } catch (err: any) {
+    console.error("[smtp] Failed to create EmailVerification table:", err.message)
+  }
+
+  tablesChecked = true
 }

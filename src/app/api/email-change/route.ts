@@ -4,6 +4,41 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isValidEmail, isDisposableEmail, generateOTP, sendOTPEmail } from "@/lib/email"
 
+// Auto-migrate: ensure EmailVerification table exists
+let emailTableChecked = false
+async function ensureEmailTableExists() {
+  if (emailTableChecked) return
+  try {
+    await db.emailVerification.count({ take: 1 })
+    emailTableChecked = true
+    return
+  } catch {
+    console.log("[email-change] EmailVerification table not found, auto-creating...")
+  }
+  try {
+    await db.$executeSqlUnsafe(`
+      CREATE TABLE IF NOT EXISTS "EmailVerification" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "userId" TEXT NOT NULL,
+        "newEmail" TEXT NOT NULL,
+        "otp" TEXT NOT NULL,
+        "verified" BOOLEAN NOT NULL DEFAULT false,
+        "attempts" INTEGER NOT NULL DEFAULT 0,
+        "expiresAt" DATETIME NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    `)
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
+    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+    console.log("[email-change] EmailVerification table created successfully")
+  } catch (err: any) {
+    console.error("[email-change] Failed to create EmailVerification table:", err.message)
+  }
+  emailTableChecked = true
+}
+
 // In-memory rate limiter for OTP verification attempts
 const otpVerifyAttempts = new Map<string, { count: number; resetAt: number }>()
 const passwordAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -24,6 +59,9 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // Auto-migrate: ensure EmailVerification table exists
+    await ensureEmailTableExists()
 
     const userId = (session.user as any).id
     const body = await req.json()
@@ -128,6 +166,9 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // Auto-migrate: ensure EmailVerification table exists
+    await ensureEmailTableExists()
 
     const userId = (session.user as any).id
     const body = await req.json()
