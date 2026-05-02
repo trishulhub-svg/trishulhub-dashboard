@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 
-// GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own)
+// GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -24,7 +25,12 @@ export async function GET() {
     return NextResponse.json(invoices)
   }
 
+  // DEVELOPER users only see invoices from their assigned projects' clients
+  const assignedClientIds = await getAssignedClientIds(userId, userRole)
+  const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+
   const invoices = await db.invoice.findMany({
+    where: invoiceWhere,
     include: { client: true, project: true },
     orderBy: { createdAt: "desc" },
   })

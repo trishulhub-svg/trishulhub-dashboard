@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { callAI, estimateCost } from "@/lib/ai/openrouter"
 
-// GET /api/cross-agent - Get cross-agent messages
+// GET /api/cross-agent - Get cross-agent messages (filtered by user's agent access)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -12,12 +12,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const userRole = (session.user as any).role
+    const userId = (session.user as any).id
+
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const direction = searchParams.get("direction") || "incoming" // incoming or outgoing
     const status = searchParams.get("status")
 
     const where: any = {}
+    
+    // Non-admins only see messages for agents they have access to
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      const userAgents = await db.userAgentAccess.findMany({
+        where: { userId, canView: true },
+        select: { agentId: true },
+      })
+      const accessibleAgentIds = userAgents.map(a => a.agentId)
+      
+      where.OR = [
+        { fromAgentId: { in: accessibleAgentIds } },
+        { toAgentId: { in: accessibleAgentIds } },
+      ]
+    }
+    
     if (agentId) {
       if (direction === "incoming") where.toAgentId = agentId
       else if (direction === "outgoing") where.fromAgentId = agentId

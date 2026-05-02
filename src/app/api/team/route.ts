@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
+import { isAdmin } from "@/lib/rbac"
 
 // GET /api/team - List team data
 export async function GET(req: NextRequest) {
@@ -38,6 +39,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === "attendance") {
+      // Admin-only: full attendance records
+      const userRole = (session.user as any).role
+      if (!isAdmin(userRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       const records = await db.attendance.findMany({
         include: { user: { select: { id: true, name: true, email: true, role: true } } },
         orderBy: { date: "desc" },
@@ -47,6 +53,19 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === "leaves") {
+      // Admin-only: all leave requests; developers see own only
+      const userRole = (session.user as any).role
+      const userId = (session.user as any).id
+      if (!isAdmin(userRole)) {
+        const leaves = await db.leaveRequest.findMany({
+          where: { userId },
+          include: {
+            user: { select: { id: true, name: true, email: true, role: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        })
+        return NextResponse.json(leaves)
+      }
       const leaves = await db.leaveRequest.findMany({
         include: {
           user: { select: { id: true, name: true, email: true, role: true } },
@@ -57,7 +76,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === "agent-access") {
-      // Get user-agent access mappings
+      // Admin-only: all user-agent access mappings
+      const userRole = (session.user as any).role
+      if (!isAdmin(userRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       const access = await db.userAgentAccess.findMany({
         include: {
           user: { select: { id: true, name: true, email: true, role: true, department: true } },
@@ -68,7 +91,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(access)
     }
 
-    // Default: return team members with their agent access
+    // Default: return team members with their agent access (admin-only)
+    const userRole = (session.user as any).role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
       include: {
@@ -140,7 +167,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === "agent-access") {
-      // Grant agent access to a user
+      // Grant agent access to a user (admin-only)
+      const currentUserRole = (session.user as any).role
+      if (!isAdmin(currentUserRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       const { userId, agentId, canChat, canView, canApprove } = data
       if (!userId || !agentId) {
         return NextResponse.json({ error: "User ID and Agent ID are required" }, { status: 400 })

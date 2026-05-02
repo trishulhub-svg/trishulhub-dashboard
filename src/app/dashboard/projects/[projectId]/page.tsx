@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
-  ArrowLeft, Plus, Bot, User, Clock, Trash2,
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { TASK_COLUMNS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
@@ -38,25 +40,47 @@ const priorityColors: Record<TaskPriority, string> = {
   URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+interface ProjectMember {
+  id: string;
+  userId: string;
+  projectId: string;
+  role: string;
+  user: { id: string; name: string; email: string; role: string; department?: string };
+}
+
+interface TeamUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department?: string;
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const projectId = params.projectId as string;
+
+  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);
   const [agents, setAgents] = useState<unknown[]>([]);
-  const [users, setUsers] = useState<unknown[]>([]);
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [projRes, taskRes, agentRes, userRes] = await Promise.all([
+      const [projRes, taskRes, agentRes, memberRes] = await Promise.all([
         fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
         fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
         fetch("/api/agents", { credentials: 'include' }),
-        fetch("/api/team", { credentials: 'include' }),
+        fetch(`/api/projects/${projectId}/members`, { credentials: 'include' }),
       ]);
 
       if (projRes.ok) {
@@ -65,13 +89,19 @@ export default function ProjectDetailPage() {
       }
       if (taskRes.ok) setTasks(await taskRes.json());
       if (agentRes.ok) setAgents(await agentRes.json());
-      if (userRes.ok) setUsers(await userRes.json());
+      if (memberRes.ok) setMembers(await memberRes.json());
+
+      // Only fetch team users if admin (for member assignment)
+      if (isAdminUser) {
+        const userRes = await fetch("/api/team?type=users", { credentials: 'include' });
+        if (userRes.ok) setTeamUsers(await userRes.json());
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, isAdminUser]);
 
   useEffect(() => {
     fetchData();
@@ -134,6 +164,42 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleAddMember = async (userId: string, role: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify({ userId, role }),
+      });
+      if (res.ok) {
+        toast.success("Member added");
+        setAddMemberOpen(false);
+        fetchData();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to add member");
+      }
+    } catch {
+      toast.error("Failed to add member");
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, {
+        method: "DELETE",
+        credentials: 'include',
+      });
+      if (res.ok) {
+        toast.success("Member removed");
+        fetchData();
+      }
+    } catch {
+      toast.error("Failed to remove member");
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -156,13 +222,17 @@ export default function ProjectDetailPage() {
     assignee?: { name: string }; agent?: { name: string };
   }[];
 
+  // Filter out users already in the project
+  const memberUserIds = members.map(m => m.userId);
+  const availableUsers = teamUsers.filter(u => !memberUserIds.includes(u.id));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">{project.name as string}</h1>
           <p className="text-muted-foreground text-sm">{project.description as string || "No description"}</p>
         </div>
@@ -185,12 +255,14 @@ export default function ProjectDetailPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Budget</p>
-            <p className="text-sm font-medium mt-1">£{((project.budget as number) || 0).toLocaleString("en-GB")}</p>
-          </CardContent>
-        </Card>
+        {isAdminUser && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Budget</p>
+              <p className="text-sm font-medium mt-1">£{((project.budget as number) || 0).toLocaleString("en-GB")}</p>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Deadline</p>
@@ -199,58 +271,158 @@ export default function ProjectDetailPage() {
             </p>
           </CardContent>
         </Card>
+        {!isAdminUser && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Team Size</p>
+              <p className="text-sm font-medium mt-1">{members.length} members</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {/* Project Members */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Project Team</CardTitle>
+              <CardDescription>{members.length} member{members.length !== 1 ? 's' : ''} assigned to this project</CardDescription>
+            </div>
+            {isAdminUser && (
+              <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <UserPlus className="h-4 w-4 mr-1" /> Add Member
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
+                  {availableUsers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      All team members are already assigned to this project.
+                    </p>
+                  ) : (
+                    <ScrollArea className="max-h-80">
+                      <div className="space-y-2">
+                        {availableUsers.map((user) => (
+                          <div key={user.id} className="flex items-center justify-between p-3 rounded-lg border">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-8 w-8">
+                                <AvatarFallback className="text-xs">
+                                  {user.name.split(" ").map(n => n[0]).join("")}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-sm font-medium">{user.name}</p>
+                                <p className="text-xs text-muted-foreground">{user.role} {user.department ? `· ${user.department}` : ''}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => handleAddMember(user.id, "MEMBER")}>
+                                Member
+                              </Button>
+                              <Button size="sm" onClick={() => handleAddMember(user.id, "LEAD")}>
+                                Lead
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {members.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No team members assigned yet
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {members.map((member) => (
+                <div key={member.id} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
+                  <Avatar className="h-7 w-7">
+                    <AvatarFallback className="text-xs">
+                      {member.user.name.split(" ").map(n => n[0]).join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-xs font-medium">{member.user.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{member.role}</p>
+                  </div>
+                  {isAdminUser && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-red-500"
+                      onClick={() => handleRemoveMember(member.userId)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Task Board */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Task Board</h2>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
-            <form onSubmit={handleAddTask} className="space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Title *</Label>
-                <Input name="title" required />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Description</Label>
-                <Textarea name="description" rows={2} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+        {(isAdminUser || members.length > 0) && (
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
+              <form onSubmit={handleAddTask} className="space-y-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Priority</Label>
-                  <Select name="priority" defaultValue="MEDIUM">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="LOW">Low</SelectItem>
-                      <SelectItem value="MEDIUM">Medium</SelectItem>
-                      <SelectItem value="HIGH">High</SelectItem>
-                      <SelectItem value="URGENT">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Title *</Label>
+                  <Input name="title" required />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Assign To</Label>
-                  <Select name="assigneeType" defaultValue="HUMAN">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HUMAN">Team Member</SelectItem>
-                      <SelectItem value="AI">AI Agent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Description</Label>
+                  <Textarea name="description" rows={2} />
                 </div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Assignee</Label>
-                <Input name="assignedTo" placeholder="Select from above" />
-              </div>
-              <Button type="submit" className="w-full">Create Task</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Priority</Label>
+                    <Select name="priority" defaultValue="MEDIUM">
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="LOW">Low</SelectItem>
+                        <SelectItem value="MEDIUM">Medium</SelectItem>
+                        <SelectItem value="HIGH">High</SelectItem>
+                        <SelectItem value="URGENT">Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Assign To</Label>
+                    <Select name="assigneeType" defaultValue="HUMAN">
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="HUMAN">Team Member</SelectItem>
+                        <SelectItem value="AI">AI Agent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Assignee</Label>
+                  <Input name="assignedTo" placeholder="Select from above" />
+                </div>
+                <Button type="submit" className="w-full">Create Task</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <div className="flex gap-3 overflow-x-auto pb-4">

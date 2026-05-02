@@ -33,6 +33,7 @@ model User {
   timeEntries        TimeEntry[]
   organizedMeetings  Meeting[]
   meetingAttendances MeetingAttendee[]
+  projectMemberships ProjectMember[]
 }
 
 // ━━ API Keys ━━
@@ -267,6 +268,23 @@ model Project {
   meetings     Meeting[]
   expenses     Expense[]
   subscriptions Subscription[]
+  members      ProjectMember[]
+}
+
+// ━━ Project Members (RBAC) ━━
+model ProjectMember {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  role      String   @default("MEMBER") // MEMBER, LEAD
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
 }
 
 // ━━ Tasks ━━

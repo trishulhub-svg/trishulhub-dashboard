@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createClientSchema, validateRequest } from "@/lib/validations"
+import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 
 // GET /api/clients - List all clients with aggregated data
 export async function GET(req: NextRequest) {
@@ -12,6 +13,9 @@ export async function GET(req: NextRequest) {
   const role = (session.user as Record<string, unknown>).role as string
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const userId = (session.user as any).id
+  const assignedClientIds = await getAssignedClientIds(userId, role)
+
   const { searchParams } = new URL(req.url)
   const search = searchParams.get("search") || ""
   const status = searchParams.get("status") || ""
@@ -20,6 +24,11 @@ export async function GET(req: NextRequest) {
 
   // Build where clause
   const where: Record<string, unknown> = {}
+
+  // Developers only see clients from their assigned projects
+  if (assignedClientIds) {
+    where.id = { in: assignedClientIds }
+  }
 
   if (status && status !== "ALL") {
     where.status = status
@@ -66,7 +75,8 @@ export async function GET(req: NextRequest) {
     const { invoices, ...rest } = client
     return {
       ...rest,
-      revenue,
+      // Hide revenue for developers
+      revenue: isAdmin(role) ? revenue : undefined,
     }
   })
 

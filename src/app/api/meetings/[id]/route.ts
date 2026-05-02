@@ -34,6 +34,17 @@ export async function GET(
       return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
     }
 
+    // Non-admins can only see meetings they organize or are invited to
+    const userId = (session.user as any).id
+    const userRole = (session.user as any).role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      const isOrganizer = meeting.organizerId === userId
+      const isAttendee = meeting.attendees.some((a: any) => a.userId === userId)
+      if (!isOrganizer && !isAttendee) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+    }
+
     return NextResponse.json(meeting)
   } catch (error: any) {
     console.error("[meetings/id] GET error:", error.message)
