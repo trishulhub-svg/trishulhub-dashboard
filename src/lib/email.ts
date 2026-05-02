@@ -145,7 +145,7 @@ export async function sendEmailWithFailover(options: {
       const result = await sendViaSmtp(config, options)
       if (result.success) {
         const method = config.isPrimary ? "primary" : "failover"
-        // Log successful send
+        // Log successful send with messageId for tracking
         await logEmailEvent({
           to: options.to,
           subject: options.subject,
@@ -155,6 +155,7 @@ export async function sendEmailWithFailover(options: {
           smtpHost: config.host,
           method,
           triggeredBy: options.triggeredBy,
+          metadata: JSON.stringify({ messageId: result.messageId || "" }),
         })
         return { success: true, method }
       }
@@ -222,7 +223,7 @@ async function sendViaSmtp(
     html: string
     text?: string
   }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; messageId?: string }> {
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
@@ -252,10 +253,16 @@ async function sendViaSmtp(
       html: options.html,
       text: options.text || options.html.replace(/<[^>]*>/g, ""),
       // Ensure proper headers for deliverability
+      // These headers help email providers verify the email is legitimate
+      // and reduce the chance of being flagged as spam
       headers: {
         "X-Mailer": "TrishulHub Dashboard",
         "X-Priority": "3", // Normal priority
+        "X-Auto-Response-Suppress": "OOF, DR, RN, NRN", // Prevent auto-replies
+        "List-Unsubscribe": "No", // Indicate this is not a mailing list
       },
+      // Set encoding to quoted-printable for better compatibility
+      encoding: "utf-8",
     })
 
     // Check if the recipient was rejected during SMTP conversation
@@ -264,11 +271,12 @@ async function sendViaSmtp(
       return { success: false, error: `Recipient rejected by SMTP server: ${info.rejected.join(", ")}` }
     }
 
-    // Log the SMTP response for debugging (helps diagnose Brevo delivery issues)
-    console.log(`[email] SMTP response from ${config.host}: ${info.response}`)
+    // Log detailed SMTP response for debugging delivery issues
+    // messageId is critical for tracking delivery in Brevo/ESP dashboards
+    console.log(`[email] SMTP response from ${config.host}: response=${info.response}, messageId=${info.messageId}, envelopeFrom=${info.envelope?.from}, envelopeTo=${JSON.stringify(info.envelope?.to)}`)
 
     await transporter.close()
-    return { success: true }
+    return { success: true, messageId: info.messageId }
   } catch (error: any) {
     try { await transporter.close() } catch {}
     return { success: false, error: error.message }

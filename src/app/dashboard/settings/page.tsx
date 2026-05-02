@@ -470,8 +470,13 @@ export default function SettingsPage() {
 
   // ── SMTP: Save Config ──
   const handleSaveSmtp = async () => {
-    if (!smtpForm.host || !smtpForm.username || !smtpForm.password || !smtpForm.fromEmail) {
-      toast.error("Host, username, password, and from email are required");
+    if (!smtpForm.host || !smtpForm.username || !smtpForm.fromEmail) {
+      toast.error("Host, username, and from email are required");
+      return;
+    }
+    // Password is required for new configs, optional when editing (leave blank to keep current)
+    if (!smtpEditId && !smtpForm.password) {
+      toast.error("Password is required for new SMTP configurations");
       return;
     }
     setSmtpSaving(true);
@@ -510,8 +515,12 @@ export default function SettingsPage() {
 
   // ── SMTP: Test Connection ──
   const handleTestSmtp = async () => {
-    if (!smtpForm.host || !smtpForm.username || !smtpForm.password) {
-      toast.error("Host, username, and password are required to test");
+    if (!smtpForm.host || !smtpForm.username) {
+      toast.error("Host and username are required to test");
+      return;
+    }
+    if (!smtpForm.password) {
+      toast.error(smtpEditId ? "Enter the password to test the connection (current password is not shown)" : "Password is required to test");
       return;
     }
     setSmtpTesting(true);
