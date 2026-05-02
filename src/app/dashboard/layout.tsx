@@ -28,6 +28,7 @@ import {
   CalendarDays,
   Monitor,
   Eye,
+  Briefcase,
 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -63,6 +64,7 @@ const navItems: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "Agents", href: "/dashboard/agents", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
+  { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
   { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
   { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },

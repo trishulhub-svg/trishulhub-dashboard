@@ -29,6 +29,19 @@ export const createClientSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   userId: z.string().optional(),
   notes: z.string().optional(),
+  createdAt: z.string().optional(), // Override for historical data
+})
+
+export const updateClientSchema = z.object({
+  id: z.string().min(1, "Client ID is required"),
+  name: z.string().min(1).max(200).optional(),
+  email: z.string().email("Valid email is required").optional(),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  website: z.string().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  userId: z.string().optional(),
+  notes: z.string().optional(),
 })
 
 export const createInvoiceSchema = z.object({

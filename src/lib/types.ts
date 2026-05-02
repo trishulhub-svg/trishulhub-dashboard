@@ -33,6 +33,7 @@ export type LeadStatus =
   | "WON"
   | "LOST";
 
+export type ClientStatus = "ACTIVE" | "INACTIVE";
 export type InvoiceStatus = "DRAFT" | "SENT" | "PAID" | "OVERDUE";
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
 export type ApiKeyStatus = "ACTIVE" | "EXHAUSTED" | "ERROR";
