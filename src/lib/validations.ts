@@ -79,6 +79,18 @@ export const supportTicketSchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
 })
 
+export const startTimeEntrySchema = z.object({
+  projectId: z.string().optional(),
+  description: z.string().max(500).optional(),
+})
+
+export const updateTimeEntrySchema = z.object({
+  id: z.string().min(1),
+  description: z.string().max(500).optional(),
+  projectId: z.string().optional(),
+  status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
+})
+
 /**
  * Validates data against a schema and returns either the validated data or an error response
  */

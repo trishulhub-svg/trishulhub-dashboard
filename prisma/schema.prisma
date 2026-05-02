@@ -30,6 +30,7 @@ model User {
   scheduledTasks     ScheduledTask[]
   agentAccess        UserAgentAccess[]
   approvalActions    Approval[]       @relation("ApprovalActions")
+  timeEntries        TimeEntry[]
 }
 
 // ━━ API Keys ━━
@@ -260,6 +261,7 @@ model Project {
   client      Client   @relation(fields: [clientId], references: [id])
   tasks       Task[]
   invoices    Invoice[]
+  timeEntries TimeEntry[]
 }
 
 // ━━ Tasks ━━
@@ -408,6 +410,26 @@ model LeaveRequest {
   updatedAt   DateTime @updatedAt
 
   user        User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ Time Tracking ━━
+model TimeEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  projectId   String?
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED
+  clockIn     DateTime @default(now())
+  clockOut    DateTime?
+  totalHours  Float?   // Computed on clock out: (clockOut - clockIn) in hours
+  date        DateTime @default(now()) // The date this entry belongs to (for grouping)
+
+  user        User     @relation(fields: [userId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([date])
 }
 
 model Attendance {

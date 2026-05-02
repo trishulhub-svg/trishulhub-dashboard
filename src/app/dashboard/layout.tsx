@@ -29,6 +29,7 @@ import {
   Monitor,
   Eye,
   Briefcase,
+  Clock,
 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -68,6 +69,7 @@ const navItems: NavItem[] = [
   { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
   { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
+  { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "Leave", href: "/dashboard/leave", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
   { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
