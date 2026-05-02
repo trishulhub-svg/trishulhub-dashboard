@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { generateOTP, sendPasswordChangeOTP, logEmailEvent } from "@/lib/email"
+import { invalidateSession } from "@/lib/session-manager"
 
 // Auto-migrate: ensure PasswordChange table exists
 let pwTableChecked = false
@@ -241,9 +242,21 @@ export async function PUT(req: NextRequest) {
       metadata: JSON.stringify({ action: "password_changed_via_otp" }),
     })
 
+    // SECURITY: Invalidate the user's session after password change.
+    // This forces re-login with the new password, ensuring the old
+    // session (with the old password) is immediately terminated.
+    try {
+      await invalidateSession(userId)
+      console.log("[password-change] Session invalidated for user", userId, "— must re-login")
+    } catch (err) {
+      console.error("[password-change] Failed to invalidate session:", err)
+      // Non-blocking: the password change still succeeded
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Password changed successfully!",
+      message: "Password changed successfully! Please sign in again with your new password.",
+      requiresReauth: true,
     })
   } catch (error: any) {
     console.error("[password-change] PUT error:", error.message)

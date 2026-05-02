@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isValidEmail, isDisposableEmail, generateOTP, sendOTPEmail } from "@/lib/email"
+import { invalidateSession } from "@/lib/session-manager"
 
 // Auto-migrate: ensure EmailVerification table exists
 let emailTableChecked = false
@@ -263,9 +264,21 @@ export async function PUT(req: NextRequest) {
       where: { userId },
     })
 
+    // SECURITY: Invalidate the user's session after email change.
+    // This forces re-login with the new email address, ensuring
+    // the old session (with the old email) is immediately terminated.
+    try {
+      await invalidateSession(userId)
+      console.log("[email-change] Session invalidated for user", userId, "— must re-login with new email")
+    } catch (err) {
+      console.error("[email-change] Failed to invalidate session:", err)
+      // Non-blocking: the email change still succeeded
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Email changed successfully!",
+      message: "Email changed successfully! Please sign in again with your new email.",
+      requiresReauth: true,
     })
   } catch (error: any) {
     console.error("[email-change] PUT error:", error.message)

@@ -2,6 +2,12 @@ import NextAuth, { type NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
+import {
+  generateSessionToken,
+  setSessionToken,
+  validateSessionToken,
+  removeSession,
+} from "@/lib/session-manager"
 
 const isDev = process.env.NODE_ENV === "development"
 const log = isDev ? console.log.bind(console) : () => {}
@@ -73,23 +79,89 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // ── On Sign In ──
+      // The `user` object is only available on sign-in
       if (user) {
         token.role = (user as any).role
         token.id = user.id
+
+        // Generate and store session token for single-device enforcement.
+        // This overwrites any existing session token in the DB,
+        // which invalidates any previous device's session.
+        const sessionToken = generateSessionToken()
+        token.sessionToken = sessionToken
+
+        try {
+          await setSessionToken(user.id, sessionToken)
+          log("[auth] Session token stored for user:", user.id)
+        } catch (err) {
+          logError("[auth] Failed to store session token:", err)
+        }
+
+        return token
       }
+
+      // ── On Session Access (read/refresh) ──
+      // Validate the session token against the database to enforce
+      // single-device login. If the token doesn't match, it means
+      // the user logged in from another device, changed their email,
+      // or had their session invalidated by an admin.
+
+      const userId = token.id as string | undefined
+      const currentToken = token.sessionToken as string | undefined
+
+      if (userId && currentToken) {
+        try {
+          const isValid = await validateSessionToken(userId, currentToken)
+          if (!isValid) {
+            // Session was invalidated — another device logged in,
+            // email was changed, or admin forced logout
+            log("[auth] Session token invalid for user:", userId, "— session kicked")
+            token.error = "SessionKicked"
+            return token
+          }
+        } catch (err) {
+          // Graceful degradation: if DB check fails, allow session to continue
+          logError("[auth] Session token validation failed:", err)
+        }
+      }
+
       return token
     },
+
     async session({ session, token }) {
       if (session.user) {
         ;(session.user as any).role = token.role
         ;(session.user as any).id = token.id
       }
+
+      // Pass session errors to client for handling
+      // Client will detect these and auto-signout with appropriate message
+      if (token.error) {
+        ;(session as any).error = token.error
+      }
+
       return session
     },
+
     async signIn({ user }) {
       log("[auth] signIn callback - user:", user?.email)
       return true
+    },
+  },
+  events: {
+    // Clean up session record on explicit sign-out
+    async signOut({ token }) {
+      const userId = (token as any)?.id
+      if (userId) {
+        try {
+          await removeSession(userId)
+          log("[auth] Session record removed on signout for user:", userId)
+        } catch (err) {
+          logError("[auth] Failed to remove session on signout:", err)
+        }
+      }
     },
   },
   pages: {
@@ -98,6 +170,7 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
+    maxAge: 24 * 60 * 60, // 24 hours absolute max session lifetime
   },
   secret: process.env.NEXTAUTH_SECRET,
   // Required for Vercel - auto-detects the host from request headers

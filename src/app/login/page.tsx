@@ -1,16 +1,67 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertCircle, Clock, LogOut, Mail, Shield } from "lucide-react";
 import { toast } from "sonner";
 
+// Session expiry reason messages
+const sessionReasonMessages: Record<string, { title: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
+  timeout: {
+    title: "Session Expired",
+    description: "Your session has expired due to 15 minutes of inactivity. Please sign in again.",
+    icon: Clock,
+  },
+  kicked: {
+    title: "Signed Out",
+    description: "You have been signed out because your account was logged in from another device. Only one device can be active at a time.",
+    icon: LogOut,
+  },
+  email_changed: {
+    title: "Email Changed",
+    description: "Your email was changed successfully. Please sign in again with your new email address.",
+    icon: Mail,
+  },
+  password_changed: {
+    title: "Password Changed",
+    description: "Your password was changed successfully. Please sign in again with your new password.",
+    icon: Shield,
+  },
+};
+
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
+          <Image
+            src="/200px.png"
+            alt="TrishulHub"
+            width={120}
+            height={48}
+            className="rounded-lg"
+            priority
+          />
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+            <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
+          </div>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,6 +70,8 @@ export default function LoginPage() {
   const [setupLogs, setSetupLogs] = useState<string[]>([]);
   const router = useRouter();
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
+  const sessionReason = searchParams.get("reason");
 
   // If already logged in, redirect
   useEffect(() => {
@@ -198,6 +251,28 @@ export default function LoginPage() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Session expiry notification */}
+        {sessionReason && sessionReasonMessages[sessionReason] && (
+          <Card className="border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-start gap-3">
+                {(() => {
+                  const IconComp = sessionReasonMessages[sessionReason].icon
+                  return <IconComp className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                })()}
+                <div>
+                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                    {sessionReasonMessages[sessionReason].title}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                    {sessionReasonMessages[sessionReason].description}
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}

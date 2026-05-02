@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
@@ -396,6 +396,13 @@ export default function SettingsPage() {
         setConfirmPassword("");
         setPasswordOtpCode("");
         setPasswordOtpSent(false);
+        // If server requires re-auth (session invalidated after password change),
+        // sign out and redirect to login
+        if (data.requiresReauth) {
+          setTimeout(() => {
+            signOut({ callbackUrl: "/login?reason=password_changed" });
+          }, 1500);
+        }
       } else {
         toast.error(data.error || "Failed to change password");
       }
@@ -456,8 +463,16 @@ export default function SettingsPage() {
         setEmailChangePassword("");
         setOtpCode("");
         setOtpSent(false);
-        // Refresh session to reflect new email
-        setTimeout(() => window.location.reload(), 1000);
+        // If the server requires re-auth (session invalidated after email change),
+        // sign out and redirect to login
+        if (data.requiresReauth) {
+          setTimeout(() => {
+            signOut({ callbackUrl: "/login?reason=email_changed" });
+          }, 1500);
+        } else {
+          // Refresh session to reflect new email
+          setTimeout(() => window.location.reload(), 1000);
+        }
       } else {
         toast.error(data.error || "OTP verification failed");
       }
