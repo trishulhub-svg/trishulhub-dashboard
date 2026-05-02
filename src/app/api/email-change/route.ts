@@ -16,7 +16,7 @@ async function ensureEmailTableExists() {
     console.log("[email-change] EmailVerification table not found, auto-creating...")
   }
   try {
-    await db.$executeSqlUnsafe(`
+    await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "EmailVerification" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "userId" TEXT NOT NULL,
@@ -29,9 +29,9 @@ async function ensureEmailTableExists() {
         FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `)
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
     console.log("[email-change] EmailVerification table created successfully")
   } catch (err: any) {
     console.error("[email-change] Failed to create EmailVerification table:", err.message)

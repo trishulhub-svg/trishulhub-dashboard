@@ -20,7 +20,7 @@ export async function POST() {
 
   try {
     // Create SmtpConfig table if it doesn't exist
-    await db.$executeSqlUnsafe(`
+    await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "SmtpConfig" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "host" TEXT NOT NULL,
@@ -39,7 +39,7 @@ export async function POST() {
     results.SmtpConfig = "created/verified"
 
     // Create EmailVerification table if it doesn't exist
-    await db.$executeSqlUnsafe(`
+    await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "EmailVerification" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "userId" TEXT NOT NULL,
@@ -54,15 +54,15 @@ export async function POST() {
     `)
     results.EmailVerification = "created/verified"
 
-    // Create indexes if they don't exist (SQLite ignores IF NOT EXISTS for indexes)
+    // Create indexes if they don't exist
     try {
-      await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`)
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`)
     } catch { /* index may already exist */ }
     try {
-      await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`)
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`)
     } catch { /* index may already exist */ }
     try {
-      await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`)
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`)
     } catch { /* index may already exist */ }
 
     results.indexes = "created/verified"

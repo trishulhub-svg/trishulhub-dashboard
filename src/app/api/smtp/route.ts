@@ -331,7 +331,7 @@ async function ensureTablesExist() {
   }
 
   try {
-    await db.$executeSqlUnsafe(`
+    await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "SmtpConfig" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "host" TEXT NOT NULL,
@@ -353,7 +353,7 @@ async function ensureTablesExist() {
   }
 
   try {
-    await db.$executeSqlUnsafe(`
+    await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "EmailVerification" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "userId" TEXT NOT NULL,
@@ -367,9 +367,9 @@ async function ensureTablesExist() {
       )
     `)
     // Create indexes
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
-    try { await db.$executeSqlUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
     console.log("[smtp] EmailVerification table created successfully")
   } catch (err: any) {
     console.error("[smtp] Failed to create EmailVerification table:", err.message)
