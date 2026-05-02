@@ -158,13 +158,20 @@ export default function FinancePage() {
   // Projects (for dropdown)
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
+  const [error, setError] = useState<string | null>(null);
+
   // ─── Fetch dashboard data (existing) ────
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/dashboard");
-      if (res.ok) setData(await res.json());
+      if (res.ok) {
+        setData(await res.json());
+      } else {
+        setError("Failed to load dashboard data. Please refresh the page.");
+      }
     } catch (err) {
       console.error(err);
+      setError("Network error. Please check your connection and refresh.");
     } finally {
       setLoading(false);
     }
@@ -343,7 +350,7 @@ export default function FinancePage() {
   };
 
   // ─── Loading skeleton ────
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -351,6 +358,32 @@ export default function FinancePage() {
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
         </div>
         <Skeleton className="h-64 rounded-lg" />
+      </div>
+    );
+  }
+
+  // ─── Error state ────
+  if (error || !data) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Finance Dashboard</h1>
+          <p className="text-muted-foreground text-sm">Track revenue, invoices, expenses & subscriptions</p>
+        </div>
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-6 w-6 text-red-500" />
+              <div>
+                <p className="font-medium text-red-600">Failed to load finance data</p>
+                <p className="text-sm text-muted-foreground">{error || "No data received from the server."}</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); setLoading(true); fetchData(); }}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
