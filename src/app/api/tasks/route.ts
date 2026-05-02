@@ -31,30 +31,31 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as any).id
   const body = await req.json()
 
-  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Record<string, any> = {
-    title: body.title,
-    description: body.description || null,
-    status: body.status || "TODO",
-    priority: body.priority || "MEDIUM",
-    projectId: body.projectId || null,
-    assigneeId: body.assigneeId || null,
-    deadline: body.deadline ? new Date(body.deadline) : null,
+  // projectId is required by schema
+  if (!body.projectId) {
+    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
   }
 
   // Developers can only create tasks in projects they're assigned to
-  if (!isAdmin(userRole) && data.projectId) {
+  if (!isAdmin(userRole)) {
     const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: data.projectId }
+      where: { userId, projectId: body.projectId }
     })
     if (!membership) {
       return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
     }
   }
 
-  // Developers must provide a project they have access to
-  if (!isAdmin(userRole) && !data.projectId) {
-    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+  const data = {
+    title: body.title as string,
+    description: (body.description as string | null) || null,
+    status: (body.status as string) || "TODO",
+    priority: (body.priority as string) || "MEDIUM",
+    projectId: body.projectId as string,
+    assignedTo: (body.assignedTo as string | null) || null,
+    assigneeType: (body.assigneeType as string) || "HUMAN",
+    deadline: body.deadline ? new Date(body.deadline as string) : null,
   }
   
   const task = await db.task.create({ data })
@@ -73,12 +74,13 @@ export async function PUT(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Record<string, any> = {}
+  const data: Parameters<typeof db.task.update>[0]["data"] = {}
   if (body.title !== undefined) data.title = body.title
   if (body.description !== undefined) data.description = body.description
   if (body.status !== undefined) data.status = body.status
   if (body.priority !== undefined) data.priority = body.priority
-  if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId
+  if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo
+  if (body.assigneeType !== undefined) data.assigneeType = body.assigneeType
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(body.deadline) : null
 
   // Only admins can change projectId on a task (prevents developers from moving tasks between projects)
