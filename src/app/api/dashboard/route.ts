@@ -40,7 +40,7 @@ export async function GET() {
     supportTickets,
     tasks,
   ] = await Promise.all([
-    db.agent.findMany({ where: agentWhere, include: { apiKey: true } }),
+    db.agent.findMany({ where: agentWhere, include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } } }),
     db.project.findMany({ where: projectWhere, include: { client: true, tasks: true } }),
     db.client.findMany({ where: clientWhere }),
     db.invoice.findMany({ where: invoiceWhere }),

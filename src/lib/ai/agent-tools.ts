@@ -1554,10 +1554,15 @@ function listDirContents(fullPath: string, dirPath: string, pattern?: string): s
 }
 
 async function executeRunCommand(command: string, purpose?: string): Promise<string> {
-  // Block shell metacharacters that enable command chaining
-  const dangerousChars = /[;|&$`]/
+  // CRITICAL FIX: Block newlines and carriage returns that bypass shell metacharacter filter
+  const dangerousChars = /[;|&`$\n\r]/
   if (dangerousChars.test(command)) {
-    return `Error: Command contains blocked shell metacharacters (; | & $ \`). Only simple commands are allowed.`
+    return `Error: Command contains blocked shell metacharacters (; | & $ \` newlines). Only simple commands are allowed.`
+  }
+
+  // Block subshell syntax $(...) and backticks (already covered above but explicit)
+  if (/\$\(|\)\s*;|`\s/.test(command)) {
+    return `Error: Command contains blocked subshell or chaining syntax.`
   }
 
   // Blocklist: comprehensive dangerous patterns
@@ -1595,11 +1600,16 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
   }
 
   try {
-    const { stdout, stderr } = await execAsync(command, {
+    // CRITICAL FIX: Use execSafe (execFile) instead of execAsync (exec) to prevent shell injection.
+    // Split command into binary + args array so no shell interpretation occurs.
+    const parts = command.trim().split(/\s+/)
+    const cmd = parts[0]
+    const args = parts.slice(1)
+    const { stdout, stderr } = await execSafe(cmd, args, {
       cwd: getWorkspaceRoot(),
       timeout: 30000,
       maxBuffer: 1024 * 1024,
-    })
+    } as any)
     const output: string[] = []
     if (stdout) output.push(stdout.slice(-3000))
     if (stderr) output.push(`STDERR: ${stderr.slice(-1000)}`)

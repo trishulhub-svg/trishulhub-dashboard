@@ -18,8 +18,20 @@ export async function GET() {
 }
 
 // PATCH /api/setup - Migrate existing agents to use correct model names and update features
+// SECURITY FIX: Now requires SUPER_ADMIN authentication
 export async function PATCH() {
   const logs: string[] = []
+
+  // CRITICAL FIX: Require SUPER_ADMIN for schema migrations and data modifications
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userRole = (session.user as any)?.role
+  if (userRole !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can run migrations" }, { status: 403 })
+  }
+
   try {
     // ━━ Schema Migration: Add missing columns to production DB ━━
     const migrations = [

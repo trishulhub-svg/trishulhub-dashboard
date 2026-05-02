@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
@@ -132,6 +133,8 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:
 // ─── Main Component ──────────────────────────────────────────────────
 export default function FinancePage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -348,6 +351,9 @@ export default function FinancePage() {
       toast.error("Failed to delete expense");
     }
   };
+
+  // ─── Role guard ────
+  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
 
   // ─── Loading skeleton ────
   if (loading) {

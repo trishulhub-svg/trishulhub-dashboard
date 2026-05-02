@@ -3,14 +3,16 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
 // Debug endpoint - check Vercel environment and database connectivity
-// SUPER_ADMIN only in production, accessible in development
+// SECURITY FIX: SUPER_ADMIN only - previously accessible to all authenticated users
 export async function GET(req: NextRequest) {
-  // Fix #4: Require authentication for debug endpoints
   const session = await getServerSession(authOptions)
-  const isDev = process.env.NODE_ENV === "development"
-  
-  if (!session?.user && !isDev) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userRole = (session.user as any)?.role
+  // Only SUPER_ADMIN can access debug endpoint (not even in development mode without auth)
+  if (userRole !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
   }
   
   const results: Record<string, any> = {}

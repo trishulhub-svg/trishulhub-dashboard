@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
+import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 
 // GET /api/clients/[id] - Single client detail with full relations
 export async function GET(
@@ -13,9 +14,18 @@ export async function GET(
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = (session.user as Record<string, unknown>).role as string
+  const userId = (session.user as Record<string, unknown>).id as string
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
+
+  // SECURITY FIX: Developers can only view clients they are assigned to
+  if (!isAdmin(role)) {
+    const assignedClientIds = await getAssignedClientIds(userId, role)
+    if (assignedClientIds && !assignedClientIds.includes(id)) {
+      return NextResponse.json({ error: "Access denied: Client not in your assigned scope" }, { status: 403 })
+    }
+  }
 
   const client = await db.client.findUnique({
     where: { id },
@@ -81,11 +91,18 @@ export async function GET(
   }
 
   // Compute revenue from paid invoices
-  const revenue = client.invoices
+  const revenue = isAdmin(role) ? client.invoices
     .filter((inv) => inv.status === "PAID")
-    .reduce((sum, inv) => sum + inv.total, 0)
+    .reduce((sum, inv) => sum + inv.total, 0) : 0
 
-  return NextResponse.json({ ...client, portalUser, revenue })
+  // SECURITY: Hide financial details from developers
+  const safeClient = isAdmin(role) ? client : {
+    ...client,
+    invoices: [],
+    leads: [],
+  }
+
+  return NextResponse.json({ ...safeClient, portalUser, revenue })
 }
 
 // PATCH /api/clients/[id] - Update client

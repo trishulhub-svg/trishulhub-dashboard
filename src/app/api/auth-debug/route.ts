@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
-// Fix #4: Auth debug endpoint - requires authentication
+// SECURITY FIX: Auth debug endpoint is now SUPER_ADMIN only.
+// Previously allowed any authenticated user to test credentials (credential oracle attack).
+// In development mode, still requires SUPER_ADMIN role.
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
-  const isDev = process.env.NODE_ENV === "development"
-  if (!session?.user && !isDev) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userRole = (session.user as any)?.role
+  if (userRole !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
   }
 
   try {
@@ -48,7 +53,6 @@ export async function POST(request: Request) {
         step: "password_check",
         status: "INVALID_PASSWORD",
         email,
-        hint: "Password doesn't match. Check with your administrator.",
       })
     }
 
@@ -72,12 +76,15 @@ export async function POST(request: Request) {
   }
 }
 
-// GET version - requires authentication
+// GET version - SUPER_ADMIN only
 export async function GET() {
   const session = await getServerSession(authOptions)
-  const isDev = process.env.NODE_ENV === "development"
-  if (!session?.user && !isDev) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userRole = (session.user as any)?.role
+  if (userRole !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Forbidden: SUPER_ADMIN only" }, { status: 403 })
   }
 
   const envCheck = {

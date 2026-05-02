@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot,
@@ -39,6 +40,7 @@ export default function TeamPage() {
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [accessDialogOpen, setAccessDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const router = useRouter();
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -179,6 +181,9 @@ export default function TeamPage() {
       setAddMemberLoading(false);
     }
   };
+
+  // Role guard
+  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
 
   if (loading) {
     return (

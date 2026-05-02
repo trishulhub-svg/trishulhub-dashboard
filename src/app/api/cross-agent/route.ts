@@ -130,7 +130,9 @@ export async function POST(req: NextRequest) {
         }
       });
     } catch (createError: any) {
-      // If linkedChatId or shareFullChat columns don't exist, try without them
+      // SECURITY FIX: Removed auto-migration ($executeRawUnsafe ALTER TABLE) from request handler.
+      // Schema migrations should only happen during deployment via /api/setup (SUPER_ADMIN only).
+      // If linkedChatId or shareFullChat columns don't exist, try without them.
       if (createError.message?.includes("linkedChatId") || createError.message?.includes("shareFullChat") || createError.message?.includes("no column") || createError.message?.includes("Unknown column") || createError.message?.includes("no such column")) {
         try {
           crossMsg = await db.crossAgentMessage.create({
@@ -147,16 +149,9 @@ export async function POST(req: NextRequest) {
               toAgent: { select: { id: true, name: true, type: true } },
             }
           });
-          // Auto-migrate: add missing columns
-          try {
-            await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT");
-          } catch {}
-          try {
-            await db.$executeRawUnsafe("ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0");
-          } catch {}
         } catch (fallbackError: any) {
           console.error("[cross-agent] Fallback create also failed:", fallbackError.message);
-          return NextResponse.json({ error: "Failed to create cross-agent message" }, { status: 500 });
+          return NextResponse.json({ error: "Failed to create cross-agent message. Run /api/setup PATCH to migrate schema." }, { status: 500 });
         }
       } else {
         console.error("[cross-agent] Create error:", createError.message);

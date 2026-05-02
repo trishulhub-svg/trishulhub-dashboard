@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
   useSensor, useSensors, closestCorners,
@@ -111,6 +113,9 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
 }
 
 export default function CRMPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -230,6 +235,9 @@ export default function CRMPage() {
           (l.company || "").toLowerCase().includes(search.toLowerCase())
       )
     : leads;
+
+  // Role guard
+  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
 
   if (loading) {
     return (

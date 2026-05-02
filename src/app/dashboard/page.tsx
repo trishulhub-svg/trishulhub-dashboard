@@ -54,12 +54,9 @@ export default function DashboardPage() {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Seed database if empty
-  useEffect(() => {
-    if (!loading && !data) {
-      fetch("/api/seed", { method: "POST", credentials: 'include' }).then(() => fetchDashboard());
-    }
-  }, [loading, data, fetchDashboard]);
+  // SECURITY FIX: Removed auto-seed that could unintentionally seed the database.
+  // Seeding should only happen via explicit admin action at /api/setup POST.
+  // If the dashboard fails to load, show an error state instead.
 
   if (loading || !data) {
     return (

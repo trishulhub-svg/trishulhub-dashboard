@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 // Paths that don't require authentication
-const publicPaths = ["/login", "/api/auth", "/api/health"]
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup"] // /api/setup GET is public for setup check
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -38,7 +38,6 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/portal/:path*",
-    "/api/auth/:path*",
-    "/api/health",
+    "/api/:path*",
   ],
 }

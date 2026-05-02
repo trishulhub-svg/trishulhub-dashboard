@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Plus, Trash2, Key, AlertTriangle, CheckCircle2, Loader2,
   Edit2, Eye, EyeOff, RefreshCw, Shield, Zap, DollarSign,
@@ -59,6 +61,9 @@ interface ApiKeyData {
 }
 
 export default function ApiKeysPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
   const [keys, setKeys] = useState<ApiKeyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -294,6 +299,9 @@ export default function ApiKeysPage() {
   const activeKeys = keys.filter(k => k.status === "ACTIVE").length;
   const exhaustedKeys = keys.filter(k => k.status === "EXHAUSTED").length;
   const errorKeys = keys.filter(k => k.status === "ERROR").length;
+
+  // Role guard
+  if (userRole !== "SUPER_ADMIN") { router.push("/dashboard"); return null; }
 
   if (loading) {
     return (

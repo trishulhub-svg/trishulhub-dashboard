@@ -459,6 +459,13 @@ export async function POST(req: NextRequest) {
                     const repoUrl = agent.roleConfig.githubRepo
                     const token = agent.roleConfig.githubToken
 
+                    // SECURITY FIX: Validate repoUrl is a valid HTTPS Git URL to prevent command injection
+                    const validGitUrlRegex = /^https:\/\/[a-zA-Z0-9][a-zA-Z0-9\-._]*\.[a-zA-Z]{2,}[a-zA-Z0-9\-._\/]*$/
+                    if (!validGitUrlRegex.test(repoUrl)) {
+                      console.error(`[agent-chat] Invalid GitHub repo URL rejected: ${repoUrl}`)
+                      throw new Error('Invalid repository URL format')
+                    }
+
                     // Create a temporary GIT_ASKPASS script that provides the token
                     const askpassId = crypto.randomBytes(8).toString('hex')
                     const askpassPath = `/tmp/git-askpass-${askpassId}.sh`

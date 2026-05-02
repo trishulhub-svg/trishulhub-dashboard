@@ -7,8 +7,12 @@ import { db } from "@/lib/db"
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    const userRole = session ? (session.user as any)?.role : null
-    const userId = session ? (session.user as any)?.id : null
+    // CRITICAL FIX: Return 401 if not authenticated - previously leaked all agent data
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userRole = (session.user as any)?.role
+    const userId = (session.user as any)?.id
 
     const agents = await db.agent.findMany({
       include: {
@@ -29,12 +33,41 @@ export async function GET(req: NextRequest) {
     })
 
     // Filter agents based on user access
-    if (userId && userRole && userRole !== "SUPER_ADMIN") {
+    if (userRole !== "SUPER_ADMIN") {
       const filtered = agents.filter(agent => {
+        // ADMIN can see all agents
+        if (userRole === "ADMIN") return true
+        // Others only see agents they have access to
         const access = agent.userAccess?.[0]
         return access?.canView || false
       })
-      return NextResponse.json(filtered)
+      // SECURITY: Strip githubToken from roleConfig for non-DEV agents and non-admin users
+      const sanitized = filtered.map(agent => {
+        if (agent.roleConfig && agent.type !== "DEV" && userRole !== "SUPER_ADMIN") {
+          return {
+            ...agent,
+            roleConfig: {
+              ...agent.roleConfig,
+              githubToken: "",
+              githubRepo: "",
+            }
+          }
+        }
+        // Mask githubToken for all non-super-admin users even for DEV agent
+        if (agent.roleConfig && userRole !== "SUPER_ADMIN") {
+          return {
+            ...agent,
+            roleConfig: {
+              ...agent.roleConfig,
+              githubToken: agent.roleConfig.githubToken
+                ? `${agent.roleConfig.githubToken.substring(0, 4)}...${agent.roleConfig.githubToken.slice(-4)}`
+                : "",
+            }
+          }
+        }
+        return agent
+      })
+      return NextResponse.json(sanitized)
     }
 
     return NextResponse.json(agents)

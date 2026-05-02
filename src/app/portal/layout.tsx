@@ -56,7 +56,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     if (status === "unauthenticated") {
       router.push("/login");
     }
-  }, [status, router]);
+    // CRITICAL FIX: Redirect non-CLIENT users away from portal
+    // Previously any authenticated user could access portal pages
+    if (status === "authenticated" && session?.user) {
+      const userRole = (session.user as any)?.role
+      if (userRole && userRole !== "CLIENT") {
+        router.push("/dashboard");
+      }
+    }
+  }, [status, session, router]);
 
   if (status === "loading") {
     return (

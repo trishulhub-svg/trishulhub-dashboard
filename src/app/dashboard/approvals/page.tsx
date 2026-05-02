@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter, Trash2, User,
 } from "lucide-react";
@@ -50,6 +52,9 @@ const statusColors: Record<string, string> = {
 };
 
 export default function ApprovalsPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
@@ -71,6 +76,9 @@ export default function ApprovalsPage() {
   useEffect(() => {
     fetchApprovals(activeTab === "ALL" ? undefined : activeTab);
   }, [activeTab, fetchApprovals]);
+
+  // Role guard
+  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
 
   const handleAction = async (id: string, action: "APPROVED" | "REJECTED" | "NEEDS_IMPROVEMENT") => {
     try {
