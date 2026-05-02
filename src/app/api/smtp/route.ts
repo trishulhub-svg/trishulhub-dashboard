@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import nodemailer from "nodemailer"
 import { isIP } from "net"
 
 // SSRF protection: block private/internal IPs
@@ -38,7 +37,10 @@ export async function GET() {
     }
 
     // Auto-migrate: ensure SmtpConfig table exists
-    await ensureTablesExist()
+    const migrateResult = await ensureTablesExist()
+    if (!migrateResult.success) {
+      return NextResponse.json({ error: `Database migration needed: ${migrateResult.error}. Visit /api/migrate to create tables.` }, { status: 500 })
+    }
 
     const configs = await db.smtpConfig.findMany({
       orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
@@ -66,12 +68,14 @@ export async function GET() {
 
     return NextResponse.json(masked)
   } catch (error: any) {
-    console.error("[smtp] GET error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[smtp] GET error:", error)
+    return NextResponse.json({ error: "An error occurred", detail: error.message }, { status: 500 })
   }
 }
 
 // POST /api/smtp - Create SMTP configuration (SUPER_ADMIN only)
+// NOTE: We do NOT re-test SMTP connection here to avoid Vercel Hobby 10s timeout.
+// The user must test via the separate /api/smtp/test endpoint before clicking Add.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -83,7 +87,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Auto-migrate: ensure SmtpConfig and EmailVerification tables exist
-    await ensureTablesExist()
+    const migrateResult = await ensureTablesExist()
+    if (!migrateResult.success) {
+      return NextResponse.json({ error: `Database migration needed: ${migrateResult.error}. Visit /api/migrate to create tables.` }, { status: 500 })
+    }
 
     const body = await req.json()
     const { host, port, username, password, fromEmail, fromName, secure, isPrimary } = body
@@ -104,14 +111,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Maximum 2 SMTP configurations allowed. Delete one first." }, { status: 400 })
     }
 
-    // Validate SMTP connection before saving
-    const testResult = await testSmtpConnection({ host, port: port || 587, username, password, secure: secure || false })
-    if (!testResult.success) {
-      return NextResponse.json({ error: `SMTP connection test failed: ${testResult.error}` }, { status: 400 })
-    }
+    // NOTE: SMTP connection test is NOT performed here anymore.
+    // The user must test the connection via the /api/smtp/test endpoint first.
+    // This prevents Vercel Hobby 10-second function timeouts caused by
+    // the SMTP handshake (5-10s) + DB operations combined exceeding the limit.
 
     // If this is set as primary, unset any existing primary
-    if (isPrimary) {
+    if (isPrimary !== false) {
       await db.smtpConfig.updateMany({
         where: { isPrimary: true },
         data: { isPrimary: false },
@@ -145,20 +151,28 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    console.log("[smtp] POST: SMTP config created successfully:", config.id)
     return NextResponse.json(config, { status: 201 })
   } catch (error: any) {
-    console.error("[smtp] POST error:", error)
-    // Return more specific error for debugging while not leaking sensitive info
-    const errorMsg = error.code === "P2021" || error.code === "P2022" 
-      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
-      : error.code === "P2002"
-      ? "An SMTP config with these details already exists."
-      : "Failed to save SMTP configuration. Please try again."
-    return NextResponse.json({ error: errorMsg, detail: process.env.NODE_ENV === "development" ? error.message : undefined }, { status: 500 })
+    console.error("[smtp] POST error:", error.code, error.message)
+    // Return specific error with detail for debugging
+    let errorMsg = "Failed to save SMTP configuration. Please try again."
+    if (error.code === "P2021" || error.code === "P2022") {
+      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
+    } else if (error.code === "P2002") {
+      errorMsg = "An SMTP config with these details already exists."
+    }
+    return NextResponse.json({
+      error: errorMsg,
+      detail: error.message,
+      code: error.code || null,
+    }, { status: 500 })
   }
 }
 
 // PATCH /api/smtp - Update SMTP configuration (SUPER_ADMIN only)
+// NOTE: We do NOT re-test SMTP connection here to avoid Vercel Hobby 10s timeout.
+// The user must test via the separate /api/smtp/test endpoint before saving changes.
 export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -197,20 +211,8 @@ export async function PATCH(req: NextRequest) {
       data.isPrimary = true
     }
 
-    // Test connection if host/credentials changed
-    const needsTest = host || port || username || password || secure
-    if (needsTest) {
-      const testResult = await testSmtpConnection({
-        host: (host as string) || existing.host,
-        port: (port as number) || existing.port,
-        username: (username as string) || existing.username,
-        password: (password as string) || existing.password,
-        secure: secure !== undefined ? secure : existing.secure,
-      })
-      if (!testResult.success) {
-        return NextResponse.json({ error: `SMTP connection test failed: ${testResult.error}` }, { status: 400 })
-      }
-    }
+    // NOTE: SMTP connection test is NOT performed here anymore to avoid timeouts.
+    // Use /api/smtp/test to verify connection before saving.
 
     const config = await db.smtpConfig.update({
       where: { id },
@@ -232,11 +234,12 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(config)
   } catch (error: any) {
-    console.error("[smtp] PATCH error:", error)
-    const errorMsg = error.code === "P2021" || error.code === "P2022" 
-      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
-      : "Failed to update SMTP configuration. Please try again."
-    return NextResponse.json({ error: errorMsg }, { status: 500 })
+    console.error("[smtp] PATCH error:", error.code, error.message)
+    let errorMsg = "Failed to update SMTP configuration. Please try again."
+    if (error.code === "P2021" || error.code === "P2022") {
+      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
+    }
+    return NextResponse.json({ error: errorMsg, detail: error.message }, { status: 500 })
   }
 }
 
@@ -271,64 +274,37 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error("[smtp] DELETE error:", error)
-    const errorMsg = error.code === "P2021" || error.code === "P2022" 
-      ? "Database table not found. Please run 'npx prisma db push' to create the SmtpConfig table."
-      : "Failed to delete SMTP configuration. Please try again."
-    return NextResponse.json({ error: errorMsg }, { status: 500 })
-  }
-}
-
-// POST /api/smtp - Test SMTP connection (handled via query param)
-// This is integrated into the POST handler (test before save)
-
-// Helper: Test SMTP connection
-async function testSmtpConnection(config: {
-  host: string
-  port: number
-  username: string
-  password: string
-  secure: boolean
-}): Promise<{ success: boolean; error?: string }> {
-  const transporter = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure, // true = implicit TLS (port 465), false = STARTTLS (port 587)
-    requireTLS: !config.secure, // When secure=false, upgrade to TLS via STARTTLS
-    auth: {
-      user: config.username,
-      pass: config.password,
-    },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
-  })
-
-  try {
-    await transporter.verify()
-    await transporter.close()
-    return { success: true }
-  } catch (error: any) {
-    try { await transporter.close() } catch {}
-    return { success: false, error: error.message }
+    console.error("[smtp] DELETE error:", error.code, error.message)
+    let errorMsg = "Failed to delete SMTP configuration. Please try again."
+    if (error.code === "P2021" || error.code === "P2022") {
+      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
+    }
+    return NextResponse.json({ error: errorMsg, detail: error.message }, { status: 500 })
   }
 }
 
 // Helper: Auto-migrate - create SmtpConfig and EmailVerification tables if they don't exist
 // This avoids needing to run `npx prisma db push` manually on Turso
+// Returns { success, error? } so callers know if migration succeeded
 let tablesChecked = false
-async function ensureTablesExist() {
-  if (tablesChecked) return // Only check once per serverless instance lifecycle
+let tablesExist = false
+async function ensureTablesExist(): Promise<{ success: boolean; error?: string }> {
+  if (tablesChecked && tablesExist) return { success: true }
 
   try {
     // Quick check: try to count SmtpConfig - if table exists, this succeeds
     await db.smtpConfig.count({ take: 1 })
     tablesChecked = true
-    return
-  } catch {
+    tablesExist = true
+    return { success: true }
+  } catch (initialErr: any) {
     // Table doesn't exist - create it
-    console.log("[smtp] SmtpConfig table not found, auto-creating...")
+    console.log("[smtp] SmtpConfig table not found, auto-creating...", initialErr.message)
   }
+
+  // Try creating tables with raw SQL
+  let smtpTableCreated = false
+  let emailTableCreated = false
 
   try {
     await db.$executeRawUnsafe(`
@@ -340,16 +316,18 @@ async function ensureTablesExist() {
         "password" TEXT NOT NULL,
         "fromEmail" TEXT NOT NULL,
         "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
-        "secure" BOOLEAN NOT NULL DEFAULT false,
-        "isPrimary" BOOLEAN NOT NULL DEFAULT true,
-        "isActive" BOOLEAN NOT NULL DEFAULT true,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        "secure" INTEGER NOT NULL DEFAULT 0,
+        "isPrimary" INTEGER NOT NULL DEFAULT 1,
+        "isActive" INTEGER NOT NULL DEFAULT 1,
+        "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+        "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `)
+    smtpTableCreated = true
     console.log("[smtp] SmtpConfig table created successfully")
   } catch (err: any) {
     console.error("[smtp] Failed to create SmtpConfig table:", err.message)
+    return { success: false, error: `Failed to create SmtpConfig: ${err.message}` }
   }
 
   try {
@@ -359,21 +337,38 @@ async function ensureTablesExist() {
         "userId" TEXT NOT NULL,
         "newEmail" TEXT NOT NULL,
         "otp" TEXT NOT NULL,
-        "verified" BOOLEAN NOT NULL DEFAULT false,
+        "verified" INTEGER NOT NULL DEFAULT 0,
         "attempts" INTEGER NOT NULL DEFAULT 0,
-        "expiresAt" DATETIME NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TEXT NOT NULL,
+        "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `)
-    // Create indexes
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+    emailTableCreated = true
     console.log("[smtp] EmailVerification table created successfully")
   } catch (err: any) {
     console.error("[smtp] Failed to create EmailVerification table:", err.message)
+    // SmtpConfig is the critical one - EmailVerification is non-blocking
   }
 
-  tablesChecked = true
+  // Create indexes (non-blocking)
+  if (emailTableCreated) {
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
+  }
+
+  // Verify the SmtpConfig table actually exists now
+  try {
+    await db.smtpConfig.count({ take: 1 })
+    tablesChecked = true
+    tablesExist = true
+    console.log("[smtp] Tables verified and ready")
+    return { success: true }
+  } catch (verifyErr: any) {
+    console.error("[smtp] Table verification failed after creation:", verifyErr.message)
+    tablesChecked = false
+    tablesExist = false
+    return { success: false, error: `Table creation may have failed: ${verifyErr.message}` }
+  }
 }

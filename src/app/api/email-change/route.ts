@@ -6,15 +6,19 @@ import { isValidEmail, isDisposableEmail, generateOTP, sendOTPEmail } from "@/li
 
 // Auto-migrate: ensure EmailVerification table exists
 let emailTableChecked = false
-async function ensureEmailTableExists() {
-  if (emailTableChecked) return
+let emailTableExists = false
+async function ensureEmailTableExists(): Promise<{ success: boolean; error?: string }> {
+  if (emailTableChecked && emailTableExists) return { success: true }
+
   try {
     await db.emailVerification.count({ take: 1 })
     emailTableChecked = true
-    return
+    emailTableExists = true
+    return { success: true }
   } catch {
     console.log("[email-change] EmailVerification table not found, auto-creating...")
   }
+
   try {
     await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "EmailVerification" (
@@ -22,10 +26,10 @@ async function ensureEmailTableExists() {
         "userId" TEXT NOT NULL,
         "newEmail" TEXT NOT NULL,
         "otp" TEXT NOT NULL,
-        "verified" BOOLEAN NOT NULL DEFAULT false,
+        "verified" INTEGER NOT NULL DEFAULT 0,
         "attempts" INTEGER NOT NULL DEFAULT 0,
-        "expiresAt" DATETIME NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TEXT NOT NULL,
+        "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `)
@@ -35,8 +39,22 @@ async function ensureEmailTableExists() {
     console.log("[email-change] EmailVerification table created successfully")
   } catch (err: any) {
     console.error("[email-change] Failed to create EmailVerification table:", err.message)
+    emailTableChecked = false
+    emailTableExists = false
+    return { success: false, error: err.message }
   }
-  emailTableChecked = true
+
+  // Verify the table actually works
+  try {
+    await db.emailVerification.count({ take: 1 })
+    emailTableChecked = true
+    emailTableExists = true
+    return { success: true }
+  } catch (err: any) {
+    emailTableChecked = false
+    emailTableExists = false
+    return { success: false, error: err.message }
+  }
 }
 
 // In-memory rate limiter for OTP verification attempts

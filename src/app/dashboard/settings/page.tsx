@@ -392,10 +392,13 @@ export default function SettingsPage() {
         setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
         fetchSmtpConfigs();
       } else {
-        toast.error(data.error || "Failed to save SMTP config");
+        // Show detailed error for debugging - includes backend detail if available
+        const errorDetail = data.detail ? ` (${data.detail})` : "";
+        toast.error(`${data.error || "Failed to save SMTP config"}${errorDetail}`, { duration: 8000 });
       }
-    } catch {
-      toast.error("Failed to save SMTP config");
+    } catch (err: any) {
+      // Network error or timeout - likely Vercel function timeout
+      toast.error("Network error saving SMTP. This may be a timeout - try clicking Add again.", { duration: 8000 });
     } finally {
       setSmtpSaving(false);
     }
@@ -1143,6 +1146,9 @@ export default function SettingsPage() {
                 <Label className="text-xs">Primary Server</Label>
               </div>
             </div>
+          </div>
+          <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <p className="text-[11px] text-amber-700 dark:text-amber-300"><strong>Tip:</strong> Click "Test" first to verify your SMTP connection before adding.</p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => handleTestSmtp()} disabled={smtpTesting}>
