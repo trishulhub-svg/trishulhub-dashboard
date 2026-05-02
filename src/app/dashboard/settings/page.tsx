@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
   Users, UserPlus, Loader2, Pencil, Trash2, Ban, CheckCircle2, XCircle,
-  Mail, Server, Plus, TestTube, AlertCircle, Key,
+  Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,37 @@ interface TeamMember {
   createdAt: string;
 }
 
+// ─── Email Log Type ────────────────────────────────────────────
+interface EmailLog {
+  id: string;
+  to: string;
+  subject: string;
+  type: string;
+  status: string;
+  smtpHost: string | null;
+  method: string | null;
+  error: string | null;
+  triggeredBy: string | null;
+  createdAt: string;
+}
+
+// ─── Relative Time Helper ──────────────────────────────────────
+function getRelativeTime(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+
+  if (diffSec < 60) return "just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin > 1 ? "s" : ""} ago`;
+  if (diffHr < 24) return `${diffHr} hour${diffHr > 1 ? "s" : ""} ago`;
+  if (diffDay < 30) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
+  return date.toLocaleDateString();
+}
+
 export default function SettingsPage() {
   const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
@@ -58,10 +89,14 @@ export default function SettingsPage() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [approvalRequired, setApprovalRequired] = useState(true);
   const [budgetAlerts, setBudgetAlerts] = useState(true);
+
+  // ── Change Password state (OTP flow) ──
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordOtpSent, setPasswordOtpSent] = useState(false);
+  const [passwordOtpCode, setPasswordOtpCode] = useState("");
 
   // Team Management state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -95,6 +130,22 @@ export default function SettingsPage() {
   const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [smtpTesting, setSmtpTesting] = useState(false);
+
+  // Email Logs state (SUPER_ADMIN only)
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  const [emailLogsTotal, setEmailLogsTotal] = useState(0);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+  const [emailLogTypeFilter, setEmailLogTypeFilter] = useState<string>("ALL");
+  const [emailLogStatusFilter, setEmailLogStatusFilter] = useState<string>("ALL");
+  const [clearingLogs, setClearingLogs] = useState(false);
+
+  // Password Reset Dialog state (SUPER_ADMIN only)
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPasswordUser, setResetPasswordUser] = useState<TeamMember | null>(null);
+  const [resetPasswordAction, setResetPasswordAction] = useState<"send_link" | "direct_reset">("send_link");
+  const [resetPasswordNewPwd, setResetPasswordNewPwd] = useState("");
+  const [resetPasswordConfirmPwd, setResetPasswordConfirmPwd] = useState("");
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
 
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
@@ -140,6 +191,31 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchSmtpConfigs();
   }, [fetchSmtpConfigs]);
+
+  // ── Fetch Email Logs ──
+  const fetchEmailLogs = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    setEmailLogsLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "100", offset: "0" });
+      if (emailLogTypeFilter !== "ALL") params.set("type", emailLogTypeFilter);
+      if (emailLogStatusFilter !== "ALL") params.set("status", emailLogStatusFilter);
+      const res = await fetch(`/api/email-logs?${params.toString()}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setEmailLogs(data.logs || []);
+        setEmailLogsTotal(data.total || 0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch email logs:", err);
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  }, [isSuperAdmin, emailLogTypeFilter, emailLogStatusFilter]);
+
+  useEffect(() => {
+    fetchEmailLogs();
+  }, [fetchEmailLogs]);
 
   // ── Add User ──
   const handleAddUser = async () => {
@@ -261,7 +337,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChangePassword = async () => {
+  // ── Change Password: Step 1 – Send OTP ──
+  const handlePasswordSendOtp = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
       return;
@@ -277,22 +354,49 @@ export default function SettingsPage() {
 
     setChangingPassword(true);
     try {
-      const res = await fetch("/api/team", {
-        method: "PATCH",
+      const res = await fetch("/api/password-change", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          id: (session?.user as any)?.id,
-          password: newPassword,
-        }),
+        body: JSON.stringify({ currentPassword }),
       });
+      const data = await res.json();
       if (res.ok) {
-        toast.success("Password changed successfully!");
+        setPasswordOtpSent(true);
+        toast.success(data.message || "OTP sent to your email");
+      } else {
+        toast.error(data.error || "Failed to send OTP");
+      }
+    } catch {
+      toast.error("Failed to send OTP");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  // ── Change Password: Step 2 – Verify OTP & Change ──
+  const handlePasswordVerifyOtp = async () => {
+    if (!passwordOtpCode) {
+      toast.error("Please enter the OTP");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const res = await fetch("/api/password-change", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ otp: passwordOtpCode, newPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Password changed successfully!");
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
+        setPasswordOtpCode("");
+        setPasswordOtpSent(false);
       } else {
-        const data = await res.json();
         toast.error(data.error || "Failed to change password");
       }
     } catch {
@@ -464,11 +568,104 @@ export default function SettingsPage() {
     setSmtpDialogOpen(true);
   };
 
+  // ── Email Logs: Clear Old Logs ──
+  const handleClearOldLogs = async () => {
+    if (!confirm("Are you sure you want to delete email logs older than 30 days?")) return;
+    setClearingLogs(true);
+    try {
+      const res = await fetch("/api/email-logs?olderThanDays=30", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || `Deleted ${data.deleted} old log(s)`);
+        fetchEmailLogs();
+      } else {
+        toast.error(data.error || "Failed to clear logs");
+      }
+    } catch {
+      toast.error("Failed to clear logs");
+    } finally {
+      setClearingLogs(false);
+    }
+  };
+
+  // ── Password Reset: Handle Action ──
+  const handlePasswordReset = async () => {
+    if (!resetPasswordUser) return;
+
+    if (resetPasswordAction === "direct_reset") {
+      if (!resetPasswordNewPwd || !resetPasswordConfirmPwd) {
+        toast.error("Please fill in all password fields");
+        return;
+      }
+      if (resetPasswordNewPwd !== resetPasswordConfirmPwd) {
+        toast.error("Passwords do not match");
+        return;
+      }
+      if (resetPasswordNewPwd.length < 8) {
+        toast.error("Password must be at least 8 characters");
+        return;
+      }
+    }
+
+    setResetPasswordLoading(true);
+    try {
+      const body: Record<string, any> = {
+        userId: resetPasswordUser.id,
+        action: resetPasswordAction,
+      };
+      if (resetPasswordAction === "direct_reset") {
+        body.newPassword = resetPasswordNewPwd;
+      }
+
+      const res = await fetch("/api/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Password reset successful");
+        setResetPasswordOpen(false);
+        setResetPasswordUser(null);
+        setResetPasswordNewPwd("");
+        setResetPasswordConfirmPwd("");
+        setResetPasswordAction("send_link");
+      } else {
+        toast.error(data.error || "Failed to reset password");
+      }
+    } catch {
+      toast.error("Failed to reset password");
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
+  // ── Open Reset Password Dialog ──
+  const openResetPasswordDialog = (member: TeamMember) => {
+    setResetPasswordUser(member);
+    setResetPasswordAction("send_link");
+    setResetPasswordNewPwd("");
+    setResetPasswordConfirmPwd("");
+    setResetPasswordOpen(true);
+  };
+
   const roleBadgeColors: Record<string, string> = {
     SUPER_ADMIN: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
     ADMIN: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
     DEVELOPER: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
     CLIENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  };
+
+  const emailTypeLabels: Record<string, string> = {
+    OTP: "OTP",
+    PASSWORD_CHANGE: "Password Change",
+    EMAIL_CHANGE: "Email Change",
+    RESET_LINK: "Reset Link",
+    DIRECT_RESET: "Direct Reset",
   };
 
   return (
@@ -511,48 +708,100 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Change Password */}
+      {/* Change Password - OTP Flow */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Change Password</CardTitle>
           </div>
-          <CardDescription>Update your password to keep your account secure</CardDescription>
+          <CardDescription>Update your password securely with email verification</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-1">
-            <Label className="text-xs">Current Password</Label>
-            <Input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter current password"
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">New Password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Confirm New Password</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
-              />
-            </div>
-          </div>
-          <Button size="sm" onClick={handleChangePassword} disabled={changingPassword}>
-            {changingPassword ? "Changing..." : "Change Password"}
-          </Button>
+          {!passwordOtpSent ? (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Current Password</Label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">New Password</Label>
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Confirm New Password</Label>
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                  />
+                </div>
+              </div>
+              <Button size="sm" onClick={handlePasswordSendOtp} disabled={changingPassword}>
+                {changingPassword ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Sending OTP...</>
+                ) : (
+                  <><Mail className="h-4 w-4 mr-1" /> Send OTP</>
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-medium text-green-700 dark:text-green-300">OTP Sent</p>
+                    <p className="text-[11px] text-green-600 dark:text-green-400">
+                      An OTP has been sent to your email. Enter it below to confirm the password change.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">OTP Code *</Label>
+                <Input
+                  value={passwordOtpCode}
+                  onChange={(e) => setPasswordOtpCode(e.target.value)}
+                  placeholder="Enter 6-digit OTP"
+                  maxLength={6}
+                  className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+                />
+                <p className="text-[11px] text-muted-foreground">Check your email inbox. OTP expires in 10 minutes.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPasswordOtpSent(false);
+                    setPasswordOtpCode("");
+                  }}
+                >
+                  Back
+                </Button>
+                <Button size="sm" onClick={handlePasswordVerifyOtp} disabled={changingPassword}>
+                  {changingPassword ? (
+                    <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Verifying...</>
+                  ) : (
+                    <><Shield className="h-4 w-4 mr-1" /> Verify & Change Password</>
+                  )}
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -788,6 +1037,15 @@ export default function SettingsPage() {
                               >
                                 <Pencil className="h-3 w-3" />
                               </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={() => openResetPasswordDialog(member)}
+                                title="Reset password"
+                              >
+                                <Key className="h-3 w-3" />
+                              </Button>
                             </div>
                           )}
                         </TableCell>
@@ -862,6 +1120,144 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Email Logs - SUPER_ADMIN only */}
+      {isSuperAdmin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <CardTitle className="text-base">Email Logs</CardTitle>
+                  <CardDescription>Audit trail of all email activity</CardDescription>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleClearOldLogs}
+                disabled={clearingLogs}
+              >
+                {clearingLogs ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Clearing...</>
+                ) : (
+                  <><Trash2 className="h-4 w-4 mr-1" /> Clear Old Logs</>
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <Select value={emailLogTypeFilter} onValueChange={setEmailLogTypeFilter}>
+                  <SelectTrigger className="h-8 w-40 text-xs">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Types</SelectItem>
+                    <SelectItem value="OTP">OTP</SelectItem>
+                    <SelectItem value="PASSWORD_CHANGE">Password Change</SelectItem>
+                    <SelectItem value="EMAIL_CHANGE">Email Change</SelectItem>
+                    <SelectItem value="RESET_LINK">Reset Link</SelectItem>
+                    <SelectItem value="DIRECT_RESET">Direct Reset</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Select value={emailLogStatusFilter} onValueChange={setEmailLogStatusFilter}>
+                <SelectTrigger className="h-8 w-32 text-xs">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Status</SelectItem>
+                  <SelectItem value="SENT">Sent</SelectItem>
+                  <SelectItem value="FAILED">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                {emailLogsTotal} log{emailLogsTotal !== 1 ? "s" : ""} found
+              </span>
+            </div>
+
+            {/* Logs Table */}
+            {emailLogsLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : emailLogs.length === 0 ? (
+              <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                <Mail className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
+                <p className="text-sm text-muted-foreground">No email logs found</p>
+                <p className="text-xs text-muted-foreground mt-1">Email activity will appear here when emails are sent</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border overflow-hidden max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Type</TableHead>
+                      <TableHead className="text-xs">To</TableHead>
+                      <TableHead className="text-xs">Subject</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs">SMTP</TableHead>
+                      <TableHead className="text-xs">Time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {emailLogs.map((log) => (
+                      <TableRow key={log.id}>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px]">
+                            {emailTypeLabels[log.type] || log.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
+                          {log.to}
+                        </TableCell>
+                        <TableCell className="text-xs truncate max-w-[180px]" title={log.subject}>
+                          {log.subject}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className={`text-[10px] ${
+                              log.status === "SENT"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                : log.status === "FAILED"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                : ""
+                            }`}
+                          >
+                            {log.status}
+                          </Badge>
+                          {log.status === "FAILED" && log.error && (
+                            <p className="text-[10px] text-red-500 mt-0.5 truncate max-w-[120px]" title={log.error}>
+                              {log.error}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
+                          {log.smtpHost || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {getRelativeTime(log.createdAt)}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>
@@ -1159,6 +1555,114 @@ export default function SettingsPage() {
             <Button onClick={handleSaveSmtp} disabled={smtpSaving}>
               {smtpSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
               {smtpEditId ? "Update" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password Reset Dialog (SUPER_ADMIN) */}
+      <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Reset Password
+            </DialogTitle>
+          </DialogHeader>
+          {resetPasswordUser && (
+            <div className="space-y-4">
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-xs text-muted-foreground">User</p>
+                <p className="text-sm font-medium">{resetPasswordUser.name}</p>
+                <p className="text-xs text-muted-foreground">{resetPasswordUser.email}</p>
+              </div>
+
+              {/* Action selection */}
+              <div className="space-y-2">
+                <Label className="text-xs">Reset Method</Label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setResetPasswordAction("send_link")}
+                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                      resetPasswordAction === "send_link"
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Mail className="h-4 w-4" />
+                      <span className="text-sm font-medium">Send Reset Link</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Send a password reset link to the user&apos;s registered email
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetPasswordAction("direct_reset")}
+                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                      resetPasswordAction === "direct_reset"
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Key className="h-4 w-4" />
+                      <span className="text-sm font-medium">Direct Reset</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Set a new password for the user directly
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Direct Reset fields */}
+              {resetPasswordAction === "direct_reset" && (
+                <>
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                        Use this only if the user cannot access their email. The password will be set immediately.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">New Password *</Label>
+                    <Input
+                      type="password"
+                      value={resetPasswordNewPwd}
+                      onChange={(e) => setResetPasswordNewPwd(e.target.value)}
+                      placeholder="Min. 8 characters"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Confirm New Password *</Label>
+                    <Input
+                      type="password"
+                      value={resetPasswordConfirmPwd}
+                      onChange={(e) => setResetPasswordConfirmPwd(e.target.value)}
+                      placeholder="Confirm new password"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handlePasswordReset} disabled={resetPasswordLoading}>
+              {resetPasswordLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Processing...</>
+              ) : resetPasswordAction === "send_link" ? (
+                <><Mail className="h-4 w-4 mr-1" /> Send Reset Link</>
+              ) : (
+                <><Key className="h-4 w-4 mr-1" /> Reset Password</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

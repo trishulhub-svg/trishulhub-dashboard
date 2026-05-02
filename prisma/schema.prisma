@@ -35,6 +35,8 @@ model User {
   meetingAttendances MeetingAttendee[]
   projectMemberships ProjectMember[]
   emailVerifications EmailVerification[]
+  passwordChanges    PasswordChange[]
+  passwordResets     PasswordReset[]
 }
 
 // ━━ API Keys ━━
@@ -597,5 +599,59 @@ model EmailVerification {
 
   @@index([userId])
   @@index([newEmail])
+  @@index([expiresAt])
+}
+
+// ━━ Email Log (Audit Trail) ━━
+model EmailLog {
+  id            String   @id @default(cuid())
+  to            String   // Recipient email
+  subject       String   // Email subject
+  type          String   // OTP, PASSWORD_CHANGE, EMAIL_CHANGE, RESET_LINK, DIRECT_RESET
+  status        String   // SENT, FAILED, REJECTED
+  smtpConfigId  String?  // Which SMTP config was used
+  smtpHost      String?  // SMTP host for quick reference
+  method        String?  // primary, failover
+  error         String?  // Error message if failed
+  triggeredBy   String?  // userId who triggered the email
+  metadata      String?  // JSON: additional context
+  createdAt     DateTime @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([triggeredBy])
+}
+
+// ━━ Password Change (OTP verification) ━━
+model PasswordChange {
+  id         String   @id @default(cuid())
+  userId     String
+  otp        String   // Bcrypt-hashed OTP code
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0)
+  expiresAt  DateTime // OTP expiry (10 minutes)
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ━━ Password Reset Token ━━
+model PasswordReset {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique // Secure random token for reset link
+  used       Boolean  @default(false)
+  expiresAt  DateTime // Token expiry (1 hour)
+  triggeredBy String? // SUPER_ADMIN userId who initiated the reset
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
   @@index([expiresAt])
 }
