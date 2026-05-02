@@ -65,10 +65,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
     }
 
+    const isSecure = secure || false
     const transporter = nodemailer.createTransport({
       host,
       port: port || 587,
-      secure: secure || false,
+      secure: isSecure, // true = implicit TLS (port 465), false = STARTTLS (port 587)
+      requireTLS: !isSecure, // When secure=false, upgrade to TLS via STARTTLS
       auth: { user: username, pass: password },
       connectionTimeout: 15000,
       greetingTimeout: 15000,

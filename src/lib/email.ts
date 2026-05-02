@@ -132,7 +132,8 @@ async function sendViaSmtp(
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
-    secure: config.secure,
+    secure: config.secure, // true = implicit TLS (port 465), false = STARTTLS (port 587)
+    requireTLS: !config.secure, // When secure=false, upgrade to TLS via STARTTLS
     auth: {
       user: config.username,
       pass: config.password,

@@ -1063,7 +1063,7 @@ export default function SettingsPage() {
                 <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Brevo SMTP Settings</p>
-                  <p className="text-[11px] text-blue-600 dark:text-blue-400">Host: smtp-relay.brevo.com &middot; Port: 587 &middot; Secure: false &middot; Username: your login email &middot; Password: your SMTP key</p>
+                  <p className="text-[11px] text-blue-600 dark:text-blue-400">Host: smtp-relay.brevo.com &middot; Port: 587 &middot; SSL/TLS: OFF (uses STARTTLS) &middot; Username: your login email &middot; Password: your SMTP key</p>
                 </div>
               </div>
             </div>
@@ -1128,9 +1128,12 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2">
                 <Switch
                   checked={smtpForm.secure}
-                  onCheckedChange={(val) => setSmtpForm({ ...smtpForm, secure: val })}
+                  onCheckedChange={(val) => setSmtpForm({ ...smtpForm, secure: val, port: val ? 465 : 587 })}
                 />
-                <Label className="text-xs">Use TLS (port 465)</Label>
+                <div>
+                  <Label className="text-xs">SSL/TLS (Implicit)</Label>
+                  <p className="text-[10px] text-muted-foreground">{smtpForm.secure ? "Port 465 - Direct SSL" : "Port 587 - STARTTLS auto-upgrade"}</p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Switch

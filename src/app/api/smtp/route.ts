@@ -170,7 +170,7 @@ export async function PATCH(req: NextRequest) {
     if (host !== undefined) data.host = host
     if (port !== undefined) data.port = port
     if (username !== undefined) data.username = username
-    if (password !== undefined) data.password = password // New password if provided
+    if (password) data.password = password // Only update password if a new one is provided (non-empty)
     if (fromEmail !== undefined) data.fromEmail = fromEmail
     if (fromName !== undefined) data.fromName = fromName
     if (secure !== undefined) data.secure = secure
@@ -275,7 +275,8 @@ async function testSmtpConnection(config: {
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
-    secure: config.secure,
+    secure: config.secure, // true = implicit TLS (port 465), false = STARTTLS (port 587)
+    requireTLS: !config.secure, // When secure=false, upgrade to TLS via STARTTLS
     auth: {
       user: config.username,
       pass: config.password,
