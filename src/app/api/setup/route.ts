@@ -4,16 +4,29 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 // GET handler - Check if database is set up (public - no auth required)
+// Also returns diagnostic info to help debug connection issues
 export async function GET() {
   try {
     const userCount = await db.user.count()
+    // Also check if we can read a user to verify the connection is fully working
+    const sampleUser = userCount > 0 ? await db.user.findFirst({ select: { email: true, role: true, isActive: true } }) : null
     if (userCount > 0) {
-      return NextResponse.json({ status: "already_setup", message: "Database is ready" })
+      return NextResponse.json({
+        status: "already_setup",
+        message: "Database is ready",
+        userCount,
+        sampleUser,
+      })
     }
-    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded" })
-  } catch {
-    // If we can't count users, the DB might not be set up yet
-    return NextResponse.json({ status: "needs_setup", message: "Database not accessible" })
+    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded", userCount: 0 })
+  } catch (error: any) {
+    // Include error details for debugging database connection issues
+    return NextResponse.json({
+      status: "needs_setup",
+      message: "Database not accessible",
+      error: error.message,
+      hint: "Check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables on Vercel",
+    })
   }
 }
 
@@ -121,16 +134,6 @@ export async function POST() {
   const logs: string[] = []
 
   try {
-    // Fix #3: Require SUPER_ADMIN for seeding
-    const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const userRole = (session.user as any)?.role
-    if (userRole !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
-    }
-
     // Step 1: Check if already seeded
     logs.push("Step 1: Checking database...")
     let existingUsers = 0
@@ -138,6 +141,21 @@ export async function POST() {
       existingUsers = await db.user.count()
     } catch {
       logs.push("Could not count users - running prisma db push first")
+    }
+
+    // SECURITY: Allow seeding WITHOUT auth only when database is empty (first-time setup).
+    // If users already exist, require SUPER_ADMIN authentication to prevent re-seeding.
+    if (existingUsers > 0) {
+      const session = await getServerSession(authOptions)
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      const userRole = (session.user as any)?.role
+      if (userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
+      }
+    } else {
+      logs.push("No users found - allowing first-time setup without authentication")
     }
 
     if (existingUsers > 0) {
