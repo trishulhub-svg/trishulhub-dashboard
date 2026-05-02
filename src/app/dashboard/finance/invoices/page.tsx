@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   Plus, Send, CheckCircle2, FileText, Search,
 } from "lucide-react";
@@ -28,6 +30,20 @@ const invoiceStatusColors: Record<string, string> = {
 };
 
 export default function InvoicesPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  // Redirect non-admin users away from this page
+  useEffect(() => {
+    if (status === "authenticated" && !isAdminUser) {
+      router.push("/dashboard");
+    }
+  }, [status, router, isAdminUser]);
+
+  if (status !== "authenticated" || !isAdminUser) return null;
+
   const [invoices, setInvoices] = useState<unknown[]>([]);
   const [clients, setClients] = useState<unknown[]>([]);
   const [projects, setProjects] = useState<unknown[]>([]);

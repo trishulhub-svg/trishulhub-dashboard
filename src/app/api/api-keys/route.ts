@@ -84,8 +84,19 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const { id, ...data } = await req.json()
+    const { id, ...body } = await req.json()
     if (!id) return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
+
+    // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+    const data: Record<string, any> = {}
+    if (body.keyName !== undefined) data.keyName = body.keyName
+    if (body.keyValue !== undefined) data.keyValue = body.keyValue
+    if (body.provider !== undefined) data.provider = body.provider
+    if (body.monthlyBudget !== undefined) data.monthlyBudget = body.monthlyBudget
+    if (body.status !== undefined) data.status = body.status
+    if (body.priority !== undefined) data.priority = body.priority
+    if (body.assignedAgents !== undefined) data.assignedAgents = body.assignedAgents
+
     const key = await db.apiKey.update({ where: { id }, data })
     return NextResponse.json(key)
   } catch (error: any) {

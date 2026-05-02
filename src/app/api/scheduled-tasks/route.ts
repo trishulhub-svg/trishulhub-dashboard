@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isAdmin } from "@/lib/rbac"
 
 // GET /api/scheduled-tasks - List tasks for user or agent
 export async function GET(req: NextRequest) {
@@ -54,6 +55,17 @@ export async function POST(req: NextRequest) {
 
     if (!agentId || !title || !dueDate) {
       return NextResponse.json({ error: "Agent ID, title, and due date are required" }, { status: 400 })
+    }
+
+    // SECURITY: Non-admin users must have canChat access to the target agent
+    const userRole = (session.user as any).role
+    if (!isAdmin(userRole)) {
+      const agentAccess = await db.userAgentAccess.findFirst({
+        where: { userId, agentId, canChat: true },
+      })
+      if (!agentAccess) {
+        return NextResponse.json({ error: "Forbidden: You do not have access to this agent" }, { status: 403 })
+      }
     }
 
     const task = await db.scheduledTask.create({

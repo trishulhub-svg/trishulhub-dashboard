@@ -37,7 +37,7 @@ export async function GET(
           status: true,
           progress: true,
           deadline: true,
-          budget: true,
+          budget: isAdmin(role), // SECURITY: Hide budget from developers
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },

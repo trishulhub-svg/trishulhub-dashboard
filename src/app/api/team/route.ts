@@ -280,11 +280,12 @@ export async function PATCH(req: NextRequest) {
       if (data.status && !isAdmin(leavePatchRole)) {
         return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
       }
+      // SECURITY: Set approvedBy from session user, not request body
       const leave = await db.leaveRequest.update({
         where: { id },
         data: {
           status: data.status,
-          approvedBy: data.approvedBy || undefined,
+          approvedBy: (session.user as any).id,
           feedback: data.feedback || undefined,
         },
       })
@@ -305,6 +306,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (type === "attendance") {
+      // SECURITY: Only admins can update attendance records
+      const attPatchRole = (session.user as any).role
+      if (!isAdmin(attPatchRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
       // SECURITY: Sanitize attendance update data
       const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
       const sanitizedAttData: Record<string, any> = {}

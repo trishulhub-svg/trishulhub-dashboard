@@ -12,6 +12,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ valid: false, error: "Unauthorized" }, { status: 401 })
     }
 
+    // SECURITY: Only SUPER_ADMIN and ADMIN can test API keys
+    const userRole = (session.user as any)?.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ valid: false, error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     const id = req.nextUrl.searchParams.get("id")
     if (!id) {
       return NextResponse.json({ valid: false, error: "API key ID is required" }, { status: 400 })

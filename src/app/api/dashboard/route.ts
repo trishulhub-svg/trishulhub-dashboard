@@ -81,8 +81,8 @@ export async function GET() {
         agent: log.agent ? { id: log.agent.id, name: log.agent.name, type: log.agent.type } : null,
       }))
 
-  const totalApiSpend = apiKeys.reduce((sum, k) => sum + k.currentSpend, 0)
-  const monthlyBudget = apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0)
+  const totalApiSpend = isAdmin(role) ? apiKeys.reduce((sum, k) => sum + k.currentSpend, 0) : 0
+  const monthlyBudget = isAdmin(role) ? apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
 
   // Only compute financial stats for admins
   const totalRevenue = isAdmin(role) ? invoices.filter(i => i.status === "PAID").reduce((sum, i) => sum + i.total, 0) : 0
@@ -117,7 +117,7 @@ export async function GET() {
       activeProjects,
       openTickets,
       pendingTasks,
-      totalClients: clients.length,
+      totalClients: isAdmin(role) ? clients.length : 0,
       totalLeads: leads.length,
     },
   })

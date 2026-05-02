@@ -14,6 +14,18 @@ export async function GET(
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const { projectId } = await params
+    const userRole = (session.user as any).role
+    const userId = (session.user as any).id
+
+    // SECURITY: Non-admin users must be a member of this project to view its members
+    if (!isAdmin(userRole)) {
+      const membership = await db.projectMember.findFirst({
+        where: { userId, projectId },
+      })
+      if (!membership) {
+        return NextResponse.json({ error: "Forbidden: You can only view members of your assigned projects" }, { status: 403 })
+      }
+    }
 
     const members = await db.projectMember.findMany({
       where: { projectId },

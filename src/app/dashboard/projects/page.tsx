@@ -138,7 +138,7 @@ export default function ProjectsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Budget (£)</Label>
+                  <Label className="text-xs">Budget (₹)</Label>
                   <Input name="budget" type="number" />
                 </div>
                 <div className="space-y-1">

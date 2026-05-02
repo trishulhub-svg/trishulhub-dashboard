@@ -49,8 +49,9 @@ export default function PortalSupportPage() {
   const handleCreateTicket = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+
+    // Get the actual client ID from session - the API will handle scoping
     const data = {
-      clientId: "portal", // Would be actual client ID from session
       subject: form.get("subject") as string,
       description: form.get("description") as string,
       priority: form.get("priority") as string || "MEDIUM",

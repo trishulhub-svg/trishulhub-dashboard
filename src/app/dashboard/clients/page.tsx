@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   Briefcase, Plus, Search, Users, DollarSign, FileText, Phone, Mail,
   Building2, Globe, MoreHorizontal, Pencil, Trash2, X, ArrowUpDown,
@@ -127,6 +129,20 @@ interface FormErrors {
 
 // ━━ Main Component ━━
 export default function ClientsPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  // Redirect non-admin users away from this page
+  useEffect(() => {
+    if (status === "authenticated" && !isAdminUser) {
+      router.push("/dashboard");
+    }
+  }, [status, router, isAdminUser]);
+
+  if (status !== "authenticated" || !isAdminUser) return null;
+
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");

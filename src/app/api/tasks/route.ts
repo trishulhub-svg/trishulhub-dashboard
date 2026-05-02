@@ -29,8 +29,19 @@ export async function POST(req: NextRequest) {
   
   const userRole = (session.user as any).role
   const userId = (session.user as any).id
-  const data = await req.json()
-  
+  const body = await req.json()
+
+  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+  const data: Record<string, any> = {
+    title: body.title,
+    description: body.description || null,
+    status: body.status || "TODO",
+    priority: body.priority || "MEDIUM",
+    projectId: body.projectId || null,
+    assigneeId: body.assigneeId || null,
+    deadline: body.deadline ? new Date(body.deadline) : null,
+  }
+
   // Developers can only create tasks in projects they're assigned to
   if (!isAdmin(userRole) && data.projectId) {
     const membership = await db.projectMember.findFirst({
@@ -39,6 +50,11 @@ export async function POST(req: NextRequest) {
     if (!membership) {
       return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
     }
+  }
+
+  // Developers must provide a project they have access to
+  if (!isAdmin(userRole) && !data.projectId) {
+    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
   }
   
   const task = await db.task.create({ data })
@@ -51,15 +67,35 @@ export async function PUT(req: NextRequest) {
   
   const userRole = (session.user as any).role
   const userId = (session.user as any).id
-  const { id, ...data } = await req.json()
-  
+  const body = await req.json()
+  const id = body.id
+
+  if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
+
+  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+  const data: Record<string, any> = {}
+  if (body.title !== undefined) data.title = body.title
+  if (body.description !== undefined) data.description = body.description
+  if (body.status !== undefined) data.status = body.status
+  if (body.priority !== undefined) data.priority = body.priority
+  if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId
+  if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(body.deadline) : null
+
+  // Only admins can change projectId on a task (prevents developers from moving tasks between projects)
+  if (body.projectId !== undefined) {
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Only admins can move tasks between projects" }, { status: 403 })
+    }
+    data.projectId = body.projectId
+  }
+
   // Developers can only update tasks in projects they're assigned to
   if (!isAdmin(userRole)) {
-    const task = await db.task.findUnique({ where: { id } })
-    if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+    const existingTask = await db.task.findUnique({ where: { id } })
+    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
     
     const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: task.projectId }
+      where: { userId, projectId: existingTask.projectId }
     })
     if (!membership) {
       return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects" }, { status: 403 })

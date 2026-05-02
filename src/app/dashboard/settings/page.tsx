@@ -201,8 +201,25 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSave = () => {
-    toast.success("Settings saved successfully!");
+  const handleSave = async () => {
+    try {
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id: (session?.user as any)?.id,
+          name: (session?.user as any)?.name,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Settings saved successfully!");
+      } else {
+        toast.error("Failed to save settings");
+      }
+    } catch {
+      toast.error("Failed to save settings");
+    }
   };
 
   const handleChangePassword = async () => {
@@ -221,12 +238,24 @@ export default function SettingsPage() {
 
     setChangingPassword(true);
     try {
-      // This would call an API endpoint to change the password
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success("Password changed successfully!");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id: (session?.user as any)?.id,
+          password: newPassword,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Password changed successfully!");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to change password");
+      }
     } catch {
       toast.error("Failed to change password");
     } finally {

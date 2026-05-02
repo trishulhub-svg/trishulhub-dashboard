@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,20 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function ExpensesPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  // Redirect non-admin users away from this page
+  useEffect(() => {
+    if (status === "authenticated" && !isAdminUser) {
+      router.push("/dashboard");
+    }
+  }, [status, router, isAdminUser]);
+
+  if (status !== "authenticated" || !isAdminUser) return null;
+
   const [expenses, setExpenses] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
