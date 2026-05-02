@@ -4,29 +4,16 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 // GET handler - Check if database is set up (public - no auth required)
-// Also returns diagnostic info to help debug connection issues
 export async function GET() {
   try {
     const userCount = await db.user.count()
-    // Also check if we can read a user to verify the connection is fully working
-    const sampleUser = userCount > 0 ? await db.user.findFirst({ select: { email: true, role: true, isActive: true } }) : null
     if (userCount > 0) {
-      return NextResponse.json({
-        status: "already_setup",
-        message: "Database is ready",
-        userCount,
-        sampleUser,
-      })
+      return NextResponse.json({ status: "already_setup", message: "Database is ready" })
     }
-    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded", userCount: 0 })
+    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded" })
   } catch (error: any) {
-    // Include error details for debugging database connection issues
-    return NextResponse.json({
-      status: "needs_setup",
-      message: "Database not accessible",
-      error: error.message,
-      hint: "Check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables on Vercel",
-    })
+    // Only return generic info publicly - no env var details
+    return NextResponse.json({ status: "needs_setup", message: "Database not accessible" })
   }
 }
 
@@ -66,6 +53,60 @@ export async function PATCH() {
         }
       } catch (err: any) {
         logs.push(`Migration ${migration.column}: ${err.message || 'already exists'}`)
+      }
+    }
+
+    // ━━ Create new tables if they don't exist ━━
+    const createTables = [
+      {
+        name: "SmtpConfig",
+        sql: `CREATE TABLE IF NOT EXISTS SmtpConfig (
+          id TEXT PRIMARY KEY NOT NULL,
+          host TEXT NOT NULL,
+          port INTEGER NOT NULL DEFAULT 587,
+          username TEXT NOT NULL,
+          password TEXT NOT NULL,
+          fromEmail TEXT NOT NULL,
+          fromName TEXT NOT NULL DEFAULT 'TrishulHub',
+          secure BOOLEAN NOT NULL DEFAULT false,
+          isPrimary BOOLEAN NOT NULL DEFAULT true,
+          isActive BOOLEAN NOT NULL DEFAULT true,
+          createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: "EmailVerification",
+        sql: `CREATE TABLE IF NOT EXISTS EmailVerification (
+          id TEXT PRIMARY KEY NOT NULL,
+          userId TEXT NOT NULL,
+          newEmail TEXT NOT NULL,
+          otp TEXT NOT NULL,
+          verified BOOLEAN NOT NULL DEFAULT false,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          expiresAt DATETIME NOT NULL,
+          createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE
+        )`
+      },
+    ]
+
+    for (const table of createTables) {
+      try {
+        // Check if table exists
+        const tableCheck = await db.$queryRawUnsafe(`SELECT name FROM sqlite_master WHERE type='table' AND name='${table.name}'`) as any[]
+        if (tableCheck.length === 0) {
+          await db.$executeRawUnsafe(table.sql)
+          // Create indexes for EmailVerification
+          if (table.name === "EmailVerification") {
+            await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS EmailVerification_userId_idx ON EmailVerification(userId)`)
+            await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS EmailVerification_otp_newEmail_idx ON EmailVerification(otp, newEmail)`)
+            await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS EmailVerification_expiresAt_idx ON EmailVerification(expiresAt)`)
+          }
+          logs.push(`Created table ${table.name}`)
+        }
+      } catch (err: any) {
+        logs.push(`Table ${table.name}: ${err.message || 'already exists'}`)
       }
     }
 
@@ -164,9 +205,6 @@ export async function POST() {
         status: "already_setup",
         message: "Database already set up and seeded!",
         users: existingUsers,
-        login: {
-          email: "taroon@trishulhub.in",
-        },
         logs
       })
     }
@@ -292,7 +330,6 @@ export async function POST() {
     return NextResponse.json({
       status: "success",
       message: "Database set up and seeded successfully!",
-      login: { email: "taroon@trishulhub.in" },
       created: { users: 5, agents: 7, clients: 3, projects: 3, leads: 3, expenses: 3 },
       logs
     })

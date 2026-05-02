@@ -34,6 +34,7 @@ model User {
   organizedMeetings  Meeting[]
   meetingAttendances MeetingAttendee[]
   projectMemberships ProjectMember[]
+  emailVerifications EmailVerification[]
 }
 
 // ━━ API Keys ━━
@@ -563,4 +564,38 @@ model Subscription {
 
   @@index([projectId])
   @@index([status])
+}
+
+// ━━ SMTP Configuration ━━
+model SmtpConfig {
+  id          String   @id @default(cuid())
+  host        String   // e.g., smtp-relay.brevo.com
+  port        Int      @default(587)
+  username    String   // SMTP login
+  password    String   // SMTP password (stored encrypted in DB)
+  fromEmail   String   // Sender email address
+  fromName    String   @default("TrishulHub") // Sender display name
+  secure      Boolean  @default(false) // Use TLS (true for port 465)
+  isPrimary   Boolean  @default(true) // Primary or failover
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ━━ Email Verification (OTP) ━━
+model EmailVerification {
+  id         String   @id @default(cuid())
+  userId     String
+  newEmail   String   // The new email the user wants to switch to
+  otp        String   // Bcrypt-hashed OTP code (never stored in plaintext)
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0) // Failed verification attempts
+  expiresAt  DateTime // OTP expiry (10 minutes)
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([newEmail])
+  @@index([expiresAt])
 }
