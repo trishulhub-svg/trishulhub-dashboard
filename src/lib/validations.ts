@@ -119,6 +119,33 @@ export const updateMeetingSchema = z.object({
   notes: z.string().max(2000).optional(),
 })
 
+// ━━ Subscriptions ━━
+export const createSubscriptionSchema = z.object({
+  service: z.string().min(1, "Service name is required").max(200),
+  rate: z.number().min(0, "Rate must be positive"),
+  currency: z.enum(["INR", "GBP", "USD"]).optional(),
+  frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
+  status: z.enum(["ACTIVE", "STOPPED", "COMPLETED"]).optional(),
+  category: z.string().optional(),
+  projectId: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+export const updateSubscriptionSchema = z.object({
+  id: z.string().min(1),
+  service: z.string().min(1).max(200).optional(),
+  rate: z.number().min(0).optional(),
+  currency: z.enum(["INR", "GBP", "USD"]).optional(),
+  frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
+  status: z.enum(["ACTIVE", "STOPPED", "COMPLETED"]).optional(),
+  category: z.string().optional(),
+  projectId: z.string().optional(),
+  endDate: z.string().optional(),
+  notes: z.string().max(2000).optional(),
+})
+
 /**
  * Validates data against a schema and returns either the validated data or an error response
  */

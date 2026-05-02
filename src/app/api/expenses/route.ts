@@ -3,8 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
-// GET /api/expenses - List expenses (ADMIN/SUPER_ADMIN only)
-export async function GET() {
+// GET /api/expenses - List expenses with search, date, category, project filters
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -13,8 +13,53 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const expenses = await db.expense.findMany({ orderBy: { date: "desc" } })
-  return NextResponse.json(expenses)
+  const { searchParams } = new URL(req.url)
+  const search = searchParams.get("search") || ""
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
+  const category = searchParams.get("category")
+  const projectId = searchParams.get("projectId")
+
+  const where: Record<string, any> = {}
+
+  // Date range filter
+  if (startDate || endDate) {
+    where.date = {}
+    if (startDate) where.date.gte = new Date(startDate)
+    if (endDate) where.date.lte = new Date(endDate)
+  }
+
+  // Category filter
+  if (category) where.category = category
+
+  // Project filter
+  if (projectId) where.projectId = projectId
+
+  // Search filter (description)
+  if (search) {
+    where.description = { contains: search }
+  }
+
+  const expenses = await db.expense.findMany({
+    where,
+    include: { project: { select: { id: true, name: true } } },
+    orderBy: { date: "desc" },
+  })
+
+  // If search includes project name, filter in-memory since Prisma SQLite doesn't support relation filters well
+  let filtered = expenses
+  if (search) {
+    const searchLower = search.toLowerCase()
+    filtered = expenses.filter(
+      (e) =>
+        e.description.toLowerCase().includes(searchLower) ||
+        e.category.toLowerCase().includes(searchLower) ||
+        e.project?.name?.toLowerCase().includes(searchLower) ||
+        e.amount.toString().includes(search)
+    )
+  }
+
+  return NextResponse.json(filtered)
 }
 
 // POST /api/expenses - Create expense (ADMIN/SUPER_ADMIN only)
@@ -28,13 +73,13 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { category, description, amount, date, receiptUrl } = body
+  const { category, description, amount, date, receiptUrl, projectId } = body
 
   if (!category || !description || amount === undefined) {
     return NextResponse.json({ error: "Category, description, and amount are required" }, { status: 400 })
   }
 
-  const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "OTHER"]
+  const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
   if (!validCategories.includes(category)) {
     return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
   }
@@ -46,7 +91,9 @@ export async function POST(req: NextRequest) {
       amount: parseFloat(amount),
       date: date ? new Date(date) : new Date(),
       receiptUrl: receiptUrl || null,
+      projectId: projectId || null,
     },
+    include: { project: { select: { id: true, name: true } } },
   })
   return NextResponse.json(expense)
 }
@@ -68,7 +115,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
   }
 
-  const allowedFields = ["category", "description", "amount", "date", "receiptUrl"]
+  const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId"]
   const sanitizedData: Record<string, any> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
@@ -76,6 +123,8 @@ export async function PATCH(req: NextRequest) {
         sanitizedData[key] = parseFloat(data[key])
       } else if (key === "date") {
         sanitizedData[key] = new Date(data[key])
+      } else if (key === "projectId" && data[key] === "") {
+        sanitizedData[key] = null
       } else {
         sanitizedData[key] = data[key]
       }
@@ -86,6 +135,7 @@ export async function PATCH(req: NextRequest) {
     const expense = await db.expense.update({
       where: { id },
       data: sanitizedData,
+      include: { project: { select: { id: true, name: true } } },
     })
     return NextResponse.json(expense)
   } catch (error: any) {

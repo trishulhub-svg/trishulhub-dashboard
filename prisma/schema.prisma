@@ -260,11 +260,13 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client      Client   @relation(fields: [clientId], references: [id])
-  tasks       Task[]
-  invoices    Invoice[]
-  timeEntries TimeEntry[]
-  meetings    Meeting[]
+  client       Client        @relation(fields: [clientId], references: [id])
+  tasks        Task[]
+  invoices     Invoice[]
+  timeEntries  TimeEntry[]
+  meetings     Meeting[]
+  expenses     Expense[]
+  subscriptions Subscription[]
 }
 
 // ━━ Tasks ━━
@@ -507,11 +509,40 @@ model MeetingAttendee {
 // ━━ Expenses ━━
 model Expense {
   id          String   @id @default(cuid())
-  category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, OTHER
+  category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, SALARY, SOFTWARE, OTHER
   description String
   amount      Float
   date        DateTime
   receiptUrl  String?
+  projectId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  project     Project? @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([category])
+  @@index([date])
+}
+
+// ━━ Subscriptions ━━
+model Subscription {
+  id          String    @id @default(cuid())
+  service     String    // Service name e.g., "Google One UK", "AI API CODEX"
+  rate        Float     // Monthly/annual cost
+  currency    String    @default("INR") // INR, GBP, USD
+  frequency   String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
+  status      String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED
+  category    String?   // Software, Hosting, etc.
+  projectId   String?
+  startDate   DateTime  @default(now())
+  endDate     DateTime? // When subscription ends/stopped
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([status])
 }
