@@ -39,14 +39,16 @@ export default function LoginPage() {
       .then(data => {
         if (data.status === "already_setup" || data.status === "success") {
           setDbReady(true);
-        } else if (data.status === "error" && data.logs) {
+        } else if (data.status === "needs_setup") {
           setDbReady(false);
         } else {
-          setDbReady(false);
+          // Error or unknown status — still allow login attempt (DB might be fine)
+          setDbReady(true);
         }
       })
       .catch(() => {
-        setDbReady(false);
+        // Network error — don't block login, assume DB is ready
+        setDbReady(true);
       });
   }, []);
 

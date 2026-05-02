@@ -3,18 +3,18 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
-// GET handler - visit in browser to set up everything
+// GET handler - Check if database is set up (public - no auth required)
 export async function GET() {
-  // Fix #3: Require SUPER_ADMIN for setup
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const userCount = await db.user.count()
+    if (userCount > 0) {
+      return NextResponse.json({ status: "already_setup", message: "Database is ready" })
+    }
+    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded" })
+  } catch {
+    // If we can't count users, the DB might not be set up yet
+    return NextResponse.json({ status: "needs_setup", message: "Database not accessible" })
   }
-  const userRole = (session.user as any)?.role
-  if (userRole !== "SUPER_ADMIN") {
-    return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can access setup" }, { status: 403 })
-  }
-  return POST()
 }
 
 // PATCH /api/setup - Migrate existing agents to use correct model names and update features
