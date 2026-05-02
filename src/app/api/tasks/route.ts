@@ -57,7 +57,27 @@ export async function POST(req: NextRequest) {
     assigneeType: (body.assigneeType as string) || "HUMAN",
     deadline: body.deadline ? new Date(body.deadline as string) : null,
   }
-  
+
+  // Check if assignee is on approved leave during the task period
+  if (data.assignedTo && data.deadline) {
+    const assigneeLeave = await db.leave.findFirst({
+      where: {
+        userId: data.assignedTo,
+        status: "APPROVED",
+        startDate: { lte: data.deadline },
+        endDate: { gte: new Date() },
+      },
+      include: {
+        user: { select: { name: true } },
+      },
+    })
+    if (assigneeLeave) {
+      return NextResponse.json({
+        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+      }, { status: 400 })
+    }
+  }
+
   const task = await db.task.create({ data })
   return NextResponse.json(task)
 }
@@ -103,7 +123,53 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects" }, { status: 403 })
     }
   }
-  
+
+  // Check if assignee is on approved leave during the task period
+  const assignedUserId = typeof data.assignedTo === "string" ? data.assignedTo : null
+  const taskDeadline = data.deadline instanceof Date ? data.deadline : null
+
+  if (assignedUserId && taskDeadline) {
+    const assigneeLeave = await db.leave.findFirst({
+      where: {
+        userId: assignedUserId,
+        status: "APPROVED",
+        startDate: { lte: taskDeadline },
+        endDate: { gte: new Date() },
+      },
+      include: {
+        user: { select: { name: true } },
+      },
+    })
+    if (assigneeLeave) {
+      return NextResponse.json({
+        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+      }, { status: 400 })
+    }
+  }
+
+  // Also check if only assignedTo is being changed (with existing deadline)
+  if (assignedUserId && !taskDeadline) {
+    const existingTask = await db.task.findUnique({ where: { id } })
+    if (existingTask?.deadline) {
+      const assigneeLeave = await db.leave.findFirst({
+        where: {
+          userId: assignedUserId,
+          status: "APPROVED",
+          startDate: { lte: existingTask.deadline },
+          endDate: { gte: new Date() },
+        },
+        include: {
+          user: { select: { name: true } },
+        },
+      })
+      if (assigneeLeave) {
+        return NextResponse.json({
+          error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+        }, { status: 400 })
+      }
+    }
+  }
+
   const task = await db.task.update({ where: { id }, data })
   return NextResponse.json(task)
 }

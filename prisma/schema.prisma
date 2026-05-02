@@ -38,6 +38,10 @@ model User {
   passwordChanges    PasswordChange[]
   passwordResets     PasswordReset[]
   activeSession      ActiveSession?
+  leaves                Leave[]
+  approvedLeaves        Leave[]               @relation("ApprovedLeaves")
+  availabilities        Availability[]
+  availabilityOverrides AvailabilityOverride[]
 }
 
 // ━━ API Keys ━━
@@ -668,4 +672,59 @@ model ActiveSession {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([sessionToken])
+}
+
+// ━━ Leave Management (Enhanced) ━━
+model Leave {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  leaveType   String   // SICK_LEAVE, CASUAL_LEAVE, ANNUAL_LEAVE, PUBLIC_HOLIDAY, OTHER
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  approvedBy  String?
+  approver    User?    @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ━━ Employee Availability ━━
+model Availability {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime   String   // HH:mm format
+  endTime     String   // HH:mm format
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, dayOfWeek, startTime, endTime])
+  @@index([userId])
+}
+
+// ━━ Availability Overrides ━━
+model AvailabilityOverride {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime // Specific date
+  startTime   String?  // HH:mm format, null = all day
+  endTime     String?  // HH:mm format, null = all day
+  isAvailable Boolean
+  reason      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
 }

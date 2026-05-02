@@ -73,12 +73,99 @@ export async function POST() {
     }
   }
 
+  // Check if Leave table exists
+  try {
+    await db.leave.count({ take: 1 })
+    results.Leave = "already exists"
+  } catch {
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "Leave" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "userId" TEXT NOT NULL,
+          "leaveType" TEXT NOT NULL,
+          "startDate" TEXT NOT NULL,
+          "endDate" TEXT NOT NULL,
+          "reason" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "approvedBy" TEXT,
+          "approvedAt" TEXT,
+          "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY ("approvedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+        )
+      `)
+      results.Leave = "created"
+    } catch (err: any) {
+      results.Leave = `failed: ${err.message}`
+    }
+  }
+
+  // Check if Availability table exists
+  try {
+    await (db as any).availability.count({ take: 1 })
+    results.Availability = "already exists"
+  } catch {
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "Availability" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "userId" TEXT NOT NULL,
+          "dayOfWeek" INTEGER NOT NULL,
+          "startTime" TEXT NOT NULL,
+          "endTime" TEXT NOT NULL,
+          "isAvailable" INTEGER NOT NULL DEFAULT 1,
+          "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT "Availability_userId_dayOfWeek_startTime_endTime_key" UNIQUE ("userId", "dayOfWeek", "startTime", "endTime")
+        )
+      `)
+      results.Availability = "created"
+    } catch (err: any) {
+      results.Availability = `failed: ${err.message}`
+    }
+  }
+
+  // Check if AvailabilityOverride table exists
+  try {
+    await (db as any).availabilityOverride.count({ take: 1 })
+    results.AvailabilityOverride = "already exists"
+  } catch {
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "AvailabilityOverride" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "userId" TEXT NOT NULL,
+          "date" TEXT NOT NULL,
+          "startTime" TEXT,
+          "endTime" TEXT,
+          "isAvailable" INTEGER NOT NULL DEFAULT 0,
+          "reason" TEXT,
+          "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `)
+      results.AvailabilityOverride = "created"
+    } catch (err: any) {
+      results.AvailabilityOverride = `failed: ${err.message}`
+    }
+  }
+
   // Create indexes if they don't exist
   const indexResults: string[] = []
   const indexes = [
     { name: "EmailVerification_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "EmailVerification_userId_idx" ON "EmailVerification"("userId")` },
     { name: "EmailVerification_newEmail_idx", sql: `CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")` },
     { name: "EmailVerification_expiresAt_idx", sql: `CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")` },
+    { name: "Leave_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "Leave_userId_idx" ON "Leave"("userId")` },
+    { name: "Leave_status_idx", sql: `CREATE INDEX IF NOT EXISTS "Leave_status_idx" ON "Leave"("status")` },
+    { name: "Leave_startDate_idx", sql: `CREATE INDEX IF NOT EXISTS "Leave_startDate_idx" ON "Leave"("startDate")` },
+    { name: "Availability_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "Availability_userId_idx" ON "Availability"("userId")` },
+    { name: "AvailabilityOverride_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_userId_idx" ON "AvailabilityOverride"("userId")` },
+    { name: "AvailabilityOverride_date_idx", sql: `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_date_idx" ON "AvailabilityOverride"("date")` },
   ]
   for (const idx of indexes) {
     try {
@@ -105,7 +192,26 @@ export async function POST() {
     verification.EmailVerification = `failed: ${err.message}`
   }
 
-  const allSuccess = verification.SmtpConfig.startsWith("verified") && verification.EmailVerification.startsWith("verified")
+  try {
+    const count = await db.leave.count({ take: 1 })
+    verification.Leave = `verified (${count} rows)`
+  } catch (err: any) {
+    verification.Leave = `failed: ${err.message}`
+  }
+  try {
+    const count = await (db as any).availability.count({ take: 1 })
+    verification.Availability = `verified (${count} rows)`
+  } catch (err: any) {
+    verification.Availability = `failed: ${err.message}`
+  }
+  try {
+    const count = await (db as any).availabilityOverride.count({ take: 1 })
+    verification.AvailabilityOverride = `verified (${count} rows)`
+  } catch (err: any) {
+    verification.AvailabilityOverride = `failed: ${err.message}`
+  }
+
+  const allSuccess = verification.SmtpConfig.startsWith("verified") && verification.EmailVerification.startsWith("verified") && verification.Leave?.startsWith("verified") && verification.Availability?.startsWith("verified") && verification.AvailabilityOverride?.startsWith("verified")
 
   return NextResponse.json({
     success: allSuccess,
