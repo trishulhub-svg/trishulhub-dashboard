@@ -343,7 +343,7 @@ async function callZaiWithTools(
   finishReason: string
 }> {
   const token = await generateZaiToken(apiKey)
-  const disableThinking = options?.disableThinking || false
+  let disableThinking = options?.disableThinking || false
 
   const buildBody = (noThinking: boolean) => {
     const body: any = {
@@ -370,8 +370,9 @@ async function callZaiWithTools(
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
-    // On retry attempts after the first, try without thinking mode to avoid 500 errors
-    const useNoThinking = disableThinking || attempt >= 1
+    // Only disable thinking on retry if we got a 500 error (thinking+tools conflict)
+    // Do NOT disable thinking on all retries — model needs thinking for autonomous behavior
+    const useNoThinking = disableThinking
     const body = buildBody(useNoThinking)
 
     try {
@@ -472,7 +473,7 @@ async function callNvidiaWithTools(
 }> {
   console.log(`[nvidia-agent] Calling with model: ${model}`)
 
-  const disableThinking = options?.disableThinking || false
+  let disableThinking = options?.disableThinking || false
 
   const buildBody = (noThinking: boolean) => {
     const body: any = {
@@ -504,8 +505,9 @@ async function callNvidiaWithTools(
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
-    // On retry attempts after the first, try without thinking mode to avoid 500 errors
-    const useNoThinking = disableThinking || attempt >= 1
+    // Only disable thinking on retry if we got a 500 error (thinking+tools conflict)
+    // Do NOT disable thinking on all retries — GLM-5.1 agentic needs thinking for autonomous behavior
+    const useNoThinking = disableThinking
     const body = buildBody(useNoThinking)
 
     try {
@@ -532,8 +534,10 @@ async function callNvidiaWithTools(
         }
         if (statusCode === 500) {
           // 500 errors are often caused by thinking mode + tool calling conflicts
-          // Retry without thinking mode on next attempt
-          console.log(`[nvidia-agent] 500 error, will retry ${attempt < MAX_RETRIES ? 'without thinking mode' : ''}`)
+          // Retry ONCE without thinking mode, then give up
+          console.log(`[nvidia-agent] 500 error (attempt ${attempt}), ${attempt < MAX_RETRIES ? 'will retry without thinking mode' : 'all retries exhausted'}`)
+          // Force disable thinking for next retry attempt
+          disableThinking = true
           lastError = new Error(`NVIDIA API error: 500 - ${errorText.substring(0, 100)}`)
           if (attempt < MAX_RETRIES) continue
           throw lastError
@@ -544,6 +548,9 @@ async function callNvidiaWithTools(
       const data = await response.json()
       const choice = data.choices?.[0]
       const message = choice?.message
+
+      // Debug logging for NVIDIA response analysis
+      console.log(`[nvidia-agent] Response: content=${message?.content ? `"${message.content.substring(0, 80)}..."` : 'null'}, reasoning_content=${message?.reasoning_content ? `"${message.reasoning_content.substring(0, 80)}..."` : 'null'}, tool_calls=${message?.tool_calls?.length || 0}, finish_reason=${choice?.finish_reason || 'unknown'}`)
 
       // Extract thinking/reasoning content
       let thinkingContent: string | null = null
@@ -688,12 +695,16 @@ export async function runAgentLoop(
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,
-            temperature: iteration === 0 ? 0.3 : 0.2, // Match z.ai: low temp for precise tool calls
-            disableThinking: iteration >= 1, // Disable thinking on retry to avoid 500 errors
+            temperature: 0.3, // Consistent low temp for precise tool calls (match z.ai agentic)
+            // NOTE: Do NOT disable thinking on iteration > 0!
+            // GLM-5.1 agentic REQUIRES thinking mode for autonomous multi-step behavior.
+            // Disabling it after the first iteration was causing empty/broken responses.
+            // Only disable if we explicitly get 500 errors from thinking+tools conflict.
+            disableThinking: false,
           })
         : await callZaiWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,
-            temperature: iteration === 0 ? 0.3 : 0.2, // Low temperature for consistent code generation
+            temperature: 0.3, // Consistent temperature for reliable tool calling
           })
 
       totalInputTokens += result.inputTokens
@@ -816,6 +827,7 @@ export async function runAgentLoop(
       // No tool calls - this is the final response
       // FIX: Also check thinkingContent as fallback (NVIDIA GLM-5.1 may put response there)
       const responseContent = result.content || result.thinkingContent
+      console.log(`[agent-loop] Final response check: content=${result.content ? result.content.substring(0, 100) + '...' : 'null'}, thinkingContent=${result.thinkingContent ? result.thinkingContent.substring(0, 100) + '...' : 'null'}, responseContent=${responseContent ? responseContent.substring(0, 100) + '...' : 'null'}, toolCalls=${result.toolCalls?.length || 0}`)
       if (responseContent) {
         // Enhance the final response with a code changes summary + actual code
         // BUG FIX: Get actual code from toolArgs.content (the full file content passed to write_file),

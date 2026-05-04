@@ -1160,15 +1160,21 @@ export default function AgentChatPage() {
           // Keep the user message but add error system message + enable retry
           setLastFailedPrompt(userContent);
           setFailedMsgId(tempUserMsg.id);
+          // Better error messages for common issues
+          const isRateLimit = errorMsg.includes("rate limit") || errorMsg.includes("busy") || errorMsg.includes("429") || errorMsg.includes("try again");
+          const isApiKeyIssue = errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("authentication") || errorMsg.includes("Invalid authentication");
+          const friendlyMsg = isRateLimit
+            ? "AI model is currently experiencing high demand. Please try again in a moment."
+            : isApiKeyIssue
+            ? "No valid API key found. Add one in Settings > API Keys."
+            : `Error: ${errorMsg}`;
           setMessages((prev) => [
             ...prev,
             {
               id: `error-${Date.now()}`,
               chatId: activeChatId || "",
               role: "system",
-              content: errorMsg.includes("API key") || errorMsg.includes("No active API key") || errorMsg.includes("Z.ai API key")
-                ? "No valid Z.ai API key found. Add one in Settings > API Keys."
-                : `Error: ${errorMsg}`,
+              content: friendlyMsg,
               createdAt: new Date().toISOString(),
               metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
             },
@@ -1437,7 +1443,24 @@ export default function AgentChatPage() {
               } else if (event.type === "complete") {
                 finalData = event;
               } else if (event.type === "error") {
-                toast.error(event.message || "Agent execution error", { duration: 6000 });
+                const errMsg = event.message || "Agent execution error";
+                const isRateLimit = errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429") || errMsg.includes("try again");
+                toast.error(isRateLimit ? "AI model is experiencing high demand. Click retry to try again." : errMsg, { duration: 8000 });
+                // Add error message to chat with retry option
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `error-${Date.now()}`,
+                    chatId: activeChatId || "",
+                    role: "system",
+                    content: isRateLimit
+                      ? "AI model is currently experiencing high demand. Please try again in a moment."
+                      : `Error: ${errMsg}`,
+                    createdAt: new Date().toISOString(),
+                    metadata: JSON.stringify({ isError: true, retryPrompt: userContent }),
+                  },
+                ]);
+                setLastFailedPrompt(userContent);
               }
             } catch {
               // Ignore non-JSON lines
@@ -1585,7 +1608,9 @@ export default function AgentChatPage() {
                   });
                 }
               } else if (event.type === "error") {
-                toast.error(event.message || "Agent execution error", { duration: 6000 });
+                const errMsg = event.message || "Agent execution error";
+                const isRateLimit = errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429") || errMsg.includes("try again");
+                toast.error(isRateLimit ? "AI model is experiencing high demand. Click retry to try again." : errMsg, { duration: 8000 });
               }
             } catch {}
           }
@@ -3482,6 +3507,31 @@ function ChatArea({
                       <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none [&_pre]:bg-[#1e1e2e] [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border/30 [&_pre]:p-3 [&_code]:text-[12px] [&_code]:font-mono [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ol]:mb-2 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-purple-400 [&_blockquote]:pl-3 [&_blockquote]:italic">
                         <SafeMarkdown content={msg.content || ""} />
                       </div>
+                      {/* Copy prompt button for user messages */}
+                      {msg.role === "user" && (
+                        <div className="flex justify-end mt-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-primary-foreground/40 hover:text-primary-foreground/80"
+                                  onClick={() => {
+                                    // Strip attachment metadata from content before copying
+                                    const cleanContent = msg.content?.replace(/\n\n📎 Attached:.*$/, '').trim() || msg.content || "";
+                                    navigator.clipboard.writeText(cleanContent);
+                                    toast.success("Prompt copied!");
+                                  }}
+                                >
+                                  <Copy className="h-2.5 w-2.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy prompt</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                      )}
                     </>
                   )}
                   {msg.role === "assistant" && (
