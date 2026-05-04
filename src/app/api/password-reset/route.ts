@@ -3,7 +3,13 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { generateResetToken, sendPasswordResetEmail, logEmailEvent } from "@/lib/email"
+import { invalidateSession } from "@/lib/session-manager"
 import bcrypt from "bcryptjs"
+import { createHash } from "crypto"
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
 
 // Auto-migrate: ensure PasswordReset table exists
 let resetTableChecked = false
@@ -109,7 +115,7 @@ export async function POST(req: NextRequest) {
       await (db as any).passwordReset.create({
         data: {
           userId,
-          token,
+          token: hashToken(token),
           expiresAt,
           triggeredBy: adminUserId,
         },
@@ -125,7 +131,7 @@ export async function POST(req: NextRequest) {
 
       if (!emailResult.success) {
         // Delete the token if email failed
-        await (db as any).passwordReset.deleteMany({ where: { userId, token } })
+        await (db as any).passwordReset.deleteMany({ where: { userId, token: hashToken(token) } })
         return NextResponse.json({ error: `Failed to send reset email: ${emailResult.error}` }, { status: 500 })
       }
 
@@ -153,6 +159,15 @@ export async function POST(req: NextRequest) {
         where: { id: userId },
         data: { password: hashedPassword },
       })
+
+      // SECURITY: Invalidate the target user's session so they must re-login with new password
+      try {
+        await invalidateSession(userId)
+        console.log("[password-reset] Session invalidated for user", userId, "after direct reset")
+      } catch (err) {
+        console.error("[password-reset] Failed to invalidate session after direct reset:", err)
+        // Non-blocking: the password reset still succeeded
+      }
 
       // Log this action for audit
       await logEmailEvent({
@@ -201,7 +216,7 @@ export async function PUT(req: NextRequest) {
 
     // Find the reset token
     const resetRecord = await (db as any).passwordReset.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
     })
 
     if (!resetRecord) {
@@ -231,6 +246,15 @@ export async function PUT(req: NextRequest) {
       where: { id: user.id },
       data: { password: hashedPassword },
     })
+
+    // SECURITY: Invalidate the user's session so they must re-login with new password
+    try {
+      await invalidateSession(user.id)
+      console.log("[password-reset] Session invalidated for user", user.id, "after link reset")
+    } catch (err) {
+      console.error("[password-reset] Failed to invalidate session after link reset:", err)
+      // Non-blocking: the password reset still succeeded
+    }
 
     // Mark token as used
     await (db as any).passwordReset.update({
@@ -277,7 +301,7 @@ export async function GET(req: NextRequest) {
     }
 
     const resetRecord = await (db as any).passwordReset.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
     })
 
     if (!resetRecord) {

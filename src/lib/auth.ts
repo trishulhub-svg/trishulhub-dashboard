@@ -102,6 +102,32 @@ export const authOptions: NextAuthOptions = {
         return token
       }
 
+      // ── On Session Update (e.g., profile name change) ──
+      // When `updateSession()` is called from the client, NextAuth triggers
+      // the JWT callback with trigger === "update". We re-read user data from
+      // the DB so the token (and therefore the session) reflects the latest
+      // values such as an updated name or email.
+      if (trigger === "update") {
+        const userId = token.id as string | undefined
+        if (userId) {
+          try {
+            const freshUser = await db.user.findUnique({
+              where: { id: userId },
+              select: { name: true, email: true, role: true },
+            })
+            if (freshUser) {
+              token.name = freshUser.name
+              token.email = freshUser.email
+              token.role = freshUser.role
+              log("[auth] Session updated from DB for user:", userId, "name:", freshUser.name)
+            }
+          } catch (err) {
+            logError("[auth] Failed to refresh user data on update:", err)
+          }
+        }
+        // Continue to session token validation below
+      }
+
       // ── On Session Access (read/refresh) ──
       // Validate the session token against the database to enforce
       // single-device login. If the token doesn't match, it means
