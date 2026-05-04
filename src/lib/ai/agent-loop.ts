@@ -424,16 +424,11 @@ async function callZaiWithTools(
         thinkingContent = message.reasoning_content
       }
 
-      // FIX: When content is null/empty but thinking/reasoning content exists,
-      // use it as the main content (some models put response in thinking_content)
-      // Also handle the case where content is empty string but has no useful content
+      // FIX: thinking/reasoning content is INTERNAL chain-of-thought, NOT user-facing response
+      // Do NOT promote it to content — it contains raw planning that should not be shown to users
       let effectiveContent = message?.content || null
       if (effectiveContent && effectiveContent.trim() === '') {
         effectiveContent = null // Treat empty/whitespace-only content as null
-      }
-      if (!effectiveContent && thinkingContent) {
-        effectiveContent = thinkingContent
-        thinkingContent = null // Don't double-count it
       }
 
       return {
@@ -567,23 +562,18 @@ async function callNvidiaWithTools(
       // Debug logging for NVIDIA response analysis
       console.log(`[nvidia-agent] Response: content=${message?.content ? `"${message.content.substring(0, 80)}..."` : 'null'}, reasoning_content=${message?.reasoning_content ? `"${message.reasoning_content.substring(0, 80)}..."` : 'null'}, tool_calls=${message?.tool_calls?.length || 0}, finish_reason=${choice?.finish_reason || 'unknown'}`)
 
-      // Extract thinking/reasoning content
+      // Extract thinking/reasoning content — this is INTERNAL chain-of-thought, NOT the user-facing response
+      // NEVER promote reasoning_content to content — it contains raw planning text that should not be shown to users
       let thinkingContent: string | null = null
       if (message?.reasoning_content) {
         thinkingContent = message.reasoning_content
       }
 
-      // FIX: When content is null/empty but reasoning_content exists,
-      // use reasoning_content as the main content (NVIDIA GLM-5.1 with enable_thinking
-      // often puts the actual response in reasoning_content while content is null)
-      // Also handle the case where content is empty string (not null) but has no useful content
+      // Content is the actual user-facing response from the model
+      // Do NOT fall back to reasoning_content — that shows raw chain-of-thought to users
       let effectiveContent = message?.content || null
       if (effectiveContent && effectiveContent.trim() === '') {
         effectiveContent = null // Treat empty/whitespace-only content as null
-      }
-      if (!effectiveContent && thinkingContent) {
-        effectiveContent = thinkingContent
-        thinkingContent = null // Don't double-count it
       }
 
       // Map NVIDIA tool_calls format to our ZaiToolCall format
@@ -753,9 +743,11 @@ export async function runAgentLoop(
       // If model made tool calls, execute them and continue the loop
       if (result.toolCalls && result.toolCalls.length > 0) {
         // Add assistant message with tool calls to conversation
+        // FIX: For NVIDIA, content can be null when making tool calls — use empty string instead
+        // to avoid issues in multi-turn conversations
         const assistantMsg: ZaiMessage = {
           role: "assistant",
-          content: result.content,
+          content: result.content || "",
           tool_calls: result.toolCalls,
         }
         messages.push(assistantMsg)
@@ -852,13 +844,84 @@ export async function runAgentLoop(
       }
 
       // No tool calls - this is the final response
-      // FIX: Also check thinkingContent as fallback (NVIDIA GLM-5.1 may put response there)
-      const responseContent = result.content || result.thinkingContent
-      console.log(`[agent-loop] Final response check: content=${result.content ? result.content.substring(0, 100) + '...' : 'null'}, thinkingContent=${result.thinkingContent ? result.thinkingContent.substring(0, 100) + '...' : 'null'}, responseContent=${responseContent ? responseContent.substring(0, 100) + '...' : 'null'}, toolCalls=${result.toolCalls?.length || 0}`)
+      // Use content ONLY — do NOT fall back to thinkingContent (raw chain-of-thought)
+      const responseContent = result.content
+      console.log(`[agent-loop] Final response check: content=${result.content ? result.content.substring(0, 100) + '...' : 'null'}, thinkingContent=${result.thinkingContent ? 'present (' + result.thinkingContent.length + ' chars)' : 'null'}, toolCalls=${result.toolCalls?.length || 0}`)
+      
+      // If model has no text response but has executed tools, synthesize a proper summary
+      // This happens when NVIDIA GLM-5.1 puts all its output in reasoning_content while
+      // content is null — we should NOT show reasoning to users, instead generate a clean summary
+      if (!responseContent && steps.filter(s => s.type === "tool_result").length > 0) {
+        // Build a clean summary of what the agent accomplished from tool results
+        const toolResults = steps.filter(s => s.type === "tool_result")
+        const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
+        
+        // Generate a polished summary instead of showing raw reasoning
+        let synthesizedResponse = ""
+        
+        if (writeSteps.length > 0) {
+          const fileList = writeSteps.map(s => {
+            const filePath = s.toolArgs?.path || s.toolArgs?.file_path || "unknown"
+            const action = s.toolName === "write_file" ? "Created" : "Edited"
+            return `- ${action}: \`${filePath}\``
+          }).join("\n")
+          synthesizedResponse = `I've completed the task. Here's what was done:\n\n${fileList}`
+          
+          // Add code sections for written/edited files
+          const codeResults: string[] = []
+          for (const writeStep of writeSteps) {
+            const filePath = writeStep.toolArgs?.path || writeStep.toolArgs?.file_path || "unknown"
+            const codeContent = writeStep.toolArgs?.content
+            if (codeContent) {
+              const ext = filePath.split('.').pop() || ''
+              const langMap: Record<string, string> = {
+                ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+                py: "python", css: "css", html: "html", json: "json", php: "php",
+                sql: "sql", sh: "bash", rb: "ruby", go: "go", rs: "rust", java: "java",
+              }
+              const lang = langMap[ext] || ext
+              const maxLen = 3000
+              const truncated = codeContent.length > maxLen
+                ? codeContent.substring(0, maxLen) + `\n... (${codeContent.length - maxLen} more characters)`
+                : codeContent
+              codeResults.push(`### ${filePath}\n\`\`\`${lang}\n${truncated}\n\`\`\``)
+            }
+          }
+          if (codeResults.length > 0) {
+            synthesizedResponse += `\n\n---\n### Code Generated\n${codeResults.join("\n\n")}\n---\n`
+          }
+        } else {
+          // No file writes — summarize tool results
+          const summaries = toolResults.map(s => `- ${s.content}`).join("\n")
+          synthesizedResponse = `I've completed ${stepCount} steps. Here's what I accomplished:\n\n${summaries}`
+        }
+        
+        const finalStep: AgentStep = {
+          type: "response",
+          content: synthesizedResponse,
+          stepNumber: stepCount,
+          timestamp: Date.now(),
+        }
+        steps.push(finalStep)
+        options?.onStep?.(finalStep)
+
+        return {
+          finalResponse: synthesizedResponse,
+          steps,
+          totalSteps: stepCount,
+          totalInputTokens,
+          totalOutputTokens,
+          model,
+          provider: providerName,
+          cost: 0,
+          apiKeyId: "",
+          usedTools: Array.from(usedTools),
+          thinkingContent: finalThinkingContent || undefined,
+        }
+      }
+      
       if (responseContent) {
-        // Enhance the final response with a code changes summary + actual code
-        // BUG FIX: Get actual code from toolArgs.content (the full file content passed to write_file),
-        // NOT from tool_result which only contains a truncated preview
+        // Model provided a text response — use it, with clean enhancement
         let enhancedResponse = responseContent
         const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
         if (writeSteps.length > 0) {
@@ -875,8 +938,6 @@ export async function runAgentLoop(
             const codeContent = writeStep.toolArgs?.content
             
             if (codeContent) {
-              // BUG FIX: Use the actual code from toolArgs.content, not the truncated tool_result
-              // Detect language from file extension
               const ext = filePath.split('.').pop() || ''
               const langMap: Record<string, string> = {
                 ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -884,7 +945,6 @@ export async function runAgentLoop(
                 sql: "sql", sh: "bash", rb: "ruby", go: "go", rs: "rust", java: "java",
               }
               const lang = langMap[ext] || ext
-              // Truncate very large files in the text response (frontend has full code in Code Generated section)
               const maxLen = 3000
               const truncated = codeContent.length > maxLen
                 ? codeContent.substring(0, maxLen) + `\n... (${codeContent.length - maxLen} more characters - see Code Generated section for full code)`
@@ -948,14 +1008,31 @@ export async function runAgentLoop(
         }
       }
 
-      // Empty response - ask model to continue (max 2 retries)
+      // Empty response — no content AND no tool results to synthesize from
       emptyResponseCount++
+      console.log(`[agent-loop] Empty response (count: ${emptyResponseCount}), content=null, toolResults=${steps.filter(s => s.type === "tool_result").length}`)
       if (emptyResponseCount > 2) {
-        // Too many empty responses, return what we have
+        // Too many empty responses — if we have tool results, synthesize from them
+        const toolResults = steps.filter(s => s.type === "tool_result")
+        if (toolResults.length > 0) {
+          const summaries = toolResults.map(s => `- ${s.content}`).join("\n")
+          const synthesizedResponse = `I've completed the task. Here's what I accomplished:\n\n${summaries}`
+          return {
+            finalResponse: synthesizedResponse,
+            steps,
+            totalSteps: stepCount,
+            totalInputTokens,
+            totalOutputTokens,
+            model,
+            provider: providerName,
+            cost: 0,
+            apiKeyId: "",
+            usedTools: Array.from(usedTools),
+            thinkingContent: finalThinkingContent || undefined,
+          }
+        }
         return {
-          finalResponse: steps.filter(s => s.type === "tool_result").length > 0
-            ? `I completed ${stepCount} steps. Here's what I accomplished:\n\n${steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n")}`
-            : "I wasn't able to generate a response. Please try again with a different prompt.",
+          finalResponse: "I wasn't able to generate a response. Please try again with a different prompt.",
           steps,
           totalSteps: stepCount,
           totalInputTokens,
@@ -968,9 +1045,10 @@ export async function runAgentLoop(
           thinkingContent: finalThinkingContent || undefined,
         }
       }
+      // Retry with a more helpful prompt instead of just "Please continue"
       messages.push({
         role: "user",
-        content: "Please continue. Your previous response was empty.",
+        content: "Please provide your response. If you've completed the task, summarize what you did.",
       })
 
     } catch (error: any) {
