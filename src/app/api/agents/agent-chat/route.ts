@@ -2,6 +2,7 @@
 // Supports ALL agent types with role-specific tools, thinking mode, and autonomous loop
 // Each agent type gets its own system prompt and tool set
 // Supports SSE streaming for real-time step updates
+// NVIDIA/Trishul AI: Direct streaming — bypasses agent loop, streams live response
 
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
@@ -12,6 +13,8 @@ import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 import { callAIWithFailover, AllKeysExhaustedError, getVisionModel } from "@/lib/ai/openrouter"
 import { SignJWT } from "jose"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 // ── Analyze file attachments with Z.ai Vision API ──
 // The agentic model (glm-4.5-flash) is text-only and doesn't support image_url.
@@ -89,6 +92,200 @@ async function analyzeFileAttachments(
   }
 
   return descriptions.join("\n\n")
+}
+
+// ── NVIDIA Direct Streaming (Trishul AI) ──
+// GLM 5.1 handles agentic behavior internally via its thinking/reasoning mode.
+// We bypass the agent loop entirely and stream the live response directly.
+// This gives users real-time text as the model generates it, just like z.ai.
+async function nvidiaDirectStream(
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+  apiKey: string,
+  systemPrompt: string | undefined,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+  onChunk?: (chunk: string) => void,
+): Promise<{ fullContent: string; fullReasoning: string; inputTokens: number; outputTokens: number }> {
+  // Build messages for NVIDIA API
+  const nvidiaMessages: Array<{ role: string; content: string }> = [
+    ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+    ...messages,
+  ]
+
+  const body = {
+    model,
+    messages: nvidiaMessages,
+    max_tokens: 16384,
+    temperature: 0.3,
+    top_p: 0.7,
+    stream: true, // Enable streaming
+    chat_template_kwargs: {
+      enable_thinking: true,
+      clear_thinking: false,
+    },
+  }
+
+  console.log(`[nvidia-stream] Starting direct stream with model: ${model}`)
+
+  // Add timeout protection
+  const NVIDIA_TIMEOUT_MS = 180000 // 3 minutes max
+  const abortController = new AbortController()
+  const timeoutId = setTimeout(() => abortController.abort(), NVIDIA_TIMEOUT_MS)
+
+  let response: Response
+  try {
+    response = await fetch(NVIDIA_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    const statusCode = response.status
+    console.error(`[nvidia-stream] API error: ${statusCode} - ${errorText.substring(0, 300)}`)
+    
+    if (statusCode === 429) {
+      throw new Error(`NVIDIA rate limit (temporary)`)
+    }
+    if (statusCode === 401 || statusCode === 403) {
+      throw new Error(`NVIDIA API: Invalid authentication`)
+    }
+    throw new Error(`NVIDIA API error: ${statusCode} - ${errorText.substring(0, 200)}`)
+  }
+
+  // Parse the SSE stream from NVIDIA
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error("No response body from NVIDIA API")
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let fullContent = ""
+  let fullReasoning = ""
+  let inputTokens = 0
+  let outputTokens = 0
+
+  // Send a "thinking" step so the UI shows something immediately
+  try {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+      type: "step",
+      step: {
+        type: "thinking",
+        content: "Trishul AI is thinking...",
+        stepNumber: 1,
+      }
+    })}\n\n`))
+  } catch {}
+
+  while (true) {
+    let readResult: { done: boolean; value: Uint8Array | undefined }
+    try {
+      readResult = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Stream read timeout')), 120000)
+        ),
+      ])
+    } catch (readErr: any) {
+      console.warn(`[nvidia-stream] Stream read error: ${readErr.message}`)
+      break
+    }
+
+    const { done, value } = readResult
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() || ""
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue
+      const data = line.slice(6).trim()
+      if (data === "[DONE]") continue
+
+      try {
+        const chunk = JSON.parse(data)
+        const delta = chunk.choices?.[0]?.delta
+        const usage = chunk.usage
+
+        // Capture token usage from the final chunk
+        if (usage) {
+          inputTokens = usage.prompt_tokens || 0
+          outputTokens = usage.completion_tokens || 0
+        }
+
+        if (!delta) continue
+
+        // Handle reasoning content (thinking)
+        if (delta.reasoning_content) {
+          fullReasoning += delta.reasoning_content
+          // Send reasoning chunks as "thinking" type so UI shows "Thinking..." progress
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: "thinking_chunk",
+              content: delta.reasoning_content,
+            })}\n\n`))
+          } catch {}
+        }
+
+        // Handle actual content (the user-facing response)
+        if (delta.content) {
+          fullContent += delta.content
+          // Send content chunks to frontend for live display
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: "chunk",
+              content: delta.content,
+            })}\n\n`))
+          } catch {}
+        }
+      } catch {
+        // Ignore non-JSON lines
+      }
+    }
+  }
+
+  // Process remaining buffer
+  if (buffer.trim()) {
+    const remainingLines = buffer.split("\n")
+    for (const line of remainingLines) {
+      if (!line.startsWith("data: ")) continue
+      const data = line.slice(6).trim()
+      if (data === "[DONE]") continue
+      try {
+        const chunk = JSON.parse(data)
+        const delta = chunk.choices?.[0]?.delta
+        if (delta?.reasoning_content) {
+          fullReasoning += delta.reasoning_content
+        }
+        if (delta?.content) {
+          fullContent += delta.content
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: "chunk",
+              content: delta.content,
+            })}\n\n`))
+          } catch {}
+        }
+        if (chunk.usage) {
+          inputTokens = chunk.usage.prompt_tokens || 0
+          outputTokens = chunk.usage.completion_tokens || 0
+        }
+      } catch {}
+    }
+  }
+
+  console.log(`[nvidia-stream] Stream complete: content=${fullContent.length} chars, reasoning=${fullReasoning.length} chars, tokens=${inputTokens}/${outputTokens}`)
+
+  return { fullContent, fullReasoning, inputTokens, outputTokens }
 }
 
 export async function POST(req: NextRequest) {
@@ -398,6 +595,310 @@ export async function POST(req: NextRequest) {
           let lastError: Error | null = null
           let success = false
 
+          // ── NVIDIA Direct Streaming (Trishul AI) ──
+          // GLM 5.1 handles agentic behavior internally — no need for our agent loop.
+          // We stream the live response directly from the NVIDIA API.
+          const isNvidiaDirect = isNvidiaModel && eligibleKeys.some(k => k.provider === "NVIDIA")
+
+          if (isNvidiaDirect) {
+            // Get NVIDIA keys (prioritized)
+            const nvidiaKeys = eligibleKeys.filter(k => k.provider === "NVIDIA")
+            const otherKeys = eligibleKeys.filter(k => k.provider !== "NVIDIA")
+
+            // Try NVIDIA keys first, then fallback to other keys with agent loop
+            let nvidiaSuccess = false
+            for (const key of nvidiaKeys) {
+              try {
+                // Build messages for the direct API call
+                const directMessages = [
+                  ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
+                  { role: "user" as const, content: enrichedMessage },
+                ]
+
+                const streamResult = await nvidiaDirectStream(
+                  directMessages,
+                  agent.model,
+                  key.keyValue,
+                  systemPrompt,
+                  controller,
+                  encoder,
+                )
+
+                nvidiaSuccess = true
+                success = true
+
+                // If content is empty but reasoning exists, use reasoning as the response
+                // (GLM 5.1 sometimes puts the full response in reasoning_content)
+                let finalContent = streamResult.fullContent
+                if (!finalContent || finalContent.trim() === '') {
+                  if (streamResult.fullReasoning) {
+                    // The model put its actual response in reasoning_content
+                    finalContent = streamResult.fullReasoning
+                  } else {
+                    finalContent = "No response received from Trishul AI."
+                  }
+                }
+
+                // Estimate cost
+                const cost = (streamResult.inputTokens * 2.0 + streamResult.outputTokens * 8.0) / 1000000
+
+                // If the used key was previously ERROR, mark it as ACTIVE
+                if (key.status === "ERROR" && !key.id.startsWith("env-")) {
+                  await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
+                }
+
+                // Update agent's preferred key
+                if (agent.apiKeyId !== key.id) {
+                  await db.agent.update({ where: { id: agentId }, data: { apiKeyId: key.id } })
+                }
+
+                // Build metadata
+                const metadata: any = {
+                  tokens: { input: streamResult.inputTokens, output: streamResult.outputTokens },
+                  cost,
+                  model: agent.model,
+                  provider: "nvidia",
+                  apiKeyId: key.id,
+                  agentic: true,
+                  agentType: agent.type,
+                  totalSteps: 1,
+                  usedTools: [],
+                  steps: [],
+                  thinkingPreview: streamResult.fullReasoning?.substring(0, 500),
+                  isNvidiaDirect: true,
+                }
+
+                // Save assistant message to DB
+                const assistantMsg = await db.chatMessage.create({
+                  data: {
+                    chatId: chat.id,
+                    role: "assistant",
+                    content: finalContent,
+                    metadata: JSON.stringify(metadata),
+                  },
+                })
+
+                // Mark chat as no longer processing
+                await db.chat.update({
+                  where: { id: chat.id },
+                  data: { isProcessing: false },
+                }).catch(() => {})
+
+                // Log usage
+                await db.apiUsageLog.create({
+                  data: {
+                    apiKeyId: key.id,
+                    agentId: agent.id,
+                    model: agent.model,
+                    inputTokens: streamResult.inputTokens,
+                    outputTokens: streamResult.outputTokens,
+                    cost,
+                  },
+                })
+
+                // Update key spend
+                if (!key.id.startsWith("env-")) {
+                  await db.apiKey.update({
+                    where: { id: key.id },
+                    data: { currentSpend: { increment: cost } },
+                  })
+                }
+
+                // Send complete event
+                const completeData = {
+                  type: "complete",
+                  content: finalContent,
+                  inputTokens: streamResult.inputTokens,
+                  outputTokens: streamResult.outputTokens,
+                  cost,
+                  model: agent.model,
+                  provider: "nvidia",
+                  chatId: chat.id,
+                  messageId: assistantMsg.id,
+                  agentic: true,
+                  agentType: agent.type,
+                  totalSteps: 1,
+                  usedTools: [],
+                  steps: [],
+                  thinkingPreview: streamResult.fullReasoning?.substring(0, 500),
+                  isNvidiaDirect: true,
+                }
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
+                controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+                controller.close()
+                return
+              } catch (err: any) {
+                lastError = err
+                console.error(`[agent-chat] NVIDIA direct stream key "${key.keyName}" failed:`, err.message)
+
+                if (err.message.includes("Invalid authentication") && !key.id.startsWith("env-")) {
+                  await db.apiKey.update({ where: { id: key.id }, data: { status: "ERROR" } }).catch(() => {})
+                }
+                continue // Try next NVIDIA key
+              }
+            }
+
+            // If all NVIDIA direct streams failed, try fallback keys with agent loop
+            if (!nvidiaSuccess && otherKeys.length > 0) {
+              console.log(`[agent-chat] NVIDIA direct stream failed, falling back to agent loop with ${otherKeys.length} keys`)
+              // Fall through to the agent loop below with non-NVIDIA keys
+              for (const key of otherKeys) {
+                try {
+                  const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
+                    maxSteps: 15,
+                    maxTokens: 16384,
+                    agentType: agent.type,
+                    systemPrompt,
+                    tools,
+                    provider: key.provider,
+                    onStep: (step: AgentStep) => {
+                      try {
+                        const stepData = {
+                          type: "step",
+                          step: {
+                            type: step.type,
+                            content: step.type === "thinking"
+                              ? step.content.substring(0, 500)
+                              : step.type === "tool_result"
+                                ? (step.toolResult || step.content).substring(0, 2000)
+                                : step.type === "tool_call"
+                                  ? `${step.toolName}(${Object.entries(step.toolArgs || {}).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`
+                                  : step.content.substring(0, 2000),
+                            toolName: step.toolName,
+                            toolArgs: step.toolArgs,
+                            toolResult: step.type === "tool_result" ? (step.toolResult || step.content).substring(0, 2000) : undefined,
+                            stepNumber: step.stepNumber,
+                          }
+                        }
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(stepData)}\n\n`))
+                      } catch {}
+                    },
+                  })
+
+                  success = true
+
+                  if (key.status === "ERROR" && !key.id.startsWith("env-")) {
+                    await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
+                  }
+                  if (agent.apiKeyId !== key.id) {
+                    await db.agent.update({ where: { id: agentId }, data: { apiKeyId: key.id } })
+                  }
+
+                  const metadata: any = {
+                    tokens: { input: result.totalInputTokens, output: result.totalOutputTokens },
+                    cost: result.cost,
+                    model: result.model,
+                    provider: result.provider,
+                    apiKeyId: key.id,
+                    agentic: true,
+                    agentType: agent.type,
+                    totalSteps: result.totalSteps,
+                    usedTools: result.usedTools,
+                    steps: result.steps.map(s => {
+                      if (s.type === "tool_call" && s.toolArgs) {
+                        const truncatedArgs: Record<string, any> = {};
+                        for (const [k, v] of Object.entries(s.toolArgs)) {
+                          if (typeof v === 'string' && v.length > 50000) {
+                            truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated ${v.length - 50000} chars)`;
+                          } else {
+                            truncatedArgs[k] = v;
+                          }
+                        }
+                        return {
+                          type: s.type,
+                          toolName: s.toolName,
+                          content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`,
+                          toolArgs: truncatedArgs,
+                        };
+                      }
+                      return {
+                        type: s.type,
+                        toolName: s.toolName,
+                        content: s.type === "thinking" ? s.content.substring(0, 500) : s.type === "tool_result" ? s.content.substring(0, 2000) : s.content.substring(0, 2000),
+                        toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined,
+                      };
+                    }),
+                  }
+                  if (result.thinkingContent) {
+                    metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
+                  }
+
+                  const assistantMsg = await db.chatMessage.create({
+                    data: { chatId: chat.id, role: "assistant", content: result.finalResponse, metadata: JSON.stringify(metadata) },
+                  })
+
+                  await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+
+                  await db.apiUsageLog.create({
+                    data: { apiKeyId: key.id, agentId: agent.id, model: result.model, inputTokens: result.totalInputTokens, outputTokens: result.totalOutputTokens, cost: result.cost },
+                  })
+
+                  if (!key.id.startsWith("env-")) {
+                    await db.apiKey.update({ where: { id: key.id }, data: { currentSpend: { increment: result.cost } } })
+                  }
+
+                  const completeData = {
+                    type: "complete",
+                    content: result.finalResponse,
+                    inputTokens: result.totalInputTokens,
+                    outputTokens: result.totalOutputTokens,
+                    cost: result.cost,
+                    model: result.model,
+                    provider: result.provider,
+                    chatId: chat.id,
+                    messageId: assistantMsg.id,
+                    agentic: true,
+                    agentType: agent.type,
+                    totalSteps: result.totalSteps,
+                    usedTools: result.usedTools,
+                    steps: result.steps.map(s => {
+                      if (s.type === "tool_call" && s.toolArgs) {
+                        const truncatedArgs: Record<string, any> = {};
+                        for (const [k, v] of Object.entries(s.toolArgs)) {
+                          if (typeof v === 'string' && v.length > 50000) { truncatedArgs[k] = v.substring(0, 50000) + `\n... (truncated)`; }
+                          else { truncatedArgs[k] = v; }
+                        }
+                        return { type: s.type, content: `${s.toolName}(${Object.entries(s.toolArgs).map(([k, v]) => `${k}: ${String(v).substring(0, 80)}`).join(", ")})`, toolName: s.toolName, toolArgs: truncatedArgs, stepNumber: s.stepNumber };
+                      }
+                      return { type: s.type, content: s.type === "thinking" ? s.content.substring(0, 500) : s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : s.content.substring(0, 2000), toolName: s.toolName, toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined, stepNumber: s.stepNumber };
+                    }),
+                    thinkingPreview: result.thinkingContent?.substring(0, 500),
+                  }
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
+                  controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+                  controller.close()
+                  return
+                } catch (err: any) {
+                  lastError = err
+                  console.error(`[agent-chat] Fallback key "${key.keyName}" failed:`, err.message)
+                  if (err.message.includes("Insufficient balance") && !key.id.startsWith("env-")) {
+                    await db.apiKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } })
+                  }
+                  if ((err.message.includes("Invalid authentication") || err.message.includes("401") || err.message.includes("403")) && !key.id.startsWith("env-")) {
+                    await db.apiKey.update({ where: { id: key.id }, data: { status: "ERROR" } }).catch(() => {})
+                  }
+                  continue
+                }
+              }
+            }
+
+            // All NVIDIA + fallback keys failed
+            await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+            const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
+            const isNvidiaAuth = lastError?.message?.includes("NVIDIA API: Invalid authentication")
+            let errorMessage = "Trishul AI failed to respond. Please try again."
+            if (isRateLimit) {
+              errorMessage = "Trishul AI is currently busy. Please try again in a moment."
+            } else if (isNvidiaAuth) {
+              errorMessage = "Trishul AI (NVIDIA) authentication failed. The NVIDIA API key is invalid or expired."
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: errorMessage, chatId: chat.id })}\n\n`))
+            controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+            controller.close()
+            return
+          }
+
+          // ── STANDARD AGENT LOOP (Z.ai and non-NVIDIA models) ──
           // Send "analyzing files" step if attachments are present
           if (fileUrls && fileUrls.length > 0) {
             try {

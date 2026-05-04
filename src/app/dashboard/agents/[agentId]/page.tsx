@@ -324,6 +324,10 @@ export default function AgentChatPage() {
   const [isAgentic, setIsAgentic] = useState(false);
   const [liveSteps, setLiveSteps] = useState<Array<{ type: string; content: string; toolName?: string; status: 'running' | 'done' | 'error' }>>([]);
 
+  // NVIDIA Direct Streaming state - accumulates live text from Trishul AI
+  const [streamingText, setStreamingText] = useState<string>("");
+  const [isNvidiaStreaming, setIsNvidiaStreaming] = useState(false);
+
   // Retry state - store last failed prompt for retry button
   const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
   const [failedMsgId, setFailedMsgId] = useState<string | null>(null);
@@ -774,9 +778,15 @@ export default function AgentChatPage() {
   }, []);
 
   // ── Auto-scroll ──
+  // Scroll to bottom when messages change or streaming text updates
+  // Use a short debounce to avoid excessive scrolling during rapid updates
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
+    // Use requestAnimationFrame to batch with React rendering
+    const rafId = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [messages, sending, streamingText]);
 
   // ── Auto-release lock on unmount / navigation away ──
   useEffect(() => {
@@ -1104,6 +1114,9 @@ export default function AgentChatPage() {
       setLiveSteps([]);
       // Reset auto-todo counter for new message
       autoTodoCounterRef.current = 0;
+      // Reset streaming state for NVIDIA direct
+      setStreamingText("");
+      setIsNvidiaStreaming(false);
     }
 
     // Mark agent as processing in sessionStorage (persists across navigation)
@@ -1448,8 +1461,47 @@ export default function AgentChatPage() {
                     });
                   }
                 }
+              } else if (event.type === "chunk") {
+                // NVIDIA Direct Streaming: live text chunk from Trishul AI
+                // Accumulate the streaming text and display it in real-time
+                startTransition(() => {
+                  setStreamingText((prev) => prev + (event.content || ""));
+                  setIsNvidiaStreaming(true);
+                  // Update live steps to show "Responding..." instead of "Thinking..."
+                  setLiveSteps((prev) => {
+                    if (prev.length === 0) {
+                      return [{ type: 'response', content: 'Trishul AI is responding...', status: 'running' }];
+                    }
+                    // Update the last step to show responding status
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                      ...updated[updated.length - 1],
+                      content: 'Trishul AI is responding...',
+                      status: 'running',
+                    };
+                    return updated;
+                  });
+                });
+              } else if (event.type === "thinking_chunk") {
+                // NVIDIA thinking/reasoning chunk - model is still thinking
+                // Just keep the live steps showing "Thinking..."
+                if (!isNvidiaStreaming) {
+                  startTransition(() => {
+                    setLiveSteps((prev) => {
+                      if (prev.length === 0) {
+                        return [{ type: 'thinking', content: 'Trishul AI is thinking...', status: 'running' }];
+                      }
+                      return prev;
+                    });
+                  });
+                }
               } else if (event.type === "complete") {
                 finalData = event;
+                // Clear streaming state when complete
+                startTransition(() => {
+                  setIsNvidiaStreaming(false);
+                  setStreamingText("");
+                });
               } else if (event.type === "error") {
                 const errMsg = event.message || "Agent execution error";
                 const isRateLimit = errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429") || errMsg.includes("try again");
@@ -1615,6 +1667,20 @@ export default function AgentChatPage() {
                     });
                   });
                 }
+              } else if (event.type === "chunk") {
+                // NVIDIA Direct Streaming: live text chunk from Trishul AI (buffer drain)
+                startTransition(() => {
+                  setStreamingText((prev) => prev + (event.content || ""));
+                  setIsNvidiaStreaming(true);
+                });
+              } else if (event.type === "thinking_chunk") {
+                // NVIDIA thinking chunk (buffer drain) - ignore, just for progress
+              } else if (event.type === "complete") {
+                finalData = event;
+                startTransition(() => {
+                  setIsNvidiaStreaming(false);
+                  setStreamingText("");
+                });
               } else if (event.type === "error") {
                 const errMsg = event.message || "Agent execution error";
                 const isRateLimit = errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429") || errMsg.includes("try again");
@@ -2303,6 +2369,8 @@ export default function AgentChatPage() {
               todoItems={todoItems}
               onActivateTodo={handleActivateTodo}
               onCancelWaiting={handleCancelWaiting}
+              streamingText={streamingText}
+              isNvidiaStreaming={isNvidiaStreaming}
             />
           </TabsContent>
 
@@ -2629,6 +2697,8 @@ export default function AgentChatPage() {
           todoItems={todoItems}
           onActivateTodo={handleActivateTodo}
           onCancelWaiting={handleCancelWaiting}
+          streamingText={streamingText}
+          isNvidiaStreaming={isNvidiaStreaming}
         />
       </div>
 
@@ -3188,6 +3258,8 @@ function ChatArea({
   todoItems,
   onActivateTodo,
   onCancelWaiting,
+  streamingText,
+  isNvidiaStreaming,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -3224,6 +3296,8 @@ function ChatArea({
   todoItems: Array<{ id: string; step: number; title: string; description: string; prompt: string; status: 'pending' | 'running' | 'completed' | 'failed'; result?: string }>;
   onActivateTodo: (item: typeof todoItems[0]) => void;
   onCancelWaiting: () => void;
+  streamingText?: string;
+  isNvidiaStreaming?: boolean;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
 
@@ -3333,7 +3407,7 @@ function ChatArea({
             )}
           </div>
         ) : (
-          <div className="space-y-6 p-4 max-w-3xl mx-auto">
+          <div className="space-y-3 p-4 max-w-3xl mx-auto">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -3763,6 +3837,28 @@ function ChatArea({
                 </div>
               </div>
             )}
+
+            {/* NVIDIA Direct Streaming: Live text from Trishul AI */}
+            {isNvidiaStreaming && streamingText && (
+              <div className="flex justify-start mb-3 px-4">
+                <div className="max-w-[85%] w-full">
+                  <div className="rounded-2xl rounded-bl-md border border-border/50 bg-card p-3.5">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30">
+                        <Brain className="h-2.5 w-2.5 text-purple-500" />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground font-medium">Trishul AI</span>
+                      <span className="text-[9px] text-muted-foreground/60 animate-pulse">responding...</span>
+                    </div>
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-sm whitespace-pre-wrap">
+                      {streamingText}
+                      <span className="inline-block w-1.5 h-4 bg-purple-500 animate-pulse ml-0.5 align-text-bottom" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         )}
