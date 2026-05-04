@@ -8,6 +8,7 @@ import { SignJWT } from "jose"
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 const GOOGLE_AI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 interface ChatMessage {
   role: "system" | "user" | "assistant"
@@ -71,6 +72,10 @@ const VALID_GOOGLE_AI_MODELS = new Set([
   "gemini-pro", "gemini-2.0-flash-lite",
 ])
 
+const VALID_NVIDIA_MODELS = new Set([
+  "z-ai/glm-5.1",
+])
+
 const VALID_OPENROUTER_PREFIXES = ["/", "gpt-", "claude-", "llama", "deepseek", "mistral", "qwen"]
 
 // ━━ Cross-Provider Model Map ━━
@@ -104,6 +109,9 @@ const CROSS_PROVIDER_MAP: Record<string, Record<string, string>> = {
   "gemini-pro": { openrouter: "google/gemini-pro", google_ai: "gemini-pro", zai: "glm-4-flash-250414" },
   "gemini-2.0-flash-lite": { openrouter: "google/gemini-2.0-flash-lite-001", google_ai: "gemini-2.0-flash-lite", zai: "glm-4-flash-250414" },
 
+  // NVIDIA models → other providers
+  "z-ai/glm-5.1": { openrouter: "anthropic/claude-sonnet-4", google_ai: "gemini-2.5-pro", zai: "glm-5.1", nvidia: "z-ai/glm-5.1" },
+
   // OpenRouter models → other providers
   "openai/gpt-4o": { openrouter: "openai/gpt-4o", google_ai: "gemini-2.5-pro", zai: "glm-4-plus-0111" },
   "openai/gpt-4o-mini": { openrouter: "openai/gpt-4o-mini", google_ai: "gemini-2.0-flash", zai: "glm-4-flash-250414" },
@@ -134,6 +142,7 @@ export function getModelForProvider(model: string, provider: string): string {
   let isValid = false
   if (providerUpper === "ZAI") isValid = VALID_ZAI_MODELS.has(model)
   else if (providerUpper === "GOOGLE_AI") isValid = VALID_GOOGLE_AI_MODELS.has(model)
+  else if (providerUpper === "NVIDIA") isValid = VALID_NVIDIA_MODELS.has(model)
   else if (providerUpper === "OPENROUTER") isValid = VALID_OPENROUTER_PREFIXES.some(p => model.includes(p))
 
   if (isValid) return model
@@ -143,6 +152,7 @@ export function getModelForProvider(model: string, provider: string): string {
   const defaults: Record<string, string> = {
     zai: "glm-4.7-flash",    google_ai: "gemini-2.0-flash",
     openrouter: "openai/gpt-4o-mini",
+    nvidia: "z-ai/glm-5.1",
   }
   return defaults[providerKey] || model
 }
@@ -210,8 +220,9 @@ export function translateZaiError(errorMsg: string): string {
 }
 
 // ━━ Provider Detection ━━
-export function detectProvider(apiKey: string): "openrouter" | "zai" | "google_ai" | "other" {
-  if (apiKey.startsWith("sk-or-") || apiKey.startsWith("sk-")) return "openrouter"
+export function detectProvider(apiKey: string): "openrouter" | "zai" | "google_ai" | "nvidia" | "other" {
+  if (apiKey.startsWith("sk-or-")) return "openrouter"
+  if (apiKey.startsWith("nvapi-")) return "nvidia"
   if (apiKey.startsWith("AIza")) return "google_ai"
   return "openrouter" // default
 }
@@ -486,6 +497,79 @@ async function callGoogleAIAPI(
   }
 }
 
+// ━━ NVIDIA API (Trishul AI — OpenAI-compatible) ━━
+// Uses OpenAI-compatible chat completions format with NVIDIA API base URL
+// Supports reasoning_content (thinking mode) via extra_body
+async function callNvidiaAPI(
+  messages: ChatMessage[],
+  model: string,
+  apiKey: string,
+  options?: { maxTokens?: number; temperature?: number }
+): Promise<AIResponse> {
+  const mappedModel = getModelForProvider(model, "NVIDIA")
+
+  console.log(`[nvidia] Calling with model: ${mappedModel} (original: ${model})`)
+
+  const response = await fetch(NVIDIA_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: mappedModel,
+      messages,
+      max_tokens: options?.maxTokens || 4096,
+      temperature: options?.temperature || 0.6,
+      top_p: 0.95,
+      // Extra body for reasoning/thinking support (NVIDIA GLM models)
+      chat_template_kwargs: {
+        enable_thinking: true,
+        clear_thinking: false,
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    const statusCode = response.status
+
+    console.error(`[nvidia] API error: ${statusCode} - ${errorText.substring(0, 500)}`)
+
+    if (statusCode === 401 || statusCode === 403) {
+      throw new APIKeyInvalidError("nvidia", statusCode, errorText)
+    }
+    if (statusCode === 402 || statusCode === 429) {
+      throw new APIKeyExhaustedError("nvidia", statusCode, errorText)
+    }
+    throw new Error(`NVIDIA API error: ${statusCode} - ${errorText}`)
+  }
+
+  const data = await response.json()
+
+  // NVIDIA API returns OpenAI-compatible response format
+  // May include reasoning_content in the message for thinking models
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content || ""
+  const reasoningContent = choice?.message?.reasoning_content || ""
+
+  // If there's reasoning content, prepend it as a collapsible section
+  const fullContent = reasoningContent
+    ? `<details><summary>💭 Reasoning</summary>\n\n${reasoningContent}\n\n</details>\n\n${content}`
+    : content
+
+  const cost = estimateCost(mappedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
+
+  return {
+    content: fullContent,
+    inputTokens: data.usage?.prompt_tokens || 0,
+    outputTokens: data.usage?.completion_tokens || 0,
+    model: mappedModel,
+    provider: "nvidia",
+    cost,
+  }
+}
+
 // ━━ Single Provider Call ━━
 export async function callAI(
   messages: ChatMessage[],
@@ -501,6 +585,8 @@ export async function callAI(
       return callZaiAPI(messages, model, apiKey, options)
     case "GOOGLE_AI":
       return callGoogleAIAPI(messages, model, apiKey, options)
+    case "NVIDIA":
+      return callNvidiaAPI(messages, model, apiKey, options)
     case "OPENROUTER":
     default:
       return callOpenRouterAPI(messages, model, apiKey, options)
@@ -599,6 +685,7 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
     "deepseek/deepseek-r1:free": { input: 0, output: 0 },
     "google/gemini-2.0-flash-exp:free": { input: 0, output: 0 },
     "glm-5.1": { input: 2.0, output: 8.0 },
+    "z-ai/glm-5.1": { input: 2.0, output: 8.0 },
     "glm-4-plus-0111": { input: 1.5, output: 6.0 },
     "glm-4.5-air-250414": { input: 0.5, output: 2.0 },
     "glm-4-air-250414": { input: 0.1, output: 0.5 },
@@ -646,6 +733,10 @@ export function getModelsForProvider(provider: string): { id: string; name: stri
       return [
         { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", free: true },
         { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", free: false },
+      ]
+    case "NVIDIA":
+      return [
+        { id: "z-ai/glm-5.1", name: "Trishul AI — GLM 5.1 (Reasoning)", free: false },
       ]
     case "OPENROUTER":
     default:

@@ -228,7 +228,19 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Get Z.ai API key (agentic mode requires Z.ai for function calling)
+    // Get API keys for agentic mode (Z.ai for function calling, or NVIDIA for Trishul AI)
+    const isNvidiaModel = agent.model?.startsWith("z-ai/") || agent.model?.includes("nvidia")
+    
+    // For NVIDIA models, look for NVIDIA keys; otherwise, look for Z.ai keys
+    // Also allow cross-provider: if the model is NVIDIA but no NVIDIA keys exist, fall back to Z.ai
+    const nvidiaKeys = isNvidiaModel ? await db.apiKey.findMany({
+      where: {
+        provider: "NVIDIA",
+        status: { in: ["ACTIVE", "ERROR"] },
+      },
+      orderBy: { priority: "asc" },
+    }) : []
+
     const zaiKeys = await db.apiKey.findMany({
       where: {
         provider: "ZAI",
@@ -237,8 +249,11 @@ export async function POST(req: NextRequest) {
       orderBy: { priority: "asc" },
     })
 
+    // Combine keys: NVIDIA first (if model is NVIDIA), then Z.ai as fallback
+    const allAgenticKeys = isNvidiaModel ? [...nvidiaKeys, ...zaiKeys] : [...zaiKeys, ...nvidiaKeys]
+
     // Filter keys assigned to this agent type
-    const eligibleKeys = zaiKeys.filter((k) => {
+    const eligibleKeys = allAgenticKeys.filter((k) => {
       try {
         const assigned = JSON.parse(k.assignedAgents || "[]")
         return assigned.length === 0 || assigned.includes(agent.type)
@@ -247,7 +262,9 @@ export async function POST(req: NextRequest) {
 
     if (eligibleKeys.length === 0) {
       return NextResponse.json({
-        error: "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash or GLM-5.1. Please add one in API Keys page.",
+        error: isNvidiaModel
+          ? "No active NVIDIA API key available for Trishul AI. Please add an NVIDIA API key in API Keys page, or add a Z.ai key as fallback."
+          : "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash or GLM-5.1, or an NVIDIA key with Trishul AI. Please add one in API Keys page.",
         chatId: chat.id,
       }, { status: 400 })
     }
@@ -327,6 +344,7 @@ export async function POST(req: NextRequest) {
                 agentType: agent.type,
                 systemPrompt,
                 tools,
+                provider: key.provider,
                 onStep: (step: AgentStep) => {
                   // Send each step as SSE event
                   try {
@@ -726,6 +744,7 @@ export async function POST(req: NextRequest) {
           agentType: agent.type,
           systemPrompt,
           tools,
+          provider: key.provider,
           onStep: (step) => {
             allSteps.push(step)
           },

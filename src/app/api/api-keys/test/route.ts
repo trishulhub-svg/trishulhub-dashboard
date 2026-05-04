@@ -35,7 +35,9 @@ export async function GET(req: NextRequest) {
     // Use glm-4.7-flash for ZAI (free model that actually works)
     const testModel = provider === "ZAI"
       ? "glm-4.7-flash"
-      : getModelForProvider("glm-4-flash-250414", provider)
+      : provider === "NVIDIA"
+        ? "z-ai/glm-5.1"
+        : getModelForProvider("glm-4-flash-250414", provider)
 
     console.log(`[api-keys/test] Testing key "${apiKey.keyName}" (${provider}) with model: ${testModel}`)
 

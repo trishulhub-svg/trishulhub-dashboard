@@ -1,12 +1,14 @@
 // Agent Loop Engine - Autonomous multi-step execution with tool calling
 // Implements: Plan → Execute → Observe → Iterate pattern
 // Uses Z.ai Function Calling for tool use, Thinking Mode for reasoning
+// Also supports NVIDIA (Trishul AI) for OpenAI-compatible API with reasoning
 // Supports ALL agent types with role-specific tools and prompts
 
 import { SignJWT } from "jose"
 import { AgentTool, getToolsForAgentType, executeToolCall, ToolCallResult } from "./agent-tools"
 
 const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 // ━━ Types ━━
 export interface AgentStep {
@@ -442,6 +444,126 @@ async function callZaiWithTools(
   throw lastError || new Error("Z.ai API call failed")
 }
 
+// ━━ Call NVIDIA API with Function Calling (Trishul AI) ━━
+// NVIDIA API is OpenAI-compatible and supports function calling / tools
+// Also supports reasoning_content (thinking mode) via extra_body
+async function callNvidiaWithTools(
+  messages: ZaiMessage[],
+  model: string,
+  apiKey: string,
+  tools: AgentTool[],
+  options?: { maxTokens?: number; temperature?: number }
+): Promise<{
+  content: string | null
+  toolCalls: ZaiToolCall[]
+  thinkingContent: string | null
+  inputTokens: number
+  outputTokens: number
+  finishReason: string
+}> {
+  console.log(`[nvidia-agent] Calling with model: ${model}`)
+
+  const body: any = {
+    model,
+    messages,
+    max_tokens: options?.maxTokens || 16384,
+    temperature: options?.temperature || 0.3,
+    top_p: 0.95,
+    tools,
+    // Extra body for reasoning/thinking support
+    chat_template_kwargs: {
+      enable_thinking: true,
+      clear_thinking: false,
+    },
+  }
+
+  const MAX_RETRIES = 2
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delayMs = Math.pow(2, attempt) * 1000
+      console.log(`[nvidia-agent] Retry attempt ${attempt} after ${delayMs}ms...`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+
+    try {
+      const response = await fetch(NVIDIA_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        const statusCode = response.status
+
+        if (statusCode === 429) {
+          lastError = new Error(`NVIDIA rate limit (temporary)`)
+          if (attempt < MAX_RETRIES) continue
+          throw lastError
+        }
+        if (statusCode === 401 || statusCode === 403) {
+          throw new Error(`NVIDIA API: Invalid authentication`)
+        }
+        if (statusCode === 500) {
+          console.log(`[nvidia-agent] 500 error, will retry`)
+          lastError = new Error(`NVIDIA API error: 500 - ${errorText.substring(0, 100)}`)
+          if (attempt < MAX_RETRIES) continue
+          throw lastError
+        }
+        throw new Error(`NVIDIA API error: ${statusCode} - ${errorText.substring(0, 200)}`)
+      }
+
+      const data = await response.json()
+      const choice = data.choices?.[0]
+      const message = choice?.message
+
+      // Extract thinking/reasoning content
+      let thinkingContent: string | null = null
+      if (message?.reasoning_content) {
+        thinkingContent = message.reasoning_content
+      }
+
+      // Map NVIDIA tool_calls format to our ZaiToolCall format
+      // NVIDIA uses the same OpenAI-compatible format
+      const toolCalls: ZaiToolCall[] = (message?.tool_calls || []).map((tc: any) => ({
+        id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: "function" as const,
+        function: {
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        },
+      }))
+
+      return {
+        content: message?.content || null,
+        toolCalls,
+        thinkingContent,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
+        finishReason: choice?.finish_reason || "stop",
+      }
+    } catch (err: any) {
+      lastError = err
+      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout"))) {
+        continue
+      }
+      throw err
+    }
+  }
+
+  throw lastError || new Error("NVIDIA API call failed")
+}
+
+// ━━ Detect if model should use NVIDIA provider ━━
+function isNvidiaModel(model: string): boolean {
+  return model.startsWith("z-ai/") || model.includes("nvidia")
+}
+
 // ━━ Main Agent Loop ━━
 export async function runAgentLoop(
   userMessage: string,
@@ -455,6 +577,7 @@ export async function runAgentLoop(
     agentType?: string
     systemPrompt?: string
     tools?: AgentTool[]
+    provider?: string
   }
 ): Promise<AgentLoopResult> {
   const maxSteps = options?.maxSteps || 15
@@ -493,16 +616,25 @@ export async function runAgentLoop(
 
   let emptyResponseCount = 0
 
+  // Detect which provider to use based on model name or explicit provider option
+  const useNvidia = options?.provider === "NVIDIA" || isNvidiaModel(model)
+  const providerName = useNvidia ? "nvidia" : "zai"
+
   // Agent loop: keep going until model gives a final response (no tool calls)
   // or we hit the max step limit
   for (let iteration = 0; iteration < maxSteps; iteration++) {
     stepCount++
 
     try {
-      const result = await callZaiWithTools(messages, model, apiKey, tools, {
-        maxTokens: options?.maxTokens || 16384,
-        temperature: iteration === 0 ? 0.3 : 0.2, // Low temperature for consistent code generation
-      })
+      const result = useNvidia
+        ? await callNvidiaWithTools(messages, model, apiKey, tools, {
+            maxTokens: options?.maxTokens || 16384,
+            temperature: iteration === 0 ? 0.6 : 0.5,
+          })
+        : await callZaiWithTools(messages, model, apiKey, tools, {
+            maxTokens: options?.maxTokens || 16384,
+            temperature: iteration === 0 ? 0.3 : 0.2, // Low temperature for consistent code generation
+          })
 
       totalInputTokens += result.inputTokens
       totalOutputTokens += result.outputTokens
@@ -707,7 +839,7 @@ export async function runAgentLoop(
           totalInputTokens,
           totalOutputTokens,
           model,
-          provider: "zai",
+          provider: providerName,
           cost: 0, // GLM-4.5-Flash is free
           apiKeyId: "", // Will be set by caller
           usedTools: Array.from(usedTools),
@@ -728,7 +860,7 @@ export async function runAgentLoop(
           totalInputTokens,
           totalOutputTokens,
           model,
-          provider: "zai",
+          provider: providerName,
           cost: 0,
           apiKeyId: "",
           usedTools: Array.from(usedTools),
@@ -787,7 +919,7 @@ export async function runAgentLoop(
                 totalInputTokens,
                 totalOutputTokens,
                 model,
-                provider: "zai",
+                provider: providerName,
                 cost: 0,
                 apiKeyId: "",
                 usedTools: Array.from(usedTools),
@@ -865,7 +997,7 @@ export async function runAgentLoop(
         totalInputTokens,
         totalOutputTokens,
         model,
-        provider: "zai",
+        provider: providerName,
         cost: 0,
         apiKeyId: "",
         usedTools: Array.from(usedTools),
@@ -883,7 +1015,7 @@ export async function runAgentLoop(
     totalInputTokens,
     totalOutputTokens,
     model,
-    provider: "zai",
+    provider: providerName,
     cost: 0,
     apiKeyId: "",
     usedTools: Array.from(usedTools),

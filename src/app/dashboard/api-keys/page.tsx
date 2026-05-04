@@ -42,6 +42,7 @@ const providerInfo: Record<string, { name: string; color: string; url: string; i
   ZAI: { name: "Z.ai", color: "bg-blue-500", url: "https://open.bigmodel.cn", icon: "🤖" },
   OPENROUTER: { name: "OpenRouter", color: "bg-purple-500", url: "https://openrouter.ai/keys", icon: "🔀" },
   GOOGLE_AI: { name: "Google AI", color: "bg-green-500", url: "https://aistudio.google.com/apikey", icon: "🧠" },
+  NVIDIA: { name: "NVIDIA (Trishul AI)", color: "bg-emerald-500", url: "https://build.nvidia.com", icon: "🔱" },
   OTHER: { name: "Other", color: "bg-gray-500", url: "#", icon: "🔑" },
 };
 
@@ -718,6 +719,7 @@ function KeyForm({
             <SelectItem value="ZAI">🤖 Z.ai — GLM models</SelectItem>
             <SelectItem value="OPENROUTER">🔀 OpenRouter — Multi-model access</SelectItem>
             <SelectItem value="GOOGLE_AI">🧠 Google AI — Gemini models</SelectItem>
+            <SelectItem value="NVIDIA">🔱 NVIDIA (Trishul AI) — GLM 5.1 Reasoning</SelectItem>
             <SelectItem value="OTHER">🔑 Other — Custom API</SelectItem>
           </SelectContent>
         </Select>
@@ -746,7 +748,7 @@ function KeyForm({
           onChange={(e) => setFormKeyValue(e.target.value)}
           required={!isEdit}
           type="password"
-          placeholder={formProvider === "ZAI" ? "Your Z.ai API key..." : formProvider === "OPENROUTER" ? "sk-or-v1-..." : formProvider === "GOOGLE_AI" ? "AIza..." : "Your API key..."}
+          placeholder={formProvider === "ZAI" ? "Your Z.ai API key..." : formProvider === "OPENROUTER" ? "sk-or-v1-..." : formProvider === "GOOGLE_AI" ? "AIza..." : formProvider === "NVIDIA" ? "nvapi-..." : "Your API key..."}
         />
       </div>
 

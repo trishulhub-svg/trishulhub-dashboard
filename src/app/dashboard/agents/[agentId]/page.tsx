@@ -5271,7 +5271,7 @@ function AgentSettingsForm({
     });
   };
 
-  const modelOptions = [...(MODEL_OPTIONS.openrouter || []), ...(MODEL_OPTIONS.zai || [])];
+  const modelOptions = [...(MODEL_OPTIONS.openrouter || []), ...(MODEL_OPTIONS.zai || []), ...(MODEL_OPTIONS.nvidia || [])];
 
   return (
     <>

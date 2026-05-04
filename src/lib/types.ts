@@ -37,7 +37,7 @@ export type ClientStatus = "ACTIVE" | "INACTIVE";
 export type InvoiceStatus = "DRAFT" | "SENT" | "PAID" | "OVERDUE";
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
 export type ApiKeyStatus = "ACTIVE" | "EXHAUSTED" | "ERROR";
-export type ApiKeyProvider = "OPENROUTER" | "ZAI" | "GOOGLE_AI" | "OTHER";
+export type ApiKeyProvider = "OPENROUTER" | "ZAI" | "GOOGLE_AI" | "NVIDIA" | "OTHER";
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_IMPROVEMENT";
 export type ApprovalType = "TASK" | "INVOICE" | "EMAIL" | "QUOTATION" | "PROJECT_PLAN" | "CODE_REVIEW" | "LEAD_OUTREACH" | "CONTENT_PIECE";
@@ -303,6 +303,9 @@ export const MODEL_OPTIONS = {
     { value: "glm-4.5-flash", label: "GLM-4.5 Flash (Free + Agentic ✅)", cost: "Free" },
     { value: "glm-4.7-flash", label: "GLM-4.7 Flash (Free - No Tool Calling)", cost: "Free" },
     { value: "glm-4-long-250414", label: "GLM-4 Long", cost: "$" },
+  ],
+  nvidia: [
+    { value: "z-ai/glm-5.1", label: "Trishul AI — GLM 5.1 (Reasoning ✅)", cost: "$$" },
   ],
 };
 
