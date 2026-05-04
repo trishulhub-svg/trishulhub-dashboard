@@ -390,6 +390,8 @@ export default function AgentChatPage() {
   const directMessageRef = useRef<string | null>(null); // For sending messages programmatically (e.g., TODO activation)
   const skipDuplicateUserMsgRef = useRef<boolean>(false); // Skip creating duplicate user message on retry
   const activeTodoIdRef = useRef<string | null>(null); // Track which TODO item is being activated
+  const isUserAtBottomRef = useRef(true); // Track if user is at bottom of chat — true by default so new messages auto-scroll
+  const chatScrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the ScrollArea container to find viewport
 
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
@@ -777,16 +779,71 @@ export default function AgentChatPage() {
     };
   }, []);
 
-  // ── Auto-scroll ──
-  // Scroll to bottom when messages change or streaming text updates
-  // Use a short debounce to avoid excessive scrolling during rapid updates
+  // ── Smart Auto-scroll ──
+  // Only auto-scroll to bottom if the user is near the bottom of the chat.
+  // If the user has scrolled up to read earlier messages, DON'T force them back down.
+  // When the user sends a new message, we always scroll to bottom (user initiated it).
+  const userScrolledUpRef = useRef(false); // Set to true when user manually scrolls up during streaming
+
+  // Detect scroll position on the ScrollArea viewport
   useEffect(() => {
-    // Use requestAnimationFrame to batch with React rendering
+    const scrollAreaEl = chatScrollAreaRef.current;
+    if (!scrollAreaEl) return;
+    // The actual scrollable viewport is the inner element with data-slot="scroll-area-viewport"
+    const viewport = scrollAreaEl.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = viewport;
+      // Consider "at bottom" if within 80px of the bottom
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 80;
+      isUserAtBottomRef.current = isAtBottom;
+      if (!isAtBottom) {
+        userScrolledUpRef.current = true; // User scrolled up during streaming
+      }
+    };
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, [activeChatId]); // Re-bind when chat changes
+
+  // Auto-scroll effect: only scroll if user is at bottom (or hasn't scrolled up)
+  useEffect(() => {
+    // Only auto-scroll if user is near the bottom
+    if (!isUserAtBottomRef.current && userScrolledUpRef.current) {
+      return; // User scrolled up — don't force them down
+    }
     const rafId = requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
     return () => cancelAnimationFrame(rafId);
   }, [messages, sending, streamingText]);
+
+  // Force scroll to bottom when user sends a new message
+  useEffect(() => {
+    if (sending) {
+      // User just sent a message — always scroll to bottom
+      isUserAtBottomRef.current = true;
+      userScrolledUpRef.current = false;
+      const rafId = requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [sending]);
+
+  // Scroll to bottom when switching chats (initial load)
+  useEffect(() => {
+    if (activeChatId && messages.length > 0) {
+      isUserAtBottomRef.current = true;
+      userScrolledUpRef.current = false;
+      // Use instant scroll for chat switches (no smooth animation)
+      const rafId = requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [activeChatId]);
 
   // ── Auto-release lock on unmount / navigation away ──
   useEffect(() => {
@@ -2371,6 +2428,7 @@ export default function AgentChatPage() {
               onCancelWaiting={handleCancelWaiting}
               streamingText={streamingText}
               isNvidiaStreaming={isNvidiaStreaming}
+              chatScrollAreaRef={chatScrollAreaRef}
             />
           </TabsContent>
 
@@ -2699,6 +2757,7 @@ export default function AgentChatPage() {
           onCancelWaiting={handleCancelWaiting}
           streamingText={streamingText}
           isNvidiaStreaming={isNvidiaStreaming}
+          chatScrollAreaRef={chatScrollAreaRef}
         />
       </div>
 
@@ -3260,6 +3319,7 @@ function ChatArea({
   onCancelWaiting,
   streamingText,
   isNvidiaStreaming,
+  chatScrollAreaRef,
 }: {
   messages: ChatMessage[];
   sending: boolean;
@@ -3298,10 +3358,34 @@ function ChatArea({
   onCancelWaiting: () => void;
   streamingText?: string;
   isNvidiaStreaming?: boolean;
+  chatScrollAreaRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const [bottomTodoMinimized, setBottomTodoMinimized] = useState(false);
+
+  // Track scroll position to show/hide "scroll to bottom" button
+  useEffect(() => {
+    const scrollAreaEl = chatScrollAreaRef.current;
+    if (!scrollAreaEl) return;
+    const viewport = scrollAreaEl.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = viewport;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 80;
+      setShowScrollToBottom(!isAtBottom);
+    };
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollToBottom(false);
+  };
 
   const toggleMsgSteps = (msgId: string) => {
     setExpandedMsgSteps((prev) => {
@@ -3370,7 +3454,7 @@ function ChatArea({
         </div>
       )}
       {/* Messages */}
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea ref={chatScrollAreaRef} className="flex-1 min-h-0">
         {messagesLoading ? (
           <div className="p-6 space-y-4 max-w-3xl mx-auto">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -3863,6 +3947,17 @@ function ChatArea({
           </div>
         )}
       </ScrollArea>
+
+      {/* Scroll to bottom button - appears when user scrolls up */}
+      {showScrollToBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-background/90 border border-border shadow-lg text-xs font-medium text-foreground hover:bg-background transition-colors backdrop-blur-sm"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          Scroll to bottom
+        </button>
+      )}
 
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
       {/* z.ai-style minimal TODO panel at chat bottom */}
