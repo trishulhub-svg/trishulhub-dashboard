@@ -384,6 +384,7 @@ export default function AgentChatPage() {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const directMessageRef = useRef<string | null>(null); // For sending messages programmatically (e.g., TODO activation)
+  const skipDuplicateUserMsgRef = useRef<boolean>(false); // Skip creating duplicate user message on retry
   const activeTodoIdRef = useRef<string | null>(null); // Track which TODO item is being activated
 
   // ── Parsed role config ──
@@ -1077,6 +1078,11 @@ export default function AgentChatPage() {
     setInput("");
     setAttachedFiles([]);
 
+    // Check if this is a retry - if so, DON'T add duplicate user message to chat
+    const isRetry = skipDuplicateUserMsgRef.current;
+    skipDuplicateUserMsgRef.current = false;
+
+    // Always create the tempUserMsg for ID reference, but only add to chat if not retry
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
       chatId: activeChatId || "",
@@ -1085,7 +1091,9 @@ export default function AgentChatPage() {
       createdAt: new Date().toISOString(),
       metadata: currentAttachments.length > 0 ? JSON.stringify({ attachments: currentAttachments.map(f => ({ name: f.name, type: f.isImage ? "image" : "file", stored: false })) }) : undefined,
     };
-    setMessages((prev) => [...prev, tempUserMsg]);
+    if (!isRetry) {
+      setMessages((prev) => [...prev, tempUserMsg]);
+    }
     setSending(true);
 
     // Use agentic endpoint for agents with agentic feature enabled
@@ -1834,9 +1842,12 @@ export default function AgentChatPage() {
     }));
     setLastFailedPrompt(null);
     setFailedMsgId(null);
-    // Auto-send the retry prompt directly instead of just filling the input
+    // Auto-send the retry prompt directly WITHOUT creating a duplicate user message
+    // The original user message is already in chat, we just need to re-trigger the API call
     directMessageRef.current = prompt;
     setInput(""); // Clear input
+    // Use a flag to skip adding duplicate user message
+    skipDuplicateUserMsgRef.current = true;
     // Trigger send after a tick to let state settle
     setTimeout(() => {
       handleSend();

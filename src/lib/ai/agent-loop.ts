@@ -426,7 +426,11 @@ async function callZaiWithTools(
 
       // FIX: When content is null/empty but thinking/reasoning content exists,
       // use it as the main content (some models put response in thinking_content)
+      // Also handle the case where content is empty string but has no useful content
       let effectiveContent = message?.content || null
+      if (effectiveContent && effectiveContent.trim() === '') {
+        effectiveContent = null // Treat empty/whitespace-only content as null
+      }
       if (!effectiveContent && thinkingContent) {
         effectiveContent = thinkingContent
         thinkingContent = null // Don't double-count it
@@ -511,14 +515,25 @@ async function callNvidiaWithTools(
     const body = buildBody(useNoThinking)
 
     try {
-      const response = await fetch(NVIDIA_API_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      })
+      // Add timeout for NVIDIA API calls (can hang indefinitely)
+      const NVIDIA_TIMEOUT_MS = 120000 // 2 minutes max per API call
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), NVIDIA_TIMEOUT_MS)
+
+      let response: Response
+      try {
+        response = await fetch(NVIDIA_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -561,7 +576,11 @@ async function callNvidiaWithTools(
       // FIX: When content is null/empty but reasoning_content exists,
       // use reasoning_content as the main content (NVIDIA GLM-5.1 with enable_thinking
       // often puts the actual response in reasoning_content while content is null)
+      // Also handle the case where content is empty string (not null) but has no useful content
       let effectiveContent = message?.content || null
+      if (effectiveContent && effectiveContent.trim() === '') {
+        effectiveContent = null // Treat empty/whitespace-only content as null
+      }
       if (!effectiveContent && thinkingContent) {
         effectiveContent = thinkingContent
         thinkingContent = null // Don't double-count it
@@ -615,7 +634,14 @@ async function callNvidiaWithTools(
       }
     } catch (err: any) {
       lastError = err
-      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout"))) {
+      // Handle abort/timeout errors
+      if (err.name === 'AbortError') {
+        lastError = new Error(`NVIDIA API timeout (request took > 2 minutes)`)
+        console.warn(`[nvidia-agent] Request timed out on attempt ${attempt}`)
+        if (attempt < MAX_RETRIES) continue
+        throw lastError
+      }
+      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout") || err.message.includes("abort"))) {
         continue
       }
       throw err
@@ -690,6 +716,7 @@ export async function runAgentLoop(
   // or we hit the max step limit
   for (let iteration = 0; iteration < maxSteps; iteration++) {
     stepCount++
+    console.log(`[agent-loop] Iteration ${iteration + 1}/${maxSteps} (provider: ${providerName}, model: ${model})`)
 
     try {
       const result = useNvidia
@@ -967,11 +994,18 @@ export async function runAgentLoop(
         if (stepCount <= 2) {
           // Early 500 error — try once more without thinking mode
           try {
-            const retryResult = await callZaiWithTools(messages, model, apiKey, tools, {
-              maxTokens: options?.maxTokens || 8192,
-              temperature: 0.5,
-              disableThinking: true,
-            })
+            // Use the correct provider for retry (was hardcoded to Z.ai, should match the current provider)
+            const retryResult = useNvidia
+              ? await callNvidiaWithTools(messages, model, apiKey, tools, {
+                  maxTokens: options?.maxTokens || 8192,
+                  temperature: 0.5,
+                  disableThinking: true,
+                })
+              : await callZaiWithTools(messages, model, apiKey, tools, {
+                  maxTokens: options?.maxTokens || 8192,
+                  temperature: 0.5,
+                  disableThinking: true,
+                })
             
             totalInputTokens += retryResult.inputTokens
             totalOutputTokens += retryResult.outputTokens
