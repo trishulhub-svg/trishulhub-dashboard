@@ -49,8 +49,8 @@ export default function AgentChatError({
   let actionSuggestion = "";
 
   if (isAPIKeyError) {
-    helpText = "The Z.ai API key is missing or invalid. The DEV agent requires a Z.ai API key to function.";
-    actionSuggestion = "Go to Dashboard > API Keys and add a valid Z.ai API key.";
+    helpText = "The API key is missing or invalid. This agent requires an API key (Z.ai, NVIDIA, or OpenRouter) to function.";
+    actionSuggestion = "Go to Dashboard > API Keys and add a valid API key.";
   } else if (isRateLimit) {
     helpText = "The AI model is currently busy (rate limited). This is temporary and your data is safe.";
     actionSuggestion = "Wait 30-60 seconds and try again.";

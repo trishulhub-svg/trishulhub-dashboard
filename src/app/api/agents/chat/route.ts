@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { callAIWithFailover, AllKeysExhaustedError, APIKeyExhaustedError, APIKeyInvalidError, getModelForProvider, getVisionModel, translateZaiError } from "@/lib/ai/openrouter"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +16,38 @@ export async function POST(req: NextRequest) {
     const { agentId, message, chatId, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
+    }
+
+    // Rate limiting for non-agentic chat
+    const { success: rateLimitOk } = rateLimit(
+      `chat:${userId}:${agentId}`,
+      RATE_LIMITS.chat.limit,
+      RATE_LIMITS.chat.windowMs
+    )
+    if (!rateLimitOk) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment before trying again." },
+        { status: 429 }
+      )
+    }
+
+    // Validate file attachment limits
+    const MAX_FILES = 5
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+    if (fileUrls && Array.isArray(fileUrls)) {
+      if (fileUrls.length > MAX_FILES) {
+        return NextResponse.json({ error: `Maximum ${MAX_FILES} files allowed per message` }, { status: 400 })
+      }
+      for (let i = 0; i < fileUrls.length; i++) {
+        const url = fileUrls[i]
+        if (url && url.startsWith("data:")) {
+          const base64Part = url.split(",")[1] || ""
+          const fileSize = Buffer.byteLength(base64Part, "base64")
+          if (fileSize > MAX_FILE_SIZE) {
+            return NextResponse.json({ error: `File ${i + 1} exceeds maximum size of 5MB` }, { status: 400 })
+          }
+        }
+      }
     }
 
     // Check user has access to this agent
@@ -115,9 +148,82 @@ export async function POST(req: NextRequest) {
       }
     })
 
+    // ── Environment Variable Fallback ──
+    // If no NVIDIA keys in DB but NVIDIA_API_KEY is set in env, create a synthetic key entry
+    const nvidiaEnvKey = process.env.NVIDIA_API_KEY
+    if (nvidiaEnvKey && nvidiaEnvKey.trim() !== "") {
+      const hasNvidiaKeyInDb = eligibleKeys.some(k => k.provider === "NVIDIA")
+      if (!hasNvidiaKeyInDb) {
+        console.log("[chat] No NVIDIA key in DB, using NVIDIA_API_KEY from environment as primary")
+        eligibleKeys.unshift({
+          id: "env-nvidia-key",
+          provider: "NVIDIA",
+          keyName: "NVIDIA API Key (from env)",
+          keyValue: nvidiaEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 0,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      } else {
+        eligibleKeys.push({
+          id: "env-nvidia-key-fallback",
+          provider: "NVIDIA",
+          keyName: "NVIDIA API Key (from env, fallback)",
+          keyValue: nvidiaEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 999,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      }
+    }
+
+    // Also add ZAI_API_KEY env fallback
+    const zaiEnvKey = process.env.ZAI_API_KEY
+    if (zaiEnvKey && zaiEnvKey.trim() !== "") {
+      const hasZaiKeyInDb = eligibleKeys.some(k => k.provider === "ZAI")
+      if (!hasZaiKeyInDb) {
+        console.log("[chat] No Z.ai key in DB, using ZAI_API_KEY from environment as primary")
+        eligibleKeys.unshift({
+          id: "env-zai-key",
+          provider: "ZAI",
+          keyName: "Z.ai API Key (from env)",
+          keyValue: zaiEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 0,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      } else {
+        eligibleKeys.push({
+          id: "env-zai-key-fallback",
+          provider: "ZAI",
+          keyName: "Z.ai API Key (from env, fallback)",
+          keyValue: zaiEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 999,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      }
+    }
+
     if (eligibleKeys.length === 0) {
       return NextResponse.json({
-        error: "No active API key available. Please add a valid API key in API Keys page. If your key shows EXHAUSTED, add balance or add another provider's key as backup.",
+        error: "No active API key available. Please add a valid API key in API Keys page, or set NVIDIA_API_KEY or ZAI_API_KEY in your .env file.",
         chatId: chat.id,
         hint: "Go to Dashboard > API Keys > Add Key. You can add keys from Z.ai, OpenRouter, or Google AI.",
       }, { status: 400 })
@@ -160,8 +266,8 @@ export async function POST(req: NextRequest) {
 
     const model = hasFiles ? getVisionModel(agent.model) : agent.model
 
-    // Update agent status
-    await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
+    // Mark chat as processing (persists across navigation)
+    await db.chat.update({ where: { id: chat.id }, data: { isProcessing: true } }).catch(() => {})
 
     try {
       // ━━ Call AI with automatic key failover ━━
@@ -271,8 +377,8 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Update agent status
-      await db.agent.update({ where: { id: agentId }, data: { status: "IDLE" } })
+      // Mark chat as no longer processing
+      await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
       // Check for inter-agent automation triggers
       await checkAutomationTriggers(agent, message, result.content, chat.id)
@@ -289,6 +395,9 @@ export async function POST(req: NextRequest) {
         approvalId,
       })
     } catch (apiError: any) {
+      // Mark chat as no longer processing on error
+      await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+      // Keep agent ERROR status for visibility
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
 
       // Handle specific error types

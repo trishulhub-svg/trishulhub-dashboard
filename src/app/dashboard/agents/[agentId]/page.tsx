@@ -1562,9 +1562,28 @@ export default function AgentChatPage() {
                 // ── Auto-generate TODO items from live tool calls ──
                 // When the agent uses tools like write_file, edit_file, etc., auto-create
                 // TODO items so the user sees a progress list in real-time at the bottom
-                const CODE_TOOLS = ['write_file', 'edit_file', 'read_file', 'list_files', 'run_command', 'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code', 'web_search'];
+                // ALL agent tools that should generate auto-TODO items (not just Dev tools)
+                const ALL_AGENT_TOOLS = [
+                  // Dev Agent tools
+                  'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
+                  'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code',
+                  // Client Hunter tools
+                  'search_leads', 'analyze_website', 'score_lead', 'draft_email', 'plan_outreach_campaign',
+                  // Finance tools
+                  'calculate_estimate', 'generate_quotation', 'generate_invoice', 'research_market_pricing', 'calculate_roi',
+                  // Project Manager tools
+                  'break_down_project', 'create_timeline', 'assess_risks', 'plan_sprint', 'estimate_effort',
+                  // HR tools
+                  'analyze_workload', 'find_best_fit', 'plan_onboarding', 'assess_leave_conflicts',
+                  // Content tools
+                  'research_trends', 'analyze_seo', 'draft_content', 'create_content_calendar', 'research_competitors',
+                  // Support tools
+                  'troubleshoot_issue', 'search_knowledge_base', 'draft_client_response', 'create_kb_article', 'assess_escalation',
+                  // Shared tools
+                  'web_search', 'plan_task',
+                ];
 
-                if (step.type === "tool_call" && step.toolName && CODE_TOOLS.includes(step.toolName)) {
+                if (step.type === "tool_call" && step.toolName && ALL_AGENT_TOOLS.includes(step.toolName)) {
                   // Only auto-generate if we don't already have plan_task-based TODOs
                   if (collectedTodoItems.length === 0) {
                     autoTodoCounterRef.current += 1;
@@ -1619,6 +1638,133 @@ export default function AgentChatPage() {
                         title = `Search: ${(args.query || '').substring(0, 30)}`;
                         description = args.purpose || 'Searching the web';
                         break;
+                      // ── Client Hunter tools ──
+                      case 'search_leads':
+                        title = `Find leads: ${(args.location || args.industry || '').substring(0, 30)}`;
+                        description = args.criteria || `Searching for ${args.industry || 'clients'} in ${args.location || 'target area'}`;
+                        break;
+                      case 'analyze_website':
+                        title = `Analyze: ${(args.url || '').substring(0, 30)}`;
+                        description = `Reviewing website for ${args.business_name || 'business'}`;
+                        break;
+                      case 'score_lead':
+                        title = `Score: ${(args.business_name || 'lead').substring(0, 25)}`;
+                        description = `${args.business_type || 'Business'} — ${args.website_status || 'unknown status'}`;
+                        break;
+                      case 'draft_email':
+                        title = `Draft email: ${(args.recipient_business || '').substring(0, 25)}`;
+                        description = `${args.email_type || 'Email'} — ${args.pain_point || 'outreach'}`;
+                        break;
+                      case 'plan_outreach_campaign':
+                        title = `Campaign: ${(args.target_industry || '').substring(0, 25)}`;
+                        description = `${args.num_leads || 0} leads, ${args.duration_days || 14} days`;
+                        break;
+                      // ── Finance tools ──
+                      case 'calculate_estimate':
+                        title = `Estimate: ${(args.project_type || 'project').substring(0, 25)}`;
+                        description = `Complexity: ${args.complexity || 'moderate'}`;
+                        break;
+                      case 'generate_quotation':
+                        title = `Quotation: ${(args.client_name || '').substring(0, 25)}`;
+                        description = args.project_title || 'Preparing quotation';
+                        break;
+                      case 'generate_invoice':
+                        title = `Invoice: ${(args.client_name || '').substring(0, 25)}`;
+                        description = args.invoice_number || 'Generating invoice';
+                        break;
+                      case 'research_market_pricing':
+                        title = `Pricing: ${(args.service_type || '').substring(0, 25)}`;
+                        description = `Region: ${args.region || 'UK'}`;
+                        break;
+                      case 'calculate_roi':
+                        title = `ROI: ${args.calculation_type || 'analysis'}`;
+                        description = `Revenue: ${args.revenue || 0}, Costs: ${args.costs || 0}`;
+                        break;
+                      // ── Project Manager tools ──
+                      case 'break_down_project':
+                        title = `Break down: ${(args.project_name || '').substring(0, 25)}`;
+                        description = args.requirements?.substring(0, 50) || 'Decomposing project';
+                        break;
+                      case 'create_timeline':
+                        title = `Timeline: ${(args.project_name || '').substring(0, 25)}`;
+                        description = `${(args.phases || []).length} phases planned`;
+                        break;
+                      case 'assess_risks':
+                        title = `Risks: ${(args.project_name || '').substring(0, 25)}`;
+                        description = args.known_concerns?.substring(0, 50) || 'Assessing risks';
+                        break;
+                      case 'plan_sprint':
+                        title = `Sprint: ${(args.sprint_goal || '').substring(0, 25)}`;
+                        description = `${args.sprint_duration_weeks || 2} weeks, ${args.team_size || 'team'} members`;
+                        break;
+                      case 'estimate_effort':
+                        title = `Effort: ${(args.tasks || []).length} tasks`;
+                        description = `Rate: ${args.hourly_rate ? `£${args.hourly_rate}/hr` : 'standard'}`;
+                        break;
+                      // ── HR tools ──
+                      case 'analyze_workload':
+                        title = `Workload: ${(args.team_members || []).length} members`;
+                        description = 'Analyzing workload distribution';
+                        break;
+                      case 'find_best_fit':
+                        title = `Match: ${(args.task_description || '').substring(0, 25)}`;
+                        description = `Skills: ${(args.required_skills || []).join(', ')}`;
+                        break;
+                      case 'plan_onboarding':
+                        title = `Onboard: ${(args.role || '').substring(0, 25)}`;
+                        description = args.department || 'Planning onboarding';
+                        break;
+                      case 'assess_leave_conflicts':
+                        title = `Leave: ${(args.leave_requests || []).length} requests`;
+                        description = `Projects: ${(args.active_projects || []).join(', ') || 'none'}`;
+                        break;
+                      // ── Content tools ──
+                      case 'research_trends':
+                        title = `Trends: ${(args.topic || '').substring(0, 25)}`;
+                        description = `${args.platform || 'all'} — ${args.region || 'global'}`;
+                        break;
+                      case 'analyze_seo':
+                        title = `SEO: ${(args.topic || '').substring(0, 25)}`;
+                        description = `${args.content_type || 'content'} — ${args.target_audience || ''}`;
+                        break;
+                      case 'draft_content':
+                        title = `Draft: ${(args.title || '').substring(0, 25)}`;
+                        description = `${args.content_type || 'content'} for ${args.platform || 'platform'}`;
+                        break;
+                      case 'create_content_calendar':
+                        title = `Calendar: ${args.duration_weeks || 0} weeks`;
+                        description = `${(args.content_themes || []).join(', ')}`;
+                        break;
+                      case 'research_competitors':
+                        title = `Competitors: ${(args.our_niche || '').substring(0, 25)}`;
+                        description = `${(args.competitors || []).join(', ') || 'researching'}`;
+                        break;
+                      // ── Support tools ──
+                      case 'troubleshoot_issue':
+                        title = `Fix: ${(args.issue_description || '').substring(0, 25)}`;
+                        description = `${args.platform || 'system'} — ${args.severity || 'medium'} severity`;
+                        break;
+                      case 'search_knowledge_base':
+                        title = `KB: ${(args.query || '').substring(0, 25)}`;
+                        description = args.category || 'Searching knowledge base';
+                        break;
+                      case 'draft_client_response':
+                        title = `Reply: ${(args.client_name || '').substring(0, 25)}`;
+                        description = args.tone || 'helpful response';
+                        break;
+                      case 'create_kb_article':
+                        title = `Article: ${(args.title || '').substring(0, 25)}`;
+                        description = `${(args.solution_steps || []).length} steps`;
+                        break;
+                      case 'assess_escalation':
+                        title = `Escalate: ${(args.issue_description || '').substring(0, 25)}`;
+                        description = `Impact: ${args.client_impact || 'unknown'}`;
+                        break;
+                      // ── Shared tools ──
+                      case 'plan_task':
+                        title = `Plan: ${(args.task || '').substring(0, 25)}`;
+                        description = `${(args.steps || []).length} steps planned`;
+                        break;
                       default:
                         title = step.toolName;
                         description = step.content || '';
@@ -1646,6 +1792,96 @@ export default function AgentChatPage() {
                       case 'git_commit_push':
                         autoPrompt = `Git commit and push: ${args.message || ''}`;
                         break;
+                      case 'search_leads':
+                        autoPrompt = `Search for leads in ${args.location || 'area'} — ${args.industry || 'all industries'}`;
+                        break;
+                      case 'analyze_website':
+                        autoPrompt = `Analyze website ${args.url || ''}`;
+                        break;
+                      case 'score_lead':
+                        autoPrompt = `Score lead: ${args.business_name || 'unknown'}`;
+                        break;
+                      case 'draft_email':
+                        autoPrompt = `Draft ${args.email_type || 'email'} for ${args.recipient_business || 'client'}`;
+                        break;
+                      case 'calculate_estimate':
+                        autoPrompt = `Calculate estimate for ${args.project_type || 'project'}`;
+                        break;
+                      case 'generate_quotation':
+                        autoPrompt = `Generate quotation for ${args.client_name || 'client'}`;
+                        break;
+                      case 'generate_invoice':
+                        autoPrompt = `Generate invoice for ${args.client_name || 'client'}`;
+                        break;
+                      case 'research_market_pricing':
+                        autoPrompt = `Research pricing for ${args.service_type || 'services'}`;
+                        break;
+                      case 'calculate_roi':
+                        autoPrompt = `Calculate ${args.calculation_type || 'ROI'}`;
+                        break;
+                      case 'break_down_project':
+                        autoPrompt = `Break down project: ${args.project_name || ''}`;
+                        break;
+                      case 'create_timeline':
+                        autoPrompt = `Create timeline for ${args.project_name || ''}`;
+                        break;
+                      case 'assess_risks':
+                        autoPrompt = `Assess risks for ${args.project_name || ''}`;
+                        break;
+                      case 'plan_sprint':
+                        autoPrompt = `Plan sprint: ${args.sprint_goal || ''}`;
+                        break;
+                      case 'estimate_effort':
+                        autoPrompt = `Estimate effort for tasks`;
+                        break;
+                      case 'analyze_workload':
+                        autoPrompt = `Analyze team workload`;
+                        break;
+                      case 'find_best_fit':
+                        autoPrompt = `Find best fit for: ${args.task_description || ''}`;
+                        break;
+                      case 'plan_onboarding':
+                        autoPrompt = `Plan onboarding for ${args.role || 'new member'}`;
+                        break;
+                      case 'assess_leave_conflicts':
+                        autoPrompt = `Assess leave conflicts`;
+                        break;
+                      case 'research_trends':
+                        autoPrompt = `Research trends: ${args.topic || ''}`;
+                        break;
+                      case 'analyze_seo':
+                        autoPrompt = `Analyze SEO for ${args.topic || ''}`;
+                        break;
+                      case 'draft_content':
+                        autoPrompt = `Draft ${args.content_type || 'content'}: ${args.title || ''}`;
+                        break;
+                      case 'create_content_calendar':
+                        autoPrompt = `Create content calendar`;
+                        break;
+                      case 'research_competitors':
+                        autoPrompt = `Research competitors in ${args.our_niche || ''}`;
+                        break;
+                      case 'troubleshoot_issue':
+                        autoPrompt = `Troubleshoot: ${args.issue_description || ''}`;
+                        break;
+                      case 'search_knowledge_base':
+                        autoPrompt = `Search KB: ${args.query || ''}`;
+                        break;
+                      case 'draft_client_response':
+                        autoPrompt = `Draft response for ${args.client_name || ''}`;
+                        break;
+                      case 'create_kb_article':
+                        autoPrompt = `Create KB article: ${args.title || ''}`;
+                        break;
+                      case 'assess_escalation':
+                        autoPrompt = `Assess escalation: ${args.issue_description || ''}`;
+                        break;
+                      case 'plan_task':
+                        autoPrompt = `Plan task: ${args.task || ''}`;
+                        break;
+                      case 'web_search':
+                        autoPrompt = `Search web: ${args.query || ''}`;
+                        break;
                       default:
                         autoPrompt = `${step.toolName}: ${title}`;
                     }
@@ -1663,7 +1899,7 @@ export default function AgentChatPage() {
                   }
                 }
 
-                if (step.type === "tool_result" && step.toolName && CODE_TOOLS.includes(step.toolName)) {
+                if (step.type === "tool_result" && step.toolName && ALL_AGENT_TOOLS.includes(step.toolName)) {
                   // Only update auto-generated TODOs if we don't have plan_task-based TODOs
                   if (collectedTodoItems.length === 0) {
                     const success = step.content && !step.content.includes('failed');
@@ -1880,13 +2116,25 @@ export default function AgentChatPage() {
                 });
 
                 // ── Auto-generate TODO items from live tool calls (buffer drain) ──
-                const CODE_TOOLS_BUF = ['write_file', 'edit_file', 'read_file', 'list_files', 'run_command', 'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code', 'web_search'];
-                if (step.type === "tool_call" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                // Use the same ALL_AGENT_TOOLS list as the main loop above
+                const ALL_AGENT_TOOLS_BUF = [
+                  'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
+                  'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code',
+                  'search_leads', 'analyze_website', 'score_lead', 'draft_email', 'plan_outreach_campaign',
+                  'calculate_estimate', 'generate_quotation', 'generate_invoice', 'research_market_pricing', 'calculate_roi',
+                  'break_down_project', 'create_timeline', 'assess_risks', 'plan_sprint', 'estimate_effort',
+                  'analyze_workload', 'find_best_fit', 'plan_onboarding', 'assess_leave_conflicts',
+                  'research_trends', 'analyze_seo', 'draft_content', 'create_content_calendar', 'research_competitors',
+                  'troubleshoot_issue', 'search_knowledge_base', 'draft_client_response', 'create_kb_article', 'assess_escalation',
+                  'web_search', 'plan_task',
+                ];
+                if (step.type === "tool_call" && step.toolName && ALL_AGENT_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
                   autoTodoCounterRef.current += 1;
                   const todoStep = autoTodoCounterRef.current;
                   const args = step.toolArgs || {};
                   let title = step.toolName;
                   let description = '';
+                  // Simplified title generation for buffer drain path (full version is in main loop above)
                   switch (step.toolName) {
                     case 'write_file': title = `Write ${args.path || 'file'}`; description = args.description || ''; break;
                     case 'edit_file': title = `Edit ${args.path || 'file'}`; description = args.description || ''; break;
@@ -1894,18 +2142,46 @@ export default function AgentChatPage() {
                     case 'list_files': title = `List ${args.path || 'project'}`; description = 'Exploring project'; break;
                     case 'run_command': title = `Run: ${(args.command || '').substring(0, 40)}`; description = args.purpose || ''; break;
                     case 'git_commit_push': title = `Git push`; description = args.message || ''; break;
+                    case 'search_leads': title = `Find leads: ${(args.location || args.industry || '').substring(0, 30)}`; description = `Searching for ${args.industry || 'clients'}`; break;
+                    case 'analyze_website': title = `Analyze: ${(args.url || '').substring(0, 30)}`; description = `Reviewing website`; break;
+                    case 'score_lead': title = `Score: ${(args.business_name || 'lead').substring(0, 25)}`; description = `${args.business_type || 'Business'}`; break;
+                    case 'draft_email': title = `Draft email: ${(args.recipient_business || '').substring(0, 25)}`; description = args.email_type || 'Email'; break;
+                    case 'plan_outreach_campaign': title = `Campaign: ${(args.target_industry || '').substring(0, 25)}`; description = `${args.num_leads || 0} leads`; break;
+                    case 'calculate_estimate': title = `Estimate: ${(args.project_type || 'project').substring(0, 25)}`; description = `Complexity: ${args.complexity || 'moderate'}`; break;
+                    case 'generate_quotation': title = `Quotation: ${(args.client_name || '').substring(0, 25)}`; description = args.project_title || ''; break;
+                    case 'generate_invoice': title = `Invoice: ${(args.client_name || '').substring(0, 25)}`; description = args.invoice_number || ''; break;
+                    case 'research_market_pricing': title = `Pricing: ${(args.service_type || '').substring(0, 25)}`; description = `Region: ${args.region || 'UK'}`; break;
+                    case 'calculate_roi': title = `ROI: ${args.calculation_type || 'analysis'}`; description = ''; break;
+                    case 'break_down_project': title = `Break down: ${(args.project_name || '').substring(0, 25)}`; description = 'Decomposing project'; break;
+                    case 'create_timeline': title = `Timeline: ${(args.project_name || '').substring(0, 25)}`; description = ''; break;
+                    case 'assess_risks': title = `Risks: ${(args.project_name || '').substring(0, 25)}`; description = 'Assessing risks'; break;
+                    case 'plan_sprint': title = `Sprint: ${(args.sprint_goal || '').substring(0, 25)}`; description = ''; break;
+                    case 'estimate_effort': title = `Effort: ${(args.tasks || []).length} tasks`; description = ''; break;
+                    case 'analyze_workload': title = `Workload: ${(args.team_members || []).length} members`; description = 'Analyzing workload'; break;
+                    case 'find_best_fit': title = `Match: ${(args.task_description || '').substring(0, 25)}`; description = ''; break;
+                    case 'plan_onboarding': title = `Onboard: ${(args.role || '').substring(0, 25)}`; description = ''; break;
+                    case 'assess_leave_conflicts': title = `Leave: ${(args.leave_requests || []).length} requests`; description = ''; break;
+                    case 'research_trends': title = `Trends: ${(args.topic || '').substring(0, 25)}`; description = ''; break;
+                    case 'analyze_seo': title = `SEO: ${(args.topic || '').substring(0, 25)}`; description = ''; break;
+                    case 'draft_content': title = `Draft: ${(args.title || '').substring(0, 25)}`; description = `${args.content_type || 'content'}`; break;
+                    case 'create_content_calendar': title = `Calendar: ${args.duration_weeks || 0} weeks`; description = ''; break;
+                    case 'research_competitors': title = `Competitors: ${(args.our_niche || '').substring(0, 25)}`; description = ''; break;
+                    case 'troubleshoot_issue': title = `Fix: ${(args.issue_description || '').substring(0, 25)}`; description = `${args.severity || 'medium'} severity`; break;
+                    case 'search_knowledge_base': title = `KB: ${(args.query || '').substring(0, 25)}`; description = args.category || ''; break;
+                    case 'draft_client_response': title = `Reply: ${(args.client_name || '').substring(0, 25)}`; description = ''; break;
+                    case 'create_kb_article': title = `Article: ${(args.title || '').substring(0, 25)}`; description = ''; break;
+                    case 'assess_escalation': title = `Escalate: ${(args.issue_description || '').substring(0, 25)}`; description = `Impact: ${args.client_impact || 'unknown'}`; break;
+                    case 'plan_task': title = `Plan: ${(args.task || '').substring(0, 25)}`; description = `${(args.steps || []).length} steps`; break;
+                    case 'web_search': title = `Search: ${(args.query || '').substring(0, 30)}`; description = args.purpose || ''; break;
                     default: description = step.content || '';
                   }
-                  const bufPrompt = step.toolName === 'write_file' ? `Write file ${args.path || 'unknown'}` :
-                    step.toolName === 'edit_file' ? `Edit file ${args.path || 'unknown'}` :
-                    step.toolName === 'run_command' ? `Run: ${args.command || ''}` :
-                    `${step.toolName}: ${title}`;
+                  const bufPrompt = `${step.toolName}: ${title}`;
                   // FIX: Wrap in startTransition to prevent React error #185
                   startTransition(() => {
                     setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
                   });
                 }
-                if (step.type === "tool_result" && step.toolName && CODE_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                if (step.type === "tool_result" && step.toolName && ALL_AGENT_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
                   const success = step.content && !step.content.includes('failed');
                   // FIX: Wrap in startTransition to prevent React error #185
                   startTransition(() => {
