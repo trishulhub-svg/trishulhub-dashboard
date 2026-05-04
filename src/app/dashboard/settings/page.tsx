@@ -5,7 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
-  Users, UserPlus, Loader2, Pencil, Trash2, Ban, CheckCircle2, XCircle,
+  Users, UserPlus, Loader2, Pencil, Trash2, CheckCircle2, XCircle,
   Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,7 +83,7 @@ function getRelativeTime(dateStr: string): string {
 }
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const { theme, setTheme } = useTheme();
   const [name, setName] = useState(session?.user?.name || "");
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -154,9 +154,16 @@ export default function SettingsPage() {
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
   const [showResetPwd, setShowResetPwd] = useState(false);
   const [showResetPwdConfirm, setShowResetPwdConfirm] = useState(false);
+  const [showEmailChangePassword, setShowEmailChangePassword] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
+
+  // Sync name with session
+  useEffect(() => {
+    if (session?.user?.name) setName(session.user.name);
+  }, [session?.user?.name]);
 
   // ── Fetch Team Members ──
   const fetchTeamMembers = useCallback(async () => {
@@ -167,6 +174,8 @@ export default function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         setTeamMembers(data);
+      } else {
+        toast.error("Failed to load team members");
       }
     } catch (err) {
       console.error("Failed to fetch team members:", err);
@@ -188,6 +197,8 @@ export default function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         setSmtpConfigs(data);
+      } else {
+        toast.error("Failed to load SMTP configurations");
       }
     } catch (err) {
       console.error("Failed to fetch SMTP configs:", err);
@@ -213,6 +224,8 @@ export default function SettingsPage() {
         const data = await res.json();
         setEmailLogs(data.logs || []);
         setEmailLogsTotal(data.total || 0);
+      } else {
+        toast.error("Failed to load email logs");
       }
     } catch (err) {
       console.error("Failed to fetch email logs:", err);
@@ -325,6 +338,7 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       const res = await fetch("/api/team", {
         method: "PATCH",
@@ -332,16 +346,19 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({
           id: (session?.user as any)?.id,
-          name: (session?.user as any)?.name,
+          name: name,
         }),
       });
       if (res.ok) {
         toast.success("Settings saved successfully!");
+        await updateSession();
       } else {
         toast.error("Failed to save settings");
       }
     } catch {
       toast.error("Failed to save settings");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -404,6 +421,9 @@ export default function SettingsPage() {
         setConfirmPassword("");
         setPasswordOtpCode("");
         setPasswordOtpSent(false);
+        setShowCurrentPassword(false);
+        setShowNewPassword(false);
+        setShowConfirmPassword(false);
         // If server requires re-auth (session invalidated after password change),
         // sign out and redirect to login
         if (data.requiresReauth) {
@@ -666,6 +686,8 @@ export default function SettingsPage() {
         setResetPasswordNewPwd("");
         setResetPasswordConfirmPwd("");
         setResetPasswordAction("send_link");
+        setShowResetPwd(false);
+        setShowResetPwdConfirm(false);
       } else {
         toast.error(data.error || "Failed to reset password");
       }
@@ -682,6 +704,8 @@ export default function SettingsPage() {
     setResetPasswordAction("send_link");
     setResetPasswordNewPwd("");
     setResetPasswordConfirmPwd("");
+    setShowResetPwd(false);
+    setShowResetPwdConfirm(false);
     setResetPasswordOpen(true);
   };
 
@@ -736,7 +760,9 @@ export default function SettingsPage() {
             <Label className="text-xs">Role</Label>
             <Badge variant="secondary">{userRole.replace("_", " ")}</Badge>
           </div>
-          <Button size="sm" onClick={handleSave}>Save Changes</Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : "Save Changes"}
+          </Button>
         </CardContent>
       </Card>
 
@@ -845,9 +871,11 @@ export default function SettingsPage() {
                 <Label className="text-xs">OTP Code *</Label>
                 <Input
                   value={passwordOtpCode}
-                  onChange={(e) => setPasswordOtpCode(e.target.value)}
+                  onChange={(e) => setPasswordOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="Enter 6-digit OTP"
                   maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   className="text-center text-2xl tracking-[0.5em] font-mono h-14"
                 />
                 <p className="text-[11px] text-muted-foreground">Check your email inbox. OTP expires in 10 minutes.</p>
@@ -913,6 +941,14 @@ export default function SettingsPage() {
               >
                 <Monitor className="h-4 w-4 mr-2" /> System
               </Button>
+              <Button
+                variant={theme === "bluelight" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("bluelight")}
+                className="flex-1"
+              >
+                <Eye className="h-4 w-4 mr-2" /> Blue Light
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -925,7 +961,7 @@ export default function SettingsPage() {
             <Bell className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Notifications</CardTitle>
           </div>
-          <CardDescription>Configure how you receive notifications</CardDescription>
+          <CardDescription>Configure how you receive notifications <span className="text-[10px] text-muted-foreground">(Coming soon — settings are not yet persisted)</span></CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
@@ -953,7 +989,7 @@ export default function SettingsPage() {
             <Shield className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Agent Configuration</CardTitle>
           </div>
-          <CardDescription>Configure how AI agents operate</CardDescription>
+          <CardDescription>Configure how AI agents operate <span className="text-[10px] text-muted-foreground">(Coming soon — settings are not yet persisted)</span></CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1041,7 +1077,6 @@ export default function SettingsPage() {
                                   <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                                   <SelectItem value="ADMIN">Admin</SelectItem>
                                   <SelectItem value="DEVELOPER">Developer</SelectItem>
-                                  <SelectItem value="CLIENT">Client</SelectItem>
                                 </SelectContent>
                               </Select>
                               <Button
@@ -1418,9 +1453,9 @@ export default function SettingsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                     <SelectItem value="ADMIN">Admin</SelectItem>
                     <SelectItem value="DEVELOPER">Developer</SelectItem>
-                    <SelectItem value="CLIENT">Client</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1489,13 +1524,26 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Current Password *</Label>
-              <Input
-                type="password"
-                value={emailChangePassword}
-                onChange={(e) => setEmailChangePassword(e.target.value)}
-                placeholder="Confirm your current password"
-                disabled={otpSent}
-              />
+              <div className="relative">
+                <Input
+                  type={showEmailChangePassword ? "text" : "password"}
+                  value={emailChangePassword}
+                  onChange={(e) => setEmailChangePassword(e.target.value)}
+                  placeholder="Confirm your current password"
+                  disabled={otpSent}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setShowEmailChangePassword(!showEmailChangePassword)}
+                  tabIndex={-1}
+                >
+                  {showEmailChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
 
             {otpSent && (
@@ -1513,7 +1561,13 @@ export default function SettingsPage() {
             )}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setChangeEmailOpen(false); setOtpSent(false); }}>
+            <Button variant="outline" onClick={() => {
+              setChangeEmailOpen(false);
+              setOtpSent(false);
+              setNewEmailAddress("");
+              setEmailChangePassword("");
+              setOtpCode("");
+            }}>
               Cancel
             </Button>
             {!otpSent ? (

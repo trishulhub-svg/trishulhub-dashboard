@@ -233,6 +233,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
       }
 
+      if (password.length < 8) {
+        return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      }
+
+      // Only SUPER_ADMIN can create other SUPER_ADMIN or ADMIN users
+      if ((role === "SUPER_ADMIN" || role === "ADMIN") && userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Only Super Admins can create Admin or Super Admin users" }, { status: 403 });
+      }
+
       // Check if email already exists
       const existing = await db.user.findUnique({ where: { email } })
       if (existing) {
@@ -338,6 +352,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(access)
     }
 
+    // Authorization: users can only update their own profile unless they're SUPER_ADMIN
+    const sessionUserId = (session.user as any).id;
+    const sessionUserRole = (session.user as any).role;
+    if (id !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden: You can only update your own profile" }, { status: 403 });
+    }
+
     // Update user (SUPER_ADMIN only for role/active changes)
     if (data.role !== undefined || data.isActive !== undefined) {
       const userRole = (session.user as any).role
@@ -363,9 +384,7 @@ export async function PATCH(req: NextRequest) {
     if (data.department) updateData.department = data.department
     if (data.role) updateData.role = data.role
     if (data.isActive !== undefined) updateData.isActive = data.isActive
-    if (data.password) {
-      updateData.password = await bcrypt.hash(data.password, 12)
-    }
+    // Password updates NOT allowed here — use /api/password-change or /api/password-reset
 
     const user = await db.user.update({
       where: { id },
