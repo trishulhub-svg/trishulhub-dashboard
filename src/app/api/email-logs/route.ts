@@ -121,7 +121,7 @@ export async function DELETE(req: NextRequest) {
 
     const result = await (db as any).emailLog.deleteMany({
       where: {
-        createdAt: { lt: cutoffDate },
+        createdAt: { lt: cutoffDate.toISOString() },
       },
     })
 

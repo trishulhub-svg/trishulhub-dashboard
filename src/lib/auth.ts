@@ -158,6 +158,13 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
+        // CRITICAL: Propagate updated name/email from JWT token to session.
+        // NextAuth v4 builds the `session` param from the OLD decoded JWT cookie,
+        // NOT from the updated `token` returned by our JWT callback. Without
+        // explicitly copying these values, profile name/email changes never
+        // appear in the UI until a full page reload or re-login.
+        session.user.name = (token.name as string) ?? session.user.name
+        session.user.email = (token.email as string) ?? session.user.email
         ;(session.user as any).role = token.role
         ;(session.user as any).id = token.id
       }

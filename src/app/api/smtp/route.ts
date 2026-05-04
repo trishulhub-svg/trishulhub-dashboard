@@ -2,28 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isIP } from "net"
-
-// SSRF protection: block private/internal IPs
-function isPrivateHost(host: string): boolean {
-  const cleaned = host.replace(/\[|\]/g, "")
-  const ipVersion = isIP(cleaned)
-  if (ipVersion === 0) {
-    if (cleaned === "localhost" || cleaned.endsWith(".local") || cleaned.endsWith(".internal")) return true
-    return false
-  }
-  if (ipVersion === 4) {
-    const parts = cleaned.split(".").map(Number)
-    const [a, b] = parts
-    if (a === 127 || a === 10 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return true
-    if (a === 169 && b === 254) return true
-  }
-  if (ipVersion === 6) {
-    const lower = cleaned.toLowerCase()
-    if (lower === "::1" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) return true
-  }
-  return false
-}
+import { isPrivateHost } from "@/lib/ssrf"
+import { isValidEmail } from "@/lib/email"
 
 // GET /api/smtp - List SMTP configurations (SUPER_ADMIN only)
 export async function GET() {
@@ -103,6 +83,17 @@ export async function POST(req: NextRequest) {
     // SSRF protection: block private/internal IPs
     if (isPrivateHost(host)) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
+    }
+
+    // Validate fromEmail format
+    if (!isValidEmail(fromEmail)) {
+      return NextResponse.json({ error: "Invalid from email format" }, { status: 400 })
+    }
+
+    // Validate port range
+    const portNum = port || 587
+    if (portNum < 1 || portNum > 65535) {
+      return NextResponse.json({ error: "Port must be between 1 and 65535" }, { status: 400 })
     }
 
     // Limit to 2 SMTP configurations max
@@ -190,6 +181,21 @@ export async function PATCH(req: NextRequest) {
 
     const existing = await db.smtpConfig.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "SMTP config not found" }, { status: 404 })
+
+    // SECURITY: SSRF protection — block private/internal IPs on host update
+    if (host && isPrivateHost(host)) {
+      return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
+    }
+
+    // SECURITY: Validate fromEmail format if provided
+    if (fromEmail && !isValidEmail(fromEmail)) {
+      return NextResponse.json({ error: "Invalid from email format" }, { status: 400 })
+    }
+
+    // SECURITY: Validate port range
+    if (port !== undefined && (port < 1 || port > 65535)) {
+      return NextResponse.json({ error: "Port must be between 1 and 65535" }, { status: 400 })
+    }
 
     // SECURITY: Whitelist allowed fields only
     const data: Record<string, any> = {}

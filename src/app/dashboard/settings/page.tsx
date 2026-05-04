@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
-  Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
+  Settings, User, Bell, Palette, Shield, Bot, Moon, Sun, Monitor,
   Users, UserPlus, Loader2, Pencil, Trash2, CheckCircle2, XCircle,
   Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
 } from "lucide-react";
@@ -98,6 +98,21 @@ function getPasswordStrength(password: string): { label: string; color: string; 
   return { label: "Strong", color: "bg-green-500", width: "100%" };
 }
 
+const roleBadgeColors: Record<string, string> = {
+  SUPER_ADMIN: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  ADMIN: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  DEVELOPER: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  CLIENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+};
+
+const emailTypeLabels: Record<string, string> = {
+  OTP: "OTP",
+  PASSWORD_CHANGE: "Password Change",
+  EMAIL_CHANGE: "Email Change",
+  RESET_LINK: "Reset Link",
+  DIRECT_RESET: "Direct Reset",
+};
+
 export default function SettingsPage() {
   const { data: session, update: updateSession } = useSession();
   const { theme, setTheme } = useTheme();
@@ -179,6 +194,7 @@ export default function SettingsPage() {
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
   // Sync name with session
   useEffect(() => {
@@ -266,6 +282,11 @@ export default function SettingsPage() {
     }
     if (newUserPassword.length < 8) {
       toast.error("Password must be at least 8 characters");
+      return;
+    }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(newUserEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
 
@@ -475,7 +496,7 @@ export default function SettingsPage() {
       return;
     }
     // Client-side email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailRegex.test(newEmailAddress)) {
       toast.error("Please enter a valid email address");
       return;
@@ -524,17 +545,10 @@ export default function SettingsPage() {
         setEmailChangePassword("");
         setOtpCode("");
         setOtpSent(false);
-        // If the server requires re-auth (session invalidated after email change),
-        // sign out and redirect to login
-        if (data.requiresReauth) {
-          setTimeout(() => {
-            signOut({ callbackUrl: "/login?reason=email_changed" });
-          }, 1500);
-        } else {
-          // Session was not invalidated — refresh to reflect new email
-          await updateSession();
-          setTimeout(() => window.location.reload(), 1000);
-        }
+        // API always returns requiresReauth: true (session invalidated)
+        setTimeout(() => {
+          signOut({ callbackUrl: "/login?reason=email_changed" });
+        }, 1500);
       } else {
         toast.error(data.error || "OTP verification failed");
       }
@@ -623,6 +637,7 @@ export default function SettingsPage() {
 
   // ── SMTP: Delete Config ──
   const handleDeleteSmtp = async (id: string) => {
+    // TODO: Replace with Dialog component for better UX
     if (!confirm("Are you sure you want to delete this SMTP configuration? Any emails using this server will fail until a new one is configured.")) return;
     try {
       const res = await fetch(`/api/smtp?id=${id}`, { method: "DELETE", credentials: "include" });
@@ -641,6 +656,7 @@ export default function SettingsPage() {
   // ── SMTP: Edit Config ──
   const handleEditSmtp = (config: any) => {
     setSmtpEditId(config.id);
+    setShowSmtpPassword(false);
     setSmtpForm({
       host: config.host,
       port: config.port,
@@ -656,6 +672,7 @@ export default function SettingsPage() {
 
   // ── Email Logs: Clear Old Logs ──
   const handleClearOldLogs = async () => {
+    // TODO: Replace with Dialog component for better UX
     if (!confirm("Are you sure you want to permanently delete all email logs older than 30 days? This action cannot be undone.")) return;
     setClearingLogs(true);
     try {
@@ -743,20 +760,17 @@ export default function SettingsPage() {
     setResetPasswordOpen(true);
   };
 
-  const roleBadgeColors: Record<string, string> = {
-    SUPER_ADMIN: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-    ADMIN: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
-    DEVELOPER: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-    CLIENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
-  };
-
-  const emailTypeLabels: Record<string, string> = {
-    OTP: "OTP",
-    PASSWORD_CHANGE: "Password Change",
-    EMAIL_CHANGE: "Email Change",
-    RESET_LINK: "Reset Link",
-    DIRECT_RESET: "Direct Reset",
-  };
+  if (!session) {
+    return (
+      <div className="space-y-6 max-w-4xl">
+        <div>
+          <Skeleton className="h-8 w-32 mb-2" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -777,13 +791,13 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+              <Label className="text-xs" htmlFor="profile-name">Name</Label>
+              <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Email</Label>
+              <Label className="text-xs" htmlFor="profile-email">Email</Label>
               <div className="flex gap-2">
-                <Input value={session?.user?.email || ""} disabled className="flex-1" />
+                <Input id="profile-email" value={session?.user?.email || ""} disabled className="flex-1" />
                 <Button size="sm" variant="outline" onClick={() => { setChangeEmailOpen(true); setOtpSent(false); setNewEmailAddress(""); setEmailChangePassword(""); setOtpCode(""); }}>
                   <Mail className="h-4 w-4 mr-1" /> Change
                 </Button>
@@ -792,7 +806,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Label className="text-xs">Role</Label>
-            <Badge variant="secondary" className={roleBadgeColors[userRole] || ""}>{userRole.replace("_", " ")}</Badge>
+            <Badge variant="secondary" className={roleBadgeColors[userRole] || ""}>{userRole.replace(/_/g, " ")}</Badge>
           </div>
           <Button size="sm" onClick={handleSave} disabled={saving || !name.trim() || name === session?.user?.name}>
             {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : "Save Changes"}
@@ -828,7 +842,7 @@ export default function SettingsPage() {
                     size="icon"
                     className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                     onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    tabIndex={-1}
+                    tabIndex={0}
                   >
                     {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -851,7 +865,7 @@ export default function SettingsPage() {
                       size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                       onClick={() => setShowNewPassword(!showNewPassword)}
-                      tabIndex={-1}
+                      tabIndex={0}
                     >
                       {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
@@ -883,7 +897,7 @@ export default function SettingsPage() {
                       size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      tabIndex={-1}
+                      tabIndex={0}
                     >
                       {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
@@ -1023,7 +1037,7 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">Email Notifications</p>
               <p className="text-xs text-muted-foreground">Receive email updates for important events</p>
             </div>
-            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} disabled />
           </div>
           <Separator />
           <div className="flex items-center justify-between">
@@ -1031,7 +1045,7 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">Budget Alerts</p>
               <p className="text-xs text-muted-foreground">Get notified at 50%, 75%, and 90% budget usage</p>
             </div>
-            <Switch checked={budgetAlerts} onCheckedChange={setBudgetAlerts} />
+            <Switch checked={budgetAlerts} onCheckedChange={setBudgetAlerts} disabled />
           </div>
         </CardContent>
       </Card>
@@ -1040,7 +1054,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-muted-foreground" />
+            <Bot className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Agent Configuration</CardTitle>
           </div>
           <CardDescription>Configure how AI agents operate <span className="text-[10px] text-muted-foreground">(Coming soon — settings are not yet persisted)</span></CardDescription>
@@ -1051,12 +1065,23 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">Require Approval</p>
               <p className="text-xs text-muted-foreground">All agent outputs must be approved before being applied</p>
             </div>
-            <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
+            <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} disabled />
           </div>
           <Separator />
           <div className="space-y-1">
             <Label className="text-xs">Auto-downgrade Threshold</Label>
-            <Input type="number" value={autoDowngradeThreshold} onChange={(e) => setAutoDowngradeThreshold(e.target.value)} className="w-24" />
+            <Input
+              type="number"
+              value={autoDowngradeThreshold}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val) && val >= 1 && val <= 100) setAutoDowngradeThreshold(e.target.value);
+              }}
+              min={1}
+              max={100}
+              className="w-24"
+              disabled
+            />
             <p className="text-xs text-muted-foreground">Percentage of budget at which to switch to free models</p>
           </div>
         </CardContent>
@@ -1092,7 +1117,7 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground">No team members found</p>
               </div>
             ) : (
-              <div className="rounded-lg border overflow-hidden">
+              <div className="rounded-lg border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1132,7 +1157,7 @@ export default function SettingsPage() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                                  {isSuperAdmin && <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>}
                                   <SelectItem value="ADMIN">Admin</SelectItem>
                                   <SelectItem value="DEVELOPER">Developer</SelectItem>
                                 </SelectContent>
@@ -1164,13 +1189,13 @@ export default function SettingsPage() {
                               variant="secondary"
                               className={`text-[10px] cursor-pointer ${roleBadgeColors[member.role] || ""}`}
                               onClick={() => {
-                                if (member.role !== "SUPER_ADMIN") {
+                                if (member.role !== "SUPER_ADMIN" && isSuperAdminOnly) {
                                   setEditingUserId(member.id);
                                   setEditRoleValue(member.role);
                                 }
                               }}
                             >
-                              {member.role.replace("_", " ")}
+                              {member.role.replace(/_/g, " ")}
                             </Badge>
                           )}
                         </TableCell>
@@ -1179,7 +1204,7 @@ export default function SettingsPage() {
                             <Switch
                               checked={member.isActive}
                               onCheckedChange={() => handleToggleActive(member.id, member.isActive, member.role)}
-                              disabled={member.role === "SUPER_ADMIN" || togglingUserId === member.id}
+                              disabled={member.role === "SUPER_ADMIN" || togglingUserId === member.id || !isSuperAdminOnly}
                             />
                             <span className={`text-xs ${member.isActive ? "text-green-600" : "text-muted-foreground"}`}>
                               {member.isActive ? "Active" : "Inactive"}
@@ -1187,7 +1212,7 @@ export default function SettingsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {member.role !== "SUPER_ADMIN" && (
+                          {member.role !== "SUPER_ADMIN" && isSuperAdminOnly && (
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 size="icon"
@@ -1237,7 +1262,7 @@ export default function SettingsPage() {
               </div>
               <Button
                 size="sm"
-                onClick={() => { setSmtpEditId(null); setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true }); setSmtpDialogOpen(true); }}
+                onClick={() => { setSmtpEditId(null); setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true }); setShowSmtpPassword(false); setSmtpDialogOpen(true); }}
                 disabled={smtpConfigs.length >= 2}
               >
                 <Plus className="h-4 w-4 mr-1" /> Add SMTP
@@ -1364,7 +1389,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground mt-1">Email activity will appear here when emails are sent</p>
               </div>
             ) : (
-              <div className="rounded-lg border overflow-hidden max-h-96 overflow-y-auto">
+              <div className="rounded-lg border max-h-96 overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1501,7 +1526,7 @@ export default function SettingsPage() {
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => setShowNewUserPassword(!showNewUserPassword)}
-                  tabIndex={-1}
+                  tabIndex={0}
                 >
                   {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -1533,12 +1558,12 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Department</Label>
-                <Select value={newUserDepartment} onValueChange={setNewUserDepartment}>
+                <Select value={newUserDepartment || "NONE"} onValueChange={(val) => setNewUserDepartment(val === "NONE" ? "" : val)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="NONE">None</SelectItem>
                     <SelectItem value="DEV">Development</SelectItem>
                     <SelectItem value="SALES">Sales</SelectItem>
                     <SelectItem value="FINANCE">Finance</SelectItem>
@@ -1571,7 +1596,16 @@ export default function SettingsPage() {
       </Dialog>
 
       {/* Email Change Dialog */}
-      <Dialog open={changeEmailOpen} onOpenChange={setChangeEmailOpen}>
+      <Dialog open={changeEmailOpen} onOpenChange={(open) => {
+          setChangeEmailOpen(open);
+          if (!open) {
+            setOtpSent(false);
+            setNewEmailAddress("");
+            setEmailChangePassword("");
+            setOtpCode("");
+            setShowEmailChangePassword(false);
+          }
+        }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1612,7 +1646,7 @@ export default function SettingsPage() {
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => setShowEmailChangePassword(!showEmailChangePassword)}
-                  tabIndex={-1}
+                  tabIndex={0}
                 >
                   {showEmailChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -1741,7 +1775,7 @@ export default function SettingsPage() {
                     size="icon"
                     className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                     onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                    tabIndex={-1}
+                    tabIndex={0}
                   >
                     {showSmtpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -1889,7 +1923,7 @@ export default function SettingsPage() {
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowResetPwd(!showResetPwd)}
-                        tabIndex={-1}
+                        tabIndex={0}
                       >
                         {showResetPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -1921,7 +1955,7 @@ export default function SettingsPage() {
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowResetPwdConfirm(!showResetPwdConfirm)}
-                        tabIndex={-1}
+                        tabIndex={0}
                       >
                         {showResetPwdConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>

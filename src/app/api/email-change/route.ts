@@ -120,9 +120,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "New email is the same as your current email" }, { status: 400 })
     }
 
-    // Check if new email is already in use
-    const existingUser = await db.user.findUnique({ where: { email: newEmail } })
-    if (existingUser) {
+    // Check if new email is already in use (case-insensitive to prevent duplicates)
+    // Note: Using $queryRaw for case-insensitive comparison since SQLite/Turso
+    // Prisma client doesn't support `mode: "insensitive"` for String filters
+    const existingUsers = await db.$queryRaw<Array<{id: string}>>`
+      SELECT id FROM User WHERE LOWER(email) = LOWER(${newEmail}) LIMIT 1
+    `
+    if (existingUsers.length > 0) {
       return NextResponse.json({ error: "This email is already registered with another account" }, { status: 409 })
     }
 

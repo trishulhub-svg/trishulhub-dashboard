@@ -355,7 +355,14 @@ export async function PATCH(req: NextRequest) {
     // Authorization: users can only update their own profile unless they're SUPER_ADMIN
     const sessionUserId = (session.user as any).id;
     const sessionUserRole = (session.user as any).role;
-    if (id !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
+
+    // SECURITY: For self-profile updates (name only, no role/isActive),
+    // always use the session user's ID — don't trust the body `id`.
+    // This prevents IDOR where an ADMIN could modify another user's name.
+    const isSelfProfileUpdate = !data.role && data.isActive === undefined && !!data.name;
+    const effectiveId = isSelfProfileUpdate ? sessionUserId : id;
+
+    if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden: You can only update your own profile" }, { status: 403 });
     }
 
@@ -380,14 +387,24 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updateData: any = {}
-    if (data.name) updateData.name = data.name
+    if (data.name) {
+      // Validate name: trim, length limit, no control characters
+      const trimmedName = data.name.trim()
+      if (trimmedName.length < 1 || trimmedName.length > 100) {
+        return NextResponse.json({ error: "Name must be between 1 and 100 characters" }, { status: 400 })
+      }
+      if (/[ -]/.test(trimmedName)) {
+        return NextResponse.json({ error: "Name cannot contain control characters" }, { status: 400 })
+      }
+      updateData.name = trimmedName
+    }
     if (data.department) updateData.department = data.department
     if (data.role) updateData.role = data.role
     if (data.isActive !== undefined) updateData.isActive = data.isActive
     // Password updates NOT allowed here — use /api/password-change or /api/password-reset
 
     const user = await db.user.update({
-      where: { id },
+      where: { id: effectiveId },
       data: updateData,
       select: { id: true, name: true, email: true, role: true, department: true, isActive: true },
     })

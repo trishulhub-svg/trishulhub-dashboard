@@ -2,45 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import nodemailer from "nodemailer"
-import { isIP } from "net"
-
-// Check if a host is a private/internal IP (SSRF protection)
-function isPrivateHost(host: string): boolean {
-  // Remove brackets from IPv6 notation
-  const cleaned = host.replace(/\[|\]/g, "")
-
-  // Check if it's an IP address
-  const ipVersion = isIP(cleaned)
-  if (ipVersion === 0) {
-    // It's a domain name, not an IP - check for localhost
-    if (cleaned === "localhost" || cleaned.endsWith(".local") || cleaned.endsWith(".internal")) {
-      return true
-    }
-    return false
-  }
-
-  // IPv4 checks
-  if (ipVersion === 4) {
-    const parts = cleaned.split(".").map(Number)
-    const [a, b] = parts
-    // 127.x.x.x (loopback), 10.x.x.x (private), 172.16-31.x.x (private), 192.168.x.x (private), 0.x.x.x
-    if (a === 127 || a === 10 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-      return true
-    }
-    // 169.254.x.x (link-local / cloud metadata)
-    if (a === 169 && b === 254) return true
-  }
-
-  // IPv6 checks
-  if (ipVersion === 6) {
-    const lower = cleaned.toLowerCase()
-    if (lower === "::1" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) {
-      return true
-    }
-  }
-
-  return false
-}
+import { isPrivateHost } from "@/lib/ssrf"
 
 // POST /api/smtp/test - Test SMTP connection (SUPER_ADMIN only)
 export async function POST(req: NextRequest) {

@@ -176,6 +176,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
+    // SECURITY: Basic password complexity (at least one letter and one number)
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+    }
+
     // Rate limit: max 10 OTP verification attempts per user in 10 minutes
     if (!checkRateLimit(otpVerifyAttempts, `pw-otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many verification attempts. Please request a new OTP." }, { status: 429 })
@@ -219,6 +224,16 @@ export async function PUT(req: NextRequest) {
       where: { id: verification.id },
       data: { verified: true },
     })
+
+    // SECURITY: Check that new password is different from current password
+    // (must be done after fetching user record)
+    const currentUser = await db.user.findUnique({ where: { id: userId } })
+    if (currentUser) {
+      const passwordSame = await bcrypt.default.compare(newPassword, currentUser.password)
+      if (passwordSame) {
+        return NextResponse.json({ error: "New password must be different from your current password" }, { status: 400 })
+      }
+    }
 
     // Update the user's password
     const hashedPassword = await bcrypt.default.hash(newPassword, 12)
