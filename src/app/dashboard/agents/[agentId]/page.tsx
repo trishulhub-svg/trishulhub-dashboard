@@ -394,6 +394,18 @@ export default function AgentChatPage() {
   const chatScrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the ScrollArea container to find viewport
   const abortControllerRef = useRef<AbortController | null>(null); // AbortController for SSE stream — allows cancelling the stream on chat switch/delete/end
 
+  // CRITICAL FIX: activeChatIdRef tracks the current activeChatId in a ref so async callbacks
+  // (SSE stream loop, polling, setTimeout) can check if the user has switched chats without
+  // suffering from stale closures. Without this, the old stream's while(true) loop keeps
+  // running with the OLD activeChatId value, never detecting the chat switch.
+  const activeChatIdRef = useRef<string | null>(null);
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+
+  // CRITICAL FIX: Track animation timeouts so we can cancel them when chats switch/delete.
+  // Without this, a 300ms setTimeout from the old chat's finally block can fire and
+  // overwrite the new chat's isAgentic/liveSteps state.
+  const animationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
     () => parseJSONSafe(agent?.roleConfig?.quickActions, []),
@@ -566,7 +578,13 @@ export default function AgentChatPage() {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    // 3. Reset ALL processing-related state
+    // 3. Cancel any pending animation timeouts (prevents old chat's setTimeout from
+    //    overwriting the new chat's state after 300ms)
+    if (animationTimeoutRef.current) {
+      clearTimeout(animationTimeoutRef.current);
+      animationTimeoutRef.current = null;
+    }
+    // 4. Reset ALL processing-related state
     setSending(false);
     setIsAgentic(false);
     setLiveSteps([]);
@@ -579,11 +597,11 @@ export default function AgentChatPage() {
     setFailedMsgId(null);
     setActivatingStepId(null);
     autoTodoCounterRef.current = 0;
-    // 4. Clear sessionStorage processing marker for the current chat
+    // 5. Clear sessionStorage processing marker for the current chat
     if (activeChatId && !options?.keepChatId) {
       markProcessingEnd(activeChatId);
     }
-    // 5. Clear DB isProcessing flag for the current chat
+    // 6. Clear DB isProcessing flag for the current chat
     if (activeChatId && !options?.keepChatId) {
       fetch("/api/chats", {
         method: "PATCH",
@@ -622,7 +640,8 @@ export default function AgentChatPage() {
     pollingRef.current = setInterval(async () => {
       checkCount++;
       // GUARD: If the user has switched to a different chat, stop polling for this old chat
-      if (activeChatId !== cId) {
+      // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+      if (activeChatIdRef.current !== cId) {
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
@@ -649,7 +668,8 @@ export default function AgentChatPage() {
         const msgs = (data.messages || data) as ChatMessage[];
 
         // GUARD: Only update messages if we're still on the same chat
-        if (activeChatId === cId) {
+        // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+        if (activeChatIdRef.current === cId) {
           setMessages(msgs);
         }
 
@@ -861,40 +881,52 @@ export default function AgentChatPage() {
   }, [activeChatId]); // Re-bind when chat changes
 
   // Auto-scroll effect: only scroll if user is at bottom (or hasn't scrolled up)
+  // FIX: Use direct viewport.scrollTop manipulation instead of scrollIntoView because
+  // scrollIntoView scrolls ALL scrollable ancestors (including <main> which was a scroll
+  // container), causing the wrong element to scroll. Direct scrollTop targets only the
+  // ScrollArea viewport.
   useEffect(() => {
     // Only auto-scroll if user is near the bottom
     if (!isUserAtBottomRef.current && userScrolledUpRef.current) {
       return; // User scrolled up — don't force them down
     }
-    const rafId = requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
-    return () => cancelAnimationFrame(rafId);
+    const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+    if (viewport) {
+      requestAnimationFrame(() => {
+        viewport.scrollTop = viewport.scrollHeight;
+      });
+    }
   }, [messages, sending, streamingText]);
 
   // Force scroll to bottom when user sends a new message
+  // FIX: Use direct viewport.scrollTop instead of scrollIntoView
   useEffect(() => {
     if (sending) {
       // User just sent a message — always scroll to bottom
       isUserAtBottomRef.current = true;
       userScrolledUpRef.current = false;
-      const rafId = requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
-      return () => cancelAnimationFrame(rafId);
+      const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+      if (viewport) {
+        requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        });
+      }
     }
   }, [sending]);
 
   // Scroll to bottom when switching chats (initial load)
+  // FIX: Use direct viewport.scrollTop instead of scrollIntoView
   useEffect(() => {
     if (activeChatId && messages.length > 0) {
       isUserAtBottomRef.current = true;
       userScrolledUpRef.current = false;
       // Use instant scroll for chat switches (no smooth animation)
-      const rafId = requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      });
-      return () => cancelAnimationFrame(rafId);
+      const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+      if (viewport) {
+        requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        });
+      }
     }
   }, [activeChatId]);
 
@@ -967,6 +999,11 @@ export default function AgentChatPage() {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
+      }
+      // Cancel any pending animation timeouts from the old chat
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+        animationTimeoutRef.current = null;
       }
       // Reset processing state from the old chat (but don't clear DB for old chat yet — just local state)
       setSending(false);
@@ -1137,6 +1174,12 @@ export default function AgentChatPage() {
 
   // ── Create new chat ──
   const createNewChat = useCallback(async () => {
+    // CRITICAL FIX: Always reset processing state before creating a new chat.
+    // Without this, if the user deletes a chat (setting activeChatId=null) and then creates
+    // a new one, selectChat's guard (activeChatId && activeChatId !== chatId) evaluates to
+    // false because activeChatId is null, so no cleanup happens. Any residual state from the
+    // old chat (e.g., from a still-running finally block or setTimeout) persists.
+    resetProcessingState();
     try {
       const res = await fetch("/api/chats", {
         method: "POST",
@@ -1153,7 +1196,7 @@ export default function AgentChatPage() {
     } catch {
       toast.error("Failed to create chat");
     }
-  }, [agentId, fetchChats, selectChat]);
+  }, [agentId, fetchChats, selectChat, resetProcessingState]);
 
   // ── File upload handler ──
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1294,6 +1337,13 @@ export default function AgentChatPage() {
       }).catch(() => {});
     }
 
+    // Track the chat ID for the finally block guard.
+    // This ensures the finally block only clears state for the correct chat.
+    // Must be defined OUTSIDE the try block so the finally block can access it.
+    const finallyChatId = resolvedChatId || activeChatId;
+    // Track the AbortController for cleanup in the finally block
+    let currentStreamAbortController: AbortController | null = null;
+
     try {
       const endpoint = useAgentic ? "/api/agents/agent-chat" : "/api/agents/chat";
 
@@ -1302,6 +1352,7 @@ export default function AgentChatPage() {
         // Create AbortController for this stream — allows cancellation on chat switch/delete/end
         const streamAbortController = new AbortController();
         abortControllerRef.current = streamAbortController;
+        currentStreamAbortController = streamAbortController;
         // Capture the chat ID at the start of the stream to detect chat switches
         const streamChatId = resolvedChatId;
 
@@ -1377,7 +1428,8 @@ export default function AgentChatPage() {
           }
           // GUARD: Check if the user has switched to a different chat
           // If activeChatId changed, stop processing this stream — it's for a different chat now
-          if (activeChatId !== streamChatId && streamChatId !== null) {
+          // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+          if (activeChatIdRef.current !== streamChatId && streamChatId !== null) {
             console.log('[agent-chat] Chat switched during stream — stopping old stream');
             break;
           }
@@ -1853,7 +1905,8 @@ export default function AgentChatPage() {
         // The backend agent loop may have completed successfully even though the SSE
         // stream was interrupted.
         // GUARD: Only proceed if we're still on the same chat (not switched away)
-        if (!finalData && resolvedChatId && activeChatId === streamChatId) {
+        // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+        if (!finalData && resolvedChatId && activeChatIdRef.current === streamChatId) {
           try {
             // Wait a moment for backend to finish saving if it's still running
             await new Promise(r => setTimeout(r, 2000));
@@ -1913,7 +1966,8 @@ export default function AgentChatPage() {
 
         if (finalData) {
           // GUARD: Only write messages if still on the same chat
-          if (activeChatId !== streamChatId && streamChatId !== null) {
+          // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+          if (activeChatIdRef.current !== streamChatId && streamChatId !== null) {
             // User switched chats — don't write the response to the wrong chat
             console.log('[agent-chat] Skipping finalData write — user switched chats');
           } else {
@@ -2033,15 +2087,28 @@ export default function AgentChatPage() {
         },
       ]);
     } finally {
-      setSending(false);
-      // Clear the abort controller ref since stream is done
-      if (abortControllerRef.current) {
+      // CRITICAL FIX: Only clear state if we're still on the same chat.
+      // The old stream's finally block can fire AFTER the user has switched to a new chat,
+      // which would nuke the new chat's sending/isAgentic/abortController state.
+      const stillOnSameChat = activeChatIdRef.current === finallyChatId;
+
+      if (stillOnSameChat) {
+        setSending(false);
+      }
+      // Clear the abort controller ref ONLY if it still belongs to this stream
+      if (abortControllerRef.current === currentStreamAbortController) {
         abortControllerRef.current = null;
       }
       // Delay clearing animation state so message renders first
-      setTimeout(() => {
-        setIsAgentic(false);
-        setLiveSteps([]);
+      // FIX: Track the timeout so it can be cancelled if the user switches chats
+      const timeoutChatId = finallyChatId;
+      animationTimeoutRef.current = setTimeout(() => {
+        // Only clear animation state if we're still on the same chat
+        if (activeChatIdRef.current === timeoutChatId) {
+          setIsAgentic(false);
+          setLiveSteps([]);
+        }
+        animationTimeoutRef.current = null;
       }, 300);
       // Clear processing marker from sessionStorage
       if (resolvedChatId) {
@@ -2054,13 +2121,13 @@ export default function AgentChatPage() {
           body: JSON.stringify({ id: resolvedChatId, isProcessing: false }),
         }).catch(() => {});
       }
-      // Also stop any polling if running
-      if (pollingRef.current) {
+      // Only stop polling if it belongs to this chat
+      if (pollingRef.current && stillOnSameChat) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
       // Mark all plan steps as completed when done
-      if (planSteps.length > 0) {
+      if (stillOnSameChat && planSteps.length > 0) {
         setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
       }
     }
@@ -2129,6 +2196,10 @@ export default function AgentChatPage() {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
+    }
+    if (animationTimeoutRef.current) {
+      clearTimeout(animationTimeoutRef.current);
+      animationTimeoutRef.current = null;
     }
     if (activeChatId) {
       markProcessingEnd(activeChatId);
@@ -2263,6 +2334,11 @@ export default function AgentChatPage() {
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
+        }
+        // Cancel any pending animation timeouts
+        if (animationTimeoutRef.current) {
+          clearTimeout(animationTimeoutRef.current);
+          animationTimeoutRef.current = null;
         }
         // Reset ALL processing-related state
         setSending(false);
@@ -2443,9 +2519,11 @@ export default function AgentChatPage() {
   // ────────────────────────────────────────────────────────────────
 
   // ── Mobile Layout ──
+  // FIX: Changed from h-[calc(100vh-8rem)] to h-[calc(100vh-4rem)] because the dashboard
+  // layout now sets overflow-hidden and p-0 on <main> for agent chat pages.
   if (isMobile) {
     return (
-      <div className="flex flex-col h-[calc(100vh-8rem)]">
+      <div className="flex flex-col h-[calc(100vh-4rem)]">
         {/* Mobile Header */}
         <div className="flex items-center justify-between pb-3 border-b">
           <div className="flex items-center gap-2 min-w-0">
@@ -2715,8 +2793,12 @@ export default function AgentChatPage() {
   }
 
   // ── Desktop Layout ──
+  // FIX: Changed from h-[calc(100vh-8rem)] with -m-4 md:-m-6 to h-[calc(100vh-4rem)]
+  // because the dashboard layout now sets overflow-hidden and p-0 on <main> for agent
+  // chat pages, so we don't need to counteract main's padding with negative margins.
+  // The 4rem accounts for just the header height (h-16 = 4rem).
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-0 -m-4 md:-m-6">
+    <div className="flex h-[calc(100vh-4rem)] gap-0">
       {/* Left Panel: Chat Sidebar */}
       <div
         className={`border-r border-border flex flex-col bg-card transition-all duration-300 shrink-0 ${
@@ -3533,8 +3615,13 @@ function ChatArea({
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // FIX: Use direct viewport.scrollTop instead of scrollIntoView to avoid scrolling
+  // the wrong container (e.g., the <main> element which was a scroll container)
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
     setShowScrollToBottom(false);
   };
 
@@ -4113,7 +4200,7 @@ function ChatArea({
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
       {/* z.ai-style minimal TODO panel at chat bottom */}
       {todoItems.length > 0 && (
-        <div className="border-t border-border/30 bg-card/80 shrink-0">
+        <div className="border-t border-border/30 bg-card/80 shrink-0 max-h-48 overflow-y-auto">
           <div className="px-3 py-1.5">
             {/* Minimal header: label + count + chevron + run next */}
             <button

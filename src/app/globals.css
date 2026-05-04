@@ -180,6 +180,19 @@
   background: oklch(0.4 0.01 0);
 }
 
+/* ScrollArea viewport safety: ensure proper scroll containment.
+ * The Radix ScrollArea Viewport uses height:100% (size-full) which requires
+ * a definite height on the parent Root. In flex layouts, the Root's default
+ * min-height:auto prevents shrinking below content size, which breaks scrolling.
+ * min-height:0 on the viewport ensures it can shrink properly in any layout context.
+ * Do NOT add overflow-y:auto!important here — it would conflict with Radix's
+ * internal overflow management (overflow:scroll when scrollbar enabled,
+ * overflow:hidden when not), breaking scrollbar visibility detection.
+ */
+[data-radix-scroll-area-viewport] {
+  min-height: 0;
+}
+
 /* Blue light filter overlay for images and media - reduces blue light penetration */
 .bluelight img,
 .bluelight video {

@@ -529,7 +529,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 p-5 md:p-8 overflow-auto">{children}</main>
+        {/* CRITICAL FIX: Agent chat pages need overflow-hidden (not overflow-auto) so the chat's
+            internal ScrollArea works. Without this, <main> becomes a competing scroll container
+            that breaks the Radix ScrollArea's viewport scrolling. Also set p-0 for agent chat
+            pages so the chat can fill the entire area without negative margin hacks. */}
+        <main className={cn(
+          "flex-1",
+          pathname?.match(/^\/dashboard\/agents\/[^/]+$/)
+            ? "overflow-hidden p-0"
+            : "p-5 md:p-8 overflow-auto"
+        )}>{children}</main>
       </div>
     </div>
   );
