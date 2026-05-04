@@ -538,9 +538,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Also add ZAI_API_KEY env fallback for non-NVIDIA models
+    // Always add ZAI_API_KEY env fallback (needed as agent loop fallback when NVIDIA direct stream fails)
     const zaiEnvKey = process.env.ZAI_API_KEY
-    if (!isNvidiaModel && zaiEnvKey && zaiEnvKey.trim() !== "") {
+    if (zaiEnvKey && zaiEnvKey.trim() !== "") {
       const hasZaiKeyInDb = eligibleKeys.some(k => k.provider === "ZAI")
       if (!hasZaiKeyInDb) {
         console.log("[agent-chat] No Z.ai key in DB, using ZAI_API_KEY from environment as primary")
@@ -678,13 +678,14 @@ export async function POST(req: NextRequest) {
                 nvidiaSuccess = true
                 success = true
 
-                // If content is empty but reasoning exists, use reasoning as the response
-                // (GLM 5.1 sometimes puts the full response in reasoning_content)
+                // If content is empty, use a safe placeholder — never expose reasoning_content to users
+                // (Security: agent-loop.ts explicitly avoids promoting reasoning to content)
                 let finalContent = streamResult.fullContent
                 if (!finalContent || finalContent.trim() === '') {
                   if (streamResult.fullReasoning) {
-                    // The model put its actual response in reasoning_content
-                    finalContent = streamResult.fullReasoning
+                    // Log for debugging but don't expose reasoning to users
+                    console.log("[agent-chat] NVIDIA stream: content was empty but reasoning exists (length:", streamResult.fullReasoning.length, "). Using placeholder.")
+                    finalContent = "I processed your request but couldn't generate a clear response. Please try rephrasing your question."
                   } else {
                     finalContent = "No response received from Trishul AI."
                   }
@@ -1317,7 +1318,8 @@ export async function POST(req: NextRequest) {
           }
 
           // All keys failed
-          await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+          // Note: Do NOT set agent.status = "ERROR" here — agent status should not be global per-chat
+          // (consistent with NVIDIA direct stream path which also doesn't set it)
           // Clear processing state on error
           await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
@@ -1568,7 +1570,8 @@ export async function POST(req: NextRequest) {
     }
 
     // All keys failed
-    await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+    // Note: Do NOT set agent.status = "ERROR" here — agent status should not be global per-chat
+    // (consistent with NVIDIA direct stream path which also doesn't set it)
     // Clear processing state on error
     await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 

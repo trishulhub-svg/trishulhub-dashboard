@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
 
     // Get or create chat
     let chat
+    const userName = (session.user as any).name || session.user.email || "Unknown"
     if (chatId) {
       chat = await db.chat.findUnique({
         where: { id: chatId },
@@ -92,14 +93,45 @@ export async function POST(req: NextRequest) {
       if (!chat || chat.userId !== userId) {
         return NextResponse.json({ error: "Chat not found" }, { status: 404 })
       }
+
+      // Check if chat is locked by another user
+      if (chat.lockedBy && chat.lockedBy !== userId) {
+        // Admin and Super Admin can bypass locks
+        if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+          return NextResponse.json({
+            error: `${chat.lockedByName || 'Another user'} is currently working on this chat`,
+            lockedBy: chat.lockedBy,
+            lockedByName: chat.lockedByName,
+          }, { status: 423 })
+        }
+      }
+
+      // Auto-release lock if chat is ENDED
+      if (chat.status === "ENDED" && chat.lockedBy) {
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: null, lockedAt: null, lockedByName: null },
+        })
+      }
+
+      // Auto-acquire lock when user sends message to a chat
+      if (!chat.lockedBy) {
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
+        })
+      }
     } else {
-      // Create new chat
+      // Create new chat (already locked by creator)
       chat = await db.chat.create({
         data: {
           agentId,
           userId,
           title: message.substring(0, 50) + (message.length > 50 ? "..." : ""),
           status: "ACTIVE",
+          lockedBy: userId,
+          lockedAt: new Date(),
+          lockedByName: userName,
         },
         include: { messages: true }
       })
@@ -377,8 +409,9 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Mark chat as no longer processing
+      // Mark chat as no longer processing and release lock
       await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+      await db.chat.update({ where: { id: chat.id }, data: { lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
 
       // Check for inter-agent automation triggers
       await checkAutomationTriggers(agent, message, result.content, chat.id)
@@ -395,8 +428,9 @@ export async function POST(req: NextRequest) {
         approvalId,
       })
     } catch (apiError: any) {
-      // Mark chat as no longer processing on error
+      // Mark chat as no longer processing and release lock on error
       await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+      await db.chat.update({ where: { id: chat.id }, data: { lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
       // Keep agent ERROR status for visibility
       await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
 
