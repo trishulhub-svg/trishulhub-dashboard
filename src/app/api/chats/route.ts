@@ -132,6 +132,15 @@ export async function PATCH(req: NextRequest) {
     if (todoItems !== undefined) data.todoItems = typeof todoItems === 'string' ? todoItems : JSON.stringify(todoItems)
     if (isProcessing !== undefined) data.isProcessing = isProcessing
 
+    // CRITICAL FIX: When chat status is set to ENDED, also clear isProcessing and locks
+    // This prevents stale "processing" state from persisting after a chat is ended
+    if (status === "ENDED") {
+      data.isProcessing = false
+      data.lockedBy = null
+      data.lockedAt = null
+      data.lockedByName = null
+    }
+
     const updated = await db.chat.update({
       where: { id },
       data,
@@ -173,6 +182,14 @@ export async function DELETE(req: NextRequest) {
 
     // ADMIN/SUPER_ADMIN can delete directly (any user's chat)
     if (isAdmin) {
+      // CRITICAL FIX: Clear isProcessing before deleting to prevent stale state
+      // If the chat was being processed, this ensures no orphaned processing state
+      if (chat.isProcessing) {
+        await db.chat.update({
+          where: { id },
+          data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
+        }).catch(() => {})
+      }
       await db.chatMessage.deleteMany({ where: { chatId: id } })
       await db.chat.delete({ where: { id } })
       return NextResponse.json({ success: true })
@@ -248,6 +265,13 @@ export async function DELETE(req: NextRequest) {
 
     // SUPER_ADMIN and ADMIN can delete directly
     // Delete all messages first (cascade should handle this, but be safe)
+    // CRITICAL FIX: Clear isProcessing before deleting to prevent stale state
+    if (chat.isProcessing) {
+      await db.chat.update({
+        where: { id },
+        data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
+      }).catch(() => {})
+    }
     await db.chatMessage.deleteMany({ where: { chatId: id } })
     await db.chat.delete({ where: { id } })
 

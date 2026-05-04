@@ -587,8 +587,18 @@ export async function POST(req: NextRequest) {
     // ── STREAMING MODE ──
     if (stream) {
       const encoder = new TextEncoder()
-      const stream = new ReadableStream({
+      // Track if client has disconnected so we can stop processing
+      let clientDisconnected = false
+
+      const readableStream = new ReadableStream({
         async start(controller) {
+          // Listen for client disconnect via req.signal (Next.js provides this)
+          // This helps detect when the user navigates away or closes the tab
+          req.signal.addEventListener('abort', () => {
+            clientDisconnected = true
+            console.log(`[agent-chat] Request aborted — client disconnected from chat ${chat.id}`)
+          }, { once: true })
+
           // Wrap the entire stream body in a try-catch to prevent unhandled errors
           // from crashing the stream without sending a proper error event
           try {
@@ -1310,9 +1320,18 @@ export async function POST(req: NextRequest) {
             }
           }
         },
+        async cancel() {
+          // Client disconnected — clear isProcessing to prevent orphaned state
+          clientDisconnected = true
+          console.log(`[agent-chat] Client disconnected — clearing isProcessing for chat ${chat.id}`)
+          await db.chat.update({
+            where: { id: chat.id },
+            data: { isProcessing: false },
+          }).catch(() => {})
+        },
       })
 
-      return new Response(stream, {
+      return new Response(readableStream, {
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",

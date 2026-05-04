@@ -392,6 +392,7 @@ export default function AgentChatPage() {
   const activeTodoIdRef = useRef<string | null>(null); // Track which TODO item is being activated
   const isUserAtBottomRef = useRef(true); // Track if user is at bottom of chat — true by default so new messages auto-scroll
   const chatScrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the ScrollArea container to find viewport
+  const abortControllerRef = useRef<AbortController | null>(null); // AbortController for SSE stream — allows cancelling the stream on chat switch/delete/end
 
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
@@ -551,6 +552,48 @@ export default function AgentChatPage() {
     } catch {}
   }, [getProcessingKey]);
 
+  // ── Reset ALL processing/streaming state ──
+  // Call this when: ending a chat, deleting a chat, switching chats, or aborting a stream
+  // This ensures no stale state from a previous chat persists into a new one
+  const resetProcessingState = useCallback((options?: { keepChatId?: boolean }) => {
+    // 1. Abort any active SSE stream
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch {}
+      abortControllerRef.current = null;
+    }
+    // 2. Clear polling interval
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    // 3. Reset ALL processing-related state
+    setSending(false);
+    setIsAgentic(false);
+    setLiveSteps([]);
+    setStreamingText("");
+    setIsNvidiaStreaming(false);
+    setAgentSteps([]);
+    setPlanSteps([]);
+    setExpandedSteps(new Set());
+    setLastFailedPrompt(null);
+    setFailedMsgId(null);
+    setActivatingStepId(null);
+    autoTodoCounterRef.current = 0;
+    // 4. Clear sessionStorage processing marker for the current chat
+    if (activeChatId && !options?.keepChatId) {
+      markProcessingEnd(activeChatId);
+    }
+    // 5. Clear DB isProcessing flag for the current chat
+    if (activeChatId && !options?.keepChatId) {
+      fetch("/api/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: activeChatId, isProcessing: false }),
+      }).catch(() => {});
+    }
+  }, [activeChatId, markProcessingEnd]);
+
   const getProcessingInfo = useCallback((cId: string): { chatId: string; agentId: string; startedAt: number; lastMessageCount: number } | null => {
     try {
       const raw = sessionStorage.getItem(getProcessingKey(cId));
@@ -578,6 +621,14 @@ export default function AgentChatPage() {
 
     pollingRef.current = setInterval(async () => {
       checkCount++;
+      // GUARD: If the user has switched to a different chat, stop polling for this old chat
+      if (activeChatId !== cId) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        return;
+      }
       if (checkCount > MAX_CHECKS) {
         // Timeout - stop polling
         setSending(false);
@@ -597,8 +648,10 @@ export default function AgentChatPage() {
         const data = await res.json();
         const msgs = (data.messages || data) as ChatMessage[];
 
-        // Update messages display in real-time
-        setMessages(msgs);
+        // GUARD: Only update messages if we're still on the same chat
+        if (activeChatId === cId) {
+          setMessages(msgs);
+        }
 
         // BUG FIX: Also check isProcessing flag from chat data
         // If backend set isProcessing=false but there's no new assistant message,
@@ -903,6 +956,33 @@ export default function AgentChatPage() {
 
   // ── Select chat ──
   const selectChat = useCallback(async (chatId: string) => {
+    // If switching to a different chat, clean up the old chat's processing state
+    if (activeChatId && activeChatId !== chatId) {
+      // Abort any active SSE stream from the previous chat
+      if (abortControllerRef.current) {
+        try { abortControllerRef.current.abort(); } catch {}
+        abortControllerRef.current = null;
+      }
+      // Clear old polling interval
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      // Reset processing state from the old chat (but don't clear DB for old chat yet — just local state)
+      setSending(false);
+      setIsAgentic(false);
+      setLiveSteps([]);
+      setStreamingText("");
+      setIsNvidiaStreaming(false);
+      setAgentSteps([]);
+      setPlanSteps([]);
+      setExpandedSteps(new Set());
+      setLastFailedPrompt(null);
+      setFailedMsgId(null);
+      setActivatingStepId(null);
+      autoTodoCounterRef.current = 0;
+    }
+
     // Check lock status before selecting
     try {
       const lockRes = await fetch(`/api/chat-lock?chatId=${chatId}`, { credentials: "include" });
@@ -1011,14 +1091,16 @@ export default function AgentChatPage() {
   const endChat = useCallback(async () => {
     if (!activeChatId) return;
     try {
-      // Release lock
+      // 1. Reset ALL processing/streaming state and abort any active stream
+      resetProcessingState();
+      // 2. Release lock
       await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
-      // Set chat status to ENDED
+      // 3. Set chat status to ENDED (also clears isProcessing and locks on server)
       await fetch("/api/chats", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: activeChatId, status: "ENDED" }),
+        body: JSON.stringify({ id: activeChatId, status: "ENDED", isProcessing: false }),
       });
       setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
       // Keep the chat selected so user can see messages, just update the chat list
@@ -1027,7 +1109,7 @@ export default function AgentChatPage() {
     } catch {
       toast.error("Failed to end chat");
     }
-  }, [activeChatId, fetchChats]);
+  }, [activeChatId, fetchChats, resetProcessingState]);
 
   // ── Resume Chat (set status back to ACTIVE so user can continue) ──
   const resumeChat = useCallback(async (chatId?: string) => {
@@ -1217,6 +1299,12 @@ export default function AgentChatPage() {
 
       // Use streaming for agentic mode
       if (useAgentic) {
+        // Create AbortController for this stream — allows cancellation on chat switch/delete/end
+        const streamAbortController = new AbortController();
+        abortControllerRef.current = streamAbortController;
+        // Capture the chat ID at the start of the stream to detect chat switches
+        const streamChatId = resolvedChatId;
+
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1228,6 +1316,7 @@ export default function AgentChatPage() {
             stream: true,
             fileUrls: currentAttachments.length > 0 ? currentAttachments.map(f => f.url) : undefined,
           }),
+          signal: streamAbortController.signal,
         });
 
         if (!res.ok) {
@@ -1281,6 +1370,18 @@ export default function AgentChatPage() {
         let lastActivityTime = Date.now();
 
         while (true) {
+          // GUARD: Check if the stream was aborted (user switched chats, ended, or deleted)
+          if (streamAbortController.signal.aborted) {
+            console.log('[agent-chat] Stream aborted — user switched/ended/deleted chat');
+            break;
+          }
+          // GUARD: Check if the user has switched to a different chat
+          // If activeChatId changed, stop processing this stream — it's for a different chat now
+          if (activeChatId !== streamChatId && streamChatId !== null) {
+            console.log('[agent-chat] Chat switched during stream — stopping old stream');
+            break;
+          }
+
           // BUG FIX: Check for stream timeout
           if (Date.now() - lastActivityTime > STREAM_TIMEOUT_MS) {
             console.warn('[agent-chat] Stream timeout after 5 minutes');
@@ -1751,7 +1852,8 @@ export default function AgentChatPage() {
         // check the backend for a completed assistant message before showing error.
         // The backend agent loop may have completed successfully even though the SSE
         // stream was interrupted.
-        if (!finalData && resolvedChatId) {
+        // GUARD: Only proceed if we're still on the same chat (not switched away)
+        if (!finalData && resolvedChatId && activeChatId === streamChatId) {
           try {
             // Wait a moment for backend to finish saving if it's still running
             await new Promise(r => setTimeout(r, 2000));
@@ -1810,6 +1912,11 @@ export default function AgentChatPage() {
         }
 
         if (finalData) {
+          // GUARD: Only write messages if still on the same chat
+          if (activeChatId !== streamChatId && streamChatId !== null) {
+            // User switched chats — don't write the response to the wrong chat
+            console.log('[agent-chat] Skipping finalData write — user switched chats');
+          } else {
           if (finalData.steps) setAgentSteps(finalData.steps);
 
           // BUG FIX: Include collectedSteps with full toolArgs/toolResult in metadata
@@ -1848,6 +1955,7 @@ export default function AgentChatPage() {
             setActiveChatId(finalData.chatId);
             await fetchChats();
           }
+          } // end of else (guard for chat switch)
         }
       } else {
         // Simple chat (non-agentic) - standard request
@@ -1926,6 +2034,10 @@ export default function AgentChatPage() {
       ]);
     } finally {
       setSending(false);
+      // Clear the abort controller ref since stream is done
+      if (abortControllerRef.current) {
+        abortControllerRef.current = null;
+      }
       // Delay clearing animation state so message renders first
       setTimeout(() => {
         setIsAgentic(false);
@@ -2140,6 +2252,44 @@ export default function AgentChatPage() {
 
   const deleteChat = async (chatId: string) => {
     try {
+      // 1. If deleting the active chat, reset ALL processing state first
+      if (activeChatId === chatId) {
+        // Abort any active SSE stream
+        if (abortControllerRef.current) {
+          try { abortControllerRef.current.abort(); } catch {}
+          abortControllerRef.current = null;
+        }
+        // Clear polling interval
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        // Reset ALL processing-related state
+        setSending(false);
+        setIsAgentic(false);
+        setLiveSteps([]);
+        setStreamingText("");
+        setIsNvidiaStreaming(false);
+        setAgentSteps([]);
+        setPlanSteps([]);
+        setExpandedSteps(new Set());
+        setLastFailedPrompt(null);
+        setFailedMsgId(null);
+        setActivatingStepId(null);
+        autoTodoCounterRef.current = 0;
+        // Clear sessionStorage processing marker
+        markProcessingEnd(chatId);
+      }
+
+      // 2. Clear isProcessing in DB before deleting (in case server still thinks it's processing)
+      await fetch("/api/chats", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: chatId, isProcessing: false }),
+      }).catch(() => {});
+
+      // 3. Delete the chat on the server
       const res = await fetch(`/api/chats?id=${chatId}`, {
         method: "DELETE",
         credentials: "include",
@@ -2153,6 +2303,7 @@ export default function AgentChatPage() {
             setActiveChatId(null);
             setMessages([]);
             setTodoItems([]);
+            setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
           }
           await fetchChats();
           toast.success("Chat deleted");
