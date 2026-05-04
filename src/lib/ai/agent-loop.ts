@@ -423,8 +423,16 @@ async function callZaiWithTools(
         thinkingContent = message.reasoning_content
       }
 
+      // FIX: When content is null/empty but thinking/reasoning content exists,
+      // use it as the main content (some models put response in thinking_content)
+      let effectiveContent = message?.content || null
+      if (!effectiveContent && thinkingContent) {
+        effectiveContent = thinkingContent
+        thinkingContent = null // Don't double-count it
+      }
+
       return {
-        content: message?.content || null,
+        content: effectiveContent,
         toolCalls: message?.tool_calls || [],
         thinkingContent,
         inputTokens: data.usage?.prompt_tokens || 0,
@@ -543,6 +551,15 @@ async function callNvidiaWithTools(
         thinkingContent = message.reasoning_content
       }
 
+      // FIX: When content is null/empty but reasoning_content exists,
+      // use reasoning_content as the main content (NVIDIA GLM-5.1 with enable_thinking
+      // often puts the actual response in reasoning_content while content is null)
+      let effectiveContent = message?.content || null
+      if (!effectiveContent && thinkingContent) {
+        effectiveContent = thinkingContent
+        thinkingContent = null // Don't double-count it
+      }
+
       // Map NVIDIA tool_calls format to our ZaiToolCall format
       // NVIDIA uses the same OpenAI-compatible format
       // FIX: Handle malformed JSON from NVIDIA NIM (known bug with GLM-5 on vLLM)
@@ -582,7 +599,7 @@ async function callNvidiaWithTools(
       })
 
       return {
-        content: message?.content || null,
+        content: effectiveContent,
         toolCalls,
         thinkingContent,
         inputTokens: data.usage?.prompt_tokens || 0,
@@ -797,11 +814,13 @@ export async function runAgentLoop(
       }
 
       // No tool calls - this is the final response
-      if (result.content) {
+      // FIX: Also check thinkingContent as fallback (NVIDIA GLM-5.1 may put response there)
+      const responseContent = result.content || result.thinkingContent
+      if (responseContent) {
         // Enhance the final response with a code changes summary + actual code
         // BUG FIX: Get actual code from toolArgs.content (the full file content passed to write_file),
         // NOT from tool_result which only contains a truncated preview
-        let enhancedResponse = result.content
+        let enhancedResponse = responseContent
         const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
         if (writeSteps.length > 0) {
           const fileSummary = writeSteps.map(s => {
