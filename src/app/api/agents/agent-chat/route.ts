@@ -253,18 +253,95 @@ export async function POST(req: NextRequest) {
     const allAgenticKeys = isNvidiaModel ? [...nvidiaKeys, ...zaiKeys] : [...zaiKeys, ...nvidiaKeys]
 
     // Filter keys assigned to this agent type
-    const eligibleKeys = allAgenticKeys.filter((k) => {
+    let eligibleKeys = allAgenticKeys.filter((k) => {
       try {
         const assigned = JSON.parse(k.assignedAgents || "[]")
         return assigned.length === 0 || assigned.includes(agent.type)
       } catch { return true }
     })
 
+    // ── Environment Variable Fallback ──
+    // If no NVIDIA keys in DB but NVIDIA_API_KEY is set in env, create a synthetic key entry
+    // Also add as last-resort fallback when DB NVIDIA keys are invalid
+    // This allows Trishul AI to work even when the user hasn't manually added the key via the dashboard
+    const nvidiaEnvKey = process.env.NVIDIA_API_KEY
+    if (isNvidiaModel && nvidiaEnvKey && nvidiaEnvKey.trim() !== "") {
+      const hasNvidiaKeyInDb = eligibleKeys.some(k => k.provider === "NVIDIA")
+      if (!hasNvidiaKeyInDb) {
+        console.log("[agent-chat] No NVIDIA key in DB, using NVIDIA_API_KEY from environment as primary")
+        eligibleKeys.unshift({
+          id: "env-nvidia-key",
+          provider: "NVIDIA",
+          keyName: "NVIDIA API Key (from env)",
+          keyValue: nvidiaEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 0, // Highest priority
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      } else {
+        // DB has NVIDIA keys — add env key as last-resort fallback (in case DB keys are invalid)
+        eligibleKeys.push({
+          id: "env-nvidia-key-fallback",
+          provider: "NVIDIA",
+          keyName: "NVIDIA API Key (from env, fallback)",
+          keyValue: nvidiaEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 999, // Lowest priority (tried last)
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      }
+    }
+
+    // Also add ZAI_API_KEY env fallback for non-NVIDIA models
+    const zaiEnvKey = process.env.ZAI_API_KEY
+    if (!isNvidiaModel && zaiEnvKey && zaiEnvKey.trim() !== "") {
+      const hasZaiKeyInDb = eligibleKeys.some(k => k.provider === "ZAI")
+      if (!hasZaiKeyInDb) {
+        console.log("[agent-chat] No Z.ai key in DB, using ZAI_API_KEY from environment as primary")
+        eligibleKeys.unshift({
+          id: "env-zai-key",
+          provider: "ZAI",
+          keyName: "Z.ai API Key (from env)",
+          keyValue: zaiEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 0,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      } else {
+        // DB has Z.ai keys — add env key as last-resort fallback
+        eligibleKeys.push({
+          id: "env-zai-key-fallback",
+          provider: "ZAI",
+          keyName: "Z.ai API Key (from env, fallback)",
+          keyValue: zaiEnvKey.trim(),
+          monthlyBudget: 0,
+          currentSpend: 0,
+          status: "ACTIVE",
+          priority: 999,
+          assignedAgents: "[]",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+      }
+    }
+
     if (eligibleKeys.length === 0) {
       return NextResponse.json({
         error: isNvidiaModel
-          ? "No active NVIDIA API key available for Trishul AI. Please add an NVIDIA API key in API Keys page, or add a Z.ai key as fallback."
-          : "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash or GLM-5.1, or an NVIDIA key with Trishul AI. Please add one in API Keys page.",
+          ? "No active NVIDIA API key available for Trishul AI. Please add an NVIDIA API key in API Keys page, set NVIDIA_API_KEY in your .env file, or add a Z.ai key as fallback."
+          : "No active Z.ai API key available for agentic mode. Agentic agents require a Z.ai API key with GLM-4.5-Flash or GLM-5.1, or an NVIDIA key with Trishul AI. Please add one in API Keys page or set ZAI_API_KEY in your .env file.",
         chatId: chat.id,
       }, { status: 400 })
     }
@@ -676,8 +753,12 @@ export async function POST(req: NextRequest) {
               lastError = err
               console.error(`[agent-chat] Key "${key.keyName}" failed:`, err.message)
 
-              if (err.message.includes("Insufficient balance")) {
+              if (err.message.includes("Insufficient balance") && !key.id.startsWith("env-")) {
                 await db.apiKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } })
+              }
+              // Mark invalid DB keys as ERROR so they get skipped next time
+              if ((err.message.includes("Invalid authentication") || err.message.includes("401") || err.message.includes("403")) && !key.id.startsWith("env-")) {
+                await db.apiKey.update({ where: { id: key.id }, data: { status: "ERROR" } }).catch(() => {})
               }
               continue // Try next key
             }
@@ -689,12 +770,19 @@ export async function POST(req: NextRequest) {
           await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
 
           const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
+          const isNvidiaAuth = lastError?.message?.includes("NVIDIA API: Invalid authentication")
           console.error("[agent-chat] All keys failed:", lastError?.message)
+
+          let errorMessage = "Agentic execution failed. Please check your API keys."
+          if (isRateLimit) {
+            errorMessage = "AI model is currently busy. Please try again in a moment."
+          } else if (isNvidiaAuth) {
+            errorMessage = "Trishul AI (NVIDIA) authentication failed. The NVIDIA API key is invalid or expired. Please update it in the API Keys page or set a valid NVIDIA_API_KEY in your .env file."
+          }
+
           const errorData = {
             type: "error",
-            message: isRateLimit
-              ? "AI model is currently busy. Please try again in a moment."
-              : "Agentic execution failed. Please check your Z.ai API key.",
+            message: errorMessage,
             chatId: chat.id,
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorData)}\n\n`))
