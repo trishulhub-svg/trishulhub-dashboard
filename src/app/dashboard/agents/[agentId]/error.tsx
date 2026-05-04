@@ -89,38 +89,40 @@ export default function AgentChatError({
               {actionSuggestion}
             </p>
           )}
-          <div className="mt-3">
-            <button
-              className="text-xs text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1 mx-auto"
-              onClick={() => setShowDetails(!showDetails)}
-            >
-              {showDetails ? "Hide" : "Show"} error details
-            </button>
-            {showDetails && (
-              <div className="mt-2 relative">
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 text-left text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
-                  {msg || "No error message available"}
-                </pre>
-                {error.stack && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                      Stack trace
-                    </summary>
-                    <pre className="mt-1 text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 text-left text-muted-foreground whitespace-pre-wrap break-all">
-                      {error.stack}
-                    </pre>
-                  </details>
-                )}
-                <button
-                  className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
-                  onClick={copyErrorDetails}
-                  title="Copy error details"
-                >
-                  {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                </button>
-              </div>
-            )}
-          </div>
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-3">
+              <button
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1 mx-auto"
+                onClick={() => setShowDetails(!showDetails)}
+              >
+                {showDetails ? "Hide" : "Show"} error details
+              </button>
+              {showDetails && (
+                <div className="mt-2 relative">
+                  <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 text-left text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
+                    {msg || "No error message available"}
+                  </pre>
+                  {error.stack && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                        Stack trace
+                      </summary>
+                      <pre className="mt-1 text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 text-left text-muted-foreground whitespace-pre-wrap break-all">
+                        {error.stack}
+                      </pre>
+                    </details>
+                  )}
+                  <button
+                    className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+                    onClick={copyErrorDetails}
+                    title="Copy error details"
+                  >
+                    {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-3 justify-center">
           <Button

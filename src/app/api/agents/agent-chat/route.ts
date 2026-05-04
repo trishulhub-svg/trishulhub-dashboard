@@ -172,6 +172,7 @@ async function nvidiaDirectStream(
   let fullReasoning = ""
   let inputTokens = 0
   let outputTokens = 0
+  let thinkingIndicatorSent = false
 
   // Send a "thinking" step so the UI shows something immediately
   try {
@@ -246,13 +247,17 @@ async function nvidiaDirectStream(
         // Handle reasoning content (thinking)
         if (delta.reasoning_content) {
           fullReasoning += delta.reasoning_content
-          // Send reasoning chunks as "thinking" type so UI shows "Thinking..." progress
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-              type: "thinking_chunk",
-              content: delta.reasoning_content,
-            })}\n\n`))
-          } catch {}
+          // Send only a generic "thinking" indicator, NOT the actual reasoning content
+          if (!thinkingIndicatorSent) {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "thinking",
+                content: "Analyzing your request...",
+              })}\n\n`))
+              thinkingIndicatorSent = true
+            } catch {}
+          }
+          // Raw reasoning is accumulated server-side only for debugging
         }
 
         // Handle actual content (the user-facing response)
@@ -300,12 +305,17 @@ async function nvidiaDirectStream(
         }
         if (delta?.reasoning_content) {
           fullReasoning += delta.reasoning_content
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-              type: "thinking_chunk",
-              content: delta.reasoning_content,
-            })}\n\n`))
-          } catch {}
+          // Send only a generic "thinking" indicator, NOT the actual reasoning content
+          if (!thinkingIndicatorSent) {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "thinking",
+                content: "Analyzing your request...",
+              })}\n\n`))
+              thinkingIndicatorSent = true
+            } catch {}
+          }
+          // Raw reasoning is accumulated server-side only for debugging
         }
         if (delta?.content) {
           fullContent += delta.content
@@ -716,7 +726,6 @@ export async function POST(req: NextRequest) {
                   totalSteps: 1,
                   usedTools: [],
                   steps: [],
-                  thinkingPreview: streamResult.fullReasoning?.substring(0, 500),
                   isNvidiaDirect: true,
                 }
 
@@ -733,7 +742,7 @@ export async function POST(req: NextRequest) {
                 // Mark chat as no longer processing
                 await db.chat.update({
                   where: { id: chat.id },
-                  data: { isProcessing: false },
+                  data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
                 }).catch(() => {})
 
                 // Log usage
@@ -772,7 +781,6 @@ export async function POST(req: NextRequest) {
                   totalSteps: 1,
                   usedTools: [],
                   steps: [],
-                  thinkingPreview: streamResult.fullReasoning?.substring(0, 500),
                   isNvidiaDirect: true,
                 }
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
@@ -871,15 +879,13 @@ export async function POST(req: NextRequest) {
                       };
                     }),
                   }
-                  if (result.thinkingContent) {
-                    metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
-                  }
+                  // Note: thinkingContent is NOT included in metadata — raw reasoning is server-side only
 
                   const assistantMsg = await db.chatMessage.create({
                     data: { chatId: chat.id, role: "assistant", content: result.finalResponse, metadata: JSON.stringify(metadata) },
                   })
 
-                  await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+                  await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
 
                   await db.apiUsageLog.create({
                     data: { apiKeyId: key.id, agentId: agent.id, model: result.model, inputTokens: result.totalInputTokens, outputTokens: result.totalOutputTokens, cost: result.cost },
@@ -914,7 +920,6 @@ export async function POST(req: NextRequest) {
                       }
                       return { type: s.type, content: s.type === "thinking" ? s.content.substring(0, 500) : s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : s.content.substring(0, 2000), toolName: s.toolName, toolResult: s.type === "tool_result" ? (s.toolResult || s.content).substring(0, 5000) : undefined, stepNumber: s.stepNumber };
                     }),
-                    thinkingPreview: result.thinkingContent?.substring(0, 500),
                   }
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
                   controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
@@ -935,7 +940,7 @@ export async function POST(req: NextRequest) {
             }
 
             // All NVIDIA + fallback keys failed
-            await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+            await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
             const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
             const isNvidiaAuth = lastError?.message?.includes("NVIDIA API: Invalid authentication")
             let errorMessage = "Trishul AI failed to respond. Please try again."
@@ -1060,9 +1065,7 @@ export async function POST(req: NextRequest) {
                 }),
               }
 
-              if (result.thinkingContent) {
-                metadata.thinkingPreview = result.thinkingContent.substring(0, 300)
-              }
+              // Note: thinkingContent is NOT included in metadata — raw reasoning is server-side only
 
               // Save assistant message
               const assistantMsg = await db.chatMessage.create({
@@ -1077,7 +1080,7 @@ export async function POST(req: NextRequest) {
               // Mark chat as no longer processing
               await db.chat.update({
                 where: { id: chat.id },
-                data: { isProcessing: false },
+                data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
               }).catch(() => {})
 
               // Fix #2, #9, #18: Secure auto-push using GIT_ASKPASS (token never in URL). Commit only — push requires approval.
@@ -1296,7 +1299,6 @@ export async function POST(req: NextRequest) {
                     stepNumber: s.stepNumber,
                   };
                 }),
-                thinkingPreview: result.thinkingContent?.substring(0, 500),
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(completeData)}\n\n`))
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
@@ -1321,7 +1323,7 @@ export async function POST(req: NextRequest) {
           // Note: Do NOT set agent.status = "ERROR" here — agent status should not be global per-chat
           // (consistent with NVIDIA direct stream path which also doesn't set it)
           // Clear processing state on error
-          await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+          await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
 
           const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
           const isNvidiaAuth = lastError?.message?.includes("NVIDIA API: Invalid authentication")
@@ -1347,8 +1349,8 @@ export async function POST(req: NextRequest) {
             // Outer catch: handle any unhandled errors in the stream
             console.error("[agent-chat] Unhandled stream error:", streamErr.message)
             try {
-              // Clear processing state
-              await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+              // Clear processing state and release lock
+              await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
               // Try to send an error event before closing
               const errData = {
                 type: "error",
@@ -1369,7 +1371,7 @@ export async function POST(req: NextRequest) {
           console.log(`[agent-chat] Client disconnected — clearing isProcessing for chat ${chat.id}`)
           await db.chat.update({
             where: { id: chat.id },
-            data: { isProcessing: false },
+            data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
           }).catch(() => {})
         },
       })
@@ -1451,9 +1453,7 @@ export async function POST(req: NextRequest) {
           }),
         }
 
-        if (result.thinkingContent) {
-          metadata.thinkingPreview = result.thinkingContent.substring(0, 500)
-        }
+        // Note: thinkingContent is NOT included in metadata — raw reasoning is server-side only
 
         const assistantMsg = await db.chatMessage.create({
           data: {
@@ -1467,7 +1467,7 @@ export async function POST(req: NextRequest) {
         // Mark chat as no longer processing
         await db.chat.update({
           where: { id: chat.id },
-          data: { isProcessing: false },
+          data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
         }).catch(() => {})
 
         await db.apiUsageLog.create({
@@ -1556,7 +1556,6 @@ export async function POST(req: NextRequest) {
               stepNumber: s.stepNumber,
             };
           }),
-          thinkingPreview: result.thinkingContent?.substring(0, 500),
         })
       } catch (err: any) {
         lastError = err
@@ -1572,8 +1571,8 @@ export async function POST(req: NextRequest) {
     // All keys failed
     // Note: Do NOT set agent.status = "ERROR" here — agent status should not be global per-chat
     // (consistent with NVIDIA direct stream path which also doesn't set it)
-    // Clear processing state on error
-    await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
+    // Clear processing state and release lock on error
+    await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
 
     const isRateLimit = lastError?.message?.includes("rate limit") || lastError?.message?.includes("429")
     console.error("[agent-chat] All keys failed:", lastError?.message)

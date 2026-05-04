@@ -6,6 +6,7 @@ import { callAIWithFailover, AllKeysExhaustedError, APIKeyExhaustedError, APIKey
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 export async function POST(req: NextRequest) {
+  let chat: any = null // Declared here so outer catch can access it for lock release
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
@@ -79,7 +80,6 @@ export async function POST(req: NextRequest) {
     } catch {}
 
     // Get or create chat
-    let chat
     const userName = (session.user as any).name || session.user.email || "Unknown"
     if (chatId) {
       chat = await db.chat.findUnique({
@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
           where: { id: chatId },
           data: { lockedBy: null, lockedAt: null, lockedByName: null },
         })
+        chat.lockedBy = null
       }
 
       // Auto-acquire lock when user sends message to a chat
@@ -515,6 +516,10 @@ export async function POST(req: NextRequest) {
       }, { status: 500 })
     }
   } catch (error: any) {
+    // Release lock + reset isProcessing in case the outer catch fires before the inner try/catch
+    if (chat?.id) {
+      await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
+    }
     console.error("[chat] Unhandled error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

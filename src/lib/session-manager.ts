@@ -122,9 +122,11 @@ export async function validateSessionToken(
   // Cache miss or expired - check DB
   const tableReady = await ensureActiveSessionTable()
   if (!tableReady) {
-    // Graceful degradation: if table doesn't exist, allow session
-    console.warn("[session] ActiveSession table not available, allowing session")
-    return true
+    // Fail-closed: if table doesn't exist, deny access — never accept
+    // an unverifiable session token, as that would let ANY token through
+    // when the DB is down (critical security hole).
+    console.error("[session] ActiveSession table not available, denying session (fail-closed)")
+    return false
   }
 
   try {
@@ -144,9 +146,11 @@ export async function validateSessionToken(
 
     return isValid
   } catch (err: any) {
-    // Graceful degradation: if DB check fails, allow session
-    console.warn("[session] Session token validation DB error:", err.message)
-    return true
+    // Fail-closed: if DB check fails, deny access — we cannot verify the
+    // session token, so we must not accept it. Returning true here would
+    // let ANY token pass validation when the DB is down.
+    console.error("[session] Session token validation DB error (denying — fail-closed):", err.message)
+    return false
   }
 }
 
