@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Clock, LogOut, Mail, Shield } from "lucide-react";
+import { AlertCircle, Clock, Eye, EyeOff, LogOut, Mail, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 // Session expiry reason messages
@@ -64,6 +64,7 @@ export default function LoginPage() {
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
@@ -301,19 +302,34 @@ function LoginForm() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                  data-lpignore="true"
-                  data-form-type="other"
-                  className="h-11 text-base"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    className="h-11 text-base pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground text-right">
+                Contact your administrator to reset your password
+              </p>
               <Button type="submit" className="w-full h-11 text-base font-semibold" disabled={loading}>
                 {loading ? "Signing in..." : "Sign In"}
               </Button>

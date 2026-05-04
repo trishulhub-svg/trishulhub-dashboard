@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
           title: "New Leave Request",
           message: `${(session.user as any).name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
           type: "APPROVAL",
-          link: "/dashboard/leave",
+          link: "/dashboard/leaves",
           metadata: JSON.stringify({ leaveRequestId: leave.id }),
         },
       })
@@ -131,7 +131,7 @@ export async function PATCH(req: NextRequest) {
         title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
         message: `Your ${leave.type} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
         type: status === "APPROVED" ? "SUCCESS" : "WARNING",
-        link: "/dashboard/leave",
+        link: "/dashboard/leaves",
         metadata: JSON.stringify({ leaveRequestId: leave.id }),
       },
     })

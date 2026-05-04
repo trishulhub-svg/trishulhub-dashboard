@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
   Users, UserPlus, Loader2, Pencil, Trash2, Ban, CheckCircle2, XCircle,
-  Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter,
+  Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -146,6 +146,14 @@ export default function SettingsPage() {
   const [resetPasswordNewPwd, setResetPasswordNewPwd] = useState("");
   const [resetPasswordConfirmPwd, setResetPasswordConfirmPwd] = useState("");
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+
+  // Password visibility toggles
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+  const [showResetPwd, setShowResetPwd] = useState(false);
+  const [showResetPwdConfirm, setShowResetPwdConfirm] = useState(false);
 
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
@@ -746,31 +754,70 @@ export default function SettingsPage() {
             <>
               <div className="space-y-1">
                 <Label className="text-xs">Current Password</Label>
-                <Input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
-                />
+                <div className="relative">
+                  <Input
+                    type={showCurrentPassword ? "text" : "password"}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    tabIndex={-1}
+                  >
+                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">New Password</Label>
-                  <Input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      tabIndex={-1}
+                    >
+                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Confirm New Password</Label>
-                  <Input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm new password"
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      tabIndex={-1}
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
               </div>
               <Button size="sm" onClick={handlePasswordSendOtp} disabled={changingPassword}>
@@ -1343,12 +1390,25 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Password *</Label>
-              <Input
-                type="password"
-                value={newUserPassword}
-                onChange={(e) => setNewUserPassword(e.target.value)}
-                placeholder="Min. 8 characters"
-              />
+              <div className="relative">
+                <Input
+                  type={showNewUserPassword ? "text" : "password"}
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  placeholder="Min. 8 characters"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setShowNewUserPassword(!showNewUserPassword)}
+                  tabIndex={-1}
+                >
+                  {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -1655,21 +1715,47 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">New Password *</Label>
-                    <Input
-                      type="password"
-                      value={resetPasswordNewPwd}
-                      onChange={(e) => setResetPasswordNewPwd(e.target.value)}
-                      placeholder="Min. 8 characters"
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showResetPwd ? "text" : "password"}
+                        value={resetPasswordNewPwd}
+                        onChange={(e) => setResetPasswordNewPwd(e.target.value)}
+                        placeholder="Min. 8 characters"
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                        onClick={() => setShowResetPwd(!showResetPwd)}
+                        tabIndex={-1}
+                      >
+                        {showResetPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Confirm New Password *</Label>
-                    <Input
-                      type="password"
-                      value={resetPasswordConfirmPwd}
-                      onChange={(e) => setResetPasswordConfirmPwd(e.target.value)}
-                      placeholder="Confirm new password"
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showResetPwdConfirm ? "text" : "password"}
+                        value={resetPasswordConfirmPwd}
+                        onChange={(e) => setResetPasswordConfirmPwd(e.target.value)}
+                        placeholder="Confirm new password"
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                        onClick={() => setShowResetPwdConfirm(!showResetPwdConfirm)}
+                        tabIndex={-1}
+                      >
+                        {showResetPwdConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
                 </>
               )}

@@ -71,7 +71,7 @@ export const AGENT_TYPES: Record<AgentType, { label: string; icon: string; color
   },
   FINANCE: {
     label: "Finance Agent",
-    icon: "PoundSterling",
+    icon: "DollarSign",
     color: "text-yellow-500",
     bgColor: "bg-yellow-500/10",
     description: "Estimates project costs, generates invoices & quotations, tracks payments, financial reports",

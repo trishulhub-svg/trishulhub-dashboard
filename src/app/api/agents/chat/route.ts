@@ -507,6 +507,10 @@ function isApprovalWorthy(agentType: string, userMessage: string, aiResponse: st
     case "PROJECT_MANAGER":
       return lowerMsg.includes("plan") || lowerMsg.includes("assign") ||
              lowerResp.includes("milestone") || lowerResp.includes("phase")
+    case "HR":
+      return false; // HR actions don't require approval
+    case "SUPPORT":
+      return false; // Support actions don't require approval
     default:
       return false
   }

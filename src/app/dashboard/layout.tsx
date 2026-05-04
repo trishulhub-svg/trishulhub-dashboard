@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Info,
   CheckCircle2,
+  X,
   XCircle,
   CalendarDays,
   Monitor,
@@ -343,6 +344,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
+          <div className="flex items-center justify-end p-2 pb-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setMobileOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
           <SidebarContent
             collapsed={false}
             userRole={userRole}
@@ -365,7 +376,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Button>
               </SheetTrigger>
             </Sheet>
-            <h2 className="text-base font-semibold text-foreground hidden sm:block">
+            <h2 className="text-base font-semibold text-foreground">
               {navItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href)))?.title || "Dashboard"}
             </h2>
           </div>
@@ -482,7 +493,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 shrink-0 opacity-0 hover:opacity-100"
+                            className="h-5 w-5 shrink-0 opacity-40 hover:opacity-100"
                             onClick={(e) => {
                               e.stopPropagation();
                               deleteNotification(notif.id);

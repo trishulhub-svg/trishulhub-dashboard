@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { AGENT_TYPES as AGENT_TYPE_CONFIG, type AgentType } from "@/lib/types";
 
 const statusColors: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
@@ -46,7 +47,7 @@ const providerInfo: Record<string, { name: string; color: string; url: string; i
   OTHER: { name: "Other", color: "bg-gray-500", url: "#", icon: "🔑" },
 };
 
-const AGENT_TYPES = ["DEV", "CLIENT_HUNTER", "FINANCE", "PROJECT_MANAGER", "HR", "CONTENT", "SUPPORT"];
+const agentTypeKeys = Object.keys(AGENT_TYPE_CONFIG) as AgentType[];
 
 interface ApiKeyData {
   id: string;
@@ -777,7 +778,7 @@ function KeyForm({
       <div className="space-y-1">
         <Label className="text-xs">Assigned Agents (empty = all agents)</Label>
         <div className="flex flex-wrap gap-1.5">
-          {AGENT_TYPES.map(agentType => (
+          {agentTypeKeys.map(agentType => (
             <Badge
               key={agentType}
               variant={formAssignedAgents.includes(agentType) ? "default" : "outline"}

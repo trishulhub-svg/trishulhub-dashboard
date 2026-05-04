@@ -443,7 +443,7 @@ export default function DashboardPage() {
                 </div>
               </button>
               <button 
-                onClick={() => router.push("/dashboard/meetings")}
+                onClick={() => router.push("/dashboard/agents")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
               >
                 <Bot className="h-5 w-5 text-purple-500" />
@@ -453,7 +453,7 @@ export default function DashboardPage() {
                 </div>
               </button>
               <button 
-                onClick={() => router.push("/dashboard/leave")}
+                onClick={() => router.push("/dashboard/leaves")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
               >
                 <AlertCircle className="h-5 w-5 text-orange-500" />

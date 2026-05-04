@@ -49,6 +49,7 @@ export default function ProjectsPage() {
       if (clientRes.ok) setClients(await clientRes.json());
     } catch (err) {
       console.error(err);
+      toast.error("Failed to load projects");
     } finally {
       setLoading(false);
     }
@@ -165,6 +166,19 @@ export default function ProjectsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {filtered.length === 0 ? (
+          <div className="col-span-full text-center py-16">
+            <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
+            <p className="text-muted-foreground">
+              {projects.length === 0 ? "No projects yet" : "No projects match your filter"}
+            </p>
+            {projects.length === 0 && (
+              <Button variant="outline" className="mt-4" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Create your first project
+              </Button>
+            )}
+          </div>
+        ) : null}
         {filtered.map((project) => (
           <Card
             key={project.id}
