@@ -224,6 +224,25 @@ async function nvidiaDirectStream(
 
         if (!delta) continue
 
+        // Handle tool calls in the stream (GLM 5.1 may return tool_calls during agentic work)
+        // We show them as step indicators but don't execute them — the model continues its response
+        if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const toolName = tc.function?.name || tc.function?.arguments?.split("(")[0] || "tool"
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "step",
+                step: {
+                  type: "tool_call",
+                  content: `Using ${toolName}...`,
+                  toolName,
+                  stepNumber: 1,
+                }
+              })}\n\n`))
+            } catch {}
+          }
+        }
+
         // Handle reasoning content (thinking)
         if (delta.reasoning_content) {
           fullReasoning += delta.reasoning_content
@@ -263,8 +282,30 @@ async function nvidiaDirectStream(
       try {
         const chunk = JSON.parse(data)
         const delta = chunk.choices?.[0]?.delta
+        if (delta?.tool_calls && Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const toolName = tc.function?.name || "tool"
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "step",
+                step: {
+                  type: "tool_call",
+                  content: `Using ${toolName}...`,
+                  toolName,
+                  stepNumber: 1,
+                }
+              })}\n\n`))
+            } catch {}
+          }
+        }
         if (delta?.reasoning_content) {
           fullReasoning += delta.reasoning_content
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: "thinking_chunk",
+              content: delta.reasoning_content,
+            })}\n\n`))
+          } catch {}
         }
         if (delta?.content) {
           fullContent += delta.content

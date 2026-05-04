@@ -327,6 +327,12 @@ export default function AgentChatPage() {
   // NVIDIA Direct Streaming state - accumulates live text from Trishul AI
   const [streamingText, setStreamingText] = useState<string>("");
   const [isNvidiaStreaming, setIsNvidiaStreaming] = useState(false);
+  // Refs for NVIDIA streaming to avoid stale closures in SSE loop
+  const isNvidiaStreamingRef = useRef(false);
+  const nvidiaReceivedContentRef = useRef(false); // tracks if any `chunk` events were received
+  const nvidiaReasoningTextRef = useRef(""); // accumulates reasoning text for fallback display
+  // Keep isNvidiaStreamingRef in sync
+  useEffect(() => { isNvidiaStreamingRef.current = isNvidiaStreaming; }, [isNvidiaStreaming]);
 
   // Retry state - store last failed prompt for retry button
   const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
@@ -590,6 +596,8 @@ export default function AgentChatPage() {
     setLiveSteps([]);
     setStreamingText("");
     setIsNvidiaStreaming(false);
+    nvidiaReceivedContentRef.current = false;
+    nvidiaReasoningTextRef.current = "";
     setAgentSteps([]);
     setPlanSteps([]);
     setExpandedSteps(new Set());
@@ -988,37 +996,43 @@ export default function AgentChatPage() {
 
   // ── Select chat ──
   const selectChat = useCallback(async (chatId: string) => {
-    // If switching to a different chat, clean up the old chat's processing state
-    if (activeChatId && activeChatId !== chatId) {
-      // Abort any active SSE stream from the previous chat
-      if (abortControllerRef.current) {
-        try { abortControllerRef.current.abort(); } catch {}
-        abortControllerRef.current = null;
-      }
-      // Clear old polling interval
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-      // Cancel any pending animation timeouts from the old chat
-      if (animationTimeoutRef.current) {
-        clearTimeout(animationTimeoutRef.current);
-        animationTimeoutRef.current = null;
-      }
-      // Reset processing state from the old chat (but don't clear DB for old chat yet — just local state)
-      setSending(false);
-      setIsAgentic(false);
-      setLiveSteps([]);
-      setStreamingText("");
-      setIsNvidiaStreaming(false);
-      setAgentSteps([]);
-      setPlanSteps([]);
-      setExpandedSteps(new Set());
-      setLastFailedPrompt(null);
-      setFailedMsgId(null);
-      setActivatingStepId(null);
-      autoTodoCounterRef.current = 0;
+    // ALWAYS clean up processing state when selecting a chat.
+    // This prevents stale state from a previous chat (deleted, ended, or switched).
+    // Previously this was gated on `if (activeChatId && activeChatId !== chatId)` which
+    // failed when activeChatId was null (e.g. after deleting the active chat), causing
+    // the "sending/streaming" state from the deleted chat to persist into the new one.
+
+    // Abort any active SSE stream
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch {}
+      abortControllerRef.current = null;
     }
+    // Clear any active polling interval
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    // Cancel any pending animation timeouts (prevents old chat's setTimeout from
+    // overwriting the new chat's state after 300ms)
+    if (animationTimeoutRef.current) {
+      clearTimeout(animationTimeoutRef.current);
+      animationTimeoutRef.current = null;
+    }
+    // ALWAYS reset processing state (prevents stale "sending/streaming" from a deleted/ended chat)
+    setSending(false);
+    setIsAgentic(false);
+    setLiveSteps([]);
+    setStreamingText("");
+    setIsNvidiaStreaming(false);
+    nvidiaReceivedContentRef.current = false;
+    nvidiaReasoningTextRef.current = "";
+    setAgentSteps([]);
+    setPlanSteps([]);
+    setExpandedSteps(new Set());
+    setLastFailedPrompt(null);
+    setFailedMsgId(null);
+    setActivatingStepId(null);
+    autoTodoCounterRef.current = 0;
 
     // Check lock status before selecting
     try {
@@ -1175,10 +1189,10 @@ export default function AgentChatPage() {
   // ── Create new chat ──
   const createNewChat = useCallback(async () => {
     // CRITICAL FIX: Always reset processing state before creating a new chat.
-    // Without this, if the user deletes a chat (setting activeChatId=null) and then creates
-    // a new one, selectChat's guard (activeChatId && activeChatId !== chatId) evaluates to
-    // false because activeChatId is null, so no cleanup happens. Any residual state from the
-    // old chat (e.g., from a still-running finally block or setTimeout) persists.
+    // This provides a first layer of defense — clearing any residual state from
+    // a previous chat (e.g., from a still-running finally block or setTimeout).
+    // selectChat() also resets processing state unconditionally (since Fix 1 removed
+    // the `if (activeChatId && activeChatId !== chatId)` guard), so this is defense-in-depth.
     resetProcessingState();
     try {
       const res = await fetch("/api/chats", {
@@ -1299,6 +1313,8 @@ export default function AgentChatPage() {
       // Reset streaming state for NVIDIA direct
       setStreamingText("");
       setIsNvidiaStreaming(false);
+      nvidiaReceivedContentRef.current = false;
+      nvidiaReasoningTextRef.current = "";
     }
 
     // Mark agent as processing in sessionStorage (persists across navigation)
@@ -1674,6 +1690,7 @@ export default function AgentChatPage() {
               } else if (event.type === "chunk") {
                 // NVIDIA Direct Streaming: live text chunk from Trishul AI
                 // Accumulate the streaming text and display it in real-time
+                nvidiaReceivedContentRef.current = true;
                 startTransition(() => {
                   setStreamingText((prev) => prev + (event.content || ""));
                   setIsNvidiaStreaming(true);
@@ -1694,8 +1711,31 @@ export default function AgentChatPage() {
                 });
               } else if (event.type === "thinking_chunk") {
                 // NVIDIA thinking/reasoning chunk - model is still thinking
-                // Just keep the live steps showing "Thinking..."
-                if (!isNvidiaStreaming) {
+                // Accumulate reasoning text in ref for potential fallback display
+                nvidiaReasoningTextRef.current += (event.content || "");
+                // If we haven't received any content chunks yet, show reasoning text
+                // as live streaming content so user sees progress (GLM 5.1 sometimes
+                // puts the full response in reasoning_content with empty content)
+                if (!nvidiaReceivedContentRef.current) {
+                  startTransition(() => {
+                    setStreamingText(nvidiaReasoningTextRef.current);
+                    setIsNvidiaStreaming(true);
+                    setLiveSteps((prev) => {
+                      if (prev.length === 0) {
+                        return [{ type: 'thinking', content: 'Trishul AI is thinking...', status: 'running' }];
+                      }
+                      // Update the last step to show thinking indicator
+                      const updated = [...prev];
+                      updated[updated.length - 1] = {
+                        ...updated[updated.length - 1],
+                        content: 'Trishul AI is thinking...',
+                        status: 'running',
+                      };
+                      return updated;
+                    });
+                  });
+                } else if (!isNvidiaStreamingRef.current) {
+                  // Content chunks have been received but isNvidiaStreaming state hasn't updated yet
                   startTransition(() => {
                     setLiveSteps((prev) => {
                       if (prev.length === 0) {
@@ -1708,9 +1748,13 @@ export default function AgentChatPage() {
               } else if (event.type === "complete") {
                 finalData = event;
                 // Clear streaming state when complete
+                // If content came from reasoning (isNvidiaDirect with empty content during streaming),
+                // the complete event already has the correct finalContent from the backend
                 startTransition(() => {
                   setIsNvidiaStreaming(false);
                   setStreamingText("");
+                  nvidiaReceivedContentRef.current = false;
+                  nvidiaReasoningTextRef.current = "";
                 });
               } else if (event.type === "error") {
                 const errMsg = event.message || "Agent execution error";
@@ -1879,17 +1923,27 @@ export default function AgentChatPage() {
                 }
               } else if (event.type === "chunk") {
                 // NVIDIA Direct Streaming: live text chunk from Trishul AI (buffer drain)
+                nvidiaReceivedContentRef.current = true;
                 startTransition(() => {
                   setStreamingText((prev) => prev + (event.content || ""));
                   setIsNvidiaStreaming(true);
                 });
               } else if (event.type === "thinking_chunk") {
-                // NVIDIA thinking chunk (buffer drain) - ignore, just for progress
+                // NVIDIA thinking chunk (buffer drain) - accumulate for fallback display
+                nvidiaReasoningTextRef.current += (event.content || "");
+                if (!nvidiaReceivedContentRef.current) {
+                  startTransition(() => {
+                    setStreamingText(nvidiaReasoningTextRef.current);
+                    setIsNvidiaStreaming(true);
+                  });
+                }
               } else if (event.type === "complete") {
                 finalData = event;
                 startTransition(() => {
                   setIsNvidiaStreaming(false);
                   setStreamingText("");
+                  nvidiaReceivedContentRef.current = false;
+                  nvidiaReasoningTextRef.current = "";
                 });
               } else if (event.type === "error") {
                 const errMsg = event.message || "Agent execution error";
@@ -2100,16 +2154,21 @@ export default function AgentChatPage() {
         abortControllerRef.current = null;
       }
       // Delay clearing animation state so message renders first
-      // FIX: Track the timeout so it can be cancelled if the user switches chats
-      const timeoutChatId = finallyChatId;
-      animationTimeoutRef.current = setTimeout(() => {
-        // Only clear animation state if we're still on the same chat
-        if (activeChatIdRef.current === timeoutChatId) {
-          setIsAgentic(false);
-          setLiveSteps([]);
-        }
-        animationTimeoutRef.current = null;
-      }, 300);
+      // FIX: Only schedule the timeout if we're still on the same chat.
+      // Without this guard, an old stream's finally block can overwrite
+      // animationTimeoutRef.current after the user has switched to a new chat,
+      // potentially clearing the new chat's animation state or blocking its own timeout.
+      if (stillOnSameChat) {
+        const timeoutChatId = finallyChatId;
+        animationTimeoutRef.current = setTimeout(() => {
+          // Double-check we're still on the same chat (defense in depth)
+          if (activeChatIdRef.current === timeoutChatId) {
+            setIsAgentic(false);
+            setLiveSteps([]);
+          }
+          animationTimeoutRef.current = null;
+        }, 300);
+      }
       // Clear processing marker from sessionStorage
       if (resolvedChatId) {
         markProcessingEnd(resolvedChatId);
@@ -2346,6 +2405,8 @@ export default function AgentChatPage() {
         setLiveSteps([]);
         setStreamingText("");
         setIsNvidiaStreaming(false);
+        nvidiaReceivedContentRef.current = false;
+        nvidiaReasoningTextRef.current = "";
         setAgentSteps([]);
         setPlanSteps([]);
         setExpandedSteps(new Set());
@@ -2523,7 +2584,7 @@ export default function AgentChatPage() {
   // layout now sets overflow-hidden and p-0 on <main> for agent chat pages.
   if (isMobile) {
     return (
-      <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
         {/* Mobile Header */}
         <div className="flex items-center justify-between pb-3 border-b">
           <div className="flex items-center gap-2 min-w-0">
@@ -2798,7 +2859,7 @@ export default function AgentChatPage() {
   // chat pages, so we don't need to counteract main's padding with negative margins.
   // The 4rem accounts for just the header height (h-16 = 4rem).
   return (
-    <div className="flex h-[calc(100vh-4rem)] gap-0">
+    <div className="flex h-[calc(100vh-4rem)] gap-0 overflow-hidden">
       {/* Left Panel: Chat Sidebar */}
       <div
         className={`border-r border-border flex flex-col bg-card transition-all duration-300 shrink-0 ${
@@ -3381,7 +3442,7 @@ function ChatSidebar({
     });
 
     return (
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0 h-0">
         <div className={`space-y-1 p-2 ${isMobile ? "pb-20" : ""}`}>
           {sortedUserIds.map((uid) => {
             const group = userGroups.get(uid)!;
@@ -3465,7 +3526,7 @@ function ChatSidebar({
 
   // ── Non-admin view: Simple flat list (existing behavior) ──
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="flex-1 min-h-0 h-0">
       <div className={`space-y-0.5 p-2 ${isMobile ? "pb-20" : ""}`}>
         {chats.length === 0 ? (
           <div className="text-center py-8">
@@ -3620,7 +3681,9 @@ function ChatArea({
   const scrollToBottom = () => {
     const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
     if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
+      requestAnimationFrame(() => {
+        viewport.scrollTop = viewport.scrollHeight;
+      });
     }
     setShowScrollToBottom(false);
   };
@@ -3692,7 +3755,7 @@ function ChatArea({
         </div>
       )}
       {/* Messages */}
-      <ScrollArea ref={chatScrollAreaRef} className="flex-1 min-h-0">
+      <ScrollArea ref={chatScrollAreaRef} className="flex-1 min-h-0 h-0">
         {messagesLoading ? (
           <div className="p-6 space-y-4 max-w-3xl mx-auto">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -4468,7 +4531,7 @@ function RightPanel({
         </Tabs>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0 h-0">
         {rightTab === "live" && (
           <LiveTab
             liveSteps={liveSteps}
