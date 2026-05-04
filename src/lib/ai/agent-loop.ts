@@ -447,12 +447,13 @@ async function callZaiWithTools(
 // ━━ Call NVIDIA API with Function Calling (Trishul AI) ━━
 // NVIDIA API is OpenAI-compatible and supports function calling / tools
 // Also supports reasoning_content (thinking mode) via extra_body
+// Updated: Match z.ai parameters for consistent agentic behavior
 async function callNvidiaWithTools(
   messages: ZaiMessage[],
   model: string,
   apiKey: string,
   tools: AgentTool[],
-  options?: { maxTokens?: number; temperature?: number }
+  options?: { maxTokens?: number; temperature?: number; disableThinking?: boolean }
 ): Promise<{
   content: string | null
   toolCalls: ZaiToolCall[]
@@ -463,18 +464,26 @@ async function callNvidiaWithTools(
 }> {
   console.log(`[nvidia-agent] Calling with model: ${model}`)
 
-  const body: any = {
-    model,
-    messages,
-    max_tokens: options?.maxTokens || 16384,
-    temperature: options?.temperature || 0.3,
-    top_p: 0.95,
-    tools,
-    // Extra body for reasoning/thinking support
-    chat_template_kwargs: {
-      enable_thinking: true,
-      clear_thinking: false,
-    },
+  const disableThinking = options?.disableThinking || false
+
+  const buildBody = (noThinking: boolean) => {
+    const body: any = {
+      model,
+      messages,
+      max_tokens: options?.maxTokens || 16384,
+      temperature: options?.temperature || 0.3,
+      top_p: 0.7, // Match z.ai default (was 0.95 — too wide for agentic tool calling)
+      tools,
+    }
+    // Only enable thinking mode if not disabled
+    // Thinking mode + tool calling on NVIDIA NIM can cause 500 errors and truncated outputs
+    if (!noThinking) {
+      body.chat_template_kwargs = {
+        enable_thinking: true,
+        clear_thinking: false,
+      }
+    }
+    return body
   }
 
   const MAX_RETRIES = 2
@@ -486,6 +495,10 @@ async function callNvidiaWithTools(
       console.log(`[nvidia-agent] Retry attempt ${attempt} after ${delayMs}ms...`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
+
+    // On retry attempts after the first, try without thinking mode to avoid 500 errors
+    const useNoThinking = disableThinking || attempt >= 1
+    const body = buildBody(useNoThinking)
 
     try {
       const response = await fetch(NVIDIA_API_URL, {
@@ -510,7 +523,9 @@ async function callNvidiaWithTools(
           throw new Error(`NVIDIA API: Invalid authentication`)
         }
         if (statusCode === 500) {
-          console.log(`[nvidia-agent] 500 error, will retry`)
+          // 500 errors are often caused by thinking mode + tool calling conflicts
+          // Retry without thinking mode on next attempt
+          console.log(`[nvidia-agent] 500 error, will retry ${attempt < MAX_RETRIES ? 'without thinking mode' : ''}`)
           lastError = new Error(`NVIDIA API error: 500 - ${errorText.substring(0, 100)}`)
           if (attempt < MAX_RETRIES) continue
           throw lastError
@@ -530,14 +545,41 @@ async function callNvidiaWithTools(
 
       // Map NVIDIA tool_calls format to our ZaiToolCall format
       // NVIDIA uses the same OpenAI-compatible format
-      const toolCalls: ZaiToolCall[] = (message?.tool_calls || []).map((tc: any) => ({
-        id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        type: "function" as const,
-        function: {
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        },
-      }))
+      // FIX: Handle malformed JSON from NVIDIA NIM (known bug with GLM-5 on vLLM)
+      const toolCalls: ZaiToolCall[] = (message?.tool_calls || []).map((tc: any) => {
+        let rawArgs = tc.function?.arguments || "{}"
+
+        // Repair malformed JSON from NVIDIA NIM
+        // Common issues: missing closing braces, truncated arguments
+        try {
+          JSON.parse(rawArgs)
+        } catch {
+          // Try to repair: count braces and close them
+          const openBraces = (rawArgs.match(/{/g) || []).length
+          const closeBraces = (rawArgs.match(/}/g) || []).length
+          if (openBraces > closeBraces) {
+            rawArgs += '}'.repeat(openBraces - closeBraces)
+          }
+          // Try again after repair
+          try {
+            JSON.parse(rawArgs)
+          } catch {
+            // If still failing, try wrapping in an object
+            console.warn(`[nvidia-agent] Malformed tool call args, attempting aggressive repair`)
+            // Last resort: extract what we can
+            rawArgs = JSON.stringify({ _raw: rawArgs.substring(0, 500) })
+          }
+        }
+
+        return {
+          id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          type: "function" as const,
+          function: {
+            name: tc.function?.name || "unknown",
+            arguments: rawArgs,
+          },
+        }
+      })
 
       return {
         content: message?.content || null,
@@ -629,7 +671,8 @@ export async function runAgentLoop(
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,
-            temperature: iteration === 0 ? 0.6 : 0.5,
+            temperature: iteration === 0 ? 0.3 : 0.2, // Match z.ai: low temp for precise tool calls
+            disableThinking: iteration >= 1, // Disable thinking on retry to avoid 500 errors
           })
         : await callZaiWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,

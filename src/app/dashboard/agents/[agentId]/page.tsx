@@ -3190,7 +3190,7 @@ function ChatArea({
   onCancelWaiting: () => void;
 }) {
   const [expandedMsgSteps, setExpandedMsgSteps] = useState<Set<string>>(new Set());
-  const [todoExpanded, setTodoExpanded] = useState(true);
+
   const [bottomTodoMinimized, setBottomTodoMinimized] = useState(false);
 
   const toggleMsgSteps = (msgId: string) => {
@@ -3375,206 +3375,64 @@ function ChatArea({
                           })()}
                         </div>
                       )}
-                      {/* Z.ai Todo-style agentic steps checklist */}
+                      {/* Agentic steps checklist - clean z.ai style, default collapsed */}
                       {msg.role === "assistant" && (() => {
                         try {
                           const meta = JSON.parse(msg.metadata || "{}");
                           if (meta.agentic && Array.isArray(meta.steps) && meta.steps.length > 0) {
-                            // BUG FIX: Auto-expand steps that contain code (write_file/edit_file)
-                            const hasCodeSteps = meta.steps.some((s: any) => 
-                              s.type === 'tool_call' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
-                            );
-                            const isExpanded = expandedMsgSteps.has(msg.id) || hasCodeSteps;
+                            const isExpanded = expandedMsgSteps.has(msg.id);
                             const hasError = meta.steps.some((s: any) => s.type === 'error');
-                            // Deduplicate steps: merge tool_call + tool_result pairs
+                            // Deduplicate steps: merge consecutive thinking steps
                             const dedupedSteps: any[] = [];
                             for (const step of meta.steps) {
                               if (step.type === 'thinking' && dedupedSteps.length > 0 && dedupedSteps[dedupedSteps.length - 1].type === 'thinking') {
-                                // Skip duplicate thinking steps
                                 continue;
                               }
                               dedupedSteps.push(step);
                             }
                             return (
-                              <div className="mb-3 rounded-lg border border-border/40 overflow-hidden bg-muted/20 dark:bg-black/10">
-                                {/* Todo Header */}
-                                <button 
+                              <div className="mb-2">
+                                <button
                                   onClick={() => toggleMsgSteps(msg.id)}
-                                  className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/40 transition-colors text-left"
+                                  className="flex items-center gap-1.5 hover:bg-muted/30 rounded px-1 py-0.5 transition-colors text-left w-full"
                                 >
                                   {hasError ? (
-                                    <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                                    <CircleX className="h-3 w-3 text-red-400/70 shrink-0" />
                                   ) : (
-                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                    <CircleCheck className="h-3 w-3 text-foreground/30 shrink-0" />
                                   )}
-                                  <span className="text-xs font-medium text-foreground/80">
+                                  <span className="text-[11px] text-foreground/50">
                                     {meta.totalSteps || meta.steps.length} steps
                                   </span>
-                                  {Array.isArray(meta.usedTools) && meta.usedTools.length > 0 && (
-                                    <div className="flex items-center gap-1 ml-1 flex-wrap">
-                                      {meta.usedTools.slice(0, 5).map((tool: string) => (
-                                        <span key={tool} className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
-                                          {tool}
-                                        </span>
-                                      ))}
-                                      {meta.usedTools.length > 5 && (
-                                        <span className="text-[8px] text-muted-foreground">+{meta.usedTools.length - 5}</span>
-                                      )}
-                                    </div>
-                                  )}
-                                  <ChevronRight className={`h-3.5 w-3.5 ml-auto text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                  <ChevronRight className={`h-3 w-3 text-muted-foreground/40 transition-transform ml-auto ${isExpanded ? "rotate-90" : ""}`} />
                                 </button>
-                                
-                                {/* Todo Checklist with content */}
                                 {isExpanded && (
-                                  <div className="px-3 pb-2.5 space-y-1 border-t border-border/20">
+                                  <div className="mt-0.5 space-y-px pl-1">
                                     {dedupedSteps.map((step: any, idx: number) => {
                                       const isThinking = step.type === "thinking";
                                       const isToolCall = step.type === "tool_call";
                                       const isToolResult = step.type === "tool_result";
-                                      const isPlan = step.type === "plan";
                                       const isError = step.type === "error";
-                                      const isResponse = step.type === "response";
                                       const stepLabel = isThinking ? "Thinking" :
                                                        isToolCall ? (step.toolName || "Tool call") :
                                                        isToolResult ? `${step.toolName || 'Tool'} completed` :
-                                                       isPlan ? "Planning" :
-                                                       isResponse ? "Response" :
                                                        isError ? "Error" : step.type;
-                                      
-                                      // Get actual content to show
-                                      const stepContent = step.toolResult || step.content || "";
-                                      const isCodeContent = stepContent.includes('\n') && stepContent.length > 100;
-                                      const isFileContent = isToolResult && (step.toolName === 'read_file' || step.toolName === 'write_file' || step.toolName === 'edit_file');
-                                      const isCommandResult = isToolResult && step.toolName === 'run_command';
-                                      
                                       return (
-                                        <div key={idx} className="py-1.5 group">
-                                          <div className="flex items-start gap-2">
-                                            {/* Checkbox */}
-                                            <div className="mt-0.5 shrink-0">
-                                              {isThinking ? (
-                                                <div className="h-4 w-4 rounded border-2 border-purple-400 flex items-center justify-center bg-purple-50 dark:bg-purple-900/30">
-                                                  <Brain className="h-2.5 w-2.5 text-purple-500" />
-                                                </div>
-                                              ) : isToolCall ? (
-                                                <div className="h-4 w-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-50 dark:bg-blue-900/30">
-                                                  <Wrench className="h-2.5 w-2.5 text-blue-500" />
-                                                </div>
-                                              ) : isToolResult ? (
-                                                <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                                </div>
-                                              ) : isPlan ? (
-                                                <div className="h-4 w-4 rounded border-2 border-amber-400 flex items-center justify-center bg-amber-50 dark:bg-amber-900/30">
-                                                  <ListChecks className="h-2.5 w-2.5 text-amber-500" />
-                                                </div>
-                                              ) : isError ? (
-                                                <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
-                                                  <XCircle className="h-2.5 w-2.5 text-red-500" />
-                                                </div>
-                                              ) : (
-                                                <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                                </div>
-                                              )}
-                                            </div>
-                                            {/* Label */}
-                                            <div className="flex-1 min-w-0">
-                                              <span className={`text-[11px] font-medium ${isError ? 'text-red-600 dark:text-red-400' : 'text-foreground/70'}`}>
-                                                {stepLabel}
-                                              </span>
-                                            </div>
-                                          </div>
-                                          
-                                          {/* Show actual content for tool results */}
-                                          {isToolResult && stepContent && !isResponse && (
-                                            <div className="ml-6 mt-1">
-                                              {isFileContent ? (
-                                                <div className="rounded-md border border-border/30 overflow-hidden bg-black/5 dark:bg-black/20">
-                                                                                  <div className="px-2 py-1 text-[8px] font-mono text-muted-foreground/60 bg-muted/30 flex items-center gap-1">
-                                                  <FileCode className="h-2.5 w-2.5" />
-                                                  {step.toolName === 'read_file' ? 'File contents' : step.toolName === 'write_file' ? 'Written file' : 'Edited file'}
-                                                </div>
-                                                  <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-40 whitespace-pre-wrap break-all leading-tight">
-                                                  {stepContent.substring(0, 1500)}
-                                                  {stepContent.length > 1500 && <span className="text-muted-foreground/40">... ({stepContent.length} chars total)</span>}
-                                                </pre>
-                                                </div>
-                                              ) : isCommandResult ? (
-                                                <div className="rounded-md border border-border/30 overflow-hidden bg-black/5 dark:bg-black/20">
-                                                  <div className="px-2 py-1 text-[8px] font-mono text-muted-foreground/60 bg-muted/30 flex items-center gap-1">
-                                                    <Terminal className="h-2.5 w-2.5" />
-                                                    Command output
-                                                  </div>
-                                                  <pre className="text-[9px] font-mono text-foreground/60 p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all leading-tight">
-                                                    {stepContent.substring(0, 1500)}
-                                                    {stepContent.length > 1500 && <span className="text-muted-foreground/40">... ({stepContent.length} chars total)</span>}
-                                                  </pre>
-                                                </div>
-                                              ) : (
-                                                <p className="text-[9px] text-muted-foreground/60 font-mono line-clamp-3 leading-tight">
-                                                  {stepContent.substring(0, 300)}
-                                                </p>
-                                              )}
-                                            </div>
+                                        <div key={idx} className="flex items-center gap-1.5 py-px">
+                                          {isError ? (
+                                            <CircleX className="h-2.5 w-2.5 text-red-400/60 shrink-0" />
+                                          ) : isThinking ? (
+                                            <Brain className="h-2.5 w-2.5 text-foreground/25 shrink-0" />
+                                          ) : isToolCall ? (
+                                            <Wrench className="h-2.5 w-2.5 text-foreground/25 shrink-0" />
+                                          ) : isToolResult ? (
+                                            <CircleCheck className="h-2.5 w-2.5 text-foreground/25 shrink-0" />
+                                          ) : (
+                                            <CircleCheck className="h-2.5 w-2.5 text-foreground/25 shrink-0" />
                                           )}
-                                          
-                                          {/* Show tool call args for write/edit_file */}
-                                          {isToolCall && (step.toolName === 'write_file' || step.toolName === 'edit_file') && step.toolArgs && (
-                                            <div className="ml-6 mt-1">
-                                              <div className="rounded-md border border-blue-200/30 dark:border-blue-800/30 overflow-hidden bg-blue-50/30 dark:bg-blue-900/10">
-                                                <div className="px-2 py-1 text-[8px] font-mono text-blue-600/60 dark:text-blue-400/60 bg-blue-100/30 dark:bg-blue-900/20 flex items-center gap-1">
-                                                  <Code2 className="h-2.5 w-2.5" />
-                                                  {step.toolName === 'write_file' ? 'Writing' : 'Editing'}: {step.toolArgs?.path || step.toolArgs?.file_path || ''}
-                                                </div>
-                                                {step.toolArgs?.content && (
-                                                  <div className="relative">
-                                                    {(() => {
-                                                      try {
-                                                        const p = step.toolArgs?.path || step.toolArgs?.file_path || '';
-                                                        const ext = p.split('.').pop() || '';
-                                                        const langMap: Record<string, string> = {
-                                                          ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-                                                          py: "python", css: "css", html: "html", json: "json",
-                                                          sh: "bash", sql: "sql", md: "markdown",
-                                                        };
-                                                        const lang = langMap[ext] || ext || "typescript";
-                                                        const codeContent = step.toolArgs.content.length > 5000
-                                                          ? step.toolArgs.content.substring(0, 5000) + `\n... (${step.toolArgs.content.length - 5000} more characters)`
-                                                          : step.toolArgs.content;
-                                                        return (
-                                                          <SyntaxHighlighter
-                                                            style={oneDark}
-                                                            language={lang}
-                                                            PreTag="div"
-                                                            customStyle={{
-                                                              margin: 0,
-                                                              borderRadius: 0,
-                                                              fontSize: "9px",
-                                                              maxHeight: "200px",
-                                                              overflow: "auto",
-                                                            }}
-                                                          >
-                                                            {codeContent}
-                                                          </SyntaxHighlighter>
-                                                        );
-                                                      } catch {
-                                                        return <pre className="text-[9px] font-mono p-2 overflow-auto max-h-48">{step.toolArgs.content?.substring(0, 2000)}</pre>;
-                                                      }
-                                                    })()}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                          )}
-                                          
-                                          {/* Show args for other tool calls */}
-                                          {isToolCall && step.toolName !== 'write_file' && step.toolName !== 'edit_file' && step.content && (
-                                            <p className="ml-6 text-[9px] text-muted-foreground/50 font-mono line-clamp-2 leading-tight mt-0.5">
-                                              {step.content.substring(0, 200)}
-                                            </p>
-                                          )}
+                                          <span className={`text-[10px] ${isError ? 'text-red-500/60' : 'text-foreground/40'}`}>
+                                            {stepLabel}
+                                          </span>
                                         </div>
                                       );
                                     })}
@@ -3583,297 +3441,6 @@ function ChatArea({
                               </div>
                             );
                           }
-                        } catch {}
-                        return null;
-                      })()}
-                      {/* ── CODE CHANGES: Prominent code output section (always visible) ── */}
-                      {msg.role === "assistant" && (() => {
-                        try {
-                          const meta = JSON.parse(msg.metadata || "{}");
-                          if (!meta.agentic || !Array.isArray(meta.steps)) return null;
-                          // Extract all write_file and edit_file tool results
-                          const codeSteps = meta.steps.filter((s: any) =>
-                            s.type === 'tool_result' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
-                          );
-                          const codeCallSteps = meta.steps.filter((s: any) =>
-                            s.type === 'tool_call' && (s.toolName === 'write_file' || s.toolName === 'edit_file')
-                          );
-                          if (codeSteps.length === 0 && codeCallSteps.length === 0) return null;
-
-                          // BUG FIX: Build file map from tool_calls (which have toolArgs.content = actual code)
-                          // NOT from tool_results (which just say "File written successfully")
-                          const fileMap: Record<string, { action: string; codeContent: string; resultContent: string; path: string; language: string }> = {};
-                          // First pass: collect actual code from tool_call steps
-                          for (let i = 0; i < codeCallSteps.length; i++) {
-                            const call = codeCallSteps[i];
-                            const p = call.toolArgs?.path || call.toolArgs?.file_path || `file-${i}`;
-                            if (!fileMap[p]) {
-                              // Detect language from file extension
-                              const ext = p.split('.').pop() || '';
-                              const langMap: Record<string, string> = {
-                                ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-                                py: "python", css: "css", html: "html", json: "json", php: "php",
-                                sql: "sql", sh: "bash", rb: "ruby", go: "go", rs: "rust",
-                                java: "java", scss: "scss", yaml: "yaml", yml: "yaml", md: "markdown",
-                              };
-                              fileMap[p] = {
-                                action: call.toolName === 'write_file' ? 'Created' : 'Edited',
-                                codeContent: call.toolArgs?.content || '', // ACTUAL CODE from toolArgs
-                                resultContent: '',
-                                path: p,
-                                language: langMap[ext] || ext,
-                              };
-                            } else {
-                              // Update with more recent code (in case of multiple writes to same file)
-                              if (call.toolArgs?.content) {
-                                fileMap[p].codeContent = call.toolArgs.content;
-                              }
-                            }
-                          }
-                          // Second pass: add result info (success/failure messages)
-                          for (const result of codeSteps) {
-                            const resultText = result.toolResult || result.content || '';
-                            // Find the matching call by index (tool_results come in same order as tool_calls)
-                            const resultIdx = codeSteps.indexOf(result);
-                            if (resultIdx < codeCallSteps.length) {
-                              const matchCall = codeCallSteps[resultIdx];
-                              const p = matchCall?.toolArgs?.path || matchCall?.toolArgs?.file_path || '';
-                              if (p && fileMap[p]) {
-                                fileMap[p].resultContent = resultText;
-                              }
-                            }
-                          }
-
-                          const files = Object.values(fileMap).filter(f => f.path && f.path !== 'unknown');
-                          if (files.length === 0) return null;
-
-                          return (
-                            <div className="mb-3 rounded-lg border border-emerald-200/40 dark:border-emerald-800/30 overflow-hidden bg-gradient-to-b from-emerald-50/50 to-green-50/30 dark:from-emerald-950/20 dark:to-green-950/10">
-                              <div className="px-3 py-2 flex items-center gap-2 bg-emerald-100/30 dark:bg-emerald-900/20">
-                                <Code2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Code Generated</span>
-                                <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-emerald-100/60 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400">
-                                  {files.length} file{files.length !== 1 ? 's' : ''}
-                                </Badge>
-                              </div>
-                              <div className="px-3 py-2 space-y-2">
-                                {files.map((file, idx) => (
-                                  <div key={idx} className="rounded-md border border-border/30 overflow-hidden bg-black/5 dark:bg-black/20">
-                                    <div className="px-2 py-1.5 text-[10px] font-mono text-muted-foreground bg-muted/40 flex items-center gap-1.5">
-                                      <FileCode className="h-3 w-3 text-emerald-500" />
-                                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{file.path}</span>
-                                      <Badge variant="outline" className="text-[8px] h-3.5 px-1 ml-1">{file.action}</Badge>
-                                    </div>
-                                    {/* BUG FIX: Show actual code from toolArgs.content, not tool result message */}
-                                    {file.codeContent ? (
-                                      <div className="relative">
-                                        <button
-                                          className="absolute top-1 right-1 z-10 h-5 w-5 flex items-center justify-center rounded bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                                          onClick={() => {
-                                            navigator.clipboard.writeText(file.codeContent);
-                                            toast.success("Code copied!");
-                                          }}
-                                        >
-                                          <Copy className="h-2.5 w-2.5" />
-                                        </button>
-                                        {(() => {
-                                          try {
-                                            const codeContent = file.codeContent.length > 5000
-                                              ? file.codeContent.substring(0, 5000) + `\n... (${file.codeContent.length - 5000} more characters)`
-                                              : file.codeContent;
-                                            return (
-                                              <SyntaxHighlighter
-                                                style={oneDark}
-                                                language={file.language || "typescript"}
-                                                PreTag="div"
-                                                customStyle={{
-                                                  margin: 0,
-                                                  borderRadius: 0,
-                                                  fontSize: "10px",
-                                                  maxHeight: "300px",
-                                                  overflow: "auto",
-                                                }}
-                                              >
-                                                {codeContent}
-                                              </SyntaxHighlighter>
-                                            );
-                                          } catch {
-                                            return <pre className="text-[9px] font-mono p-2 overflow-auto max-h-64">{file.codeContent?.substring(0, 5000)}</pre>;
-                                          }
-                                        })()}
-                                      </div>
-                                    ) : file.resultContent ? (
-                                      <pre className="text-[9px] font-mono text-emerald-700 dark:text-emerald-300 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all leading-tight">
-                                        {file.resultContent.substring(0, 2000)}
-                                        {file.resultContent.length > 2000 && <span className="text-muted-foreground/40">... ({file.resultContent.length} chars total)</span>}
-                                      </pre>
-                                    ) : (
-                                      <p className="text-[9px] text-muted-foreground/50 p-2">No code content available</p>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        } catch {}
-                        return null;
-                      })()}
-                      {/* Z.ai-style TODO list for plan-then-execute workflow */}
-                      {msg.role === "assistant" && (() => {
-                        try {
-                          const meta = JSON.parse(msg.metadata || "{}");
-                          // Get todoItems either from state (current message) or from metadata (historical)
-                          const isLastAssistantMsg = messages.indexOf(msg) === messages.length - 1;
-                          const items = (isLastAssistantMsg && todoItems.length > 0) ? todoItems : (Array.isArray(meta.todoItems) ? meta.todoItems : Array.isArray(meta.autoTodoItems) ? meta.autoTodoItems : []);
-                          if (!items || items.length === 0) return null;
-
-                          const completedCount = items.filter((t: any) => t.status === 'completed').length;
-                          const totalCount = items.length;
-                          const hasRunning = items.some((t: any) => t.status === 'running');
-                          const allCompleted = completedCount === totalCount;
-
-                          return (
-                            <div className="mb-3 rounded-lg border border-emerald-200/40 dark:border-emerald-800/30 overflow-hidden bg-gradient-to-b from-emerald-50/50 to-green-50/30 dark:from-emerald-950/20 dark:to-green-950/10">
-                              {/* TODO Header */}
-                              <button
-                                onClick={() => setTodoExpanded(!todoExpanded)}
-                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-emerald-100/30 dark:hover:bg-emerald-900/20 transition-colors text-left"
-                              >
-                                {allCompleted ? (
-                                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                                ) : hasRunning ? (
-                                  <Loader2 className="h-4 w-4 text-emerald-500 shrink-0 animate-spin" />
-                                ) : (
-                                  <ListChecks className="h-4 w-4 text-emerald-500 shrink-0" />
-                                )}
-                                <span className="text-xs font-semibold text-foreground/80">Plan</span>
-                                <span className="text-[10px] text-muted-foreground font-mono">
-                                  {completedCount}/{totalCount}
-                                </span>
-                                {/* Progress bar */}
-                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden ml-1 mr-2 max-w-[80px]">
-                                  <div
-                                    className="h-full rounded-full transition-all duration-500"
-                                    style={{
-                                      width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
-                                      background: 'linear-gradient(90deg, #10b981, #059669)',
-                                    }}
-                                  />
-                                </div>
-                                <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${todoExpanded ? "rotate-90" : ""}`} />
-                                {/* Run All button - icon only like z.ai */}
-                                {!allCompleted && !hasRunning && (
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-5 w-5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0 ml-1"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const firstPending = items.find((t: any) => t.status === 'pending');
-                                            if (firstPending) onActivateTodo(firstPending);
-                                          }}
-                                          disabled={sending}
-                                        >
-                                          <Zap className="h-3 w-3" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Run Next Step</TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )}
-                              </button>
-
-                              {/* TODO Items */}
-                              {todoExpanded && (
-                                <div className="px-3 pb-2.5 space-y-1 border-t border-emerald-200/30 dark:border-emerald-800/20">
-                                  {items.map((item: any) => {
-                                    const isPending = item.status === 'pending';
-                                    const isRunning = item.status === 'running';
-                                    const isCompleted = item.status === 'completed';
-                                    const isFailed = item.status === 'failed';
-
-                                    return (
-                                      <div key={item.id || item.step} className="py-1.5 group">
-                                        <div className="flex items-start gap-2">
-                                          {/* Status icon */}
-                                          <div className="mt-0.5 shrink-0">
-                                            {isPending ? (
-                                              <div className="h-4 w-4 rounded border-2 border-emerald-300 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                <Circle className="h-2 w-2 text-emerald-400" />
-                                              </div>
-                                            ) : isRunning ? (
-                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30 animate-pulse">
-                                                <Loader2 className="h-2.5 w-2.5 text-emerald-500 animate-spin" />
-                                              </div>
-                                            ) : isCompleted ? (
-                                              <div className="h-4 w-4 rounded border-2 border-emerald-400 flex items-center justify-center bg-emerald-50 dark:bg-emerald-900/30">
-                                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                                              </div>
-                                            ) : (
-                                              <div className="h-4 w-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-50 dark:bg-red-900/30">
-                                                <XCircle className="h-2.5 w-2.5 text-red-500" />
-                                              </div>
-                                            )}
-                                          </div>
-                                          {/* Content */}
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-1.5">
-                                              <span className={`text-[10px] font-mono text-muted-foreground/60`}>
-                                                {item.step}.
-                                              </span>
-                                              <span className={`text-[11px] font-medium ${
-                                                isCompleted ? 'text-foreground/50 line-through' :
-                                                isFailed ? 'text-red-600 dark:text-red-400' :
-                                                isRunning ? 'text-foreground/90' :
-                                                'text-foreground/70'
-                                              }`}>
-                                                {item.title}
-                                              </span>
-                                            </div>
-                                            {item.description && (
-                                              <p className={`text-[9px] mt-0.5 leading-tight ${
-                                                isCompleted ? 'text-muted-foreground/40' : 'text-muted-foreground/60'
-                                              }`}>
-                                                {item.description}
-                                              </p>
-                                            )}
-                                            {/* Result summary for completed items */}
-                                            {isCompleted && item.result && (
-                                              <p className="text-[9px] text-emerald-600/60 dark:text-emerald-400/50 mt-0.5 leading-tight">
-                                                ✓ {item.result}
-                                              </p>
-                                            )}
-                                            {/* Error info for failed items */}
-                                            {isFailed && item.result && (
-                                              <p className="text-[9px] text-red-500/70 mt-0.5 leading-tight">
-                                                ✗ {item.result}
-                                              </p>
-                                            )}
-                                          </div>
-                                          {/* Activate button - always visible for pending items */}
-                                          {isPending && (
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              className="h-6 text-[9px] px-2 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
-                                              onClick={() => onActivateTodo(item)}
-                                              disabled={sending}
-                                            >
-                                              <Zap className="h-2.5 w-2.5" />
-                                              Run Step
-                                            </Button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
                         } catch {}
                         return null;
                       })()}
@@ -4141,68 +3708,57 @@ function ChatArea({
       </ScrollArea>
 
       {/* Input Area - or "Chat Ended" banner with Resume option for ended chats */}
-      {/* z.ai-style TODO panel at chat bottom - minimizable with smooth collapse */}
+      {/* z.ai-style minimal TODO panel at chat bottom */}
       {todoItems.length > 0 && (
-        <div className="border-t border-border/50 bg-card/95 backdrop-blur-sm shrink-0">
-          <div className="px-3 py-2">
-            {/* Header: Plan label + progress bar + minimize toggle + Run Next */}
-            <div className="flex items-center gap-2 mb-0">
-              {/* Minimize/Collapse toggle - like z.ai */}
-              <button
-                onClick={() => setBottomTodoMinimized(!bottomTodoMinimized)}
-                className="flex items-center gap-1.5 hover:bg-muted/50 rounded px-1 py-0.5 transition-colors flex-1 min-w-0"
-              >
-                {todoItems.every(t => t.status === 'completed') ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                ) : todoItems.some(t => t.status === 'running') ? (
-                  <Loader2 className="h-3.5 w-3.5 text-emerald-500 animate-spin shrink-0" />
-                ) : (
-                  <ListChecks className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                )}
-                <span className="text-[11px] font-semibold text-foreground/80">
-                  {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
-                </span>
-                <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
-                  {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
-                </span>
-                {/* Progress bar */}
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden max-w-[120px]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 bg-emerald-500"
-                    style={{
-                      width: `${(todoItems.filter(t => t.status === 'completed').length / todoItems.length) * 100}%`,
-                    }}
-                  />
-                </div>
-                {/* Chevron toggle */}
-                <ChevronRight className={`h-3 w-3 text-muted-foreground transition-transform duration-200 ${bottomTodoMinimized ? "" : "rotate-90"}`} />
-              </button>
-              {/* Run Next button - icon only like z.ai */}
-              {todoItems.some(t => t.prompt && t.prompt.length > 0) && activeChat?.status !== "ENDED" && (
+        <div className="border-t border-border/30 bg-card/80 shrink-0">
+          <div className="px-3 py-1.5">
+            {/* Minimal header: label + count + chevron + run next */}
+            <button
+              onClick={() => setBottomTodoMinimized(!bottomTodoMinimized)}
+              className="flex items-center gap-1.5 w-full hover:bg-muted/30 rounded px-1 py-0.5 transition-colors text-left"
+            >
+              {todoItems.some(t => t.status === 'running') ? (
+                <Loader2 className="h-3 w-3 text-foreground/50 animate-spin shrink-0" />
+              ) : todoItems.every(t => t.status === 'completed') ? (
+                <CheckCircle2 className="h-3 w-3 text-foreground/40 shrink-0" />
+              ) : (
+                <Circle className="h-3 w-3 text-foreground/30 shrink-0" />
+              )}
+              <span className="text-[11px] text-foreground/60">
+                {todoItems.some(t => t.prompt && t.prompt.length > 0) ? 'Plan' : 'Progress'}
+              </span>
+              <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                {todoItems.filter(t => t.status === 'completed').length}/{todoItems.length}
+              </span>
+              <ChevronRight className={`h-3 w-3 text-muted-foreground/40 transition-transform duration-150 ml-auto ${bottomTodoMinimized ? "" : "rotate-90"}`} />
+            </button>
+            {/* Run Next button */}
+            {!bottomTodoMinimized && todoItems.some(t => t.prompt && t.prompt.length > 0) && activeChat?.status !== "ENDED" && (
+              <div className="flex justify-end mt-0.5">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 shrink-0"
+                        className="h-5 w-5 text-foreground/40 hover:text-foreground/60 shrink-0"
                         onClick={() => {
                           const firstPending = todoItems.find(t => t.status === 'pending');
                           if (firstPending) onActivateTodo(firstPending);
                         }}
                         disabled={sending || !todoItems.some(t => t.status === 'pending')}
                       >
-                        <Zap className="h-3.5 w-3.5" />
+                        <Zap className="h-3 w-3" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{todoItems.some(t => t.status === 'running') ? 'Running...' : 'Run Next Step'}</TooltipContent>
+                    <TooltipContent>Run Next Step</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-              )}
-            </div>
-            {/* Collapsible TODO list - smooth collapse like z.ai */}
+              </div>
+            )}
+            {/* Collapsible TODO items - minimal z.ai style */}
             {!bottomTodoMinimized && (
-              <div className="space-y-0.5 max-h-[120px] overflow-y-auto mt-1.5">
+              <div className="space-y-px mt-1">
                 {todoItems.map((item) => {
                   const isPending = item.status === 'pending';
                   const isRunning = item.status === 'running';
@@ -4213,20 +3769,20 @@ function ChatArea({
                     <button
                       key={item.id || item.step}
                       onClick={() => isPending && hasPrompt && !sending ? onActivateTodo(item) : undefined}
-                      className={`flex items-center gap-2 w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all text-left ${
-                        isCompleted ? 'text-emerald-600 dark:text-emerald-400 line-through' :
-                        isRunning ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' :
-                        isFailed ? 'text-red-600 dark:text-red-400' :
-                        hasPrompt ? 'text-foreground/70 hover:bg-muted/50 cursor-pointer' :
-                        'text-muted-foreground'
+                      className={`flex items-center gap-1.5 w-full px-1 py-0.5 rounded text-[11px] transition-colors text-left ${
+                        isCompleted ? 'text-foreground/35 line-through' :
+                        isRunning ? 'text-foreground/70' :
+                        isFailed ? 'text-red-500/70' :
+                        hasPrompt ? 'text-foreground/55 hover:bg-muted/30 cursor-pointer' :
+                        'text-foreground/35'
                       }`}
                       disabled={sending || !isPending || !hasPrompt}
                     >
-                      {isCompleted ? <CheckCircle2 className="h-3 w-3 shrink-0" /> :
-                       isRunning ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> :
-                       isFailed ? <XCircle className="h-3 w-3 shrink-0" /> :
-                       <Circle className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
-                      <span className="truncate">{item.step}. {item.title}</span>
+                      {isCompleted ? <CircleCheck className="h-3 w-3 text-foreground/30 shrink-0" /> :
+                       isRunning ? <Loader2 className="h-3 w-3 animate-spin shrink-0 text-foreground/50" /> :
+                       isFailed ? <CircleX className="h-3 w-3 shrink-0 text-red-400/60" /> :
+                       <Circle className="h-3 w-3 shrink-0 text-foreground/20" />}
+                      <span className="truncate">{item.title}</span>
                     </button>
                   );
                 })}
@@ -4251,65 +3807,52 @@ function ChatArea({
           </div>
         </div>
       ) : (
-      <div className="p-3 border-t bg-card shrink-0">
+      <div className="px-3 py-2 border-t border-border/30 bg-card shrink-0">
         {/* Suggested prompts for empty chats */}
         {messages.length === 0 && suggestedPrompts.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
+          <div className="flex flex-wrap gap-1 mb-2">
             {suggestedPrompts.slice(0, 3).map((sp) => (
-              <Button
+              <button
                 key={sp.id}
-                variant="outline"
-                size="sm"
-                className="text-[10px] h-6"
                 onClick={() => onSuggestedPrompt(sp.prompt)}
+                className="text-[10px] text-foreground/50 hover:text-foreground/70 bg-muted/30 hover:bg-muted/50 rounded-full px-2.5 py-1 transition-colors"
               >
-                <Lightbulb className="h-2.5 w-2.5 mr-1" />
                 {sp.label}
-              </Button>
+              </button>
             ))}
           </div>
         )}
         {/* Upload progress indicator */}
         {uploading && (
-          <div className="flex items-center gap-2 mb-2 max-w-3xl mx-auto px-1">
-            <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-1.5 text-xs text-blue-400 animate-pulse">
-              <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-              <span>Uploading file{attachedFiles.length > 0 ? `s (${attachedFiles.length} ready)` : ''}...</span>
-            </div>
+          <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-foreground/40">
+            <Loader2Icon className="h-3 w-3 animate-spin" />
+            <span>Uploading...</span>
           </div>
         )}
         {/* Attached files preview */}
-        {(attachedFiles.length > 0 || uploading) && (
-          <div className="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto">
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-1.5">
             {attachedFiles.map((file) => (
-              <div key={file.url} className="flex items-center gap-1.5 bg-muted/50 rounded-lg px-2 py-1 text-xs relative">
+              <div key={file.url} className="flex items-center gap-1 bg-muted/30 rounded px-1.5 py-0.5 text-[10px] text-foreground/50">
                 {file.isImage ? (
-                  <img src={file.url} alt={file.name} className="h-8 w-8 rounded object-cover" />
+                  <img src={file.url} alt={file.name} className="h-5 w-5 rounded object-cover" />
                 ) : (
-                  <FileCode className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <FileCode className="h-3 w-3 shrink-0" />
                 )}
-                <span className="max-w-[100px] truncate">{file.name}</span>
-                {uploading ? (
-                  <Loader2Icon className="h-3 w-3 animate-spin text-blue-400 shrink-0" />
-                ) : (
+                <span className="max-w-[80px] truncate">{file.name}</span>
+                {!uploading && (
                   <button
                     onClick={() => onRemoveAttachment(file.url)}
-                    className="text-muted-foreground hover:text-destructive shrink-0"
+                    className="text-muted-foreground/50 hover:text-destructive shrink-0"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-2.5 w-2.5" />
                   </button>
                 )}
               </div>
             ))}
-            {uploading && (
-              <div className="flex items-center gap-1.5 bg-muted/30 rounded-lg px-2 py-1 text-xs text-muted-foreground animate-pulse">
-                <Loader2Icon className="h-3 w-3 animate-spin" />
-                <span>Processing...</span>
-              </div>
-            )}
           </div>
         )}
-        <div className="flex gap-2 max-w-3xl mx-auto">
+        <div className="flex gap-1.5 items-end">
           {/* File upload button - hidden for SUPPORT agent */}
           {agent.type !== "SUPPORT" && (
             <>
@@ -4325,11 +3868,11 @@ function ChatArea({
               <Button
                 variant="ghost"
                 size="icon"
-                className="shrink-0"
+                className="shrink-0 h-8 w-8 text-muted-foreground/50 hover:text-foreground/70"
                 disabled={uploading || sending}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploading ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <PaperclipIcon className="h-4 w-4" />}
+                {uploading ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : <PaperclipIcon className="h-3.5 w-3.5" />}
               </Button>
             </>
           )}
@@ -4338,13 +3881,13 @@ function ChatArea({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={uploading ? "Uploading files... please wait" : sending ? "Agent is working... please wait" : `Message ${agent.name}${agent.type !== "SUPPORT" ? " (attach files with 📎)" : ""}...`}
-            className="min-h-[44px] max-h-32 resize-none"
+            placeholder={uploading ? "Uploading..." : sending ? "Working..." : `Message ${agent.name}...`}
+            className="min-h-[36px] max-h-32 resize-none text-sm bg-muted/30 border-0 focus-visible:ring-1"
             rows={1}
             disabled={sending || uploading}
           />
-          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending || uploading} className="shrink-0">
-            {sending ? <Loader2Icon className="h-4 w-4 animate-spin" /> : uploading ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />}
+          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending || uploading} className="shrink-0 h-8 w-8 p-0" size="icon">
+            {sending ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : uploading ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : <SendIcon className="h-3.5 w-3.5" />}
           </Button>
         </div>
       </div>

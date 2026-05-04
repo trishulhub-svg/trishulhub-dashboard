@@ -520,8 +520,8 @@ async function callNvidiaAPI(
       model: mappedModel,
       messages,
       max_tokens: options?.maxTokens || 4096,
-      temperature: options?.temperature || 0.6,
-      top_p: 0.95,
+      temperature: options?.temperature || 0.3, // Match z.ai default (was 0.6)
+      top_p: 0.7, // Match z.ai default (was 0.95 — too wide for precise responses)
       // Extra body for reasoning/thinking support (NVIDIA GLM models)
       chat_template_kwargs: {
         enable_thinking: true,
