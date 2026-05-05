@@ -9,6 +9,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -53,15 +54,15 @@ export async function PATCH(
     return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
   }
 
-  try {
-    const subscription = await db.subscription.update({
-      where: { id },
-      data: sanitizedData,
-      include: { project: { select: { id: true, name: true } } },
-    })
-    return NextResponse.json(subscription)
-  } catch {
-    return NextResponse.json({ error: "Subscription update failed" }, { status: 500 })
+  const subscription = await db.subscription.update({
+    where: { id },
+    data: sanitizedData,
+    include: { project: { select: { id: true, name: true } } },
+  })
+  return NextResponse.json(subscription)
+  } catch (error: any) {
+    console.error("[subscriptions] PATCH error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
@@ -70,6 +71,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -85,10 +87,10 @@ export async function DELETE(
     return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
   }
 
-  try {
-    await db.subscription.delete({ where: { id } })
-    return NextResponse.json({ success: true })
-  } catch {
-    return NextResponse.json({ error: "Subscription delete failed" }, { status: 500 })
+  await db.subscription.delete({ where: { id } })
+  return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error("[subscriptions] DELETE error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

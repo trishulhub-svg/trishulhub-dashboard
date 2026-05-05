@@ -867,7 +867,7 @@ export default function SettingsPage() {
     setResetPasswordOpen(true);
   };
 
-  if (!session) {
+  if (status === "loading" || !session) {
     return (
       <div className="space-y-6 max-w-4xl">
         <div>

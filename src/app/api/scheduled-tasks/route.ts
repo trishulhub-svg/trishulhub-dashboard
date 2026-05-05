@@ -57,6 +57,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Agent ID, title, and due date are required" }, { status: 400 })
     }
 
+    // Validate dueDate is a real date
+    if (isNaN(new Date(dueDate).getTime())) {
+      return NextResponse.json({ error: "Invalid due date format" }, { status: 400 })
+    }
+    if (notifyAt && isNaN(new Date(notifyAt).getTime())) {
+      return NextResponse.json({ error: "Invalid notify date format" }, { status: 400 })
+    }
+
     // SECURITY: Non-admin users must have canChat access to the target agent
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
@@ -139,7 +147,12 @@ export async function PATCH(req: NextRequest) {
     const data: any = {}
     if (title !== undefined) data.title = title
     if (description !== undefined) data.description = description
-    if (dueDate !== undefined) data.dueDate = new Date(dueDate)
+    if (dueDate !== undefined) {
+      if (isNaN(new Date(dueDate).getTime())) {
+        return NextResponse.json({ error: "Invalid due date format" }, { status: 400 })
+      }
+      data.dueDate = new Date(dueDate)
+    }
     if (priority !== undefined) {
       const validPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"]
       if (!validPriorities.includes(priority)) {

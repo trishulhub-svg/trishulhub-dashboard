@@ -163,22 +163,26 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Notify admins about new leave request
-      const admins = await db.user.findMany({
-        where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
-      })
-      const user = await db.user.findUnique({ where: { id: leaveUserId } })
-      for (const admin of admins) {
-        await db.notification.create({
-          data: {
-            userId: admin.id,
-            title: "New Leave Request",
-            message: `${user?.name || "A team member"} requested ${data.leaveType || "casual"} leave from ${new Date(data.startDate).toLocaleDateString()} to ${new Date(data.endDate).toLocaleDateString()}`,
-            type: "INFO",
-            link: "/dashboard/team",
-            metadata: JSON.stringify({ leaveId: leave.id }),
-          }
+      // Notify admins about new leave request (fire-and-forget — non-blocking)
+      try {
+        const admins = await db.user.findMany({
+          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
         })
+        const user = await db.user.findUnique({ where: { id: leaveUserId } })
+        for (const admin of admins) {
+          await db.notification.create({
+            data: {
+              userId: admin.id,
+              title: "New Leave Request",
+              message: `${user?.name || "A team member"} requested ${data.leaveType || "casual"} leave from ${new Date(data.startDate).toLocaleDateString()} to ${new Date(data.endDate).toLocaleDateString()}`,
+              type: "INFO",
+              link: "/dashboard/team",
+              metadata: JSON.stringify({ leaveId: leave.id }),
+            }
+          })
+        }
+      } catch (notifyErr: any) {
+        console.error("[team] leave notification error (non-blocking):", notifyErr?.message)
       }
 
       return NextResponse.json(leave, { status: 201 })
@@ -350,17 +354,21 @@ export async function PATCH(req: NextRequest) {
         },
       })
 
-      // Notify the user about leave decision
-      await db.notification.create({
-        data: {
-          userId: leave.userId,
-          title: `Leave ${data.status}`,
-          message: `Your ${leave.type} leave request has been ${data.status.toLowerCase()}.${data.feedback ? ` Feedback: ${data.feedback}` : ""}`,
-          type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
-          link: "/dashboard/team",
-          metadata: JSON.stringify({ leaveId: leave.id }),
-        }
-      })
+      // Notify the user about leave decision (fire-and-forget — non-blocking)
+      try {
+        await db.notification.create({
+          data: {
+            userId: leave.userId,
+            title: `Leave ${data.status}`,
+            message: `Your ${leave.type} leave request has been ${data.status.toLowerCase()}.${data.feedback ? ` Feedback: ${data.feedback}` : ""}`,
+            type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
+            link: "/dashboard/team",
+            metadata: JSON.stringify({ leaveId: leave.id }),
+          }
+        })
+      } catch (notifyErr: any) {
+        console.error("[team] leave decision notification error (non-blocking):", notifyErr?.message)
+      }
 
       return NextResponse.json(leave)
     }

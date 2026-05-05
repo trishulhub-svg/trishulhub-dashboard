@@ -20,6 +20,7 @@ function getMonthlyINR(rate: number, currency: string, frequency: string): numbe
 
 // GET /api/subscriptions - List subscriptions with filters
 export async function GET(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -52,10 +53,15 @@ export async function GET(req: NextRequest) {
     .reduce((sum, s) => sum + s.monthlyINR, 0)
 
   return NextResponse.json({ subscriptions: enriched, totalMonthlyCost })
+  } catch (error: any) {
+    console.error("[subscriptions] GET error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 // POST /api/subscriptions - Create subscription (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -90,4 +96,8 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json(subscription)
+  } catch (error: any) {
+    console.error("[subscriptions] POST error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }

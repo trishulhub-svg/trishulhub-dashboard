@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 
 export async function GET() {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
@@ -31,9 +32,14 @@ export async function GET() {
   }
   
   return NextResponse.json(tickets)
+  } catch (error: any) {
+    console.error("[support] GET error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const data = await req.json()
@@ -71,6 +77,10 @@ export async function POST(req: NextRequest) {
     },
   })
   return NextResponse.json(ticket)
+  } catch (error: any) {
+    console.error("[support] POST error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {
