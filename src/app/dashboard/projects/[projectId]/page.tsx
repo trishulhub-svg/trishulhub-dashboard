@@ -94,9 +94,14 @@ export default function ProjectDetailPage() {
 
       if (projRes.ok) {
         const projData = await projRes.json();
-        // Handle both array and paginated { data: [...] } responses
-        const projectsList = Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []);
-        if (projectsList.length > 0) setProject(projectsList[0]);
+        // Handle both array, single object, and paginated { data: [...] } responses
+        if (Array.isArray(projData)) {
+          if (projData.length > 0) setProject(projData[0]);
+        } else if (projData?.id) {
+          setProject(projData);
+        } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
+          setProject(projData.data[0]);
+        }
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
@@ -112,7 +117,7 @@ export default function ProjectDetailPage() {
       }
 
       // Only fetch team users if admin (for member assignment)
-      if (isAdminUser) {
+      if (session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN") {
         const userRes = await fetch("/api/team?type=users", { credentials: 'include' });
         if (userRes.ok) {
           const userData = await userRes.json();
@@ -125,7 +130,7 @@ export default function ProjectDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, isAdminUser]);
+  }, [projectId, session?.user?.role]);
 
   useEffect(() => {
     fetchData();
@@ -209,6 +214,26 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleUpdateProject = async (updates: Record<string, unknown>) => {
+    try {
+      const res = await fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify({ id: projectId, ...updates }),
+      });
+      if (res.ok) {
+        toast.success("Project updated");
+        fetchData();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to update project");
+      }
+    } catch {
+      toast.error("Failed to update project");
+    }
+  };
+
   const handleRemoveMember = async (userId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, {
@@ -237,13 +262,21 @@ export default function ProjectDetailPage() {
   }
 
   if (!project) {
-    return <div className="text-center py-12 text-muted-foreground">Project not found</div>;
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground mb-4">Project not found</p>
+        <Button variant="outline" onClick={() => router.push("/dashboard/projects")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+        </Button>
+      </div>
+    );
   }
 
   const typedTasks = tasks as {
     id: string; title: string; description?: string; status: TaskStatus;
     priority: TaskPriority; assigneeType: string; assignedTo?: string;
     assignee?: { name: string }; agent?: { name: string };
+    deadline?: string | null;
   }[];
 
   // Filter out users already in the project
@@ -267,7 +300,21 @@ export default function ProjectDetailPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Status</p>
-            <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
+            {isAdminUser ? (
+              <Select
+                value={(project.status as string)}
+                onValueChange={(val) => handleUpdateProject({ status: val })}
+              >
+                <SelectTrigger className="h-7 mt-1 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
+                    <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -275,7 +322,21 @@ export default function ProjectDetailPage() {
             <p className="text-xs text-muted-foreground">Progress</p>
             <div className="flex items-center gap-2 mt-1">
               <Progress value={project.progress as number} className="h-2 flex-1" />
-              <span className="text-sm font-medium">{project.progress as number}%</span>
+              {isAdminUser ? (
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={project.progress as number}
+                  onChange={(e) => {
+                    const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                    handleUpdateProject({ progress: val });
+                  }}
+                  className="h-7 w-14 text-xs text-center"
+                />
+              ) : (
+                <span className="text-sm font-medium">{project.progress as number}%</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -494,6 +555,12 @@ export default function ProjectDetailPage() {
                           )}
                           <span>{task.assignee?.name || task.agent?.name || "Unassigned"}</span>
                         </div>
+                        {task.deadline && (
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                            <Clock className="h-2.5 w-2.5" />
+                            {new Date(task.deadline).toLocaleDateString()}
+                          </span>
+                        )}
                       </div>
                       <div className="flex gap-1">
                         {TASK_COLUMNS.filter((s) => s !== status).map((s) => (
