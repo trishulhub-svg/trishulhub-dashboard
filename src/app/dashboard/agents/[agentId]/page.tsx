@@ -942,7 +942,11 @@ export default function AgentChatPage() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (activeChatId) {
-        navigator.sendBeacon(`/api/chat-lock?chatId=${activeChatId}`);
+        fetch(`/api/chat-lock?chatId=${activeChatId}`, {
+          method: 'DELETE',
+          keepalive: true,
+          credentials: 'include',
+        }).catch(() => {})
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);

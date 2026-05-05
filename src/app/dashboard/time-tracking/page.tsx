@@ -240,7 +240,7 @@ export default function TimeTrackingPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          projectId: selectedProject || undefined,
+          projectId: selectedProject === "none" ? undefined : (selectedProject || undefined),
           description: timerDescription || undefined,
         }),
       });

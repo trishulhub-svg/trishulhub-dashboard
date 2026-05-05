@@ -69,6 +69,9 @@ export default function PortalSupportPage() {
         toast.success("Ticket created");
         setAddOpen(false);
         fetchTickets();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to create ticket");
       }
     } catch {
       toast.error("Failed to create ticket");
@@ -79,7 +82,7 @@ export default function PortalSupportPage() {
     if (!selectedTicket || !replyText.trim()) return;
 
     try {
-      await fetch("/api/support", {
+      const res = await fetch("/api/support", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
@@ -89,12 +92,17 @@ export default function PortalSupportPage() {
           senderType: "HUMAN",
         }),
       });
-      toast.success("Reply sent");
-      setReplyText("");
-      fetchTickets();
-      // Refresh selected ticket
-      const updated = (tickets as { id: string }[]).find((t) => t.id === selectedTicket.id);
-      if (updated) setSelectedTicket(updated as unknown as Record<string, unknown>);
+      if (res.ok) {
+        toast.success("Reply sent");
+        setReplyText("");
+        fetchTickets();
+        // Refresh selected ticket
+        const updated = (tickets as { id: string }[]).find((t) => t.id === selectedTicket.id);
+        if (updated) setSelectedTicket(updated as unknown as Record<string, unknown>);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to send reply");
+      }
     } catch {
       toast.error("Failed to send reply");
     }

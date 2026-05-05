@@ -62,10 +62,17 @@ export default function ProjectsPage() {
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const clientId = form.get("clientId") as string;
+
+    if (!clientId) {
+      toast.error("Please select a client");
+      return;
+    }
+
     const data = {
       name: form.get("name") as string,
       description: form.get("description") as string,
-      clientId: form.get("clientId") as string,
+      clientId,
       budget: parseFloat(form.get("budget") as string) || null,
       deadline: form.get("deadline") as string || null,
     };

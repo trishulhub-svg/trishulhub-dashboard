@@ -166,12 +166,18 @@ export default function CRMPage() {
     setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)));
 
     try {
-      await fetch("/api/leads", {
+      const res = await fetch("/api/leads", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
         body: JSON.stringify({ id: leadId, status: newStatus }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update lead");
+        fetchLeads(); // Rollback by refetching
+        return;
+      }
       toast.success(`Lead moved to ${newStatus}`);
     } catch {
       toast.error("Failed to move lead");

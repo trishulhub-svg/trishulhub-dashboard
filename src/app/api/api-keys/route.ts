@@ -24,13 +24,14 @@ export async function GET() {
       },
     })
 
-    // Mask key values for non-SUPER_ADMIN users (show only last 4 chars)
-    const sanitizedKeys = keys.map((key) => ({
+    // SECURITY: Always mask key values (show only last 4 chars) — even for SUPER_ADMIN
+    // Full key values are NEVER returned in GET to prevent leakage
+    const maskedKeys = keys.map((key) => ({
       ...key,
-      keyValue: userRole === "SUPER_ADMIN" ? key.keyValue : `••••${key.keyValue.slice(-4)}`,
+      keyValue: key.keyValue ? `****${key.keyValue.slice(-4)}` : "",
     }))
 
-    return NextResponse.json(sanitizedKeys)
+    return NextResponse.json(maskedKeys)
   } catch (error: any) {
     console.error("[api-keys] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Key Name and API Key Value are required" }, { status: 400 })
     }
 
-    const key = await db.apiKey.create({
+    const config = await db.apiKey.create({
       data: {
         provider: body.provider || "OPENROUTER",
         keyName: body.keyName,
@@ -67,7 +68,8 @@ export async function POST(req: NextRequest) {
         assignedAgents: body.assignedAgents || "[]",
       },
     })
-    return NextResponse.json(key)
+    // Return full key value ONCE with a warning — it won't be shown again in GET
+    return NextResponse.json({ ...config, keyValue: config.keyValue, _warning: "Copy this key now. It won't be shown again." }, { status: 201 })
   } catch (error: any) {
     console.error("[api-keys] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -96,6 +98,7 @@ export async function PUT(req: NextRequest) {
     if (body.status !== undefined) data.status = body.status
     if (body.priority !== undefined) data.priority = body.priority
     if (body.assignedAgents !== undefined) data.assignedAgents = body.assignedAgents
+    if (body.currentSpend !== undefined) data.currentSpend = body.currentSpend
 
     const key = await db.apiKey.update({ where: { id }, data })
     return NextResponse.json(key)

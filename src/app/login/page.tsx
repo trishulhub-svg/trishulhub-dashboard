@@ -73,18 +73,23 @@ function LoginForm() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const sessionReason = searchParams.get("reason");
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
 
   // If already logged in, redirect
   useEffect(() => {
     if (status === "authenticated" && session) {
       const role = (session.user as { role?: string })?.role;
       if (role === "CLIENT") {
-        router.replace("/portal");
+        if (callbackUrl.startsWith("/portal")) {
+          router.replace(callbackUrl);
+        } else {
+          router.replace("/portal");
+        }
       } else {
-        router.replace("/dashboard");
+        router.replace(callbackUrl);
       }
     }
-  }, [status, session, router]);
+  }, [status, session, router, callbackUrl]);
 
   // Check if database has users
   useEffect(() => {

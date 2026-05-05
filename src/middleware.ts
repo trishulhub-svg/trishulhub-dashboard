@@ -56,6 +56,24 @@ export async function middleware(request: NextRequest) {
     // The JWT callback will add a sessionToken on next refresh
   }
 
+  // Role-based access control
+  if (pathname.startsWith("/dashboard")) {
+    const role = token?.role as string | undefined
+
+    // CLIENT users cannot access dashboard at all
+    if (role === "CLIENT") {
+      return NextResponse.redirect(new URL("/portal", request.url))
+    }
+
+    // Admin-only routes
+    const adminOnlyRoutes = ["/dashboard/api-keys", "/dashboard/finance", "/dashboard/crm", "/dashboard/clients", "/dashboard/availability", "/dashboard/team"]
+    const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
+
+    if (!isAdmin && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
+      return NextResponse.redirect(new URL("/dashboard", request.url))
+    }
+  }
+
   return NextResponse.next()
 }
 

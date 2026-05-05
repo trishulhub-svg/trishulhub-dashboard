@@ -365,7 +365,7 @@ export default function MeetingsPage() {
         endTime: formEndTime || undefined,
         meetingType: formMeetingType,
         meetingLink: formMeetingLink || undefined,
-        projectId: formProjectId || undefined,
+        projectId: formProjectId === "none" ? undefined : (formProjectId || undefined),
         attendeeIds: formAttendeeIds,
         notes: formNotes || undefined,
       };

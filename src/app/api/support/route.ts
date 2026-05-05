@@ -100,13 +100,43 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  // Only admins can update ticket details
   const userRole = (session.user as any).role
-  if (!isAdmin(userRole)) {
-    return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-  }
+  const sessionUserId = (session.user as any).id
   
-  const { id, ...data } = await req.json()
+  const { id, message, ...data } = await req.json()
+  
+  // CLIENT/DEVELOPER users can only add messages to their own tickets
+  if (!isAdmin(userRole)) {
+    // For CLIENT users, find their client profile to check ownership
+    const clientProfile = await db.client.findFirst({ where: { userId: sessionUserId } })
+    if (!clientProfile) {
+      return NextResponse.json({ error: "No client profile found" }, { status: 403 })
+    }
+    const ticket = await db.supportTicket.findUnique({ where: { id } })
+    if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+    if (ticket.clientId !== clientProfile.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+    // Only allow adding a message, not changing status
+    if (!message) {
+      return NextResponse.json({ error: "Message is required" }, { status: 400 })
+    }
+    // Create a new TicketMessage record (messages is a relation, not a JSON column)
+    const newMessage = await db.ticketMessage.create({
+      data: {
+        ticketId: id,
+        senderId: sessionUserId,
+        senderType: "HUMAN",
+        message,
+      },
+    })
+    // Return the updated ticket with all messages
+    const updated = await db.supportTicket.findUnique({
+      where: { id },
+      include: { client: true, messages: true },
+    })
+    return NextResponse.json(updated)
+  }
   
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]

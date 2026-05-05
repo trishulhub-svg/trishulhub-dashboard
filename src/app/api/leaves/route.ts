@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Leave type is required" }, { status: 400 })
     }
 
+    if (new Date(startDate) > new Date(endDate)) {
+      return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
+    }
+
     // Non-admin users can only create leaves for themselves
     const targetUserId = !isAdmin(userRole) ? sessionUserId : (userId || sessionUserId)
 

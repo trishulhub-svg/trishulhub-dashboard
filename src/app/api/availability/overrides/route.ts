@@ -82,3 +82,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
+
+// DELETE /api/availability/overrides - Delete override
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
+    
+    const existing = await db.availabilityOverride.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 })
+    
+    await db.availabilityOverride.delete({ where: { id } })
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error("[availability/overrides] DELETE error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
+}

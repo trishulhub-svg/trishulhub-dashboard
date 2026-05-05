@@ -134,15 +134,6 @@ export default function ClientsPage() {
   const userRole = (session?.user as any)?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  // Redirect non-admin users away from this page
-  useEffect(() => {
-    if (status === "authenticated" && !isAdminUser) {
-      router.push("/dashboard");
-    }
-  }, [status, router, isAdminUser]);
-
-  if (status !== "authenticated" || !isAdminUser) return null;
-
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -173,6 +164,15 @@ export default function ClientsPage() {
     notes: "",
     createdAt: "",
   });
+
+  // Redirect non-admin users away from this page
+  useEffect(() => {
+    if (status === "authenticated" && !isAdminUser) {
+      router.push("/dashboard");
+    }
+  }, [status, router, isAdminUser]);
+
+  if (status !== "authenticated" || !isAdminUser) return null;
 
   // ━━ Fetch clients ━━
   const fetchClients = useCallback(async () => {

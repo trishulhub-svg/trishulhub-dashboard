@@ -36,6 +36,7 @@ import {
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useState, useEffect, useCallback } from "react";
+import { useSessionManager } from "@/hooks/use-session-manager";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -206,6 +207,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  useSessionManager();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -386,7 +388,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-9 w-9">
-                  {theme === "dark" ? (
+                  {theme === "system" ? (
+                    <Monitor className="h-4 w-4" />
+                  ) : theme === "dark" ? (
                     <Moon className="h-4 w-4" />
                   ) : theme === "bluelight" ? (
                     <Eye className="h-4 w-4 text-amber-600" />

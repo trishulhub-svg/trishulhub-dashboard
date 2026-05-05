@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -42,9 +43,12 @@ export default function DashboardPage() {
       if (res.ok) {
         const json = await res.json();
         setData(json);
+      } else {
+        setError(true);
       }
     } catch (err) {
       console.error("Dashboard fetch error:", err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -58,7 +62,7 @@ export default function DashboardPage() {
   // Seeding should only happen via explicit admin action at /api/setup POST.
   // If the dashboard fails to load, show an error state instead.
 
-  if (loading || !data) {
+  if (loading || (!data && !error)) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -74,6 +78,24 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="space-y-6 max-w-7xl">
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <AlertCircle className="h-8 w-8 mx-auto text-destructive mb-2" />
+              <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => { setError(false); setLoading(true); fetchDashboard(); }}>Retry</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!data) return null;
 
   const stats = data.stats as {
     totalRevenue: number;

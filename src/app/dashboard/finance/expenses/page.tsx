@@ -91,9 +91,14 @@ export default function ExpensesPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
-      toast.success("Expense deleted");
-      fetchExpenses();
+      const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
+      if (res.ok) {
+        toast.success("Expense deleted");
+        fetchExpenses();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete expense");
+      }
     } catch {
       toast.error("Failed to delete expense");
     }

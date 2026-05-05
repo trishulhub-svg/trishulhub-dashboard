@@ -48,11 +48,15 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, status, dueDate, sentById } = body
+  const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate } = body
 
   if (!clientId) {
     return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
   }
+
+  // Negative amount validation
+  if (total !== undefined && total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
+  if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
 
   // Generate invoice number if not provided
   const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
@@ -66,9 +70,11 @@ export async function POST(req: NextRequest) {
       subtotal: subtotal || 0,
       tax: tax || 0,
       total: total || 0,
-      status: status || "DRAFT",
+      // SECURITY: Always create as DRAFT — ignore client-provided status
+      status: "DRAFT",
       dueDate: dueDate ? new Date(dueDate) : null,
-      sentById: sentById || null,
+      // SECURITY: Auto-set sentById from session — ignore client-provided value
+      sentById: (session.user as any).id,
     },
   })
   return NextResponse.json(invoice)
@@ -91,14 +97,33 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
   }
 
-  // Validate status transitions
-  const validStatuses = ["DRAFT", "SENT", "PAID", "OVERDUE"]
-  if (data.status && !validStatuses.includes(data.status)) {
-    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 })
+  // Negative amount validation
+  if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
+  if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+
+  // Fetch existing invoice for status transition validation
+  const existing = await db.invoice.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
   }
 
-  // Sanitize update fields
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "sentById", "paidAt"]
+  // Validate status transitions
+  if (data.status) {
+    const validTransitions: Record<string, string[]> = {
+      DRAFT: ["SENT", "OVERDUE"],
+      SENT: ["PAID", "OVERDUE", "DRAFT"],
+      OVERDUE: ["PAID", "SENT", "DRAFT"],
+      PAID: [], // No transitions from PAID (locked)
+    }
+    const currentStatus = existing.status
+    const allowed = validTransitions[currentStatus] || []
+    if (!allowed.includes(data.status)) {
+      return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
+    }
+  }
+
+  // Sanitize update fields — sentById removed to prevent spoofing
+  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt"]
   const sanitizedData: Record<string, any> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
@@ -144,8 +169,33 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
   }
 
-  // SECURITY: Apply same allowed fields whitelist as PATCH handler
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "sentById", "paidAt"]
+  // Negative amount validation
+  if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
+  if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+
+  // Fetch existing invoice for status transition validation
+  const existing = await db.invoice.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+  }
+
+  // Validate status transitions
+  if (data.status) {
+    const validTransitions: Record<string, string[]> = {
+      DRAFT: ["SENT", "OVERDUE"],
+      SENT: ["PAID", "OVERDUE", "DRAFT"],
+      OVERDUE: ["PAID", "SENT", "DRAFT"],
+      PAID: [], // No transitions from PAID (locked)
+    }
+    const currentStatus = existing.status
+    const allowed = validTransitions[currentStatus] || []
+    if (!allowed.includes(data.status)) {
+      return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
+    }
+  }
+
+  // SECURITY: Apply same allowed fields whitelist as PATCH handler — sentById removed to prevent spoofing
+  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt"]
   const sanitizedData: Record<string, any> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
@@ -157,6 +207,11 @@ export async function PUT(req: NextRequest) {
         sanitizedData[key] = data[key]
       }
     }
+  }
+
+  // If marking as PAID, set paidAt automatically
+  if (data.status === "PAID" && !data.paidAt) {
+    sanitizedData.paidAt = new Date()
   }
 
   try {

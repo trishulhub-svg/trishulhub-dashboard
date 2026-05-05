@@ -205,7 +205,7 @@ export default function FinancePage() {
       if (expSearch) params.set("search", expSearch);
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
-      if (expCategory) params.set("category", expCategory);
+      if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include" });
       if (res.ok) setExpenses(await res.json());
     } catch (err) {
@@ -343,10 +343,15 @@ export default function FinancePage() {
   // ─── Expense delete handler ────
   const handleDeleteExpense = async (id: string) => {
     try {
-      await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: "include" });
-      toast.success("Expense deleted");
-      fetchExpenses();
-      fetchStats();
+      const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: "include" });
+      if (res.ok) {
+        toast.success("Expense deleted");
+        fetchExpenses();
+        fetchStats();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete expense");
+      }
     } catch {
       toast.error("Failed to delete expense");
     }
