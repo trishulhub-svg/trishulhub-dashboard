@@ -186,3 +186,61 @@ export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): { suc
   }
   return { success: true, data: result.data }
 }
+
+// ━━ Deals ━━
+export const createDealSchema = z.object({
+  title: z.string().min(1, "Deal title is required").max(300, "Title must be at most 300 characters"),
+  value: z.number().min(0, "Value must be positive").optional(),
+  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
+  probability: z.number().int().min(0).max(100).optional(),
+  expectedCloseDate: z.string().optional().refine((val) => {
+    if (!val) return true
+    return !isNaN(Date.parse(val))
+  }, { message: "expectedCloseDate must be a valid date string" }),
+  clientId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedToId: z.string().optional(),
+  notes: z.string().max(5000, "Notes must be at most 5000 characters").optional(),
+})
+
+export const updateDealSchema = z.object({
+  id: z.string().min(1, "Deal ID is required"),
+  title: z.string().min(1).max(300).optional(),
+  value: z.number().min(0).optional(),
+  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
+  probability: z.number().int().min(0).max(100).optional(),
+  expectedCloseDate: z.string().optional(),
+  actualCloseDate: z.string().optional(),
+  clientId: z.string().nullable().optional(),
+  leadId: z.string().nullable().optional(),
+  assignedToId: z.string().nullable().optional(),
+  notes: z.string().max(5000).optional(),
+})
+
+// ━━ Contacts ━━
+export const createContactSchema = z.object({
+  firstName: z.string().min(1, "First name is required").max(100, "First name must be at most 100 characters"),
+  lastName: z.string().max(100).optional(),
+  email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
+  phone: z.string().max(50).optional(),
+  jobTitle: z.string().max(200).optional(),
+  clientId: z.string().optional(),
+  leadId: z.string().optional(),
+  notes: z.string().max(5000).optional(),
+  isPrimary: z.boolean().optional(),
+})
+
+export const updateContactSchema = z.object({
+  id: z.string().min(1, "Contact ID is required"),
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().max(100).optional(),
+  email: z.string().email("Valid email is required").max(200).optional(),
+  phone: z.string().max(50).optional(),
+  jobTitle: z.string().max(200).optional(),
+  clientId: z.string().nullable().optional(),
+  leadId: z.string().nullable().optional(),
+  notes: z.string().max(5000).optional(),
+  isPrimary: z.boolean().optional(),
+})

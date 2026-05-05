@@ -188,10 +188,11 @@ export default function CRMPage() {
 
   const fetchLeads = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/leads", { credentials: 'include', signal });
+      const res = await fetch("/api/leads?limit=200", { credentials: 'include', signal });
       if (res.ok) {
-        const data = await res.json();
-        setLeads(data);
+        const result = await res.json();
+        // Handle paginated response format { data, total, page, limit, totalPages }
+        setLeads(Array.isArray(result) ? result : (result.data || []));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;

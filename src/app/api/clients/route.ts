@@ -4,14 +4,21 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-// GET /api/clients - List all clients with aggregated data
+// GET /api/clients - List all clients with pagination and aggregated data
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = session.user.role
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // Rate limit
+  const rl = rateLimit(`crm-clients-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
+  }
 
   const userId = session.user.id
   const assignedClientIds = await getAssignedClientIds(userId, role)
@@ -21,6 +28,11 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status") || ""
   const sortBy = searchParams.get("sortBy") || "createdAt"
   const sortOrder = searchParams.get("sortOrder") || "desc"
+
+  // Pagination params
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+  const offset = (page - 1) * limit
 
   // API-018: Validate sortBy and sortOrder
   const validSortBy = ["name", "createdAt", "revenue"]
@@ -62,23 +74,28 @@ export async function GET(req: NextRequest) {
     orderBy = { createdAt: sortOrder === "asc" ? "asc" : "desc" }
   }
 
-  const clients = await db.client.findMany({
-    where,
-    include: {
-      _count: {
-        select: {
-          projects: true,
-          invoices: true,
-          tickets: true,
+  const [clients, total] = await Promise.all([
+    db.client.findMany({
+      where,
+      include: {
+        _count: {
+          select: {
+            projects: true,
+            invoices: true,
+            tickets: true,
+          },
+        },
+        invoices: {
+          where: { status: "PAID" },
+          select: { total: true },
         },
       },
-      invoices: {
-        where: { status: "PAID" },
-        select: { total: true },
-      },
-    },
-    orderBy,
-  })
+      orderBy,
+      skip: offset,
+      take: limit,
+    }),
+    db.client.count({ where }),
+  ])
 
   // Compute aggregated revenue per client
   let enriched = clients.map((client) => {
@@ -100,7 +117,13 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  return NextResponse.json(enriched)
+  return NextResponse.json({
+    data: enriched,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  })
 }
 
 // POST /api/clients - Create client with validation
@@ -111,6 +134,12 @@ export async function POST(req: NextRequest) {
   const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
   }
 
   const body = await req.json()

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createLeadSchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // ━━ Shared constants ━━
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
@@ -54,7 +55,7 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
   }
 }
 
-// GET /api/leads - List leads with search/filter/sort (ADMIN/SUPER_ADMIN only)
+// GET /api/leads - List leads with pagination, search/filter/sort (ADMIN/SUPER_ADMIN only)
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -64,12 +65,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // Rate limit
+  const rl = rateLimit(`crm-leads-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
+  }
+
   const { searchParams } = new URL(req.url)
   const search = searchParams.get("search") || ""
   const status = searchParams.get("status") || ""
   const source = searchParams.get("source") || ""
   const sortBy = searchParams.get("sortBy") || "createdAt"
   const sortOrder = searchParams.get("sortOrder") || "desc"
+
+  // Pagination params
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+  const offset = (page - 1) * limit
 
   // Validate sort params
   const validSortBy = ["name", "createdAt", "score"]
@@ -101,12 +113,24 @@ export async function GET(req: NextRequest) {
       : { createdAt: sortOrder === "asc" ? "asc" : "desc" }
 
   try {
-    const leads = await db.lead.findMany({
-      where,
-      include: { client: true, emails: true },
-      orderBy,
+    const [leads, total] = await Promise.all([
+      db.lead.findMany({
+        where,
+        include: { client: true, emails: true },
+        orderBy,
+        skip: offset,
+        take: limit,
+      }),
+      db.lead.count({ where }),
+    ])
+
+    return NextResponse.json({
+      data: leads,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     })
-    return NextResponse.json(leads)
   } catch (error: unknown) {
     console.error("Error fetching leads:", error)
     return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 })
@@ -121,6 +145,12 @@ export async function POST(req: NextRequest) {
   const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
   }
 
   // API-003: Wrap req.json() in try/catch
@@ -172,6 +202,12 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   // API-003: Wrap req.json() in try/catch
   let body: Record<string, unknown>
   try {
@@ -197,6 +233,12 @@ export async function PUT(req: NextRequest) {
   const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   // API-003: Wrap req.json() in try/catch

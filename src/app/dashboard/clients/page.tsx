@@ -221,8 +221,10 @@ export default function ClientsPage() {
       const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res)) return;
       if (res.ok) {
-        const data = await res.json();
-        // CLI-001: Client-side revenue sort (API doesn't support it)
+        const result = await res.json();
+        // Handle paginated response format { data, total, page, limit, totalPages }
+        const data: ClientRow[] = Array.isArray(result) ? result : (result.data || []);
+        // CLI-001: Client-side revenue sort (API now supports it, but keep fallback)
         if (sortBy === "revenue") {
           data.sort((a: ClientRow, b: ClientRow) => {
             const diff = (a.revenue || 0) - (b.revenue || 0);

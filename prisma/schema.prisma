@@ -42,6 +42,7 @@ model User {
   approvedLeaves        Leave[]               @relation("ApprovedLeaves")
   availabilities        Availability[]
   availabilityOverrides AvailabilityOverride[]
+  assignedDeals         Deal[]
 }
 
 // ━━ API Keys ━━
@@ -253,6 +254,8 @@ model Client {
   projects  Project[]
   invoices  Invoice[]
   leads     Lead[]
+  deals     Deal[]
+  contacts  Contact[]
   tickets   SupportTicket[]
 }
 
@@ -353,6 +356,8 @@ model Lead {
 
   client      Client?  @relation(fields: [clientId], references: [id])
   emails      LeadEmail[]
+  deals       Deal[]
+  contacts    Contact[]
 }
 
 model LeadEmail {
@@ -366,6 +371,56 @@ model LeadEmail {
   createdAt DateTime @default(now())
 
   lead      Lead     @relation(fields: [leadId], references: [id])
+}
+
+// ━━ CRM Deals ━━
+model Deal {
+  id                String    @id @default(cuid())
+  title             String
+  value             Float     @default(0)
+  currency          String    @default("USD") // USD, GBP, INR
+  stage             String    @default("LEAD") // LEAD, QUALIFIED, PROPOSAL, NEGOTIATION, CLOSED_WON, CLOSED_LOST
+  probability       Int       @default(0) // 0-100
+  expectedCloseDate DateTime?
+  actualCloseDate   DateTime?
+  clientId          String?
+  leadId            String?
+  assignedToId      String?   // userId of the assigned team member
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  client     Client?  @relation(fields: [clientId], references: [id])
+  lead       Lead?    @relation(fields: [leadId], references: [id])
+  assignedTo User?    @relation(fields: [assignedToId], references: [id])
+
+  @@index([stage])
+  @@index([clientId])
+  @@index([leadId])
+  @@index([expectedCloseDate])
+}
+
+// ━━ CRM Contacts ━━
+model Contact {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String?
+  email     String
+  phone     String?
+  jobTitle  String?
+  clientId  String?
+  leadId    String?
+  notes     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client    Client?  @relation(fields: [clientId], references: [id])
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+
+  @@index([clientId])
+  @@index([leadId])
+  @@index([email])
 }
 
 // ━━ Agent Conversations (Legacy - kept for migration) ━━

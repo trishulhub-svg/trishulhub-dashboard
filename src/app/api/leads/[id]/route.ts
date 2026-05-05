@@ -3,11 +3,17 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateLeadSchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // ━━ Shared constants (mirrors leads/route.ts) ━━
 const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
 const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"] as const
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
+
+// ━━ Admin check helper ━━
+function isAdmin(role: string | undefined): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN"
+}
 
 // GET /api/leads/[id] - Single lead detail with relations
 export async function GET(
@@ -17,16 +23,21 @@ export async function GET(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+  if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { id } = await params
 
   const lead = await db.lead.findUnique({
     where: { id },
-    include: { client: true, emails: true },
+    include: { client: true, emails: true, deals: true, contacts: true },
   })
 
   if (!lead) {
@@ -34,6 +45,87 @@ export async function GET(
   }
 
   return NextResponse.json(lead)
+}
+
+// POST /api/leads/[id] - Convert lead to client
+export async function POST(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  if (!isAdmin(session.user.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
+  const { id } = await params
+
+  // Find the lead
+  const lead = await db.lead.findUnique({
+    where: { id },
+    include: { client: true },
+  })
+
+  if (!lead) {
+    return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+  }
+
+  // Already converted?
+  if (lead.clientId && lead.client) {
+    return NextResponse.json({ error: "Lead is already converted to a client", client: lead.client }, { status: 409 })
+  }
+
+  // Check for duplicate email in clients
+  const existingClient = await db.client.findFirst({ where: { email: lead.email } })
+  if (existingClient) {
+    // Link the lead to the existing client instead of creating a new one
+    await db.lead.update({
+      where: { id },
+      data: { clientId: existingClient.id, status: "WON" },
+    })
+    return NextResponse.json({
+      message: "Lead linked to existing client (email already exists)",
+      client: existingClient,
+      linked: true,
+    })
+  }
+
+  // Create a new client from the lead data
+  try {
+    const newClient = await db.client.create({
+      data: {
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone || null,
+        company: lead.company || null,
+        website: lead.website || null,
+        status: "ACTIVE",
+        notes: lead.notes ? `Converted from lead. Original notes: ${lead.notes}` : "Converted from lead",
+      },
+    })
+
+    // Update lead to link to new client and set status to WON
+    await db.lead.update({
+      where: { id },
+      data: { clientId: newClient.id, status: "WON" },
+    })
+
+    return NextResponse.json({
+      message: "Lead converted to client successfully",
+      client: newClient,
+      linked: false,
+    }, { status: 201 })
+  } catch (error: unknown) {
+    console.error("Error converting lead to client:", error)
+    return NextResponse.json({ error: "Failed to convert lead to client" }, { status: 500 })
+  }
 }
 
 // PATCH /api/leads/[id] - Update lead
@@ -44,9 +136,14 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+  if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { id } = await params
@@ -130,9 +227,14 @@ export async function DELETE(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+  if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-leads-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { id } = await params

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/clients/[id] - Single client detail with full relations
 export async function GET(
@@ -16,6 +17,12 @@ export async function GET(
   const role = session.user.role
   const userId = session.user.id
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // Rate limit
+  const rl = rateLimit(`crm-clients-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
 
   const { id } = await params
 
@@ -79,6 +86,27 @@ export async function GET(
       },
       orderBy: { createdAt: "desc" },
     }
+    includeObj.deals = {
+      select: {
+        id: true,
+        title: true,
+        value: true,
+        stage: true,
+        expectedCloseDate: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }
+    includeObj.contacts = {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        isPrimary: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }
   }
 
   const client = await db.client.findUnique({
@@ -123,6 +151,12 @@ export async function PATCH(
   const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { id } = await params
@@ -189,6 +223,12 @@ export async function DELETE(
   const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { id } = await params

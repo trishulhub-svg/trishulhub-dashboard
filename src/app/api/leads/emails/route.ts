@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // ━━ Zod schema for creating a lead email ━━
 const createLeadEmailSchema = z.object({
@@ -23,6 +24,12 @@ export async function GET(req: NextRequest) {
 
   if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-emails-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   const { searchParams } = new URL(req.url)
@@ -51,6 +58,12 @@ export async function POST(req: NextRequest) {
 
   if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Rate limit
+  const rl = rateLimit(`crm-emails-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
   }
 
   let body: unknown
