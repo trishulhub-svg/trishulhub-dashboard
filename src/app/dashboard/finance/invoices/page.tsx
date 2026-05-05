@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Send, CheckCircle2, FileText, Search, AlertCircle,
+  Plus, Send, CheckCircle2, FileText, Search, AlertCircle, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -128,6 +128,22 @@ export default function InvoicesPage() {
       }
     } catch {
       toast.error("Failed to create invoice. Check JSON format for items.");
+    }
+  };
+
+  const handleDeleteInvoice = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this DRAFT invoice? This action cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/invoices?id=${id}`, { method: "DELETE", credentials: 'include' });
+      if (res.ok) {
+        toast.success("Invoice deleted");
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete invoice");
+      }
+    } catch {
+      toast.error("Failed to delete invoice");
     }
   };
 
@@ -267,6 +283,11 @@ export default function InvoicesPage() {
                   </div>
                   <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
                   <div className="flex gap-1">
+                    {inv.status === "DRAFT" && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteInvoice(inv.id)} aria-label="Delete invoice">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => setPreviewInvoice(inv as unknown as Record<string, unknown>)}>
                       Preview
                     </Button>

@@ -232,8 +232,8 @@ export async function DELETE(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN") {
-    return NextResponse.json({ error: "Only SUPER_ADMIN can delete invoices" }, { status: 403 })
+  if (!isAdmin(userRole)) {
+    return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
   }
 
   const { searchParams } = new URL(req.url)

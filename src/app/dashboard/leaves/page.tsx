@@ -636,8 +636,13 @@ export default function LeaveManagementPage() {
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {(leave.userId === session?.user?.id || isUserAdmin) && leave.status === "PENDING" && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)}>
+                          {isUserAdmin && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)} title="Delete leave">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {!isUserAdmin && leave.userId === session?.user?.id && leave.status === "PENDING" && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)} title="Cancel leave">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
