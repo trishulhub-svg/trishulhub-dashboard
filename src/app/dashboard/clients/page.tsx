@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   Briefcase, Plus, Search, Users, DollarSign, FileText, Phone, Mail,
-  Building2, Globe, MoreHorizontal, Pencil, Trash2, X, ArrowUpDown,
-  FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle,
+  Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
+  FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
 
@@ -54,7 +55,8 @@ interface ClientRow {
   createdAt: string;
   updatedAt: string;
   _count: { projects: number; invoices: number; tickets: number };
-  revenue: number;
+  // CLI-017: revenue may be undefined from API
+  revenue: number | undefined;
 }
 
 interface ClientDetail extends ClientRow {
@@ -76,6 +78,8 @@ interface ClientDetail extends ClientRow {
 }
 
 // ━━ Helpers ━━
+const defaultBadgeColor = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
+
 const statusColors: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   INACTIVE: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300",
@@ -97,6 +101,13 @@ const invoiceStatusColors: Record<string, string> = {
   OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+const leadStatusColors: Record<string, string> = {
+  NEW: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  CONTACTED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  QUALIFIED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  LOST: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
 const ticketStatusColors: Record<string, string> = {
   OPEN: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
@@ -111,10 +122,12 @@ const priorityColors: Record<string, string> = {
   URGENT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
 };
 
+// CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
 function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
+// CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
 function formatDate(d: string | null) {
   if (!d) return "N/A";
   return new Date(d).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
@@ -124,6 +137,8 @@ function formatDate(d: string | null) {
 interface FormErrors {
   name?: string;
   email?: string;
+  website?: string;
+  createdAt?: string;
   [key: string]: string | undefined;
 }
 
@@ -137,7 +152,9 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  // CLI-005: searchInput for the input, debouncedSearch for the fetch
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDeferredValue(searchInput);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "createdAt" | "revenue">("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -154,6 +171,15 @@ export default function ClientsPage() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<ClientRow | null>(null);
 
+  // CLI-007: submitting state to prevent double-submit
+  const [submitting, setSubmitting] = useState(false);
+
+  // CLI-011: track NotesEditor dirty state from parent
+  const [notesDirty, setNotesDirty] = useState(false);
+
+  // CLI-002: AbortController ref for fetchDetail
+  const detailAbortRef = useRef<AbortController | null>(null);
+
   // Form state
   const [formData, setFormData] = useState({
     name: "",
@@ -166,6 +192,15 @@ export default function ClientsPage() {
     createdAt: "",
   });
 
+  // CLI-008: 401 handling helper
+  const handleFetchError = useCallback((res: Response): boolean => {
+    if (res.status === 401) {
+      router.push("/login");
+      return true;
+    }
+    return false;
+  }, [router]);
+
   // Redirect non-admin users away from this page
   useEffect(() => {
     if (status === "authenticated" && !isAdminUser) {
@@ -173,21 +208,32 @@ export default function ClientsPage() {
     }
   }, [status, router, isAdminUser]);
 
-  if (status !== "authenticated" || !isAdminUser) return null;
-
   // ━━ Fetch clients ━━
   const fetchClients = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set("search", search);
+      // CLI-005: use debouncedSearch instead of search
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter);
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
 
       const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include", signal });
+      if (handleFetchError(res)) return;
       if (res.ok) {
         const data = await res.json();
+        // CLI-001: Client-side revenue sort (API doesn't support it)
+        if (sortBy === "revenue") {
+          data.sort((a: ClientRow, b: ClientRow) => {
+            const diff = (a.revenue || 0) - (b.revenue || 0);
+            return sortOrder === "asc" ? diff : -diff;
+          });
+        }
         setClients(data);
+      } else {
+        // CLI-020: try/catch around res.json() in error branch
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to load clients");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -196,7 +242,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sortBy, sortOrder]);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, handleFetchError]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -207,8 +253,9 @@ export default function ClientsPage() {
   // ━━ Stats ━━
   const totalClients = clients.length;
   const activeClients = clients.filter((c) => c.status === "ACTIVE").length;
-  const totalRevenue = clients.reduce((sum, c) => sum + c.revenue, 0);
-  const pendingInvoices = clients.reduce((sum, c) => sum + (c._count?.invoices || 0), 0);
+  const totalRevenue = clients.reduce((sum, c) => sum + (c.revenue || 0), 0);
+  // CLI-010: renamed from pendingInvoices to totalInvoices, label to "Total Invoices"
+  const totalInvoices = clients.reduce((sum, c) => sum + (c._count?.invoices || 0), 0);
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -250,6 +297,19 @@ export default function ClientsPage() {
     if (!formData.name.trim()) errors.name = "Client name is required";
     if (!formData.email.trim()) errors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Valid email is required";
+    // CLI-015: website URL validation
+    if (formData.website.trim() && !/^https?:\/\/.+\..+/.test(formData.website.trim())) {
+      errors.website = "Website must be a valid URL (e.g., https://example.com)";
+    }
+    // CLI-016: createdAt date validation - not in the future
+    if (formData.createdAt) {
+      const createdDate = new Date(formData.createdAt);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (createdDate > today) {
+        errors.createdAt = "Created date cannot be in the future";
+      }
+    }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -257,6 +317,9 @@ export default function ClientsPage() {
   // ━━ Submit form (add or edit) ━━
   const handleSubmit = async () => {
     if (!validateForm()) return;
+    // CLI-007: prevent double-submit
+    if (submitting) return;
+    setSubmitting(true);
 
     try {
       if (editingClient) {
@@ -275,6 +338,7 @@ export default function ClientsPage() {
             notes: formData.notes || null,
           }),
         });
+        if (handleFetchError(res)) return;
         if (res.ok) {
           toast.success("Client updated successfully");
           setDialogOpen(false);
@@ -284,7 +348,8 @@ export default function ClientsPage() {
             fetchDetail(editingClient.id);
           }
         } else {
-          const data = await res.json();
+          // CLI-020: try/catch around res.json() in error branch
+          const data = await res.json().catch(() => ({}));
           toast.error(data.error || "Failed to update client");
         }
       } else {
@@ -307,17 +372,21 @@ export default function ClientsPage() {
           credentials: "include",
           body: JSON.stringify(body),
         });
+        if (handleFetchError(res)) return;
         if (res.ok) {
           toast.success("Client created successfully");
           setDialogOpen(false);
           fetchClients();
         } else {
-          const data = await res.json();
+          // CLI-020: try/catch around res.json() in error branch
+          const data = await res.json().catch(() => ({}));
           toast.error(data.error || "Failed to create client");
         }
       }
     } catch {
       toast.error("Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -329,6 +398,7 @@ export default function ClientsPage() {
         method: "DELETE",
         credentials: "include",
       });
+      if (handleFetchError(res)) return;
       if (res.ok) {
         toast.success("Client deactivated successfully");
         fetchClients();
@@ -336,8 +406,9 @@ export default function ClientsPage() {
           setDetailClient(null);
         }
       } else {
-        const data = await res.json();
-        toast.error(data.error || "Failed to delete client");
+        // CLI-020: try/catch around res.json() in error branch
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to deactivate client");
       }
     } catch {
       toast.error("Something went wrong");
@@ -347,15 +418,27 @@ export default function ClientsPage() {
   };
 
   // ━━ Fetch detail ━━
+  // CLI-002: Use AbortController to prevent race condition
   const fetchDetail = async (id: string) => {
+    // Abort previous fetch
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/clients/${id}`, { credentials: "include" });
+      const res = await fetch(`/api/clients/${id}`, { credentials: "include", signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setDetailClient(data);
+      } else {
+        // CLI-003: clear detailClient on non-ok response
+        setDetailClient(null);
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to load client details");
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       toast.error("Failed to load client details");
     } finally {
       setDetailLoading(false);
@@ -364,10 +447,16 @@ export default function ClientsPage() {
 
   // ━━ Open detail drawer ━━
   const handleRowClick = (client: ClientRow) => {
+    // CLI-011: warn about unsaved notes before switching clients
+    if (notesDirty) {
+      const confirmed = window.confirm("You have unsaved notes. Discard changes and switch client?");
+      if (!confirmed) return;
+    }
     fetchDetail(client.id);
   };
 
   // ━━ Save notes ━━
+  // CLI-006: check res.ok, remove redundant fetchClients()
   const handleSaveNotes = async (notes: string) => {
     if (!detailClient) return;
     try {
@@ -380,7 +469,9 @@ export default function ClientsPage() {
       if (res.ok) {
         toast.success("Notes saved");
         fetchDetail(detailClient.id);
-        fetchClients();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save notes");
       }
     } catch {
       toast.error("Failed to save notes");
@@ -396,6 +487,16 @@ export default function ClientsPage() {
       setSortOrder("asc");
     }
   };
+
+  // CLI-023: sort direction indicator helper
+  const SortIcon = ({ field }: { field: "name" | "createdAt" | "revenue" }) => {
+    if (sortBy !== field) return <ArrowUpDown className="h-3 w-3" />;
+    return sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+  };
+
+  // ━━ Early return for non-authenticated / non-admin ━━
+  // NOTE: All hooks must be called before any early returns (react-hooks/rules-of-hooks)
+  if (status !== "authenticated" || !isAdminUser) return null;
 
   // ━━ Loading state ━━
   if (loading) {
@@ -420,7 +521,8 @@ export default function ClientsPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchClients(); }}>
+        {/* CLI-019: set setLoading(true) before fetchClients() */}
+        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchClients(); }}>
           Try Again
         </Button>
       </div>
@@ -450,15 +552,16 @@ export default function ClientsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            id="client-search"
             placeholder="Search by name, email, or company..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
             aria-label="Search clients"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-[150px]" aria-label="Filter by status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -510,12 +613,13 @@ export default function ClientsPage() {
             </div>
           </CardContent>
         </Card>
+        {/* CLI-010: Renamed "Invoices" to "Total Invoices", variable to totalInvoices */}
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground font-medium">Invoices</p>
-                <p className="text-2xl font-bold mt-1">{pendingInvoices}</p>
+                <p className="text-xs text-muted-foreground font-medium">Total Invoices</p>
+                <p className="text-2xl font-bold mt-1">{totalInvoices}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                 <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
@@ -541,26 +645,39 @@ export default function ClientsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>
+                    {/* CLI-025: aria-sort on sortable headers, CLI-023: sort direction indicator */}
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleSort("name")}
+                      aria-sort={sortBy === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    >
                       <div className="flex items-center gap-1">
                         Company / Name
-                        <ArrowUpDown className="h-3 w-3" />
+                        <SortIcon field="name" />
                       </div>
                     </TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead className="hidden md:table-cell">Phone</TableHead>
                     <TableHead className="text-center">Projects</TableHead>
-                    <TableHead className="cursor-pointer select-none text-right" onClick={() => toggleSort("revenue")}>
+                    <TableHead
+                      className="cursor-pointer select-none text-right"
+                      onClick={() => toggleSort("revenue")}
+                      aria-sort={sortBy === "revenue" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    >
                       <div className="flex items-center justify-end gap-1">
                         Revenue
-                        <ArrowUpDown className="h-3 w-3" />
+                        <SortIcon field="revenue" />
                       </div>
                     </TableHead>
                     <TableHead className="text-center">Status</TableHead>
-                    <TableHead className="cursor-pointer select-none hidden lg:table-cell" onClick={() => toggleSort("createdAt")}>
+                    <TableHead
+                      className="cursor-pointer select-none hidden lg:table-cell"
+                      onClick={() => toggleSort("createdAt")}
+                      aria-sort={sortBy === "createdAt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    >
                       <div className="flex items-center gap-1">
                         Created
-                        <ArrowUpDown className="h-3 w-3" />
+                        <SortIcon field="createdAt" />
                       </div>
                     </TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -603,11 +720,12 @@ export default function ClientsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <span className="text-sm font-medium">
-                          {client.revenue > 0 ? formatCurrency(client.revenue) : "—"}
+                          {(client.revenue ?? 0) > 0 ? formatCurrency(client.revenue ?? 0) : "—"}
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge className={`text-[10px] ${statusColors[client.status] || ""}`}>
+                        {/* CLI-030: default gray fallback for status badges */}
+                        <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
                           {client.status}
                         </Badge>
                       </TableCell>
@@ -625,11 +743,12 @@ export default function ClientsPage() {
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(client); }}>
                               <Pencil className="h-4 w-4 mr-2" /> Edit
                             </DropdownMenuItem>
+                            {/* CLI-012: Changed "Delete" to "Deactivate" to match dialog */}
                             <DropdownMenuItem
                               onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
                               className="text-red-600 dark:text-red-400"
                             >
-                              <Trash2 className="h-4 w-4 mr-2" /> Delete
+                              <Trash2 className="h-4 w-4 mr-2" /> Deactivate
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -651,9 +770,11 @@ export default function ClientsPage() {
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* CLI-026: id/htmlFor on labels and inputs */}
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Name *</Label>
+                <Label htmlFor="client-name" className="text-xs font-medium">Name *</Label>
                 <Input
+                  id="client-name"
                   placeholder="Client name"
                   value={formData.name}
                   onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors({ ...formErrors, name: undefined }); }}
@@ -662,8 +783,9 @@ export default function ClientsPage() {
                 {formErrors.name && <p className="text-xs text-red-500">{formErrors.name}</p>}
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Email *</Label>
+                <Label htmlFor="client-email" className="text-xs font-medium">Email *</Label>
                 <Input
+                  id="client-email"
                   placeholder="email@example.com"
                   type="email"
                   value={formData.email}
@@ -673,33 +795,39 @@ export default function ClientsPage() {
                 {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Phone</Label>
+                <Label htmlFor="client-phone" className="text-xs font-medium">Phone</Label>
+                {/* CLI-014: generic phone placeholder */}
                 <Input
-                  placeholder="+91 98765 43210"
+                  id="client-phone"
+                  placeholder="+1 (555) 123-4567"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Company</Label>
+                <Label htmlFor="client-company" className="text-xs font-medium">Company</Label>
                 <Input
+                  id="client-company"
                   placeholder="Company name"
                   value={formData.company}
                   onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Website</Label>
+                <Label htmlFor="client-website" className="text-xs font-medium">Website</Label>
                 <Input
+                  id="client-website"
                   placeholder="https://example.com"
                   value={formData.website}
-                  onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, website: e.target.value }); setFormErrors({ ...formErrors, website: undefined }); }}
+                  className={formErrors.website ? "border-red-500" : ""}
                 />
+                {formErrors.website && <p className="text-xs text-red-500">{formErrors.website}</p>}
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Status</Label>
+                <Label htmlFor="client-status" className="text-xs font-medium">Status</Label>
                 <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v as ClientStatus })}>
-                  <SelectTrigger>
+                  <SelectTrigger id="client-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -712,19 +840,23 @@ export default function ClientsPage() {
 
             {!editingClient && (
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Created At (Optional)</Label>
+                <Label htmlFor="client-created-at" className="text-xs font-medium">Created At (Optional)</Label>
                 <Input
+                  id="client-created-at"
                   type="date"
                   value={formData.createdAt}
-                  onChange={(e) => setFormData({ ...formData, createdAt: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, createdAt: e.target.value }); setFormErrors({ ...formErrors, createdAt: undefined }); }}
+                  className={formErrors.createdAt ? "border-red-500" : ""}
                 />
+                {formErrors.createdAt && <p className="text-xs text-red-500">{formErrors.createdAt}</p>}
                 <p className="text-xs text-muted-foreground">Override date for adding historical data</p>
               </div>
             )}
 
             <div className="space-y-2">
-              <Label className="text-xs font-medium">Notes</Label>
+              <Label htmlFor="client-notes" className="text-xs font-medium">Notes</Label>
               <Textarea
+                id="client-notes"
                 placeholder="Add any notes about this client..."
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
@@ -736,8 +868,9 @@ export default function ClientsPage() {
               <Button variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button className="flex-1" onClick={handleSubmit}>
-                {editingClient ? "Update Client" : "Create Client"}
+              {/* CLI-007: disable submit button when submitting */}
+              <Button className="flex-1" onClick={handleSubmit} disabled={submitting}>
+                {submitting ? "Saving..." : editingClient ? "Update Client" : "Create Client"}
               </Button>
             </div>
           </div>
@@ -763,7 +896,18 @@ export default function ClientsPage() {
       </AlertDialog>
 
       {/* ━━ Client Detail Drawer ━━ */}
-      <Sheet open={!!detailClient} onOpenChange={(open) => !open && setDetailClient(null)}>
+      <Sheet
+        open={!!detailClient}
+        onOpenChange={(open) => {
+          if (!open) {
+            // CLI-002: abort fetchDetail on Sheet close
+            detailAbortRef.current?.abort();
+            detailAbortRef.current = null;
+            setDetailClient(null);
+            setNotesDirty(false);
+          }
+        }}
+      >
         <SheetContent className="w-full sm:max-w-[520px] p-0">
           {detailLoading ? (
             <div className="p-6 space-y-4">
@@ -773,7 +917,8 @@ export default function ClientsPage() {
               <Skeleton className="h-64 w-full" />
             </div>
           ) : detailClient ? (
-            <div className="flex flex-col h-full">
+            /* CLI-027: aria-live on detail drawer content */
+            <div className="flex flex-col h-full" aria-live="polite">
               {/* Header */}
               <SheetHeader className="p-6 pb-4 border-b">
                 <div className="flex items-start justify-between">
@@ -783,7 +928,8 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground">{detailClient.name}</p>
                     )}
                   </div>
-                  <Badge className={statusColors[detailClient.status] || ""}>
+                  {/* CLI-030: default gray fallback */}
+                  <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
                     {detailClient.status}
                   </Badge>
                 </div>
@@ -808,7 +954,7 @@ export default function ClientsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm">
-                  <span className="text-muted-foreground">Revenue: <span className="font-medium text-foreground">{detailClient.revenue > 0 ? formatCurrency(detailClient.revenue) : "—"}</span></span>
+                  <span className="text-muted-foreground">Revenue: <span className="font-medium text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
                   <span className="text-muted-foreground">Since: <span className="font-medium text-foreground">{formatDate(detailClient.createdAt)}</span></span>
                 </div>
                 {detailClient.portalUser && (
@@ -831,6 +977,10 @@ export default function ClientsPage() {
                     </TabsTrigger>
                     <TabsTrigger value="invoices" className="flex-1 text-xs">
                       <FileText className="h-3 w-3 mr-1" /> Invoices
+                    </TabsTrigger>
+                    {/* CLI-018: Leads tab */}
+                    <TabsTrigger value="leads" className="flex-1 text-xs">
+                      <UserCheck className="h-3 w-3 mr-1" /> Leads
                     </TabsTrigger>
                     <TabsTrigger value="tickets" className="flex-1 text-xs">
                       <HeadphonesIcon className="h-3 w-3 mr-1" /> Support
@@ -857,19 +1007,20 @@ export default function ClientsPage() {
                                   {project.budget ? formatCurrency(project.budget) : "No budget"} • Due: {formatDate(project.deadline)}
                                 </p>
                               </div>
-                              <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || ""}`}>
+                              <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || defaultBadgeColor}`}>
                                 {project.status}
                               </Badge>
                             </div>
                             <div className="mt-2">
                               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                                 <span>Progress</span>
-                                <span>{project.progress}%</span>
+                                {/* CLI-022: clamp progress bar */}
+                                <span>{Math.min(100, Math.max(0, project.progress))}%</span>
                               </div>
                               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-primary rounded-full transition-all"
-                                  style={{ width: `${project.progress}%` }}
+                                  style={{ width: `${Math.min(100, Math.max(0, project.progress))}%` }}
                                 />
                               </div>
                             </div>
@@ -897,8 +1048,36 @@ export default function ClientsPage() {
                               </div>
                               <div className="text-right shrink-0">
                                 <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
-                                <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>
+                                <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || defaultBadgeColor}`}>
                                   {inv.status}
+                                </Badge>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </TabsContent>
+
+                  {/* CLI-018: Leads Tab */}
+                  <TabsContent value="leads" className="mt-3 space-y-2">
+                    {detailClient.leads.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-6 text-center">No leads yet</p>
+                    ) : (
+                      detailClient.leads.map((lead) => (
+                        <Card key={lead.id} className="py-0">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{lead.name}</p>
+                                <p className="text-xs text-muted-foreground">{formatDate(lead.createdAt)}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Badge className={`text-[10px] ${leadStatusColors[lead.status] || defaultBadgeColor}`}>
+                                  {lead.status}
+                                </Badge>
+                                <Badge variant="secondary" className="text-[10px]">
+                                  Score: {lead.score}
                                 </Badge>
                               </div>
                             </div>
@@ -922,10 +1101,10 @@ export default function ClientsPage() {
                                 <p className="text-xs text-muted-foreground">{formatDate(ticket.createdAt)}</p>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <Badge className={`text-[10px] ${priorityColors[ticket.priority] || ""}`}>
+                                <Badge className={`text-[10px] ${priorityColors[ticket.priority] || defaultBadgeColor}`}>
                                   {ticket.priority}
                                 </Badge>
-                                <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || ""}`}>
+                                <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || defaultBadgeColor}`}>
                                   {ticket.status}
                                 </Badge>
                               </div>
@@ -938,31 +1117,41 @@ export default function ClientsPage() {
 
                   {/* Notes Tab */}
                   <TabsContent value="notes" className="mt-3">
+                    {/* key forces remount on client switch, avoiding stale state */}
                     <NotesEditor
+                      key={detailClient.id}
                       initialValue={detailClient.notes || ""}
                       onSave={handleSaveNotes}
+                      onDirtyChange={setNotesDirty}
                     />
                   </TabsContent>
                 </ScrollArea>
 
                 {/* Quick Actions */}
+                {/* CLI-024: Fix Quick Action buttons - navigate instead of toast */}
                 <div className="p-4 border-t bg-muted/30">
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => {
-                      toast.info("Navigate to Projects to create one for this client");
+                      router.push(`/dashboard/projects?clientId=${detailClient.id}`);
                     }}>
                       <FolderKanban className="h-3 w-3 mr-1" /> Create Project
                     </Button>
                     <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => {
-                      toast.info("Navigate to Invoices to create one for this client");
+                      router.push(`/dashboard/finance/invoices?clientId=${detailClient.id}`);
                     }}>
                       <FileText className="h-3 w-3 mr-1" /> Create Invoice
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => {
-                      toast.info("Portal feature coming soon");
-                    }}>
-                      <ExternalLink className="h-3 w-3 mr-1" /> Open Portal
-                    </Button>
+                    {/* CLI-024: Open Portal disabled with tooltip "Coming soon" */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0} className="flex-1">
+                          <Button variant="outline" size="sm" className="flex-1 text-xs w-full" disabled>
+                            <ExternalLink className="h-3 w-3 mr-1" /> Open Portal
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>Coming soon</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </Tabs>
@@ -975,20 +1164,34 @@ export default function ClientsPage() {
 }
 
 // ━━ Notes Editor Sub-component ━━
-function NotesEditor({ initialValue, onSave }: { initialValue: string; onSave: (notes: string) => void }) {
+// CLI-011: Added onDirtyChange callback for parent to track dirty state
+// NOTE: Parent should use key={clientId} to force remount on client switch
+function NotesEditor({ initialValue, onSave, onDirtyChange }: {
+  initialValue: string;
+  onSave: (notes: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const [notes, setNotes] = useState(initialValue);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    setNotes(initialValue);
+  const handleChange = (value: string) => {
+    setNotes(value);
+    const isDirty = value !== initialValue;
+    setDirty(isDirty);
+    onDirtyChange?.(isDirty);
+  };
+
+  const handleSave = () => {
+    onSave(notes);
     setDirty(false);
-  }, [initialValue]);
+    onDirtyChange?.(false);
+  };
 
   return (
     <div className="space-y-3">
       <Textarea
         value={notes}
-        onChange={(e) => { setNotes(e.target.value); setDirty(true); }}
+        onChange={(e) => handleChange(e.target.value)}
         placeholder="Add notes about this client..."
         aria-label="Client notes"
         rows={8}
@@ -998,7 +1201,7 @@ function NotesEditor({ initialValue, onSave }: { initialValue: string; onSave: (
         <Button
           size="sm"
           disabled={!dirty}
-          onClick={() => { onSave(notes); setDirty(false); }}
+          onClick={handleSave}
         >
           Save Notes
         </Button>

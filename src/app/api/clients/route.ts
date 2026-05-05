@@ -22,6 +22,16 @@ export async function GET(req: NextRequest) {
   const sortBy = searchParams.get("sortBy") || "createdAt"
   const sortOrder = searchParams.get("sortOrder") || "desc"
 
+  // API-018: Validate sortBy and sortOrder
+  const validSortBy = ["name", "createdAt", "revenue"]
+  const validSortOrder = ["asc", "desc"]
+  if (sortBy && !validSortBy.includes(sortBy)) {
+    return NextResponse.json({ error: `Invalid sortBy. Must be one of: ${validSortBy.join(", ")}` }, { status: 400 })
+  }
+  if (sortOrder && !validSortOrder.includes(sortOrder)) {
+    return NextResponse.json({ error: `Invalid sortOrder. Must be one of: ${validSortOrder.join(", ")}` }, { status: 400 })
+  }
+
   // Build where clause
   const where: Record<string, unknown> = {}
 
@@ -39,6 +49,7 @@ export async function GET(req: NextRequest) {
       { name: { contains: search } },
       { email: { contains: search } },
       { company: { contains: search } },
+      { phone: { contains: search } },
     ]
   }
 
@@ -70,7 +81,7 @@ export async function GET(req: NextRequest) {
   })
 
   // Compute aggregated revenue per client
-  const enriched = clients.map((client) => {
+  let enriched = clients.map((client) => {
     const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
     const { invoices, ...rest } = client
     return {
@@ -79,6 +90,15 @@ export async function GET(req: NextRequest) {
       revenue: isAdmin(role) ? revenue : undefined,
     }
   })
+
+  // API-008: Revenue sort support — sort in-memory after computing revenue
+  if (sortBy === "revenue") {
+    enriched.sort((a, b) => {
+      const revA = (a.revenue as number) ?? 0
+      const revB = (b.revenue as number) ?? 0
+      return sortOrder === "asc" ? revA - revB : revB - revA
+    })
+  }
 
   return NextResponse.json(enriched)
 }

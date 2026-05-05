@@ -2,6 +2,57 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { createLeadSchema, validateRequest } from "@/lib/validations"
+
+// ━━ Shared constants ━━
+const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
+
+const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
+const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"] as const
+
+// ━━ Shared update logic for PATCH & PUT ━━
+async function _updateLead(id: string, data: Record<string, unknown>) {
+  // Validate status if provided
+  if (data.status !== undefined && !VALID_STATUSES.includes(data.status as typeof VALID_STATUSES[number])) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` }, { status: 400 })
+  }
+
+  // Validate source if provided (API-013)
+  if (data.source !== undefined && !VALID_SOURCES.includes(data.source as typeof VALID_SOURCES[number])) {
+    return NextResponse.json({ error: `Invalid source. Must be one of: ${VALID_SOURCES.join(", ")}` }, { status: 400 })
+  }
+
+  // Server-side score range check (API-007)
+  if (data.score !== undefined) {
+    const score = Number(data.score)
+    if (isNaN(score) || score < 0 || score > 100) {
+      return NextResponse.json({ error: "Score must be between 0 and 100" }, { status: 400 })
+    }
+  }
+
+  // Only allow updating specific fields
+  const sanitizedData: Record<string, unknown> = {}
+  for (const key of ALLOWED_FIELDS) {
+    if (data[key] !== undefined) {
+      sanitizedData[key] = data[key]
+    }
+  }
+
+  try {
+    const lead = await db.lead.update({
+      where: { id },
+      data: sanitizedData,
+    })
+    return NextResponse.json(lead)
+  } catch (error: unknown) {
+    console.error("Error updating lead:", error)
+    const prismaError = error as { code?: string }
+    if (prismaError?.code === "P2025") {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+    }
+    return NextResponse.json({ error: "Failed to update lead" }, { status: 500 })
+  }
+}
 
 // GET /api/leads - List leads (ADMIN/SUPER_ADMIN only)
 export async function GET() {
@@ -30,25 +81,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const body = await req.json()
-  const { name, email, company, website, phone, source, score, status, notes, clientId } = body
+  // API-003: Wrap req.json() in try/catch
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
-  if (!name || !email) {
-    return NextResponse.json({ error: "Name and email are required" }, { status: 400 })
+  // API-001: Use Zod validation instead of raw destructuring
+  const validation = validateRequest(createLeadSchema, body)
+  if (!validation.success) {
+    return NextResponse.json({ error: validation.error }, { status: 400 })
+  }
+
+  const data = validation.data
+
+  // API-006: Duplicate email check before creating
+  const existing = await db.lead.findFirst({ where: { email: data.email } })
+  if (existing) {
+    return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
   }
 
   const lead = await db.lead.create({
     data: {
-      name,
-      email,
-      company: company || null,
-      website: website || null,
-      phone: phone || null,
-      source: source || "MANUAL",
-      score: score || 0,
-      status: status || "NEW",
-      notes: notes || null,
-      clientId: clientId || null,
+      name: data.name,
+      email: data.email,
+      company: data.company || null,
+      website: data.website || null,
+      phone: data.phone || null,
+      source: data.source || "MANUAL",
+      score: data.score ?? 0,
+      status: data.status || "NEW",
+      notes: data.notes || null,
+      clientId: data.clientId || null,
     },
   })
   return NextResponse.json(lead)
@@ -64,40 +130,24 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const body = await req.json()
+  // API-003: Wrap req.json() in try/catch
+  let body: Record<string, unknown>
+  try {
+    body = await req.json() as Record<string, unknown>
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const { id, ...data } = body
 
   if (!id) {
     return NextResponse.json({ error: "Lead ID is required" }, { status: 400 })
   }
 
-  // Validate status if provided
-  const validStatuses = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]
-  if (data.status && !validStatuses.includes(data.status)) {
-    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 })
-  }
-
-  // Only allow updating specific fields
-  const allowedFields = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"]
-  const sanitizedData: Record<string, any> = {}
-  for (const key of allowedFields) {
-    if (data[key] !== undefined) {
-      sanitizedData[key] = data[key]
-    }
-  }
-
-  try {
-    const lead = await db.lead.update({
-      where: { id },
-      data: sanitizedData,
-    })
-    return NextResponse.json(lead)
-  } catch (error: any) {
-    return NextResponse.json({ error: "Lead not found or update failed" }, { status: 404 })
-  }
+  return _updateLead(id as string, data)
 }
 
-// PUT /api/leads - Full update (kept for backward compat)
+// PUT /api/leads - Full update (delegates to shared _updateLead, API-005)
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -107,24 +157,19 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const { id, ...data } = await req.json()
+  // API-003: Wrap req.json() in try/catch
+  let body: Record<string, unknown>
+  try {
+    body = await req.json() as Record<string, unknown>
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const { id, ...data } = body
   if (!id) {
     return NextResponse.json({ error: "Lead ID is required" }, { status: 400 })
   }
 
-  // SECURITY: Apply same allowed fields whitelist as PATCH handler
-  const allowedFields = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"]
-  const sanitizedData: Record<string, any> = {}
-  for (const key of allowedFields) {
-    if (data[key] !== undefined) {
-      sanitizedData[key] = data[key]
-    }
-  }
-
-  try {
-    const lead = await db.lead.update({ where: { id }, data: sanitizedData })
-    return NextResponse.json(lead)
-  } catch (error: any) {
-    return NextResponse.json({ error: "Lead not found or update failed" }, { status: 404 })
-  }
+  // API-005: Delegate to same logic as PATCH (including status & source validation)
+  return _updateLead(id as string, data)
 }

@@ -27,54 +27,63 @@ export async function GET(
     }
   }
 
+  // API-015: Conditionally build include object to skip unnecessary queries for developers
+  const adminOnly = isAdmin(role)
+
+  const includeObj: Record<string, unknown> = {
+    projects: {
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        progress: true,
+        deadline: true,
+        budget: adminOnly, // SECURITY: Hide budget from developers
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    },
+    tickets: {
+      select: {
+        id: true,
+        subject: true,
+        status: true,
+        priority: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    },
+  }
+
+  // Only include invoices and leads for admin users (avoid fetching & discarding for developers)
+  if (adminOnly) {
+    includeObj.invoices = {
+      select: {
+        id: true,
+        invoiceNumber: true,
+        total: true,
+        status: true,
+        dueDate: true,
+        paidAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }
+    includeObj.leads = {
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        score: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }
+  }
+
   const client = await db.client.findUnique({
     where: { id },
-    include: {
-      projects: {
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          progress: true,
-          deadline: true,
-          budget: isAdmin(role), // SECURITY: Hide budget from developers
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      invoices: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          total: true,
-          status: true,
-          dueDate: true,
-          paidAt: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      leads: {
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          score: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      tickets: {
-        select: {
-          id: true,
-          subject: true,
-          status: true,
-          priority: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-    },
+    include: includeObj as Parameters<typeof db.client.findUnique>[0]["include"],
   })
 
   if (!client) {
@@ -90,19 +99,17 @@ export async function GET(
     })
   }
 
-  // Compute revenue from paid invoices
-  const revenue = isAdmin(role) ? client.invoices
-    .filter((inv) => inv.status === "PAID")
-    .reduce((sum, inv) => sum + inv.total, 0) : 0
-
-  // SECURITY: Hide financial details from developers
-  const safeClient = isAdmin(role) ? client : {
-    ...client,
-    invoices: [],
-    leads: [],
+  // API-016: Compute revenue from DB-level filtered PAID invoices instead of JS filter
+  let revenue = 0
+  if (adminOnly) {
+    const paidInvoiceSum = await db.invoice.aggregate({
+      where: { clientId: id, status: "PAID" },
+      _sum: { total: true },
+    })
+    revenue = paidInvoiceSum._sum.total ?? 0
   }
 
-  return NextResponse.json({ ...safeClient, portalUser, revenue })
+  return NextResponse.json({ ...client, portalUser, revenue })
 }
 
 // PATCH /api/clients/[id] - Update client
@@ -185,6 +192,15 @@ export async function DELETE(
   }
 
   const { id } = await params
+
+  // API-020: Check if client is already INACTIVE before soft-deleting
+  const existing = await db.client.findUnique({ where: { id }, select: { status: true } })
+  if (!existing) {
+    return NextResponse.json({ error: "Client not found" }, { status: 404 })
+  }
+  if (existing.status === "INACTIVE") {
+    return NextResponse.json({ error: "Client is already inactive", client: existing }, { status: 409 })
+  }
 
   try {
     const client = await db.client.update({

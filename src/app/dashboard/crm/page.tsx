@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, closestCorners,
+  useSensor, useSensors, closestCorners, useDroppable,
 } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
-  Plus, Mail, Phone, Globe, Building2, Star, X, Send, Search, AlertCircle,
+  Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
+  Users, TrendingUp, Calendar,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,13 +21,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
@@ -55,6 +56,60 @@ const columnColors: Record<LeadStatus, string> = {
   LOST: "bg-red-100 dark:bg-red-900/30",
 };
 
+// CRM-025: Score color coding helpers
+function getScoreColors(score: number): { star: string; text: string } {
+  if (score >= 80) return { star: "text-green-500", text: "text-green-600 dark:text-green-400" };
+  if (score >= 50) return { star: "text-yellow-500", text: "text-yellow-600 dark:text-yellow-400" };
+  return { star: "text-red-500", text: "text-red-600 dark:text-red-400" };
+}
+
+function getScoreBadgeClass(score: number): string {
+  if (score >= 80) return "border-green-300 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-400";
+  if (score >= 50) return "border-yellow-300 bg-yellow-50 text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+  return "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-400";
+}
+
+function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+  const scoreColors = getScoreColors(lead.score);
+  return (
+    <Card
+      className="cursor-pointer hover:shadow-md transition-shadow text-left"
+      onClick={onClick}
+    >
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{lead.name}</p>
+            {lead.company && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Building2 className="h-3 w-3" /> {lead.company}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <Star className={`h-3 w-3 ${scoreColors.star}`} />
+            <span className={`text-xs font-medium ${scoreColors.text}`}>{lead.score}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <Badge variant="secondary" className="text-[10px]">{lead.source}</Badge>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// CRM-001: SortableLeadCard wrapper with useSortable
+function SortableLeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <LeadCard lead={lead} onClick={onClick} />
+    </div>
+  );
+}
+
 function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; leads: Lead[]; onLeadClick: (lead: Lead) => void }) {
   const { setNodeRef } = useDroppable({ id: status });
 
@@ -72,7 +127,7 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
+            <SortableLeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
           ))}
         </SortableContext>
         {leads.length === 0 && (
@@ -83,39 +138,28 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
   );
 }
 
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
-  return (
-    <Card
-      className="cursor-pointer hover:shadow-md transition-shadow text-left"
-      onClick={onClick}
-    >
-      <CardContent className="p-3">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{lead.name}</p>
-            {lead.company && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> {lead.company}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <Star className="h-3 w-3 text-yellow-500" />
-            <span className="text-xs font-medium">{lead.score}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <Badge variant="secondary" className="text-[10px]">{lead.source}</Badge>
-        </div>
-      </CardContent>
-    </Card>
-  );
+// CRM-012: Form validation
+function validateAddForm(form: FormData): Record<string, string> | null {
+  const errors: Record<string, string> = {};
+  const name = form.get("name") as string;
+  const email = form.get("email") as string;
+  const score = form.get("score") as string;
+  const website = form.get("website") as string;
+  if (!name?.trim()) errors.name = "Name is required";
+  if (!email?.trim()) errors.email = "Email is required";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = "Valid email is required";
+  if (score && (parseInt(score) < 0 || parseInt(score) > 100)) errors.score = "Score must be 0-100";
+  if (website && !/^https?:\/\/.+/.test(website)) errors.website = "Enter a valid URL";
+  return Object.keys(errors).length > 0 ? errors : null;
 }
 
 export default function CRMPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  // CRM-002: Destructure status from useSession
+  const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +167,15 @@ export default function CRMPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  // CRM-006: updating state for concurrent drag prevention
+  const [updating, setUpdating] = useState(false);
+  // CRM-010: adding state for add lead operation
+  const [adding, setAdding] = useState(false);
+  // CRM-004: Quick email state
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  // CRM-012: Form validation errors
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -144,16 +197,62 @@ export default function CRMPage() {
     }
   }, []);
 
+  // CRM-002: Role guard with useEffect
+  useEffect(() => {
+    if (status === "authenticated" && !isAdminUser) {
+      router.push("/dashboard");
+    }
+  }, [status, router, isAdminUser]);
+
   useEffect(() => {
     const controller = new AbortController();
     fetchLeads(controller.signal);
     return () => controller.abort();
   }, [fetchLeads]);
 
+  // CRM-004: Clear email fields when selectedLead changes
+  useEffect(() => {
+    setEmailSubject("");
+    setEmailBody("");
+  }, [selectedLead?.id]);
+
+  // CRM-017: useMemo for grouped leads, pre-grouped by status
+  const groupedLeads = useMemo(() => {
+    const filtered = search
+      ? leads.filter(
+          (l) =>
+            l.name.toLowerCase().includes(search.toLowerCase()) ||
+            l.email.toLowerCase().includes(search.toLowerCase()) ||
+            (l.company || "").toLowerCase().includes(search.toLowerCase())
+        )
+      : leads;
+    const groups: Record<LeadStatus, Lead[]> = {} as Record<LeadStatus, Lead[]>;
+    for (const s of LEAD_COLUMNS) groups[s] = [];
+    for (const l of filtered) {
+      if (groups[l.status]) groups[l.status].push(l);
+    }
+    return groups;
+  }, [leads, search]);
+
+  // CRM-023: Summary stats
+  const stats = useMemo(() => {
+    const total = leads.length;
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const newThisWeek = leads.filter((l) => new Date(l.createdAt) >= weekAgo).length;
+    const won = leads.filter((l) => l.status === "WON").length;
+    const conversionRate = total > 0 ? ((won / total) * 100).toFixed(1) : "0";
+    const avgScore = total > 0 ? Math.round(leads.reduce((sum, l) => sum + l.score, 0) / total) : 0;
+    return { total, newThisWeek, conversionRate, avgScore };
+  }, [leads]);
+
   const handleDragStart = (event: DragStartEvent) => {
+    // CRM-006: Prevent drag when updating
+    if (updating) return;
     setActiveId(event.active.id as string);
   };
 
+  // CRM-006 + CRM-007: handleDragEnd with rollback and updating state
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
@@ -167,8 +266,14 @@ export default function CRMPage() {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === newStatus) return;
 
+    // CRM-007: Store previous state for rollback
+    const prevLeads = leads;
+
     // Optimistic update
+    setUpdating(true);
     setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)));
+    // CRM-011: Update selectedLead on optimistic update
+    setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: newStatus } as Lead : prev);
 
     try {
       const res = await fetch("/api/leads", {
@@ -178,21 +283,37 @@ export default function CRMPage() {
         body: JSON.stringify({ id: leadId, status: newStatus }),
       });
       if (!res.ok) {
+        // CRM-007: Rollback on failure
+        setLeads(prevLeads);
+        setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to update lead");
-        fetchLeads(); // Rollback by refetching
-        return;
+      } else {
+        toast.success(`Lead moved to ${newStatus}`);
       }
-      toast.success(`Lead moved to ${newStatus}`);
     } catch {
+      // CRM-007: Rollback on error
+      setLeads(prevLeads);
+      setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
       toast.error("Failed to move lead");
-      fetchLeads();
+    } finally {
+      setUpdating(false);
     }
   };
 
+  // CRM-012 + CRM-014: handleAddLead with validation and non-ok handling
   const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+
+    // CRM-012: Validate form
+    const errors = validateAddForm(form);
+    if (errors) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors({});
+
     const data = {
       name: form.get("name") as string,
       email: form.get("email") as string,
@@ -204,6 +325,8 @@ export default function CRMPage() {
       notes: form.get("notes") as string,
     };
 
+    // CRM-010: Set adding state
+    setAdding(true);
     try {
       const res = await fetch("/api/leads", {
         method: "POST",
@@ -211,44 +334,71 @@ export default function CRMPage() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      // CRM-014: Handle non-ok response
       if (res.ok) {
         toast.success("Lead added");
         setAddOpen(false);
         fetchLeads();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to add lead");
       }
     } catch {
       toast.error("Failed to add lead");
+    } finally {
+      setAdding(false);
     }
   };
 
+  // CRM-003 + CRM-009: Fix handleUpdateLead - check res.ok, don't close panel on failure
   const handleUpdateLead = async (data: Record<string, unknown>) => {
     if (!selectedLead) return;
+    setUpdating(true);
     try {
-      await fetch("/api/leads", {
+      const res = await fetch("/api/leads", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
         body: JSON.stringify({ id: selectedLead.id, ...data }),
       });
-      toast.success("Lead updated");
-      fetchLeads();
-      setSelectedLead(null);
+      if (res.ok) {
+        toast.success("Lead updated");
+        fetchLeads();
+        // CRM-009: Don't close panel, update selectedLead in place
+        setSelectedLead((prev) => prev?.id === selectedLead.id ? { ...prev, ...data } as Lead : prev);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to update lead");
+      }
     } catch {
       toast.error("Failed to update lead");
+    } finally {
+      setUpdating(false);
     }
   };
 
-  const filteredLeads = search
-    ? leads.filter(
-        (l) =>
-          l.name.toLowerCase().includes(search.toLowerCase()) ||
-          l.email.toLowerCase().includes(search.toLowerCase()) ||
-          (l.company || "").toLowerCase().includes(search.toLowerCase())
-      )
-    : leads;
+  // CRM-004: Quick email handler
+  const handleQuickEmail = () => {
+    toast.info("Email sending will be available once the email API is configured");
+    // Future: POST to /api/leads/emails
+  };
 
-  // Role guard
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
+  // CRM-002: Show loading skeleton while session is loading
+  if (status === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-32" />
+        <div className="flex gap-4">
+          {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <Skeleton key={i} className="h-96 w-[260px] rounded-lg shrink-0" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // CRM-002: Don't render if not authenticated or not admin
+  if (status !== "authenticated" || !isAdminUser) return null;
 
   if (loading) {
     return (
@@ -268,7 +418,8 @@ export default function CRMPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchLeads(); }}>
+        {/* CRM-020: Set loading before fetchLeads on retry */}
+        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchLeads(); }}>
           Try Again
         </Button>
       </div>
@@ -293,25 +444,29 @@ export default function CRMPage() {
               aria-label="Search leads"
             />
           </div>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) setFormErrors({}); }}>
             <DialogTrigger asChild>
-              <Button size="sm">
+              <Button size="sm" disabled={adding}>
                 <Plus className="h-4 w-4 mr-1" /> Add Lead
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add New Lead</DialogTitle>
+                {/* CRM-013: Add DialogDescription */}
+                <DialogDescription>Enter the details for the new lead.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddLead} className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Name *</Label>
                     <Input name="name" required />
+                    {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Email *</Label>
                     <Input name="email" type="email" required />
+                    {formErrors.email && <p className="text-xs text-destructive">{formErrors.email}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Company</Label>
@@ -323,11 +478,13 @@ export default function CRMPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Website</Label>
-                    <Input name="website" />
+                    <Input name="website" placeholder="https://example.com" />
+                    {formErrors.website && <p className="text-xs text-destructive">{formErrors.website}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Score</Label>
-                    <Input name="score" type="number" defaultValue="0" />
+                    <Input name="score" type="number" defaultValue="0" min={0} max={100} />
+                    {formErrors.score && <p className="text-xs text-destructive">{formErrors.score}</p>}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -346,60 +503,123 @@ export default function CRMPage() {
                   <Label className="text-xs">Notes</Label>
                   <Textarea name="notes" rows={2} />
                 </div>
-                <Button type="submit" className="w-full">Add Lead</Button>
+                {/* CRM-010: Disable button during operation */}
+                <Button type="submit" className="w-full" disabled={adding}>
+                  {adding ? "Adding..." : "Add Lead"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
-      {/* Kanban Board */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex gap-3 overflow-x-auto pb-4">
-          {LEAD_COLUMNS.map((status) => (
-            <DroppableColumn
-              key={status}
-              status={status}
-              leads={filteredLeads.filter((l) => l.status === status)}
-              onLeadClick={setSelectedLead}
-            />
-          ))}
-        </div>
-        <DragOverlay>
-          {activeId ? (
-            <LeadCard lead={leads.find((l) => l.id === activeId)!} onClick={() => {}} />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      {/* CRM-023: Summary stats cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-muted">
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Leads</p>
+              <p className="text-lg font-semibold">{stats.total}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-muted">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">New This Week</p>
+              <p className="text-lg font-semibold">{stats.newThisWeek}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-muted">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Conversion Rate</p>
+              <p className="text-lg font-semibold">{stats.conversionRate}%</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-muted">
+              <Star className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Avg Score</p>
+              <p className="text-lg font-semibold">{stats.avgScore}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Lead Detail Panel */}
-      {selectedLead && (
-        <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setSelectedLead(null)}>
-          <div
-            className="fixed right-0 top-0 h-full w-96 bg-background border-l shadow-xl overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">{selectedLead.name}</h2>
-                <Button variant="ghost" size="icon" onClick={() => setSelectedLead(null)} aria-label="Close lead details">
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+      {/* CRM-021: Board-level empty state */}
+      {leads.length === 0 ? (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 border-2 border-dashed rounded-lg">
+          <Building2 className="h-12 w-12 text-muted-foreground" />
+          <div className="text-center">
+            <p className="font-medium">No leads yet</p>
+            <p className="text-sm text-muted-foreground">Add your first lead to get started!</p>
+          </div>
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Add Lead
+          </Button>
+        </div>
+      ) : (
+        /* Kanban Board */
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex gap-3 overflow-x-auto pb-4">
+            {LEAD_COLUMNS.map((status) => (
+              <DroppableColumn
+                key={status}
+                status={status}
+                leads={groupedLeads[status]}
+                onLeadClick={setSelectedLead}
+              />
+            ))}
+          </div>
+          {/* CRM-018: Guard non-null assertion in DragOverlay */}
+          <DragOverlay>
+            {activeId ? (() => {
+              const lead = leads.find((l) => l.id === activeId);
+              return lead ? <LeadCard lead={lead} onClick={() => {}} /> : null;
+            })() : null}
+          </DragOverlay>
+        </DndContext>
+      )}
+
+      {/* CRM-005: Replace custom overlay with Sheet component */}
+      <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) setSelectedLead(null); }}>
+        <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{selectedLead?.name}</SheetTitle>
+          </SheetHeader>
+          {selectedLead && (
+            <div className="space-y-4">
               <div className="space-y-3">
+                {/* CRM-027: Email as mailto: link */}
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span>{selectedLead.email}</span>
+                  <a href={`mailto:${selectedLead.email}`} className="hover:underline">{selectedLead.email}</a>
                 </div>
+                {/* CRM-026: Phone as tel: link */}
                 {selectedLead.phone && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{selectedLead.phone}</span>
+                    <a href={`tel:${selectedLead.phone}`} className="hover:underline">{selectedLead.phone}</a>
                   </div>
                 )}
                 {selectedLead.company && (
@@ -408,15 +628,29 @@ export default function CRMPage() {
                     <span>{selectedLead.company}</span>
                   </div>
                 )}
+                {/* CRM-008: Website as clickable link */}
                 {selectedLead.website && (
                   <div className="flex items-center gap-2 text-sm">
                     <Globe className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-primary hover:underline">{selectedLead.website}</span>
+                    <a
+                      href={selectedLead.website.startsWith('http') ? selectedLead.website : `https://${selectedLead.website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {selectedLead.website}
+                    </a>
                   </div>
                 )}
+                {/* CRM-024: Display createdAt */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  <span>Added {new Date(selectedLead.createdAt).toLocaleDateString()}</span>
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant="secondary">Score: {selectedLead.score}</Badge>
+                {/* CRM-025: Score color coding badge */}
+                <Badge variant="outline" className={getScoreBadgeClass(selectedLead.score)}>Score: {selectedLead.score}</Badge>
                 <Badge variant="secondary">{selectedLead.source}</Badge>
               </div>
               {selectedLead.notes && (
@@ -432,6 +666,7 @@ export default function CRMPage() {
                 <Select
                   value={selectedLead.status}
                   onValueChange={(value) => handleUpdateLead({ status: value })}
+                  disabled={updating}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -442,18 +677,35 @@ export default function CRMPage() {
                 </Select>
               </div>
               <Separator />
+              {/* CRM-004: Functional Quick Email with state */}
               <div className="space-y-2">
                 <Label className="text-xs">Quick Email</Label>
-                <Input placeholder="Subject" aria-label="Email subject" />
-                <Textarea placeholder="Write your email..." rows={3} aria-label="Email body" />
-                <Button size="sm" className="w-full">
+                <Input
+                  placeholder="Subject"
+                  aria-label="Email subject"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                />
+                <Textarea
+                  placeholder="Write your email..."
+                  rows={3}
+                  aria-label="Email body"
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!emailSubject.trim() || !emailBody.trim()}
+                  onClick={handleQuickEmail}
+                >
                   <Send className="h-3 w-3 mr-1" /> Send Email
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

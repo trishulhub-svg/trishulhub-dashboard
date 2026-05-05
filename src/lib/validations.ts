@@ -29,7 +29,21 @@ export const createClientSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   userId: z.string().optional(),
   notes: z.string().optional(),
-  createdAt: z.string().optional(), // Override for historical data
+  createdAt: z.string()
+    .optional()
+    .refine((val) => {
+      if (!val) return true
+      const parsed = Date.parse(val)
+      return !isNaN(parsed)
+    }, { message: "createdAt must be a valid date string" })
+    .refine((val) => {
+      if (!val) return true
+      return Date.parse(val) <= Date.now()
+    }, { message: "createdAt must not be in the future" })
+    .refine((val) => {
+      if (!val) return true
+      return Date.parse(val) >= Date.parse('2020-01-01')
+    }, { message: "createdAt must be after 2020-01-01" }),
 })
 
 export const updateClientSchema = z.object({
@@ -60,15 +74,16 @@ export const createInvoiceSchema = z.object({
 })
 
 export const createLeadSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  company: z.string().optional(),
-  website: z.string().optional(),
-  phone: z.string().optional(),
+  name: z.string().min(1, "Name is required").max(200, "Name must be at most 200 characters"),
+  email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
+  company: z.string().max(200, "Company must be at most 200 characters").optional(),
+  website: z.string().max(500, "Website must be at most 500 characters").optional(),
+  phone: z.string().max(50, "Phone must be at most 50 characters").optional(),
   source: z.enum(["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"]).optional(),
   score: z.number().int().min(0).max(100).optional(),
   status: z.enum(["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]).optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(5000, "Notes must be at most 5000 characters").optional(),
+  clientId: z.string().optional(),
 })
 
 export const supportTicketSchema = z.object({
