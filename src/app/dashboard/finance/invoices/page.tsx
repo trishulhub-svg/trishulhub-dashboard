@@ -60,9 +60,18 @@ export default function InvoicesPage() {
         fetch("/api/clients", { credentials: 'include', signal }),
         fetch("/api/projects", { credentials: 'include', signal }),
       ]);
-      if (invRes.ok) setInvoices(await invRes.json());
-      if (clientRes.ok) setClients(await clientRes.json());
-      if (projRes.ok) setProjects(await projRes.json());
+      if (invRes.ok) {
+        const invData = await invRes.json();
+        setInvoices(Array.isArray(invData) ? invData : invData.data || []);
+      }
+      if (clientRes.ok) {
+        const clientData = await clientRes.json();
+        setClients(Array.isArray(clientData) ? clientData : clientData.data || []);
+      }
+      if (projRes.ok) {
+        const projData = await projRes.json();
+        setProjects(Array.isArray(projData) ? projData : projData.data || []);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
@@ -85,13 +94,17 @@ export default function InvoicesPage() {
 
     try {
       const items = JSON.parse(itemsStr || "[]");
+      if (!Array.isArray(items) || items.length === 0) {
+        toast.error("At least one line item is required");
+        return;
+      }
       const subtotal = items.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0);
       const taxRate = parseFloat(form.get("taxRate") as string) || 18;
       const tax = subtotal * (taxRate / 100);
 
       const data = {
         clientId: form.get("clientId") as string,
-        projectId: form.get("projectId") as string || null,
+        projectId: (form.get("projectId") as string) === "NONE" ? null : (form.get("projectId") as string) || null,
         items: JSON.stringify(items),
         subtotal,
         tax,
@@ -109,6 +122,9 @@ export default function InvoicesPage() {
         toast.success("Invoice created");
         setAddOpen(false);
         fetchData();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to create invoice");
       }
     } catch {
       toast.error("Failed to create invoice. Check JSON format for items.");
@@ -117,14 +133,19 @@ export default function InvoicesPage() {
 
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
-      await fetch("/api/invoices", {
+      const res = await fetch("/api/invoices", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
         body: JSON.stringify({ id, status }),
       });
-      toast.success(`Invoice marked as ${status}`);
-      fetchData();
+      if (res.ok) {
+        toast.success(`Invoice marked as ${status}`);
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || `Failed to update invoice status`);
+      }
     } catch {
       toast.error("Failed to update invoice");
     }
@@ -187,6 +208,7 @@ export default function InvoicesPage() {
                 <Select name="projectId">
                   <SelectTrigger><SelectValue placeholder="Select project (optional)" /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="NONE">No Project</SelectItem>
                     {(projects as { id: string; name: string }[]).map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}

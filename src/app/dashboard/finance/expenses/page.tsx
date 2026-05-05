@@ -25,6 +25,8 @@ const categoryColors: Record<string, string> = {
   API_COSTS: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   TOOLS: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
   MARKETING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  SALARY: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  SOFTWARE: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
   OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 };
 
@@ -44,6 +46,7 @@ export default function ExpensesPage() {
   if (status !== "authenticated" || !isAdminUser) return null;
 
   const [expenses, setExpenses] = useState<unknown[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -51,7 +54,10 @@ export default function ExpensesPage() {
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/expenses", { credentials: 'include', signal });
-      if (res.ok) setExpenses(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setExpenses(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
@@ -64,6 +70,14 @@ export default function ExpensesPage() {
   useEffect(() => {
     const controller = new AbortController();
     fetchExpenses(controller.signal);
+    // Fetch projects for the dropdown
+    fetch("/api/projects", { credentials: 'include', signal: controller.signal })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const arr = Array.isArray(data) ? data : (data.projects || data.data || []);
+        setProjects(arr.map((p: any) => ({ id: p.id, name: p.name })));
+      })
+      .catch(() => {});
     return () => controller.abort();
   }, [fetchExpenses]);
 
@@ -75,6 +89,7 @@ export default function ExpensesPage() {
       description: form.get("description") as string,
       amount: parseFloat(form.get("amount") as string),
       date: form.get("date") as string,
+      projectId: (form.get("projectId") as string) === "NONE" ? undefined : (form.get("projectId") as string) || undefined,
     };
 
     try {
@@ -95,6 +110,7 @@ export default function ExpensesPage() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this expense? This action cannot be undone.")) return;
     try {
       const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
       if (res.ok) {
@@ -164,6 +180,8 @@ export default function ExpensesPage() {
                     <SelectItem value="API_COSTS">API Costs</SelectItem>
                     <SelectItem value="TOOLS">Tools</SelectItem>
                     <SelectItem value="MARKETING">Marketing</SelectItem>
+                    <SelectItem value="SALARY">Salary</SelectItem>
+                    <SelectItem value="SOFTWARE">Software</SelectItem>
                     <SelectItem value="OTHER">Other</SelectItem>
                   </SelectContent>
                 </Select>
@@ -181,6 +199,18 @@ export default function ExpensesPage() {
                   <Label className="text-xs">Date *</Label>
                   <Input name="date" type="date" required />
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Project (optional)</Label>
+                <Select name="projectId">
+                  <SelectTrigger><SelectValue placeholder="No project" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">No Project</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <Button type="submit" className="w-full">Add Expense</Button>
             </form>

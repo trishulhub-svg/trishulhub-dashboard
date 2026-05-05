@@ -173,7 +173,7 @@ export default function FinancePage() {
   // ─── Fetch dashboard data (existing) ────
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/dashboard", { signal });
+      const res = await fetch("/api/dashboard", { credentials: "include", signal });
       if (res.ok) {
         setData(await res.json());
       } else {
@@ -216,7 +216,10 @@ export default function FinancePage() {
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
-      if (res.ok) setExpenses(await res.json());
+      if (res.ok) {
+        const expData = await res.json();
+        setExpenses(Array.isArray(expData) ? expData : []);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
@@ -250,7 +253,8 @@ export default function FinancePage() {
       const res = await fetch("/api/projects", { credentials: "include", signal });
       if (res.ok) {
         const json = await res.json();
-        setProjects((json.projects || json).map((p: any) => ({ id: p.id, name: p.name })));
+        const arr = Array.isArray(json) ? json : (json.projects || json.data || []);
+        setProjects(arr.map((p: any) => ({ id: p.id, name: p.name })));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -258,16 +262,27 @@ export default function FinancePage() {
     }
   }, []);
 
+  // Re-fetch expenses and stats when filters change (separate from initial load)
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    fetchExpenses(signal);
+    fetchStats(signal);
+    return () => controller.abort();
+  }, [fetchExpenses, fetchStats]);
+
+  // Initial data load (runs once)
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
     fetchData(signal);
     fetchSubscriptions(signal);
+    fetchProjects(signal);
     fetchExpenses(signal);
     fetchStats(signal);
-    fetchProjects(signal);
     return () => controller.abort();
-  }, [fetchData, fetchSubscriptions, fetchExpenses, fetchStats, fetchProjects]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── Subscription handlers ────
   const handleSaveSubscription = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -275,12 +290,12 @@ export default function FinancePage() {
     const form = new FormData(e.currentTarget);
     const payload = {
       service: form.get("service") as string,
-      rate: parseFloat(form.get("rate") as string),
+      rate: parseFloat(form.get("rate") as string) || 0,
       currency: form.get("currency") as string || "INR",
       frequency: form.get("frequency") as string || "MONTHLY",
       status: editingSub ? undefined : "ACTIVE",
       category: (form.get("category") as string) || undefined,
-      projectId: (form.get("projectId") as string) || undefined,
+      projectId: (form.get("projectId") as string) === "NONE" ? undefined : (form.get("projectId") as string) || undefined,
       startDate: (form.get("startDate") as string) || undefined,
       endDate: (form.get("endDate") as string) || undefined,
       notes: (form.get("notes") as string) || undefined,
@@ -341,6 +356,7 @@ export default function FinancePage() {
   };
 
   const handleDeleteSubscription = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this subscription? This action cannot be undone.")) return;
     try {
       const res = await fetch(`/api/subscriptions/${id}`, {
         method: "DELETE",
@@ -349,6 +365,9 @@ export default function FinancePage() {
       if (res.ok) {
         toast.success("Subscription deleted");
         fetchSubscriptions();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete subscription");
       }
     } catch {
       toast.error("Failed to delete subscription");
@@ -357,6 +376,7 @@ export default function FinancePage() {
 
   // ─── Expense delete handler ────
   const handleDeleteExpense = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this expense? This action cannot be undone.")) return;
     try {
       const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: "include" });
       if (res.ok) {
@@ -423,7 +443,7 @@ export default function FinancePage() {
     { name: "API Costs", value: stats.totalApiSpend, color: "#ef4444" },
     { name: "Expenses", value: stats.totalExpenses, color: "#f59e0b" },
     { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
-  ];
+  ].filter(d => d.value > 0);
 
   const expenseItems = data.expenses || [];
   const now = new Date();
@@ -474,7 +494,8 @@ export default function FinancePage() {
   const totalRevenue = stats.totalRevenue;
   const totalManualExpenses = stats.totalExpenses;
   const totalSubscriptionMonthly = subTotalMonthly;
-  const netProfit = totalRevenue - totalManualExpenses - totalSubscriptionMonthly;
+  const totalCosts = totalManualExpenses + totalSubscriptionMonthly;
+  const netProfit = totalRevenue - totalCosts;
 
   return (
     <div className="space-y-6">
@@ -539,7 +560,7 @@ export default function FinancePage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Net Profit</p>
+                <p className="text-sm text-muted-foreground">Net Profit (est.)</p>
                 <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                   {formatCurrency(netProfit)}
                 </p>
@@ -636,6 +657,9 @@ export default function FinancePage() {
               </CardHeader>
               <CardContent>
                 <div className="h-64 flex items-center justify-center">
+                  {expenseData.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No financial data yet</p>
+                  ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ₹${(value / 1000).toFixed(0)}k`}>
@@ -646,6 +670,7 @@ export default function FinancePage() {
                       <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`]} />
                     </PieChart>
                   </ResponsiveContainer>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1025,13 +1050,14 @@ export default function FinancePage() {
                 <Select name="category" defaultValue={editingSub?.category || ""}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Software">Software</SelectItem>
-                    <SelectItem value="Hosting">Hosting</SelectItem>
-                    <SelectItem value="Domains">Domains</SelectItem>
-                    <SelectItem value="API">API</SelectItem>
-                    <SelectItem value="Tools">Tools</SelectItem>
-                    <SelectItem value="Marketing">Marketing</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    <SelectItem value="SOFTWARE">Software</SelectItem>
+                    <SelectItem value="HOSTING">Hosting</SelectItem>
+                    <SelectItem value="DOMAINS">Domains</SelectItem>
+                    <SelectItem value="API_COSTS">API Costs</SelectItem>
+                    <SelectItem value="TOOLS">Tools</SelectItem>
+                    <SelectItem value="MARKETING">Marketing</SelectItem>
+                    <SelectItem value="SALARY">Salary</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
