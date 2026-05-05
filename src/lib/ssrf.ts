@@ -31,6 +31,10 @@ export function isPrivateIP(ip: string): boolean {
   if (ipVersion === 6) {
     const lower = cleaned.toLowerCase()
     if (lower === "::1") return true
+    // IPv4-mapped IPv6 loopback (::ffff:127.0.0.1)
+    if (lower === "::ffff:127.0.0.1" || lower === "::ffff:0:0:0:127.0.0.1") return true
+    // Unspecified address (equivalent to 0.0.0.0)
+    if (lower === "::" || lower === "0:0:0:0:0:0:0:0") return true
     if (lower.startsWith("fc") || lower.startsWith("fd")) return true // Unique local
     if (lower.startsWith("fe80")) return true // Link-local
     return false

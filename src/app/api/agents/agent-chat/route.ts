@@ -10,7 +10,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { runAgentLoop, AgentStep } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
-import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { NVIDIA_API_URL, ZAI_API_URL } from "@/lib/ai/endpoints"
 import { generateZaiToken } from "@/lib/ai/jwt-utils"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -53,6 +52,7 @@ async function analyzeFileAttachments(
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60000), // 60s timeout for vision API
         })
 
         if (response.ok) {
@@ -345,7 +345,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Fix #25: Rate limiting for agentic chat
-    const { success: rateLimitOk, remaining } = rateLimit(
+    const { success: rateLimitOk } = rateLimit(
       `agent-chat:${userId}:${agentId}`,
       RATE_LIMITS.agentChat.limit,
       RATE_LIMITS.agentChat.windowMs
@@ -1027,7 +1027,7 @@ export async function POST(req: NextRequest) {
               success = true
 
               // If the used key was previously ERROR, mark it as ACTIVE
-              if (key.status === "ERROR") {
+              if (key.status === "ERROR" && !key.id.startsWith("env-")) {
                 await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
               }
 
@@ -1203,11 +1203,13 @@ export async function POST(req: NextRequest) {
                 },
               })
 
-              // Update key spend
-              await db.apiKey.update({
-                where: { id: key.id },
-                data: { currentSpend: { increment: result.cost } },
-              })
+              // Update key spend (skip env keys — they don't exist in DB)
+              if (!key.id.startsWith("env-")) {
+                await db.apiKey.update({
+                  where: { id: key.id },
+                  data: { currentSpend: { increment: result.cost } },
+                })
+              }
 
               // Cross-agent automation: check triggers after successful agentic response
               try {
@@ -1596,7 +1598,7 @@ export async function POST(req: NextRequest) {
         lastError = err
         console.error(`[agent-chat] Key "${key.keyName}" failed:`, err.message)
 
-        if (err.message.includes("Insufficient balance")) {
+        if (err.message.includes("Insufficient balance") && !key.id.startsWith("env-")) {
           await db.apiKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } })
         }
         continue

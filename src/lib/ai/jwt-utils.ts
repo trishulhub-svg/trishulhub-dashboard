@@ -30,10 +30,10 @@ export async function generateZaiToken(apiKey: string): Promise<string> {
         .sign(secretBytes)
       return token
     } catch (err) {
-      console.error("[zai] JWT generation failed, using raw key:", err)
-      console.warn("[zai] Warning: Falling back to raw API key. JWT generation failed — this may cause authentication issues with Z.ai API.")
-      // Fall back to using the raw key
-      return apiKey
+      console.error("[zai] JWT generation failed:", err)
+      // SECURITY: Do NOT fall back to raw key — the secret portion would be exposed
+      // in network logs, proxy logs, and Authorization headers.
+      throw new Error("JWT generation failed for Z.ai API key. The key format may be invalid.")
     }
   }
 

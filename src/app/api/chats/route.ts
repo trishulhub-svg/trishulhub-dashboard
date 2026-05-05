@@ -37,9 +37,14 @@ export async function GET(req: NextRequest) {
     }
     if (agentId) where.agentId = agentId
 
-    // TODO: Add pagination (limit/offset) to chats GET endpoint
+    // Pagination support (default 50, max 200)
+    const limitParam = searchParams.get("limit")
+    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam) || 50, 1), 200) : 50
+
+    // TODO: Add offset support for cursor-based pagination
     const chats = await db.chat.findMany({
       where,
+      take: limit,
       include: {
         agent: {
           select: { id: true, name: true, type: true, status: true }

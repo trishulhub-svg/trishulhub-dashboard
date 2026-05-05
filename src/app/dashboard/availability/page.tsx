@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
+import { safeParseDate } from "@/lib/utils";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle,
 } from "lucide-react";
@@ -106,16 +107,6 @@ export default function AvailabilityPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isSessionLoading = status === "loading";
-
-  const safeDateStr = (val: unknown): Date => {
-    if (!val) return new Date();
-    try {
-      const d = new Date(val as string);
-      return isNaN(d.getTime()) ? new Date() : d;
-    } catch {
-      return new Date();
-    }
-  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -313,7 +304,7 @@ export default function AvailabilityPage() {
 
   // Filter upcoming overrides
   const upcomingOverrides = useMemo(
-    () => overrides.filter((o) => safeDateStr(o.date) >= new Date(new Date().toDateString())),
+    () => overrides.filter((o) => safeParseDate(o.date) >= new Date(new Date().toDateString())),
     [overrides],
   );
 
@@ -490,7 +481,7 @@ export default function AvailabilityPage() {
                   {upcomingOverrides.map((override) => (
                     <TableRow key={override.id}>
                       <TableCell className="font-medium text-sm">{override.user?.name || "Unknown"}</TableCell>
-                      <TableCell className="text-xs">{safeDateStr(override.date).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs">{safeParseDate(override.date).toLocaleDateString()}</TableCell>
                       <TableCell className="text-xs">{override.startTime && override.endTime ? `${override.startTime}-${override.endTime}` : "All Day"}</TableCell>
                       <TableCell>
                         <Badge className={`text-[10px] ${override.isAvailable ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}`}>

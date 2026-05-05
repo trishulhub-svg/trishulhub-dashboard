@@ -10,7 +10,7 @@ export async function middleware(request: NextRequest) {
 
   // Allow public paths
   if (publicPaths.some(p => pathname.startsWith(p))) {
-    return NextResponse.next()
+    return addSecurityHeaders(request, NextResponse.next())
   }
 
   // Decode JWT token to check session validity
@@ -21,10 +21,10 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
       const loginUrl = new URL("/login", request.url)
       loginUrl.searchParams.set("callbackUrl", pathname)
-      return NextResponse.redirect(loginUrl)
+      return addSecurityHeaders(request, NextResponse.redirect(loginUrl))
     }
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return addSecurityHeaders(request, NextResponse.json({ error: "Unauthorized" }, { status: 401 }))
     }
   }
 
@@ -38,20 +38,20 @@ export async function middleware(request: NextRequest) {
       const response = NextResponse.redirect(loginUrl)
       response.cookies.set("next-auth.session-token", "", { maxAge: 0, path: "/" })
       response.cookies.set("__Secure-next-auth.session-token", "", { maxAge: 0, path: "/" })
-      return response
+      return addSecurityHeaders(request, response)
     }
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
+      // FIX: Also clear cookies for API routes with kicked sessions
+      // so the client can detect and handle the session invalidation
+      const response = NextResponse.json(
         { error: "Session invalidated. Please log in again.", reason: "kicked" },
         { status: 401 }
       )
+      response.cookies.set("next-auth.session-token", "", { maxAge: 0, path: "/" })
+      response.cookies.set("__Secure-next-auth.session-token", "", { maxAge: 0, path: "/" })
+      return addSecurityHeaders(request, response)
     }
   }
-
-  // Session is valid — check for sessionToken presence.
-  // Old sessions without sessionToken predate the single-device feature.
-  // They're allowed through for graceful migration — the JWT callback
-  // will add a sessionToken on the next token refresh.
 
   // Role-based access control
   if (pathname.startsWith("/dashboard")) {
@@ -59,7 +59,7 @@ export async function middleware(request: NextRequest) {
 
     // CLIENT users cannot access dashboard at all
     if (role === "CLIENT") {
-      return NextResponse.redirect(new URL("/portal", request.url))
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
     // Admin-only routes
@@ -67,11 +67,39 @@ export async function middleware(request: NextRequest) {
     const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
     if (!isAdmin && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
-      return NextResponse.redirect(new URL("/dashboard", request.url))
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
   }
 
-  return NextResponse.next()
+  // FIX: Verify CLIENT role for portal routes at middleware level
+  // Prevents non-CLIENT users from accessing portal pages directly
+  if (pathname.startsWith("/portal") && token?.role && token.role !== "CLIENT") {
+    return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+  }
+
+  return addSecurityHeaders(request, NextResponse.next())
+}
+
+/**
+ * Add security headers to all responses.
+ * Prevents clickjacking, MIME sniffing, and protocol downgrade attacks.
+ */
+function addSecurityHeaders(request: NextRequest, response: NextResponse): NextResponse {
+  // Only set security headers for page requests (not API or _next static assets)
+  const { pathname } = request.nextUrl
+  if (pathname.startsWith("/api/") || pathname.startsWith("/_next/")) {
+    return response
+  }
+
+  // Prevent framing (clickjacking protection)
+  response.headers.set("X-Frame-Options", "DENY")
+  // Prevent MIME type sniffing
+  response.headers.set("X-Content-Type-Options", "nosniff")
+  // XSS protection (legacy browsers)
+  response.headers.set("X-XSS-Protection", "1; mode=block")
+  // Referrer policy — send origin only on cross-origin
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
+  return response
 }
 
 export const config = {

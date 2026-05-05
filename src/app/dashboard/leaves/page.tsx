@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
+import { safeParseDate } from "@/lib/utils";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
   ChevronLeft, ChevronRight, Trash2, Ban, AlertCircle,
@@ -39,11 +40,6 @@ import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 
 // ━━ Helpers ━━
-
-function safeDateStr(date: unknown): Date {
-  const d = new Date(date as string);
-  return isNaN(d.getTime()) ? new Date() : d;
-}
 
 interface LeaveRecord {
   id: string;
@@ -278,8 +274,8 @@ export default function LeaveManagementPage() {
     const date = new Date(currentYear, currentMonth, day);
     return leaves.filter((leave) => {
       if (leave.status === "CANCELLED" || leave.status === "REJECTED") return false;
-      const start = safeDateStr(leave.startDate);
-      const end = safeDateStr(leave.endDate);
+      const start = safeParseDate(leave.startDate);
+      const end = safeParseDate(leave.endDate);
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
       return date >= start && date <= end;
@@ -318,7 +314,7 @@ export default function LeaveManagementPage() {
   const myLeaves = useMemo(() => leaves.filter((l) => l.userId === session?.user?.id), [leaves, session?.user?.id]);
   const approvedThisMonth = useMemo(
     () => leaves.filter(
-      (l) => l.status === "APPROVED" && safeDateStr(l.createdAt).getMonth() === new Date().getMonth()
+      (l) => l.status === "APPROVED" && safeParseDate(l.createdAt).getMonth() === new Date().getMonth()
     ),
     [leaves],
   );
@@ -427,8 +423,8 @@ export default function LeaveManagementPage() {
                 {leaves.filter((l) => {
                   if (l.status !== "APPROVED") return false;
                   const now = new Date();
-                  const start = safeDateStr(l.startDate);
-                  const end = safeDateStr(l.endDate);
+                  const start = safeParseDate(l.startDate);
+                  const end = safeParseDate(l.endDate);
                   return now >= start && now <= end;
                 }).length}
               </span>
@@ -495,7 +491,7 @@ export default function LeaveManagementPage() {
                           <TooltipContent>
                             <p className="font-medium">{leave.user?.name}</p>
                             <p className="text-xs">{leaveTypeLabels[leave.leaveType] || leave.leaveType}</p>
-                            <p className="text-xs">{safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}</p>
+                            <p className="text-xs">{safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}</p>
                             <Badge className={`text-[9px] mt-1 ${leaveStatusColors[leave.status]}`}>{leave.status}</Badge>
                           </TooltipContent>
                       </Tooltip>
@@ -530,8 +526,8 @@ export default function LeaveManagementPage() {
                     <Badge className={`text-[10px] ${leaveTypeColors[leave.leaveType] || ""}`}>{leaveTypeLabels[leave.leaveType] || leave.leaveType}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}
-                    {" "} ({(() => { const s = safeDateStr(leave.startDate); const e = safeDateStr(leave.endDate); const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1; return isNaN(diff) ? "?" : `${diff}`; })()} days)
+                    {safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}
+                    {" "} ({(() => { const s = safeParseDate(leave.startDate); const e = safeParseDate(leave.endDate); const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1; return isNaN(diff) ? "?" : `${diff}`; })()} days)
                   </p>
                   {leave.reason && <p className="text-xs text-muted-foreground mt-1">Reason: {leave.reason}</p>}
                 </div>
@@ -613,7 +609,7 @@ export default function LeaveManagementPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}
+                        {safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                         {leave.reason || "-"}

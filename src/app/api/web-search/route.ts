@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Search query is required" }, { status: 400 })
     }
 
+    // FIX: Validate numResults to prevent excessive API credit consumption
+    if (numResults !== undefined && (typeof numResults !== "number" || numResults < 1 || numResults > 20)) {
+      return NextResponse.json({ error: "numResults must be between 1 and 20" }, { status: 400 })
+    }
+
     // FIX: Validate query length to prevent excessively large inputs
     if (query.length > 500) {
       return NextResponse.json({ error: "Search query too long (max 500 characters)" }, { status: 400 })

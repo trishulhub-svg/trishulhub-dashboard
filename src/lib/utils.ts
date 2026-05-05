@@ -37,3 +37,17 @@ export function safeDateTimeStr(d: Date): string {
     return d.toISOString()
   }
 }
+
+/**
+ * Safely parse an unknown value into a Date object.
+ * Returns current date as fallback if the value is invalid or null/undefined.
+ */
+export function safeParseDate(val: unknown): Date {
+  if (!val) return new Date()
+  try {
+    const d = new Date(val as string)
+    return isNaN(d.getTime()) ? new Date() : d
+  } catch {
+    return new Date()
+  }
+}

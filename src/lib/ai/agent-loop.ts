@@ -706,9 +706,6 @@ export async function runAgentLoop(
   // or we hit the max step limit
   for (let iteration = 0; iteration < maxSteps; iteration++) {
     stepCount++
-    // FIX: Reset emptyResponseCount at start of each iteration
-    // so successful tool calls don't accumulate towards the limit
-    emptyResponseCount = 0
     try {
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {
@@ -860,6 +857,8 @@ export async function runAgentLoop(
           })
         }
 
+        // Reset empty response counter — tool calls succeeded
+        emptyResponseCount = 0
         // Continue loop - model will see tool results and decide next action
         continue
       }

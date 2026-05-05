@@ -156,7 +156,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Footer */}
       <footer className="border-t bg-card py-4 text-center text-xs text-muted-foreground">
-        <p>&copy; 2025 TrishulHub. AI-Powered Web Development Platform.</p>
+        <p>&copy; {new Date().getFullYear()} TrishulHub. AI-Powered Web Development Platform.</p>
       </footer>
     </div>
   );

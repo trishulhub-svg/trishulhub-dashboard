@@ -1599,8 +1599,7 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
         ? editPreviewLines.join("\n") + `\n... (${newContent.split("\n").length - 20} more lines)`
         : newContent
       const editExt = path.extname(filePath).slice(1)
-      const editLangMap: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", py: "python", css: "css", html: "html", json: "json" }
-      return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\nWARNING: Found ${occurrences} occurrences of this pattern. Only the FIRST occurrence was replaced.\n\n\`\`\`${editLangMap[editExt] || editExt}\n${editPreview}\n\`\`\``
+      return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\nWARNING: Found ${occurrences} occurrences of this pattern. Only the FIRST occurrence was replaced.\n\n\`\`\`${LANG_MAP[editExt] || editExt}\n${editPreview}\n\`\`\``
     }
     const newFileContent = content.replace(oldContent, newContent)
     fs.writeFileSync(fullPath, newFileContent, "utf-8")
