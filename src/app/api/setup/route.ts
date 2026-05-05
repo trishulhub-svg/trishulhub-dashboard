@@ -2,6 +2,59 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import crypto from "crypto"
+
+/** SECURITY: Allowlist of table names from the Prisma schema.
+ *  Any table name used in $queryRawUnsafe MUST be validated against this list
+ *  to prevent SQL injection via string interpolation.
+ */
+const ALLOWED_TABLE_NAMES = new Set([
+  "User",
+  "ApiKey",
+  "Agent",
+  "AgentRoleConfig",
+  "Chat",
+  "ChatMessage",
+  "UserAgentAccess",
+  "ScheduledTask",
+  "Approval",
+  "CrossAgentMessage",
+  "Client",
+  "Project",
+  "ProjectMember",
+  "Task",
+  "Invoice",
+  "Lead",
+  "LeadEmail",
+  "AgentConversation",
+  "ApiUsageLog",
+  "SupportTicket",
+  "TicketMessage",
+  "LeaveRequest",
+  "TimeEntry",
+  "Attendance",
+  "Notification",
+  "Meeting",
+  "MeetingAttendee",
+  "Expense",
+  "Subscription",
+  "SmtpConfig",
+  "EmailVerification",
+  "EmailLog",
+  "PasswordChange",
+  "PasswordReset",
+  "ActiveSession",
+  "Leave",
+  "Availability",
+  "AvailabilityOverride",
+])
+
+/** Validate a table name against the allowlist. Throws if the name is not recognized. */
+function validateTableName(name: string): void {
+  if (!ALLOWED_TABLE_NAMES.has(name)) {
+    throw new Error(`SECURITY: Table name "${name}" is not in the allowed list. Possible SQL injection attempt.`)
+  }
+}
 
 // GET handler - Check if database is set up (public - no auth required)
 export async function GET() {
@@ -27,7 +80,7 @@ export async function PATCH() {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can run migrations" }, { status: 403 })
   }
@@ -44,6 +97,8 @@ export async function PATCH() {
 
     for (const migration of migrations) {
       try {
+        // SECURITY FIX: Validate table name against allowlist before using in raw SQL
+        validateTableName(migration.table)
         // Check if column already exists
         const columns = await db.$queryRawUnsafe(`PRAGMA table_info(${migration.table})`) as any[]
         const columnExists = columns.some((col: any) => col.name === migration.column)
@@ -93,6 +148,8 @@ export async function PATCH() {
 
     for (const table of createTables) {
       try {
+        // SECURITY FIX: Validate table name against allowlist before using in raw SQL
+        validateTableName(table.name)
         // Check if table exists
         const tableCheck = await db.$queryRawUnsafe(`SELECT name FROM sqlite_master WHERE type='table' AND name='${table.name}'`) as any[]
         if (tableCheck.length === 0) {
@@ -191,7 +248,7 @@ export async function POST() {
       if (!session?.user) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
-      const userRole = (session.user as any)?.role
+      const userRole = session.user.role
       if (userRole !== "SUPER_ADMIN") {
         return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
       }
@@ -212,7 +269,14 @@ export async function POST() {
     // Step 2: Seed the database
     logs.push("Step 2: Seeding database...")
     const bcrypt = await import('bcryptjs')
-    const hashedPassword = await bcrypt.hash("password123", 12)
+
+    // SECURITY FIX: Generate a cryptographically random password instead of using
+    // the hardcoded "password123". This password is displayed ONCE in the response
+    // and must be changed on first login.
+    // TODO: Add a `mustChangePassword` boolean field to the User model so that
+    // the UI forces a password change on first login.
+    const generatedPassword = crypto.randomBytes(16).toString('base64url').slice(0, 20)
+    const hashedPassword = await bcrypt.hash(generatedPassword, 12)
 
     // Create users
     const taroon = await db.user.create({
@@ -330,6 +394,10 @@ export async function POST() {
     return NextResponse.json({
       status: "success",
       message: "Database set up and seeded successfully!",
+      // SECURITY: Generated password is returned ONCE. Save this — it will not be shown again.
+      // All users share this initial password and MUST change it on first login.
+      _warning: "Save this password now. It will NOT be shown again. Force password change on first login.",
+      generatedPassword,
       created: { users: 5, agents: 7, clients: 3, projects: 3, leads: 3, expenses: 3 },
       logs
     })

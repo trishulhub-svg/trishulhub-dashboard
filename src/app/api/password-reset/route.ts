@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const adminRole = (session.user as any)?.role
+    const adminRole = session.user.role
     if (adminRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can reset passwords" }, { status: 403 })
     }
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     // Auto-migrate: ensure PasswordReset table exists
     await ensurePasswordResetTable()
 
-    const adminUserId = (session.user as any).id
+    const adminUserId = session.user.id
     const body = await req.json()
     const { userId, action } = body
 

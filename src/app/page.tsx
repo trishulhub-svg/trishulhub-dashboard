@@ -13,7 +13,7 @@ export default function HomePage() {
     if (status === "loading") return;
 
     if (session) {
-      const role = (session.user as { role?: string })?.role;
+      const role = session.user?.role;
       if (role === "CLIENT") {
         router.replace("/portal");
       } else {

@@ -71,7 +71,6 @@ export function useSessionManager() {
       const inactiveTime = Date.now() - lastActivityRef.current
       if (inactiveTime > INACTIVITY_TIMEOUT) {
         hasSignedOutRef.current = true
-        console.log("[session] Inactivity timeout — signing out")
         signOut({ callbackUrl: "/login?reason=timeout" })
       }
     }, CHECK_INTERVAL)
@@ -84,10 +83,9 @@ export function useSessionManager() {
     if (!session) return
     if (hasSignedOutRef.current) return
 
-    const error = (session as any).error
+    const error = session.error
     if (error) {
       hasSignedOutRef.current = true
-      console.log("[session] Server session error:", error)
 
       if (error === "SessionKicked") {
         signOut({ callbackUrl: "/login?reason=kicked" })

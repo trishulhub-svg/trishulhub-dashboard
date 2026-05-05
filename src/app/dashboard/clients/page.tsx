@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase, Plus, Search, Users, DollarSign, FileText, Phone, Mail,
   Building2, Globe, MoreHorizontal, Pencil, Trash2, X, ArrowUpDown,
-  FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, Calendar,
+  FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -131,11 +131,12 @@ interface FormErrors {
 export default function ClientsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "createdAt" | "revenue">("createdAt");
@@ -175,7 +176,7 @@ export default function ClientsPage() {
   if (status !== "authenticated" || !isAdminUser) return null;
 
   // ━━ Fetch clients ━━
-  const fetchClients = useCallback(async () => {
+  const fetchClients = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -183,20 +184,24 @@ export default function ClientsPage() {
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
 
-      const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setClients(data);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       toast.error("Failed to load clients");
+      setError(err instanceof Error ? err.message : "Failed to load clients");
     } finally {
       setLoading(false);
     }
   }, [search, statusFilter, sortBy, sortOrder]);
 
   useEffect(() => {
-    fetchClients();
+    const controller = new AbortController();
+    fetchClients(controller.signal);
+    return () => controller.abort();
   }, [fetchClients]);
 
   // ━━ Stats ━━
@@ -410,6 +415,18 @@ export default function ClientsPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchClients(); }}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* ━━ Header ━━ */}
@@ -437,6 +454,7 @@ export default function ClientsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
+            aria-label="Search clients"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -599,7 +617,7 @@ export default function ClientsPage() {
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Client actions">
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -972,6 +990,7 @@ function NotesEditor({ initialValue, onSave }: { initialValue: string; onSave: (
         value={notes}
         onChange={(e) => { setNotes(e.target.value); setDirty(true); }}
         placeholder="Add notes about this client..."
+        aria-label="Client notes"
         rows={8}
         className="text-sm"
       />

@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can test SMTP" }, { status: 403 })
     }
@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Host, username, and password are required" }, { status: 400 })
     }
 
-    // SSRF protection: block private/internal IP addresses
-    if (isPrivateHost(host)) {
+    // SSRF protection: block private/internal IP addresses (async — includes DNS rebinding check)
+    if (await isPrivateHost(host)) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
     }
 

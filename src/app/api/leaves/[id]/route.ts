@@ -10,8 +10,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { id } = await params
     const body = await req.json()
     const { status, reason } = body
@@ -86,8 +86,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { id } = await params
 
     const leave = await db.leave.findUnique({ where: { id } })

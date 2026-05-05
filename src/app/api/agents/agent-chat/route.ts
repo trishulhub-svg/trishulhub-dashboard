@@ -8,13 +8,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { runAgentLoop, AgentStep, AgentLoopResult } from "@/lib/ai/agent-loop"
+import { runAgentLoop, AgentStep } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
-import { callAIWithFailover, AllKeysExhaustedError, getVisionModel } from "@/lib/ai/openrouter"
+import { callAIWithFailover } from "@/lib/ai/openrouter"
+import { NVIDIA_API_URL, ZAI_API_URL } from "@/lib/ai/endpoints"
 import { SignJWT } from "jose"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 // ── Analyze file attachments with Z.ai Vision API ──
 // The agentic model (glm-4.5-flash) is text-only and doesn't support image_url.
@@ -23,8 +22,6 @@ async function analyzeFileAttachments(
   fileUrls: string[],
   apiKey: string
 ): Promise<string> {
-  const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-
   // Generate JWT token for Z.ai
   let token = apiKey
   if (!apiKey.startsWith("eyJ")) {
@@ -346,7 +343,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { agentId, message, chatId, stream, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
@@ -385,7 +382,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check user access
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       const access = await db.userAgentAccess.findFirst({ where: { userId, agentId } })
       if (!access?.canChat) {
@@ -435,7 +432,7 @@ export async function POST(req: NextRequest) {
 
       // Auto-acquire lock when user sends first message to a chat
       if (!chat.lockedBy) {
-        const userName = (session.user as any).name || session.user.email || "Unknown"
+        const userName = session.user.name || session.user.email || "Unknown"
         await db.chat.update({
           where: { id: chatId },
           data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
@@ -450,7 +447,7 @@ export async function POST(req: NextRequest) {
           status: "ACTIVE",
           lockedBy: userId,
           lockedAt: new Date(),
-          lockedByName: (session.user as any).name || session.user.email || "Unknown",
+          lockedByName: session.user.name || session.user.email || "Unknown",
         },
         include: { messages: true },
       })

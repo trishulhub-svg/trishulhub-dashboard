@@ -173,6 +173,7 @@ function SidebarContent({
                     ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
+                type="button"
               >
                 <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
                 {!collapsed && <span>{item.title}</span>}
@@ -213,10 +214,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
 
-  const userRole = (session?.user as { role?: string })?.role as UserRole || "DEVELOPER";
+  const userRole = session?.user?.role as UserRole || "DEVELOPER";
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";
-  const userId = (session?.user as { id?: string })?.id || "";
+  const userId = session?.user?.id || "";
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -228,8 +229,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         const data = await res.json();
         setNotifications(data);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to fetch notifications:", err);
     }
   }, [userId]);
 
@@ -262,8 +263,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setNotifications((prev) =>
         prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
       );
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
     }
   };
 
@@ -271,8 +272,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try {
       const unreadIds = notifications.filter((n) => !n.isRead).map((n) => n.id);
       await Promise.all(unreadIds.map((id) => markAsRead(id)));
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to mark all notifications as read:", err);
     }
   };
 
@@ -283,8 +284,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         credentials: "include",
       });
       setNotifications((prev) => prev.filter((n) => n.id !== notifId));
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to delete notification:", err);
     }
   };
 
@@ -338,6 +339,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           size="icon"
           className="absolute top-24 -right-3 z-10 h-7 w-7 rounded-full border bg-background shadow-sm hidden md:flex"
           onClick={() => setCollapsed(!collapsed)}
+          aria-label="Toggle sidebar"
         >
           <ChevronLeft className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")} />
         </Button>
@@ -352,6 +354,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               size="icon"
               className="h-8 w-8"
               onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -373,7 +376,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex items-center gap-3">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden">
+                <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
@@ -387,7 +390,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Theme Selector Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9">
+                <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Change theme">
                   {theme === "system" ? (
                     <Monitor className="h-4 w-4" />
                   ) : theme === "dark" ? (
@@ -430,7 +433,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Notifications Dropdown */}
             <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-9 w-9">
+                <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
                     <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
@@ -502,6 +505,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               e.stopPropagation();
                               deleteNotification(notif.id);
                             }}
+                            aria-label="Dismiss notification"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>

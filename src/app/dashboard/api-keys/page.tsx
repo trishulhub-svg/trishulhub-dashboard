@@ -65,7 +65,7 @@ interface ApiKeyData {
 export default function ApiKeysPage() {
   const router = useRouter();
   const { data: session } = useSession();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const [keys, setKeys] = useState<ApiKeyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -488,6 +488,7 @@ export default function ApiKeysPage() {
                           size="icon"
                           className="h-5 w-5"
                           onClick={() => setShowKeyValues(prev => ({ ...prev, [key.id]: !prev[key.id] }))}
+                          aria-label="Toggle API key visibility"
                         >
                           {showKeyValues[key.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                         </Button>
@@ -499,6 +500,7 @@ export default function ApiKeysPage() {
                             navigator.clipboard.writeText(key.keyValue);
                             toast.success("Key copied to clipboard");
                           }}
+                          aria-label="Copy API key"
                         >
                           <Copy className="h-3 w-3" />
                         </Button>

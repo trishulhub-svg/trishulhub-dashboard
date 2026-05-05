@@ -4,11 +4,7 @@
 // This fixes the bug where Z.ai models were sent to Google AI API (which doesn't recognize them)
 
 import { SignJWT } from "jose"
-
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-const GOOGLE_AI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+import { OPENROUTER_API_URL, ZAI_API_URL, GOOGLE_AI_API_URL, NVIDIA_API_URL } from "./endpoints"
 
 interface ChatMessage {
   role: "system" | "user" | "assistant"
@@ -242,8 +238,6 @@ async function callOpenRouterAPI(
 ): Promise<AIResponse> {
   const mappedModel = getModelForProvider(model, "OPENROUTER")
 
-  console.log(`[openrouter] Calling with model: ${mappedModel} (original: ${model})`)
-
   const response = await fetch(OPENROUTER_API_URL, {
     method: "POST",
     headers: {
@@ -336,8 +330,6 @@ async function callZaiAPI(
   const mappedModel = getModelForProvider(model, "ZAI")
   const token = await generateZaiToken(apiKey)
 
-  console.log(`[zai] Calling with model: ${mappedModel} (original: ${model})`)
-
   const MAX_RETRIES = 2
   let lastError: Error | null = null
 
@@ -345,7 +337,6 @@ async function callZaiAPI(
     if (attempt > 0) {
       // Exponential backoff: 2s, 4s
       const delayMs = Math.pow(2, attempt) * 1000
-      console.log(`[zai] Retry attempt ${attempt}/${MAX_RETRIES} after ${delayMs}ms...`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
@@ -427,8 +418,6 @@ async function callGoogleAIAPI(
   // API key from being logged by proxies, CDNs, or server access logs
   const url = `${GOOGLE_AI_API_URL}/${mappedModel}:generateContent`
 
-  console.log(`[google-ai] Calling with model: ${mappedModel} (original: ${model})`)
-
   // Convert messages to Google AI format
   const contents: any[] = []
   let systemInstruction = ""
@@ -507,8 +496,6 @@ async function callNvidiaAPI(
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<AIResponse> {
   const mappedModel = getModelForProvider(model, "NVIDIA")
-
-  console.log(`[nvidia] Calling with model: ${mappedModel} (original: ${model})`)
 
   const response = await fetch(NVIDIA_API_URL, {
     method: "POST",
@@ -630,13 +617,8 @@ export async function callAIWithFailover(
     }
 
     try {
-      // Map the model to the appropriate one for this key's provider
-      const mappedModel = getModelForProvider(model, key.provider)
-      console.log(`[ai-failover] Trying key: "${key.keyName}" (${key.provider}), priority: ${key.priority}, model: ${mappedModel} (original: ${model})`)
-
       const result = await callAI(messages, model, key.keyValue, key.provider, options)
 
-      console.log(`[ai-failover] Success with key: "${key.keyName}" (${key.provider}), used model: ${result.model}`)
       return {
         ...result,
         apiKeyId: key.id,

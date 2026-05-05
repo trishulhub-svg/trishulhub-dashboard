@@ -15,11 +15,18 @@ import { runAgentLoop } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 
 // ── Helper: Verify cron request is authorized ──
+// ⚠️ SECURITY NOTE: vercel.json hardcodes the cron secret as "cron-trishulhub-secret-2024"
+// because Vercel does not support env var references in that config. This secret MUST be
+// rotated periodically and kept in sync with the CRON_SECRET environment variable.
+// The handler validates incoming headers against process.env.CRON_SECRET.
 function isCronAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
 
-  // If CRON_SECRET is not configured, block all cron access
-  if (!cronSecret) return false
+  // If CRON_SECRET is not configured, block all cron access and log a warning
+  if (!cronSecret) {
+    console.warn("[cron] ⚠️ CRON_SECRET environment variable is not set. Cron endpoint is inaccessible. Set CRON_SECRET to match the value in vercel.json headers config.")
+    return false
+  }
 
   // Check Authorization header (sent by Vercel cron via vercel.json headers config)
   const authHeader = req.headers.get("authorization")
@@ -219,7 +226,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Only admins can manually trigger task execution" }, { status: 403 })
     }

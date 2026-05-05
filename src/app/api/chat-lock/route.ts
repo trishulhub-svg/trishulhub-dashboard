@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
 
     const chatId = req.nextUrl.searchParams.get("chatId")
     if (!chatId) {
@@ -72,9 +72,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userName = (session.user as any).name || session.user.email || "Unknown"
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userName = session.user.name || session.user.email || "Unknown"
+    const userRole = session.user.role
     const { chatId } = await req.json()
 
     if (!chatId) {
@@ -141,8 +141,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const chatId = req.nextUrl.searchParams.get("chatId")
 
     if (!chatId) {

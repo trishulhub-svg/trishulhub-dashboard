@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     // Auto-migrate: ensure EmailVerification table exists
     await ensureEmailTableExists()
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const body = await req.json()
     const { newEmail, currentPassword } = body
 
@@ -193,7 +193,7 @@ export async function PUT(req: NextRequest) {
     // Auto-migrate: ensure EmailVerification table exists
     await ensureEmailTableExists()
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const body = await req.json()
     const { otp, newEmail } = body
 

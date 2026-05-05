@@ -10,8 +10,8 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
 
     const where: any = {}
@@ -60,8 +60,8 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const sessionUserId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const sessionUserId = session.user.id
+    const userRole = session.user.role
     const body = await req.json()
 
     const { userId, leaveType, startDate, endDate, reason } = body

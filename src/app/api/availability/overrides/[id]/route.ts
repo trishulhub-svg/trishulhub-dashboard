@@ -10,13 +10,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
     const { id } = await params
     const body = await req.json()
+
+    const existing = await db.availabilityOverride.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: "Availability override not found" }, { status: 404 })
+    }
 
     const data: any = {}
     if (body.date !== undefined) data.date = new Date(body.date)
@@ -46,12 +51,18 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
     const { id } = await params
+
+    const existing = await db.availabilityOverride.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: "Availability override not found" }, { status: 404 })
+    }
+
     await db.availabilityOverride.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: any) {

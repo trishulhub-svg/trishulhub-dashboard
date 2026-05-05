@@ -14,7 +14,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { id } = await params
 
     const body = await req.json()
@@ -52,7 +52,7 @@ export async function POST(
       data: {
         userId: updated.meeting.organizerId,
         title: `Meeting RSVP: ${rsvpStatus === "ACCEPTED" ? "Accepted" : "Declined"}`,
-        message: `${(session.user as any).name || "An attendee"} has ${rsvpStatus.toLowerCase()} the meeting "${updated.meeting.title}"`,
+        message: `${session.user.name || "An attendee"} has ${rsvpStatus.toLowerCase()} the meeting "${updated.meeting.title}"`,
         type: "INFO",
         link: "/dashboard/meetings",
         metadata: JSON.stringify({ meetingId: id }),

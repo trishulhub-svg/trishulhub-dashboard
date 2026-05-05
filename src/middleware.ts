@@ -58,7 +58,7 @@ export async function middleware(request: NextRequest) {
 
   // Role-based access control
   if (pathname.startsWith("/dashboard")) {
-    const role = token?.role as string | undefined
+    const role = token?.role
 
     // CLIENT users cannot access dashboard at all
     if (role === "CLIENT") {

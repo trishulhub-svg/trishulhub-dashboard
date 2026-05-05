@@ -2,7 +2,7 @@
 // Multi-agent tool system: each agent type gets role-specific tools
 // All agents share web_search and plan_task, plus unique tools per role
 
-import { exec, execFile } from "child_process"
+import { exec, execFile, ExecFileOptions } from "child_process"
 import { promisify } from "util"
 import fs from "fs"
 import path from "path"
@@ -13,7 +13,7 @@ const execAsync = promisify(exec)
  * Safe alternative to execAsync that uses execFile to avoid shell injection.
  * Passes args as an array so they are never interpreted by a shell.
  */
-function execSafe(cmd: string, args: string[], options: any): Promise<{ stdout: string; stderr: string }> {
+function execSafe(cmd: string, args: string[], options: ExecFileOptions): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, options, (error, stdout, stderr) => {
       if (error) reject(error)
@@ -105,6 +105,51 @@ export interface ToolCallResult {
   name: string
   result: string
   success: boolean
+}
+
+// ━━ Tool Argument Interfaces ━━
+
+interface LineItem {
+  description?: string
+  quantity?: number
+  unit_price?: number
+}
+
+interface PlanStep {
+  step?: number
+  title?: string
+  description?: string
+  prompt?: string
+}
+
+interface TimelinePhase {
+  name?: string
+  duration_days?: number
+  dependencies?: string[]
+}
+
+interface EffortTask {
+  name?: string
+  complexity?: string
+}
+
+interface WorkloadMember {
+  name?: string
+  current_tasks?: number
+  hours_per_week?: number
+  skills?: string[]
+}
+
+interface BestFitMember {
+  name?: string
+  skills?: string[]
+  current_load?: string
+}
+
+interface LeaveRequest {
+  person?: string
+  dates?: string[]
+  reason?: string
 }
 
 // ━━ Shared Tools (available to all agents) ━━
@@ -885,7 +930,7 @@ export async function executeToolCall(
 
       case "plan_task": {
         // Generate unique IDs for each todo item
-        const planSteps = (args.steps || []).map((s: any, idx: number) => ({
+        const planSteps = (args.steps || []).map((s: PlanStep, idx: number) => ({
           id: `todo-${Date.now()}-${idx}`,
           step: s.step || idx + 1,
           title: s.title || `Step ${idx + 1}`,
@@ -958,11 +1003,11 @@ export async function executeToolCall(
         break
 
       case "score_lead":
-        result = executeScoreLead(args)
+        result = executeScoreLead(args as Parameters<typeof executeScoreLead>[0])
         break
 
       case "draft_email":
-        result = executeDraftEmail(args)
+        result = executeDraftEmail(args as Parameters<typeof executeDraftEmail>[0])
         break
 
       case "plan_outreach_campaign":
@@ -985,15 +1030,15 @@ export async function executeToolCall(
 
       // ── Finance tools ──
       case "calculate_estimate":
-        result = executeCalculateEstimate(args)
+        result = executeCalculateEstimate(args as Parameters<typeof executeCalculateEstimate>[0])
         break
 
       case "generate_quotation":
-        result = executeGenerateQuotation(args)
+        result = executeGenerateQuotation(args as Parameters<typeof executeGenerateQuotation>[0])
         break
 
       case "generate_invoice":
-        result = executeGenerateInvoice(args)
+        result = executeGenerateInvoice(args as Parameters<typeof executeGenerateInvoice>[0])
         break
 
       case "research_market_pricing":
@@ -1004,7 +1049,7 @@ export async function executeToolCall(
         break
 
       case "calculate_roi":
-        result = executeCalculateROI(args)
+        result = executeCalculateROI(args as Parameters<typeof executeCalculateROI>[0])
         break
 
       // ── Project Manager tools ──
@@ -1087,36 +1132,36 @@ export async function executeToolCall(
       }
 
       case "create_timeline":
-        result = executeCreateTimeline(args)
+        result = executeCreateTimeline(args as Parameters<typeof executeCreateTimeline>[0])
         break
 
       case "assess_risks":
-        result = executeAssessRisks(args)
+        result = executeAssessRisks(args as Parameters<typeof executeAssessRisks>[0])
         break
 
       case "plan_sprint":
-        result = executePlanSprint(args)
+        result = executePlanSprint(args as Parameters<typeof executePlanSprint>[0])
         break
 
       case "estimate_effort":
-        result = executeEstimateEffort(args)
+        result = executeEstimateEffort(args as Parameters<typeof executeEstimateEffort>[0])
         break
 
       // ── HR tools ──
       case "analyze_workload":
-        result = executeAnalyzeWorkload(args)
+        result = executeAnalyzeWorkload(args as Parameters<typeof executeAnalyzeWorkload>[0])
         break
 
       case "find_best_fit":
-        result = executeFindBestFit(args)
+        result = executeFindBestFit(args as Parameters<typeof executeFindBestFit>[0])
         break
 
       case "plan_onboarding":
-        result = executePlanOnboarding(args)
+        result = executePlanOnboarding(args as Parameters<typeof executePlanOnboarding>[0])
         break
 
       case "assess_leave_conflicts":
-        result = executeAssessLeaveConflicts(args)
+        result = executeAssessLeaveConflicts(args as Parameters<typeof executeAssessLeaveConflicts>[0])
         break
 
       // ── Content tools ──
@@ -1135,11 +1180,11 @@ export async function executeToolCall(
         break
 
       case "draft_content":
-        result = executeDraftContent(args)
+        result = executeDraftContent(args as Parameters<typeof executeDraftContent>[0])
         break
 
       case "create_content_calendar":
-        result = executeCreateContentCalendar(args)
+        result = executeCreateContentCalendar(args as Parameters<typeof executeCreateContentCalendar>[0])
         break
 
       case "research_competitors":
@@ -1151,7 +1196,7 @@ export async function executeToolCall(
 
       // ── Support tools ──
       case "troubleshoot_issue":
-        result = executeTroubleshootIssue(args)
+        result = executeTroubleshootIssue(args as Parameters<typeof executeTroubleshootIssue>[0])
         break
 
       case "search_knowledge_base":
@@ -1162,7 +1207,7 @@ export async function executeToolCall(
         break
 
       case "draft_client_response":
-        result = executeDraftClientResponse(args)
+        result = executeDraftClientResponse(args as Parameters<typeof executeDraftClientResponse>[0])
         break
 
       case "create_kb_article":
@@ -1180,7 +1225,7 @@ export async function executeToolCall(
         break
 
       case "assess_escalation":
-        result = executeAssessEscalation(args)
+        result = executeAssessEscalation(args as Parameters<typeof executeAssessEscalation>[0])
         break
 
       default:
@@ -1769,7 +1814,7 @@ async function executeGitCommitPush(
 
 // ━━ Client Hunter Tool Implementations ━━
 
-function executeScoreLead(args: Record<string, any>): string {
+function executeScoreLead(args: { business_name: string; business_type: string; website_status?: string; location?: string; notes?: string }): string {
   const needScore = args.website_status === "no website" ? 30 : args.website_status === "outdated" ? 25 : 15
   const budgetScore = args.business_type?.match(/restaurant|retail|clinic|salon/i) ? 20 : 15
   const urgencyScore = args.website_status === "no website" ? 20 : 10
@@ -1798,7 +1843,7 @@ function executeScoreLead(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeDraftEmail(args: Record<string, any>): string {
+function executeDraftEmail(args: { recipient_business: string; recipient_name?: string; pain_point: string; service?: string; email_type: string }): string {
   const emailTemplates: Record<string, string> = {
     cold_outreach: `Subject: Enhancing ${args.recipient_business}'s Online Presence
 
@@ -1859,7 +1904,7 @@ TrishulHub Team`,
 
 // ━━ Finance Tool Implementations ━━
 
-function executeCalculateEstimate(args: Record<string, any>): string {
+function executeCalculateEstimate(args: { project_type: string; complexity: string; features?: string[]; hourly_rate?: number }): string {
   // UK agency rates (updated to realistic market rates)
   const rates: Record<string, number> = { simple: 75, moderate: 95, complex: 120, enterprise: 150 }
   const hours: Record<string, number> = { simple: 40, moderate: 80, complex: 160, enterprise: 320 }
@@ -1899,9 +1944,9 @@ function executeCalculateEstimate(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeGenerateQuotation(args: Record<string, any>): string {
+function executeGenerateQuotation(args: { client_name: string; project_title: string; items?: LineItem[]; payment_terms?: string; valid_days?: number; client_address?: string; project_scope?: string; deliverables?: string[]; timeline?: string }): string {
   const items = args.items || []
-  const subtotal = items.reduce((sum: number, item: any) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
+  const subtotal = items.reduce((sum: number, item: LineItem) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
   const vat = parseFloat((subtotal * 0.2).toFixed(2))
   const total = parseFloat((subtotal + vat).toFixed(2))
 
@@ -1912,11 +1957,11 @@ function executeGenerateQuotation(args: Record<string, any>): string {
       client_address: args.client_address || "To be confirmed",
       project: args.project_title,
       scope: args.project_scope || args.project_title,
-      deliverables: args.deliverables || items.map((i: any) => i.description).filter(Boolean),
+      deliverables: args.deliverables || items.map((i: LineItem) => i.description).filter(Boolean),
       timeline: args.timeline || "To be agreed",
       date: new Date().toISOString().split("T")[0],
       valid_until: new Date(Date.now() + (args.valid_days || 30) * 86400000).toISOString().split("T")[0],
-      items: items.map((item: any, i: number) => ({
+      items: items.map((item: LineItem, i: number) => ({
         id: i + 1,
         description: item.description || "Service",
         quantity: item.quantity || 1,
@@ -1940,9 +1985,9 @@ function executeGenerateQuotation(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeGenerateInvoice(args: Record<string, any>): string {
+function executeGenerateInvoice(args: { client_name: string; items?: LineItem[]; invoice_number?: string; due_date?: string; tax_rate?: number; payment_terms?: string; project_title?: string; client_address?: string }): string {
   const items = args.items || []
-  const subtotal = items.reduce((sum: number, item: any) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
+  const subtotal = items.reduce((sum: number, item: LineItem) => sum + (item.quantity || 1) * (item.unit_price || 0), 0)
   const taxRate = args.tax_rate || 20
   const tax = parseFloat((subtotal * (taxRate / 100)).toFixed(2))
   const total = parseFloat((subtotal + tax).toFixed(2))
@@ -1955,7 +2000,7 @@ function executeGenerateInvoice(args: Record<string, any>): string {
       project: args.project_title || "Web Development Services",
       date: new Date().toISOString().split("T")[0],
       due_date: args.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-      items: items.map((item: any, i: number) => ({
+      items: items.map((item: LineItem, i: number) => ({
         id: i + 1,
         description: item.description || "Service",
         quantity: item.quantity || 1,
@@ -1985,7 +2030,7 @@ function executeGenerateInvoice(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeCalculateROI(args: Record<string, any>): string {
+function executeCalculateROI(args: { calculation_type: string; revenue: number; costs: number; timeframe_months?: number }): string {
   const { revenue, costs, timeframe_months = 12 } = args
   const profit = revenue - costs
   const roi = costs > 0 ? ((profit / costs) * 100).toFixed(1) : "N/A"
@@ -2013,11 +2058,11 @@ function executeCalculateROI(args: Record<string, any>): string {
 
 // ━━ Project Manager Tool Implementations ━━
 
-function executeCreateTimeline(args: Record<string, any>): string {
+function executeCreateTimeline(args: { project_name: string; phases?: TimelinePhase[]; start_date?: string }): string {
   const startDate = new Date(args.start_date || Date.now())
   let currentDate = new Date(startDate)
 
-  const timelinePhases = (args.phases || []).map((phase: any) => {
+  const timelinePhases = (args.phases || []).map((phase: TimelinePhase) => {
     const phaseStart = new Date(currentDate)
     const phaseEnd = new Date(currentDate.getTime() + (phase.duration_days || 14) * 86400000)
     currentDate = new Date(phaseEnd.getTime() + 86400000) // next day
@@ -2039,7 +2084,7 @@ function executeCreateTimeline(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeAssessRisks(args: Record<string, any>): string {
+function executeAssessRisks(args: { project_name: string; project_scope: string; known_concerns?: string }): string {
   const scope = (args.project_scope || "").toLowerCase()
   const concerns = args.known_concerns || "None specified"
 
@@ -2085,7 +2130,7 @@ function executeAssessRisks(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executePlanSprint(args: Record<string, any>): string {
+function executePlanSprint(args: { sprint_goal: string; sprint_duration_weeks?: number; team_size?: number; backlog_items?: string[] }): string {
   return JSON.stringify({
     sprint: {
       goal: args.sprint_goal,
@@ -2121,27 +2166,27 @@ function executePlanSprint(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeEstimateEffort(args: Record<string, any>): string {
+function executeEstimateEffort(args: { tasks: EffortTask[]; hourly_rate?: number }): string {
   const complexityHours: Record<string, number> = { trivial: 1, simple: 4, moderate: 8, complex: 16, unknown: 8 }
   const rate = args.hourly_rate || 40
 
-  const estimates = (args.tasks || []).map((task: any) => {
-    const hours = complexityHours[task.complexity] || 8
+  const estimates = (args.tasks || []).map((task: EffortTask) => {
+    const hours = complexityHours[task.complexity || "unknown"] || 8
     return { task: task.name, complexity: task.complexity, estimated_hours: hours, estimated_cost: hours * rate }
   })
 
-  const totalHours = estimates.reduce((sum: number, e: any) => sum + e.estimated_hours, 0)
+  const totalHours = estimates.reduce((sum: number, e) => sum + e.estimated_hours, 0)
   return JSON.stringify({ estimates, total_hours: totalHours, total_cost: totalHours * rate, currency: "GBP" }, null, 2)
 }
 
 // ━━ HR Tool Implementations ━━
 
-function executeAnalyzeWorkload(args: Record<string, any>): string {
+function executeAnalyzeWorkload(args: { team_members: WorkloadMember[] }): string {
   const members = args.team_members || []
-  const totalTasks = members.reduce((sum: number, m: any) => sum + (m.current_tasks || 0), 0)
+  const totalTasks = members.reduce((sum: number, m: WorkloadMember) => sum + (m.current_tasks || 0), 0)
   const avgTasks = members.length > 0 ? totalTasks / members.length : 0
 
-  const analysis = members.map((m: any) => ({
+  const analysis = members.map((m: WorkloadMember) => ({
     name: m.name,
     current_tasks: m.current_tasks || 0,
     hours_per_week: m.hours_per_week || 40,
@@ -2155,27 +2200,27 @@ function executeAnalyzeWorkload(args: Record<string, any>): string {
     average_tasks_per_person: avgTasks.toFixed(1),
     analysis,
     recommendations: analysis
-      .filter((a: any) => a.status !== "BALANCED")
-      .map((a: any) => `${a.name}: ${a.recommendation}`),
+      .filter((a: { status: string; name?: string; recommendation?: string }) => a.status !== "BALANCED")
+      .map((a: { name?: string; recommendation?: string }) => `${a.name || "Unknown"}: ${a.recommendation || "N/A"}`),
   }, null, 2)
 }
 
-function executeFindBestFit(args: Record<string, any>): string {
+function executeFindBestFit(args: { task_description: string; required_skills: string[]; priority?: string; team_members: BestFitMember[] }): string {
   const members = args.team_members || []
-  const scored = members.map((m: any) => {
+  const scored = members.map((m: BestFitMember) => {
     const skillMatch = (m.skills || []).filter((s: string) => args.required_skills.some((rs: string) => s.toLowerCase().includes(rs.toLowerCase()) || rs.toLowerCase().includes(s.toLowerCase()))).length
     const loadScore = { available: 3, moderate: 2, busy: 1, overloaded: 0 }[m.current_load || "moderate"] || 2
     const totalScore = skillMatch * 10 + loadScore * 5
     return { ...m, skill_match_count: skillMatch, total_score: totalScore }
   })
 
-  scored.sort((a: any, b: any) => b.total_score - a.total_score)
+  scored.sort((a: { total_score: number }, b: { total_score: number }) => b.total_score - a.total_score)
 
   return JSON.stringify({
     task: args.task_description,
     required_skills: args.required_skills,
     priority: args.priority || "medium",
-    recommendations: scored.map((m: any, i: number) => ({
+    recommendations: scored.map((m: BestFitMember & { skill_match_count: number; total_score: number }, i: number) => ({
       rank: i + 1,
       name: m.name,
       score: m.total_score,
@@ -2186,7 +2231,7 @@ function executeFindBestFit(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executePlanOnboarding(args: Record<string, any>): string {
+function executePlanOnboarding(args: { role: string; department?: string; start_date?: string }): string {
   const role = (args.role || "").toLowerCase()
   const dept = args.department || (role.includes("sales") || role.includes("client") ? "Sales" : role.includes("content") || role.includes("market") ? "Marketing" : "Development")
 
@@ -2237,13 +2282,13 @@ function executePlanOnboarding(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeAssessLeaveConflicts(args: Record<string, any>): string {
+function executeAssessLeaveConflicts(args: { leave_requests: LeaveRequest[]; active_projects?: string[] }): string {
   const requests = args.leave_requests || []
   const projects = args.active_projects || []
 
   // Parse dates and check for overlapping leave between team members
   let conflictsDetected = 0
-  const assessed = requests.map((r: any, idx: number) => {
+  const assessed = requests.map((r: LeaveRequest, idx: number) => {
     // Parse date ranges
     const dates = r.dates || []
     let conflictRisk = "Low"
@@ -2256,7 +2301,7 @@ function executeAssessLeaveConflicts(args: Record<string, any>): string {
       const overlap = dates.some((d: string) => otherDates.includes(d))
       if (overlap && r.person !== requests[j].person) {
         conflictRisk = "High"
-        overlapWith.push(requests[j].person)
+        if (requests[j].person) overlapWith.push(requests[j].person as string)
         conflictsDetected++
       }
     }
@@ -2287,7 +2332,7 @@ function executeAssessLeaveConflicts(args: Record<string, any>): string {
     summary: {
       total_requests: requests.length,
       conflicts_detected: conflictsDetected,
-      high_risk: assessed.filter((a: any) => a.conflict_risk === "High").length,
+      high_risk: assessed.filter((a: { conflict_risk: string }) => a.conflict_risk === "High").length,
       recommendation: conflictsDetected > 0
         ? "Resolve overlapping leave dates before approval. Consider staggered leave or temporary coverage."
         : "Review each request against project deadlines before approval",
@@ -2297,7 +2342,7 @@ function executeAssessLeaveConflicts(args: Record<string, any>): string {
 
 // ━━ Content Tool Implementations ━━
 
-function executeDraftContent(args: Record<string, any>): string {
+function executeDraftContent(args: { title: string; content_type: string; platform?: string; tone?: string; key_points?: string[]; call_to_action?: string }): string {
   const platformFormats: Record<string, any> = {
     instagram: { max_length: 2200, format: "Visual + Caption", hashtag_count: "15-30" },
     linkedin: { max_length: 3000, format: "Professional Article/Post", hashtag_count: "3-5" },
@@ -2307,7 +2352,7 @@ function executeDraftContent(args: Record<string, any>): string {
     email: { max_length: "Recommended 200 words", format: "Personalized Email", hashtag_count: "N/A" },
   }
 
-  const format = platformFormats[args.platform] || platformFormats.website
+  const format = platformFormats[args.platform || ""] || platformFormats.website
 
   // Generate actual content body based on platform and key points
   const keyPoints = args.key_points || ["Professional web design services", "Custom solutions", "Affordable pricing"]
@@ -2318,7 +2363,7 @@ function executeDraftContent(args: Record<string, any>): string {
 
   let contentBody = ""
   if (args.platform === "twitter") {
-    contentBody = `${title}\n\n${keyPoints.slice(0, 2).join(". ")}. ${cta}\n\n${args.platform === "instagram" ? "#WebDesign #DigitalAgency #TrishulHub #WebDevelopment #SmallBusiness" : "#WebDesign #TrishulHub"}`
+    contentBody = `${title}\n\n${keyPoints.slice(0, 2).join(". ")}. ${cta}\n\n#WebDesign #TrishulHub`
   } else if (args.platform === "instagram") {
     contentBody = `${title}\n\n${keyPoints.map((p: string, i: number) => `${i + 1}. ${p}`).join("\n")}\n\n${cta}\n\n#WebDesign #DigitalAgency #${businessName} #WebDevelopment #SmallBusiness #UKBusiness #WebsiteDesign #DigitalMarketing`
   } else if (args.platform === "linkedin") {
@@ -2352,13 +2397,13 @@ function executeDraftContent(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeCreateContentCalendar(args: Record<string, any>): string {
+function executeCreateContentCalendar(args: { duration_weeks: number; content_themes: string[]; platforms?: string[]; posting_frequency?: string }): string {
   const themes = args.content_themes || []
   const platforms = args.platforms || ["instagram", "linkedin", "twitter"]
   const weeks = args.duration_weeks || 2
   const frequency = args.posting_frequency || "3x_week"
 
-  const calendar: any[] = []
+  const calendar: { week: number; posts: { day: string; platform: string; theme: string; topic: string }[] }[] = []
   const daysMap: Record<string, number[]> = {
     daily: [1, 2, 3, 4, 5],
     "3x_week": [1, 3, 5],
@@ -2371,13 +2416,15 @@ function executeCreateContentCalendar(args: Record<string, any>): string {
     for (const day of postingDays) {
       const themeIdx = (w * postingDays.length + postingDays.indexOf(day)) % themes.length
       const platformIdx = (w + day) % platforms.length
+      const selectedPlatform = platforms[platformIdx]
       calendar.push({
         week: w + 1,
-        day: `Day ${day}`,
-        theme: themes[themeIdx] || "General content",
-        platform: platforms[platformIdx],
-        content_type: platforms[platformIdx] === "linkedin" ? "Professional post" : platforms[platformIdx] === "instagram" ? "Visual + caption" : "Short post",
-        status: "Planned",
+        posts: [{
+          day: `Day ${day}`,
+          platform: selectedPlatform,
+          theme: themes[themeIdx] || "General content",
+          topic: `${themes[themeIdx] || "General"} content for ${selectedPlatform}`,
+        }],
       })
     }
   }
@@ -2395,7 +2442,7 @@ function executeCreateContentCalendar(args: Record<string, any>): string {
 
 // ━━ Support Tool Implementations ━━
 
-function executeTroubleshootIssue(args: Record<string, any>): string {
+function executeTroubleshootIssue(args: { issue_description: string; platform?: string; severity?: string }): string {
   const troubleshootingGuides: Record<string, string[]> = {
     website: [
       "Check if the website is accessible from different devices/browsers",
@@ -2444,7 +2491,7 @@ function executeTroubleshootIssue(args: Record<string, any>): string {
     ],
   }
 
-  const steps = troubleshootingGuides[args.platform] || troubleshootingGuides.website
+  const steps = troubleshootingGuides[args.platform || ""] || troubleshootingGuides.website
   const severityOrder: Record<string, number> = { critical: 1, high: 2, medium: 3, low: 4 }
 
   return JSON.stringify({
@@ -2461,7 +2508,7 @@ function executeTroubleshootIssue(args: Record<string, any>): string {
   }, null, 2)
 }
 
-function executeDraftClientResponse(args: Record<string, any>): string {
+function executeDraftClientResponse(args: { client_name: string; issue_summary: string; resolution: string; tone?: string }): string {
   const toneTemplates: Record<string, string> = {
     helpful: `Dear ${args.client_name},
 
@@ -2509,10 +2556,10 @@ Best regards,
 TrishulHub Support Team`,
   }
 
-  return toneTemplates[args.tone] || toneTemplates.helpful
+  return toneTemplates[args.tone || ""] || toneTemplates.helpful
 }
 
-function executeAssessEscalation(args: Record<string, any>): string {
+function executeAssessEscalation(args: { issue_description: string; client_impact: string; attempts_made?: string }): string {
   const impactPriority: Record<string, number> = { revenue_loss: 1, service_down: 2, minor_inconvenience: 3, cosmetic: 4 }
   const priority = impactPriority[args.client_impact] || 3
   const shouldEscalate = priority <= 2

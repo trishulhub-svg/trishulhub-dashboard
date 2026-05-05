@@ -8,7 +8,7 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -102,7 +102,7 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

@@ -13,8 +13,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const statusParam = searchParams.get("status") || "ACTIVE"
@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { agentId, title } = await req.json()
 
     if (!agentId) {
@@ -108,8 +108,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const body = await req.json()
     const { id, title, status, isShared, todoItems, isProcessing } = body
 
@@ -161,8 +161,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 

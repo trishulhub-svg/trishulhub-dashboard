@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { FileText, DollarSign } from "lucide-react";
+import { FileText, DollarSign, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -16,6 +17,7 @@ const invoiceStatusColors: Record<string, string> = {
 export default function PortalInvoicesPage() {
   const [invoices, setInvoices] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(async () => {
     try {
@@ -23,6 +25,7 @@ export default function PortalInvoicesPage() {
       if (res.ok) setInvoices(await res.json());
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load invoices");
     } finally {
       setLoading(false);
     }
@@ -37,6 +40,18 @@ export default function PortalInvoicesPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchInvoices(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

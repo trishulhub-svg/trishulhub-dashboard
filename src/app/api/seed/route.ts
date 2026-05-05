@@ -21,7 +21,7 @@ export async function POST() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can seed database" }, { status: 403 })
     }
@@ -32,6 +32,9 @@ export async function POST() {
       return NextResponse.json({ message: "Database already seeded", skipped: true })
     }
 
+    // ⚠️ SECURITY WARNING: Hardcoded password for development seeding only.
+    // This route requires SUPER_ADMIN auth and only runs on an empty database.
+    // NEVER use this in production — use /api/setup instead which generates a random password.
     const hashedPassword = await bcrypt.hash("password123", 12)
 
     // Create users

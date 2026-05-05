@@ -22,7 +22,7 @@ async function ensureActiveSessionTable(): Promise<boolean> {
     sessionTableExists = true
     return true
   } catch {
-    console.log("[session] ActiveSession table not found, auto-creating...")
+    // Table not found, will auto-create below
   }
 
   try {
@@ -46,7 +46,7 @@ async function ensureActiveSessionTable(): Promise<boolean> {
         `CREATE INDEX IF NOT EXISTS "ActiveSession_sessionToken_idx" ON "ActiveSession"("sessionToken")`
       )
     } catch {}
-    console.log("[session] ActiveSession table created successfully")
+    // ActiveSession table created successfully
   } catch (err: any) {
     console.error("[session] Failed to create ActiveSession table:", err.message)
     sessionTableChecked = false
@@ -98,7 +98,6 @@ export async function setSessionToken(
 
   // Update cache immediately
   sessionCache.set(userId, { token, checkedAt: Date.now() })
-  console.log(`[session] Session token set for user ${userId}`)
 }
 
 /**
@@ -185,7 +184,6 @@ export async function invalidateSession(userId: string): Promise<string> {
 
   // Update cache immediately
   sessionCache.set(userId, { token: newToken, checkedAt: Date.now() })
-  console.log(`[session] Session invalidated for user ${userId}`)
 
   return newToken
 }
@@ -201,7 +199,6 @@ export async function removeSession(userId: string): Promise<void> {
   try {
     await (db as any).activeSession.deleteMany({ where: { userId } })
     sessionCache.delete(userId)
-    console.log(`[session] Session removed for user ${userId}`)
   } catch (err: any) {
     console.warn("[session] Failed to remove session:", err.message)
   }

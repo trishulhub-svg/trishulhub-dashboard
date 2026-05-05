@@ -10,7 +10,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import {
-  Plus, Mail, Phone, Globe, Building2, Star, X, Send, Search,
+  Plus, Mail, Phone, Globe, Building2, Star, X, Send, Search, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -115,9 +115,10 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
 export default function CRMPage() {
   const router = useRouter();
   const { data: session } = useSession();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -127,22 +128,26 @@ export default function CRMPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  const fetchLeads = useCallback(async () => {
+  const fetchLeads = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/leads", { credentials: 'include' });
+      const res = await fetch("/api/leads", { credentials: 'include', signal });
       if (res.ok) {
         const data = await res.json();
         setLeads(data);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load leads");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchLeads();
+    const controller = new AbortController();
+    fetchLeads(controller.signal);
+    return () => controller.abort();
   }, [fetchLeads]);
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -258,6 +263,18 @@ export default function CRMPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchLeads(); }}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 h-full">
       <div className="flex items-center justify-between">
@@ -273,6 +290,7 @@ export default function CRMPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 w-48"
+              aria-label="Search leads"
             />
           </div>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -369,7 +387,7 @@ export default function CRMPage() {
             <div className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">{selectedLead.name}</h2>
-                <Button variant="ghost" size="icon" onClick={() => setSelectedLead(null)}>
+                <Button variant="ghost" size="icon" onClick={() => setSelectedLead(null)} aria-label="Close lead details">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -426,8 +444,8 @@ export default function CRMPage() {
               <Separator />
               <div className="space-y-2">
                 <Label className="text-xs">Quick Email</Label>
-                <Input placeholder="Subject" />
-                <Textarea placeholder="Write your email..." rows={3} />
+                <Input placeholder="Subject" aria-label="Email subject" />
+                <Textarea placeholder="Write your email..." rows={3} aria-label="Email body" />
                 <Button size="sm" className="w-full">
                   <Send className="h-3 w-3 mr-1" /> Send Email
                 </Button>

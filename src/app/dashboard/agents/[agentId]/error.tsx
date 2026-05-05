@@ -94,6 +94,7 @@ export default function AgentChatError({
               <button
                 className="text-xs text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1 mx-auto"
                 onClick={() => setShowDetails(!showDetails)}
+                type="button"
               >
                 {showDetails ? "Hide" : "Show"} error details
               </button>
@@ -116,6 +117,8 @@ export default function AgentChatError({
                     className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
                     onClick={copyErrorDetails}
                     title="Copy error details"
+                    aria-label="Copy error details"
+                    type="button"
                   >
                     {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </button>

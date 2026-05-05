@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Send, CheckCircle2, FileText, Search,
+  Plus, Send, CheckCircle2, FileText, Search, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ const invoiceStatusColors: Record<string, string> = {
 export default function InvoicesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // Redirect non-admin users away from this page
@@ -48,29 +48,34 @@ export default function InvoicesPage() {
   const [clients, setClients] = useState<unknown[]>([]);
   const [projects, setProjects] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [previewInvoice, setPreviewInvoice] = useState<Record<string, unknown> | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [invRes, clientRes, projRes] = await Promise.all([
-        fetch("/api/invoices", { credentials: 'include' }),
-        fetch("/api/clients", { credentials: 'include' }),
-        fetch("/api/projects", { credentials: 'include' }),
+        fetch("/api/invoices", { credentials: 'include', signal }),
+        fetch("/api/clients", { credentials: 'include', signal }),
+        fetch("/api/projects", { credentials: 'include', signal }),
       ]);
       if (invRes.ok) setInvoices(await invRes.json());
       if (clientRes.ok) setClients(await clientRes.json());
       if (projRes.ok) setProjects(await projRes.json());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load invoices");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData]);
 
   const handleCreateInvoice = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -136,6 +141,18 @@ export default function InvoicesPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

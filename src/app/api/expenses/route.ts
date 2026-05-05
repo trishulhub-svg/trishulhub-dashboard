@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -131,6 +131,11 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  const existing = await db.expense.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+  }
+
   try {
     const expense = await db.expense.update({
       where: { id },
@@ -139,7 +144,7 @@ export async function PATCH(req: NextRequest) {
     })
     return NextResponse.json(expense)
   } catch (error: any) {
-    return NextResponse.json({ error: "Expense not found or update failed" }, { status: 404 })
+    return NextResponse.json({ error: "Expense update failed" }, { status: 500 })
   }
 }
 
@@ -148,7 +153,7 @@ export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -160,10 +165,15 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
   }
 
+  const existing = await db.expense.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+  }
+
   try {
     await db.expense.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json({ error: "Expense not found or delete failed" }, { status: 404 })
+    return NextResponse.json({ error: "Expense delete failed" }, { status: 500 })
   }
 }

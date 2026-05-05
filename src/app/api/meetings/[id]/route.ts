@@ -35,8 +35,8 @@ export async function GET(
     }
 
     // Non-admins can only see meetings they organize or are invited to
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       const isOrganizer = meeting.organizerId === userId
       const isAttendee = meeting.attendees.some((a: any) => a.userId === userId)
@@ -63,8 +63,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { id } = await params
 
     const existingMeeting = await db.meeting.findUnique({
@@ -175,8 +175,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { id } = await params
 
     const existingMeeting = await db.meeting.findUnique({

@@ -13,8 +13,8 @@ export async function GET(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as Record<string, unknown>).role as string
-  const userId = (session.user as Record<string, unknown>).id as string
+  const role = session.user.role
+  const userId = session.user.id
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
@@ -113,7 +113,7 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as Record<string, unknown>).role as string
+  const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -179,7 +179,7 @@ export async function DELETE(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as Record<string, unknown>).role as string
+  const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

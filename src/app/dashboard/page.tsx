@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Bot, DollarSign, FolderKanban, TrendingUp, AlertCircle,
-  CheckCircle2, Clock, Zap, ArrowRight, Plus, Send, Shield,
+  Clock, ArrowRight, Plus, Send, Shield,
   Code2, Crosshair, ClipboardList, PenTool, HeadphonesIcon, Users,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +27,13 @@ const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = 
   SUPPORT: HeadphonesIcon,
 };
 
+const invoiceStatusColors: Record<string, string> = {
+  DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const { data: session } = useSession();
@@ -34,7 +41,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const fetchDashboard = useCallback(async () => {
@@ -126,14 +133,6 @@ export default function DashboardPage() {
     acc[agentName] = (acc[agentName] || 0) + log.cost;
     return acc;
   }, {} as Record<string, number>);
-
-  // Invoice status colors
-  const invoiceStatusColors: Record<string, string> = {
-    DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-    SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-    PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-    OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  };
 
   return (
     <div className="space-y-6">
@@ -288,6 +287,7 @@ export default function DashboardPage() {
                   key={agent.id}
                   onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
                   className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
+                  type="button"
                 >
                   <div className="relative">
                     <Icon className="h-5 w-5 text-muted-foreground" />
@@ -326,6 +326,7 @@ export default function DashboardPage() {
                     key={project.id}
                     onClick={() => router.push(`/dashboard/projects/${project.id}`)}
                     className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
+                    type="button"
                   >
                     <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -457,6 +458,7 @@ export default function DashboardPage() {
               <button 
                 onClick={() => router.push("/dashboard/time-tracking")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+                type="button"
               >
                 <Clock className="h-5 w-5 text-blue-500" />
                 <div>
@@ -467,6 +469,7 @@ export default function DashboardPage() {
               <button 
                 onClick={() => router.push("/dashboard/agents")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+                type="button"
               >
                 <Bot className="h-5 w-5 text-purple-500" />
                 <div>
@@ -477,6 +480,7 @@ export default function DashboardPage() {
               <button 
                 onClick={() => router.push("/dashboard/leaves")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+                type="button"
               >
                 <AlertCircle className="h-5 w-5 text-orange-500" />
                 <div>

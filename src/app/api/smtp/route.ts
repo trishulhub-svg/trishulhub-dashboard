@@ -11,7 +11,7 @@ export async function GET() {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
@@ -80,8 +80,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Host, username, password, and from email are required" }, { status: 400 })
     }
 
-    // SSRF protection: block private/internal IPs
-    if (isPrivateHost(host)) {
+    // SSRF protection: block private/internal IPs (async — includes DNS rebinding check)
+    if (await isPrivateHost(host)) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
     }
 
@@ -169,7 +169,7 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
@@ -182,8 +182,8 @@ export async function PATCH(req: NextRequest) {
     const existing = await db.smtpConfig.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "SMTP config not found" }, { status: 404 })
 
-    // SECURITY: SSRF protection — block private/internal IPs on host update
-    if (host && isPrivateHost(host)) {
+    // SECURITY: SSRF protection — block private/internal IPs on host update (async — includes DNS rebinding check)
+    if (host && (await isPrivateHost(host))) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
     }
 
@@ -255,7 +255,7 @@ export async function DELETE(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }

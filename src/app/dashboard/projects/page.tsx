@@ -163,7 +163,7 @@ export default function ProjectsPage() {
       <div className="flex gap-2 flex-wrap">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-48" />
+          <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-48" aria-label="Search projects" />
         </div>
         {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "COMPLETED"].map((s) => (
           <Button key={s} variant={filter === s ? "default" : "outline"} size="sm" onClick={() => setFilter(s)}>

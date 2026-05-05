@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
-  ChevronLeft, ChevronRight, Trash2, Ban,
+  ChevronLeft, ChevronRight, Trash2, Ban, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -105,12 +105,13 @@ export default function LeaveManagementPage() {
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Calendar state
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
 
   // Filter state
   const [filterEmployee, setFilterEmployee] = useState("ALL");
@@ -123,10 +124,36 @@ export default function LeaveManagementPage() {
   const [formEndDate, setFormEndDate] = useState("");
   const [formReason, setFormReason] = useState("");
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const fetchData = useCallback(async () => {
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    async function loadData() {
+      try {
+        const leavesRes = await fetch("/api/leaves", { credentials: "include", signal });
+        if (leavesRes.ok) setLeaves(await leavesRes.json());
+
+        if (isUserAdmin) {
+          const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
+          if (teamRes.ok) setTeamUsers(await teamRes.json());
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        console.error("Failed to fetch data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => controller.abort();
+  }, [isUserAdmin]);
+
+  const fetchData = async () => {
     try {
       const leavesRes = await fetch("/api/leaves", { credentials: "include" });
       if (leavesRes.ok) setLeaves(await leavesRes.json());
@@ -137,14 +164,8 @@ export default function LeaveManagementPage() {
       }
     } catch (err) {
       console.error("Failed to fetch data:", err);
-    } finally {
-      setLoading(false);
     }
-  }, [isUserAdmin]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  };
 
   const handleSubmit = async () => {
     if (!formStartDate || !formEndDate) {
@@ -269,7 +290,7 @@ export default function LeaveManagementPage() {
   });
 
   const pendingLeaves = leaves.filter((l) => l.status === "PENDING");
-  const myLeaves = leaves.filter((l) => l.userId === (session?.user as any)?.id);
+  const myLeaves = leaves.filter((l) => l.userId === session?.user?.id);
   const approvedThisMonth = leaves.filter(
     (l) => l.status === "APPROVED" && new Date(l.createdAt).getMonth() === new Date().getMonth()
   );
@@ -287,6 +308,18 @@ export default function LeaveManagementPage() {
             <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -368,13 +401,13 @@ export default function LeaveManagementPage() {
           <div className="flex items-center justify-between">
             <CardTitle>Leave Calendar</CardTitle>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={prevMonth}>
+              <Button variant="outline" size="icon" onClick={prevMonth} aria-label="Previous month">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm font-medium min-w-[140px] text-center">
                 {monthNames[currentMonth]} {currentYear}
               </span>
-              <Button variant="outline" size="icon" onClick={nextMonth}>
+              <Button variant="outline" size="icon" onClick={nextMonth} aria-label="Next month">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -560,12 +593,12 @@ export default function LeaveManagementPage() {
                               </Button>
                             </>
                           )}
-                          {leave.status === "PENDING" && (leave.userId === (session?.user as any)?.id || isUserAdmin) && (
+                          {leave.status === "PENDING" && (leave.userId === session?.user?.id || isUserAdmin) && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-500" onClick={() => handleStatusChange(leave.id, "CANCELLED")}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {(leave.userId === (session?.user as any)?.id || isUserAdmin) && leave.status === "PENDING" && (
+                          {(leave.userId === session?.user?.id || isUserAdmin) && leave.status === "PENDING" && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>

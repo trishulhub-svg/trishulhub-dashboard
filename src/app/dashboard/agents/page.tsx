@@ -104,7 +104,9 @@ export default function AgentsPage() {
                 ? JSON.parse(agent.roleConfig.features)
                 : agent.roleConfig.features;
             }
-          } catch {}
+          } catch (err) {
+            console.error("Failed to parse agent features:", err);
+          }
 
           // Parse quick actions count
           let quickActionsCount = 0;
@@ -115,7 +117,9 @@ export default function AgentsPage() {
                 : agent.roleConfig.quickActions;
               quickActionsCount = Array.isArray(actions) ? actions.length : 0;
             }
-          } catch {}
+          } catch (err) {
+            console.error("Failed to parse agent quick actions:", err);
+          }
 
           return (
             <Card

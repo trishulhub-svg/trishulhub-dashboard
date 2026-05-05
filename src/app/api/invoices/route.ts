@@ -9,8 +9,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
-  const userId = (session.user as any)?.id
+  const userRole = session.user.role
+  const userId = session.user.id
 
   // CLIENT users can only see their own invoices
   if (userRole === "CLIENT") {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       status: "DRAFT",
       dueDate: dueDate ? new Date(dueDate) : null,
       // SECURITY: Auto-set sentById from session — ignore client-provided value
-      sentById: (session.user as any).id,
+      sentById: session.user.id,
     },
   })
   return NextResponse.json(invoice)
@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -159,7 +159,7 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -231,7 +231,7 @@ export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "Only SUPER_ADMIN can delete invoices" }, { status: 403 })
   }

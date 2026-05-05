@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
 
     const { searchParams } = new URL(req.url)
     const date = searchParams.get("date")
@@ -89,8 +89,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
 
     // Only SUPER_ADMIN and ADMIN can create meetings
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: attendeeId,
           title: "New Meeting Invitation",
-          message: `${(session.user as any).name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
+          message: `${session.user.name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
           type: "TASK",
           link: "/dashboard/meetings",
           metadata: JSON.stringify({ meetingId: meeting.id }),

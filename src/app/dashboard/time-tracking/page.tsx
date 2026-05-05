@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
-  ChevronDown,
+  ChevronDown, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -126,8 +126,8 @@ function getDateStr(d: Date): string {
 // ── Component ──
 export default function TimeTrackingPage() {
   const { data: session } = useSession();
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
-  const userId = (session?.user as { id?: string })?.id || "";
+  const userRole = session?.user?.role || "DEVELOPER";
+  const userId = session?.user?.id || "";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // State
@@ -136,6 +136,7 @@ export default function TimeTrackingPage() {
   const [teamEntries, setTeamEntries] = useState<TimeEntry[]>([]);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("my-time");
   const [analyticsTab, setAnalyticsTab] = useState("employee");
   const [dateRange, setDateRange] = useState("week");
@@ -164,53 +165,60 @@ export default function TimeTrackingPage() {
   const [teamUsers, setTeamUsers] = useState<Array<{ id: string; name: string }>>([]);
 
   // ── Fetch entries ──
-  const fetchEntries = useCallback(async () => {
+  const fetchEntries = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/time-tracking", { credentials: "include" });
+      const res = await fetch("/api/time-tracking", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setEntries(data);
         const active = data.find((e: TimeEntry) => e.status === "ACTIVE");
         setActiveEntry(active || null);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch entries");
+      setError(err instanceof Error ? err.message : "Failed to load time entries");
     } finally {
       setLoading(false);
     }
   }, []);
 
   // ── Fetch projects ──
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/projects", { credentials: "include" });
+      const res = await fetch("/api/projects", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setProjects(data.filter((p: Project) => p.status !== "COMPLETED"));
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch projects");
     }
   }, []);
 
   // ── Fetch team users ──
-  const fetchTeamUsers = useCallback(async () => {
+  const fetchTeamUsers = useCallback(async (signal?: AbortSignal) => {
     if (!isAdmin) return;
     try {
-      const res = await fetch("/api/team", { credentials: "include" });
+      const res = await fetch("/api/team", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setTeamUsers(data.map((u: any) => ({ id: u.id, name: u.name })));
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch team users");
     }
   }, [isAdmin]);
 
   useEffect(() => {
-    fetchEntries();
-    fetchProjects();
-    fetchTeamUsers();
+    const controller = new AbortController();
+    const signal = controller.signal;
+    fetchEntries(signal);
+    fetchProjects(signal);
+    fetchTeamUsers(signal);
+    return () => controller.abort();
   }, [fetchEntries, fetchProjects, fetchTeamUsers]);
 
   // ── Timer tick ──
@@ -309,7 +317,7 @@ export default function TimeTrackingPage() {
   };
 
   // ── Fetch team logs ──
-  const fetchTeamLogs = useCallback(async () => {
+  const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
     if (!isAdmin) return;
     try {
       const params = new URLSearchParams();
@@ -325,24 +333,27 @@ export default function TimeTrackingPage() {
       }
       params.set("status", "COMPLETED");
 
-      const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setTeamEntries(data);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch team logs");
     }
   }, [isAdmin, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
 
   useEffect(() => {
     if (activeTab === "team" && isAdmin) {
-      fetchTeamLogs();
+      const controller = new AbortController();
+      fetchTeamLogs(controller.signal);
+      return () => controller.abort();
     }
   }, [activeTab, isAdmin, fetchTeamLogs]);
 
   // ── Fetch analytics ──
-  const fetchAnalytics = useCallback(async () => {
+  const fetchAnalytics = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams();
       params.set("type", analyticsTab);
@@ -359,19 +370,22 @@ export default function TimeTrackingPage() {
         params.set("endDate", getDateStr(end));
       }
 
-      const res = await fetch(`/api/time-tracking/analytics?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/time-tracking/analytics?${params}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
         setAnalyticsData(data);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch analytics");
     }
   }, [analyticsTab, dateRange]);
 
   useEffect(() => {
     if (activeTab === "analytics") {
-      fetchAnalytics();
+      const controller = new AbortController();
+      fetchAnalytics(controller.signal);
+      return () => controller.abort();
     }
   }, [activeTab, fetchAnalytics]);
 
@@ -461,6 +475,18 @@ export default function TimeTrackingPage() {
           ))}
         </div>
         <div className="h-64 bg-muted animate-pulse rounded-lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchEntries(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -754,6 +780,7 @@ export default function TimeTrackingPage() {
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-destructive"
                               onClick={() => setDeleteId(entry.id)}
+                              aria-label="Delete time entry"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -827,7 +854,7 @@ export default function TimeTrackingPage() {
                     />
                   </div>
                   <div className="flex items-end">
-                    <Button variant="outline" onClick={fetchTeamLogs} className="w-full">
+                    <Button variant="outline" onClick={() => fetchTeamLogs()} className="w-full">
                       Apply Filters
                     </Button>
                   </div>

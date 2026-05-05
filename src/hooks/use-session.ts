@@ -9,8 +9,8 @@ export function useSession() {
     user: session.data?.user
       ? {
           ...session.data.user,
-          role: (session.data.user as { role?: string }).role || "DEVELOPER",
-          id: (session.data.user as { id?: string }).id || "",
+          role: session.data.user.role || "DEVELOPER",
+          id: session.data.user.id || "",
         }
       : null,
   };

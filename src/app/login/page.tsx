@@ -78,7 +78,7 @@ function LoginForm() {
   // If already logged in, redirect
   useEffect(() => {
     if (status === "authenticated" && session) {
-      const role = (session.user as { role?: string })?.role;
+      const role = session.user?.role;
       if (role === "CLIENT") {
         if (callbackUrl.startsWith("/portal")) {
           router.replace(callbackUrl);

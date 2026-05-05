@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userRole = (session.user as any).role
-    const userId = (session.user as any).id
+    const userRole = session.user.role
+    const userId = session.user.id
 
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
     }
 
     // SECURITY: Verify user has access to both agents
-    const userRole = (session.user as any).role
-    const userId = (session.user as any).id
+    const userRole = session.user.role
+    const userId = session.user.id
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       const [fromAccess, toAccess] = await Promise.all([
         db.userAgentAccess.findFirst({ where: { userId, agentId: fromAgentId, canChat: true } }),
@@ -292,8 +292,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 

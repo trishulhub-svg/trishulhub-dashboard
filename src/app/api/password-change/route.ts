@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     // Auto-migrate: ensure PasswordChange table exists
     await ensurePasswordChangeTable()
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const body = await req.json()
     const { currentPassword } = body
 
@@ -164,7 +164,7 @@ export async function PUT(req: NextRequest) {
     // Auto-migrate: ensure PasswordChange table exists
     await ensurePasswordChangeTable()
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const body = await req.json()
     const { otp, newPassword } = body
 
@@ -249,7 +249,7 @@ export async function PUT(req: NextRequest) {
 
     // Log the password change event
     await logEmailEvent({
-      to: (session.user as any).email || "",
+      to: session.user.email || "",
       subject: "Password Changed",
       type: "PASSWORD_CHANGE",
       status: "SENT",

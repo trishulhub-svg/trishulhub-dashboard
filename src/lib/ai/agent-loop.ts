@@ -5,10 +5,8 @@
 // Supports ALL agent types with role-specific tools and prompts
 
 import { SignJWT } from "jose"
-import { AgentTool, getToolsForAgentType, executeToolCall, ToolCallResult } from "./agent-tools"
-
-const ZAI_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+import { AgentTool, getToolsForAgentType, executeToolCall } from "./agent-tools"
+import { ZAI_API_URL, NVIDIA_API_URL } from "./endpoints"
 
 // ━━ Types ━━
 export interface AgentStep {
@@ -366,7 +364,6 @@ async function callZaiWithTools(
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
       const delayMs = Math.pow(2, attempt) * 1000
-      console.log(`[agent-loop] Retry attempt ${attempt} after ${delayMs}ms...`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
@@ -404,7 +401,6 @@ async function callZaiWithTools(
         if (statusCode === 500) {
           // 500 errors are often temporary or caused by thinking mode
           // Retry without thinking mode on next attempt
-          console.log(`[agent-loop] 500 error, will retry ${attempt < MAX_RETRIES ? 'without thinking mode' : ''}`)
           lastError = new Error(`Z.ai API error: 500 - ${errorText.substring(0, 100)}`)
           if (attempt < MAX_RETRIES) continue
           throw lastError
@@ -470,8 +466,6 @@ async function callNvidiaWithTools(
   outputTokens: number
   finishReason: string
 }> {
-  console.log(`[nvidia-agent] Calling with model: ${model}`)
-
   let disableThinking = options?.disableThinking || false
 
   const buildBody = (noThinking: boolean) => {
@@ -500,7 +494,6 @@ async function callNvidiaWithTools(
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
       const delayMs = Math.pow(2, attempt) * 1000
-      console.log(`[nvidia-agent] Retry attempt ${attempt} after ${delayMs}ms...`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
@@ -545,7 +538,6 @@ async function callNvidiaWithTools(
         if (statusCode === 500) {
           // 500 errors are often caused by thinking mode + tool calling conflicts
           // Retry ONCE without thinking mode, then give up
-          console.log(`[nvidia-agent] 500 error (attempt ${attempt}), ${attempt < MAX_RETRIES ? 'will retry without thinking mode' : 'all retries exhausted'}`)
           // Force disable thinking for next retry attempt
           disableThinking = true
           lastError = new Error(`NVIDIA API error: 500 - ${errorText.substring(0, 100)}`)
@@ -558,9 +550,6 @@ async function callNvidiaWithTools(
       const data = await response.json()
       const choice = data.choices?.[0]
       const message = choice?.message
-
-      // Debug logging for NVIDIA response analysis
-      console.log(`[nvidia-agent] Response: content=${message?.content ? `"${message.content.substring(0, 80)}..."` : 'null'}, reasoning_content=${message?.reasoning_content ? `"${message.reasoning_content.substring(0, 80)}..."` : 'null'}, tool_calls=${message?.tool_calls?.length || 0}, finish_reason=${choice?.finish_reason || 'unknown'}`)
 
       // Extract thinking/reasoning content — this is INTERNAL chain-of-thought, NOT the user-facing response
       // NEVER promote reasoning_content to content — it contains raw planning text that should not be shown to users
@@ -706,8 +695,6 @@ export async function runAgentLoop(
   // or we hit the max step limit
   for (let iteration = 0; iteration < maxSteps; iteration++) {
     stepCount++
-    console.log(`[agent-loop] Iteration ${iteration + 1}/${maxSteps} (provider: ${providerName}, model: ${model})`)
-
     try {
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {
@@ -846,8 +833,6 @@ export async function runAgentLoop(
       // No tool calls - this is the final response
       // Use content ONLY — do NOT fall back to thinkingContent (raw chain-of-thought)
       const responseContent = result.content
-      console.log(`[agent-loop] Final response check: content=${result.content ? result.content.substring(0, 100) + '...' : 'null'}, thinkingContent=${result.thinkingContent ? 'present (' + result.thinkingContent.length + ' chars)' : 'null'}, toolCalls=${result.toolCalls?.length || 0}`)
-      
       // If model has no text response but has executed tools, synthesize a proper summary
       // This happens when NVIDIA GLM-5.1 puts all its output in reasoning_content while
       // content is null — we should NOT show reasoning to users, instead generate a clean summary
@@ -1010,7 +995,6 @@ export async function runAgentLoop(
 
       // Empty response — no content AND no tool results to synthesize from
       emptyResponseCount++
-      console.log(`[agent-loop] Empty response (count: ${emptyResponseCount}), content=null, toolResults=${steps.filter(s => s.type === "tool_result").length}`)
       if (emptyResponseCount > 2) {
         // Too many empty responses — if we have tool results, synthesize from them
         const toolResults = steps.filter(s => s.type === "tool_result")

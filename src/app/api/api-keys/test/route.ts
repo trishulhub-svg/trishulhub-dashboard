@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     }
 
     // SECURITY: Only SUPER_ADMIN and ADMIN can test API keys
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ valid: false, error: "Forbidden: Admin access required" }, { status: 403 })
     }

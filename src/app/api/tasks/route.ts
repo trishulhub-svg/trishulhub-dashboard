@@ -8,8 +8,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   
   // Developers only see tasks from their assigned projects
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   const body = await req.json()
 
   // projectId is required by schema
@@ -86,8 +86,8 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   const body = await req.json()
   const id = body.id
 
@@ -150,6 +150,7 @@ export async function PUT(req: NextRequest) {
   // Also check if only assignedTo is being changed (with existing deadline)
   if (assignedUserId && !taskDeadline) {
     const existingTask = await db.task.findUnique({ where: { id } })
+    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
     if (existingTask?.deadline) {
       const assigneeLeave = await db.leave.findFirst({
         where: {
@@ -168,6 +169,12 @@ export async function PUT(req: NextRequest) {
         }, { status: 400 })
       }
     }
+  }
+
+  // Ensure task exists before updating (admins skip the earlier findUnique)
+  if (isAdmin(userRole)) {
+    const existingTask = await db.task.findUnique({ where: { id } })
+    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
   }
 
   const task = await db.task.update({ where: { id }, data })

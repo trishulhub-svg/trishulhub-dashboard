@@ -121,6 +121,13 @@ const SUB_STATUS_COLORS: Record<string, string> = {
 
 const EXPENSE_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"];
 
+const INVOICE_STATUS_COLORS: Record<string, string> = {
+  DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
 const formatCurrency = (n: number, currency = "INR") => {
   if (currency === "INR") return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
   if (currency === "USD") return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
@@ -134,7 +141,7 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:
 export default function FinancePage() {
   const router = useRouter();
   const { data: session } = useSession();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -164,15 +171,16 @@ export default function FinancePage() {
   const [error, setError] = useState<string | null>(null);
 
   // ─── Fetch dashboard data (existing) ────
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/dashboard");
+      const res = await fetch("/api/dashboard", { signal });
       if (res.ok) {
         setData(await res.json());
       } else {
         setError("Failed to load dashboard data. Please refresh the page.");
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
       setError("Network error. Please check your connection and refresh.");
     } finally {
@@ -181,16 +189,17 @@ export default function FinancePage() {
   }, []);
 
   // ─── Fetch subscriptions ────
-  const fetchSubscriptions = useCallback(async () => {
+  const fetchSubscriptions = useCallback(async (signal?: AbortSignal) => {
     try {
       setSubLoading(true);
-      const res = await fetch("/api/subscriptions", { credentials: "include" });
+      const res = await fetch("/api/subscriptions", { credentials: "include", signal });
       if (res.ok) {
         const json = await res.json();
         setSubscriptions(json.subscriptions || []);
         setSubTotalMonthly(json.totalMonthlyCost || 0);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     } finally {
       setSubLoading(false);
@@ -198,7 +207,7 @@ export default function FinancePage() {
   }, []);
 
   // ─── Fetch expenses with filters ────
-  const fetchExpenses = useCallback(async () => {
+  const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
       setExpLoading(true);
       const params = new URLSearchParams();
@@ -206,9 +215,10 @@ export default function FinancePage() {
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
-      const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
       if (res.ok) setExpenses(await res.json());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     } finally {
       setExpLoading(false);
@@ -216,12 +226,12 @@ export default function FinancePage() {
   }, [expSearch, expStartDate, expEndDate, expCategory]);
 
   // ─── Fetch expense stats ────
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams();
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
-      const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include", signal });
       if (res.ok) {
         const json = await res.json();
         setCategoryStats(json.byCategory || []);
@@ -229,29 +239,34 @@ export default function FinancePage() {
         setStatsTotal(json.totalExpenses || 0);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     }
   }, [expStartDate, expEndDate]);
 
   // ─── Fetch projects for dropdowns ────
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/projects", { credentials: "include" });
+      const res = await fetch("/api/projects", { credentials: "include", signal });
       if (res.ok) {
         const json = await res.json();
         setProjects((json.projects || json).map((p: any) => ({ id: p.id, name: p.name })));
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
-    fetchSubscriptions();
-    fetchExpenses();
-    fetchStats();
-    fetchProjects();
+    const controller = new AbortController();
+    const signal = controller.signal;
+    fetchData(signal);
+    fetchSubscriptions(signal);
+    fetchExpenses(signal);
+    fetchStats(signal);
+    fetchProjects(signal);
+    return () => controller.abort();
   }, [fetchData, fetchSubscriptions, fetchExpenses, fetchStats, fetchProjects]);
 
   // ─── Subscription handlers ────
@@ -402,13 +417,6 @@ export default function FinancePage() {
   const stats = data.stats;
   const invoices = data.invoices || [];
   const recentInvoices = invoices.slice(0, 5);
-
-  const invoiceStatusColors: Record<string, string> = {
-    DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-    SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-    PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-    OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  };
 
   // ─── Revenue chart data (preserved from original) ────
   const expenseData = [
@@ -669,7 +677,7 @@ export default function FinancePage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
-                        <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
+                        <Badge className={`text-[10px] ${INVOICE_STATUS_COLORS[inv.status] || ""}`}>{inv.status}</Badge>
                       </div>
                     </div>
                   ))
@@ -694,6 +702,7 @@ export default function FinancePage() {
                       className="pl-8"
                       value={expSearch}
                       onChange={(e) => setExpSearch(e.target.value)}
+                      aria-label="Search expenses"
                     />
                   </div>
                 </div>
@@ -765,7 +774,7 @@ export default function FinancePage() {
                         <TableCell className="text-sm max-w-[200px] truncate">{exp.description}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(exp.amount)}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)} aria-label="Delete expense">
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </TableCell>
@@ -845,6 +854,7 @@ export default function FinancePage() {
                               size="icon"
                               className="h-7 w-7"
                               onClick={() => { setEditingSub(sub); setSubDialogOpen(true); }}
+                              aria-label="Edit subscription"
                             >
                               <Edit3 className="h-3.5 w-3.5" />
                             </Button>
@@ -854,6 +864,7 @@ export default function FinancePage() {
                               className="h-7 w-7"
                               onClick={() => handleToggleSubscription(sub)}
                               title={sub.status === "ACTIVE" ? "Pause" : "Resume"}
+                              aria-label={sub.status === "ACTIVE" ? "Pause subscription" : "Resume subscription"}
                             >
                               {sub.status === "ACTIVE" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                             </Button>
@@ -862,6 +873,7 @@ export default function FinancePage() {
                               size="icon"
                               className="h-7 w-7 text-red-500"
                               onClick={() => handleDeleteSubscription(sub.id)}
+                              aria-label="Delete subscription"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>

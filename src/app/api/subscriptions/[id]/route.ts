@@ -12,7 +12,7 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -48,6 +48,11 @@ export async function PATCH(
     sanitizedData.endDate = new Date()
   }
 
+  const existing = await db.subscription.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+  }
+
   try {
     const subscription = await db.subscription.update({
       where: { id },
@@ -56,7 +61,7 @@ export async function PATCH(
     })
     return NextResponse.json(subscription)
   } catch {
-    return NextResponse.json({ error: "Subscription not found or update failed" }, { status: 404 })
+    return NextResponse.json({ error: "Subscription update failed" }, { status: 500 })
   }
 }
 
@@ -68,17 +73,22 @@ export async function DELETE(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = (session.user as any)?.role
+  const userRole = session.user.role
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { id } = await params
 
+  const existing = await db.subscription.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+  }
+
   try {
     await db.subscription.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch {
-    return NextResponse.json({ error: "Subscription not found or delete failed" }, { status: 404 })
+    return NextResponse.json({ error: "Subscription delete failed" }, { status: 500 })
   }
 }

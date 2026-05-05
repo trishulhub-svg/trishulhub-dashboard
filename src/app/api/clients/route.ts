@@ -10,10 +10,10 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as Record<string, unknown>).role as string
+  const role = session.user.role
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userId = (session.user as any).id
+  const userId = session.user.id
   const assignedClientIds = await getAssignedClientIds(userId, role)
 
   const { searchParams } = new URL(req.url)
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as Record<string, unknown>).role as string
+  const role = session.user.role
   if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     if (type === "users") {
       // SUPER_ADMIN and ADMIN: list all users for team management
-      const userRole = (session.user as any).role
+      const userRole = session.user.role
       if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
     if (type === "attendance") {
       // Admin-only: full attendance records
-      const userRole = (session.user as any).role
+      const userRole = session.user.role
       if (!isAdmin(userRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -54,8 +54,8 @@ export async function GET(req: NextRequest) {
 
     if (type === "leaves") {
       // Admin-only: all leave requests; developers see own only
-      const userRole = (session.user as any).role
-      const userId = (session.user as any).id
+      const userRole = session.user.role
+      const userId = session.user.id
       if (!isAdmin(userRole)) {
         const leaves = await db.leaveRequest.findMany({
           where: { userId },
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
 
     if (type === "agent-access") {
       // Admin-only: all user-agent access mappings
-      const userRole = (session.user as any).role
+      const userRole = session.user.role
       if (!isAdmin(userRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Default: return team members with their agent access (admin-only)
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
@@ -128,8 +128,8 @@ export async function POST(req: NextRequest) {
 
     if (type === "leave") {
       // SECURITY: Non-admin users can only create leave for themselves
-      const sessionUserId = (session.user as any).id
-      const sessionUserRole = (session.user as any).role
+      const sessionUserId = session.user.id
+      const sessionUserRole = session.user.role
       const leaveUserId = !isAdmin(sessionUserRole) ? sessionUserId : (data.userId || sessionUserId)
 
       const leave = await db.leaveRequest.create({
@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     if (type === "attendance") {
       // SECURITY: Only admins can create attendance records
-      const attendanceUserRole = (session.user as any).role
+      const attendanceUserRole = session.user.role
       if (!isAdmin(attendanceUserRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
       const attendance = await db.attendance.create({
         data: {
           date: new Date(date),
-          userId: attUserId || (session.user as any).id,
+          userId: attUserId || session.user.id,
           ...(attStatus && { status: attStatus }),
           ...(checkIn && { checkIn }),
           ...(checkOut && { checkOut }),
@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
 
     if (type === "agent-access") {
       // Grant agent access to a user (admin-only)
-      const currentUserRole = (session.user as any).role
+      const currentUserRole = session.user.role
       if (!isAdmin(currentUserRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
 
     if (type === "user") {
       // SUPER_ADMIN and ADMIN: Create a new team member
-      const userRole = (session.user as any).role
+      const userRole = session.user.role
       if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -290,7 +290,7 @@ export async function PATCH(req: NextRequest) {
 
     if (type === "leave") {
       // SECURITY: Only admins can approve/reject leave requests
-      const leavePatchRole = (session.user as any).role
+      const leavePatchRole = session.user.role
       if (data.status && !isAdmin(leavePatchRole)) {
         return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
       }
@@ -299,7 +299,7 @@ export async function PATCH(req: NextRequest) {
         where: { id },
         data: {
           status: data.status,
-          approvedBy: (session.user as any).id,
+          approvedBy: session.user.id,
           feedback: data.feedback || undefined,
         },
       })
@@ -321,7 +321,7 @@ export async function PATCH(req: NextRequest) {
 
     if (type === "attendance") {
       // SECURITY: Only admins can update attendance records
-      const attPatchRole = (session.user as any).role
+      const attPatchRole = session.user.role
       if (!isAdmin(attPatchRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -337,7 +337,7 @@ export async function PATCH(req: NextRequest) {
 
     if (type === "agent-access") {
       // SECURITY: Only admins can update agent access
-      const patchRole = (session.user as any).role
+      const patchRole = session.user.role
       if (!isAdmin(patchRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
@@ -353,8 +353,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Authorization: users can only update their own profile unless they're SUPER_ADMIN
-    const sessionUserId = (session.user as any).id;
-    const sessionUserRole = (session.user as any).role;
+    const sessionUserId = session.user.id;
+    const sessionUserRole = session.user.role;
 
     // SECURITY: For self-profile updates (name only, no role/isActive),
     // always use the session user's ID — don't trust the body `id`.
@@ -368,7 +368,7 @@ export async function PATCH(req: NextRequest) {
 
     // Update user (SUPER_ADMIN only for role/active changes)
     if (data.role !== undefined || data.isActive !== undefined) {
-      const userRole = (session.user as any).role
+      const userRole = session.user.role
       if (userRole !== "SUPER_ADMIN") {
         return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can change user role or status" }, { status: 403 })
       }
@@ -431,7 +431,7 @@ export async function DELETE(req: NextRequest) {
 
     if (type === "agent-access") {
       // SECURITY: Only admins can delete agent access
-      const deleteRole = (session.user as any).role
+      const deleteRole = session.user.role
       if (!isAdmin(deleteRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }

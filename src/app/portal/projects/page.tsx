@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { FolderKanban, ArrowRight } from "lucide-react";
+import { FolderKanban, ArrowRight, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +13,7 @@ export default function PortalProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -19,6 +21,7 @@ export default function PortalProjectsPage() {
       if (res.ok) setProjects(await res.json());
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load projects");
     } finally {
       setLoading(false);
     }
@@ -33,6 +36,18 @@ export default function PortalProjectsPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchProjects(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

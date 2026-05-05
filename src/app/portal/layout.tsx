@@ -37,6 +37,7 @@ function NavItems({ pathname, onNavigate }: { pathname: string; onNavigate: (hre
                 ? "bg-primary text-primary-foreground"
                 : "text-foreground hover:bg-muted"
             )}
+            type="button"
           >
             <item.icon className="h-4 w-4" />
             <span>{item.title}</span>
@@ -59,7 +60,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     // CRITICAL FIX: Redirect non-CLIENT users away from portal
     // Previously any authenticated user could access portal pages
     if (status === "authenticated" && session?.user) {
-      const userRole = (session.user as any)?.role
+      const userRole = session.user.role
       if (userRole && userRole !== "CLIENT") {
         router.push("/dashboard");
       }
@@ -79,7 +80,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   // SECURITY: Prevent non-CLIENT users from seeing portal content (even briefly)
-  if (!session || (session.user && (session.user as any)?.role && (session.user as any).role !== "CLIENT")) {
+  if (!session || (session.user && session.user.role && session.user.role !== "CLIENT")) {
     return null
   }
 
@@ -97,7 +98,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           <div className="flex items-center gap-4">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden">
+                <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
@@ -136,7 +137,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 {userName.split(" ").map((n) => n[0]).join("")}
               </AvatarFallback>
             </Avatar>
-            <Button variant="ghost" size="icon" onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
+            <Button variant="ghost" size="icon" onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }} aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>
           </div>

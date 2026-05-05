@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
-// GET /api/leave - List leave requests
+// GET /api/leave - List leave requests (DEPRECATED: use /api/leaves instead)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
 
     // Admins see all, others see their own
     const where = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     })
 
-    return NextResponse.json(leaves)
+    const response = NextResponse.json(leaves)
+    response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
+    return response
   } catch (error: any) {
     console.error("[leave] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { type, startDate, endDate, reason } = await req.json()
 
     if (!startDate || !endDate) {
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: admin.id,
           title: "New Leave Request",
-          message: `${(session.user as any).name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+          message: `${session.user.name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
           type: "APPROVAL",
           link: "/dashboard/leaves",
           metadata: JSON.stringify({ leaveRequestId: leave.id }),
@@ -84,7 +86,9 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    return NextResponse.json(leave, { status: 201 })
+    const response = NextResponse.json(leave, { status: 201 })
+    response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
+    return response
   } catch (error: any) {
     console.error("[leave] POST error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -99,8 +103,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
 
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Only admins can approve/reject leave requests" }, { status: 403 })
@@ -150,7 +154,9 @@ export async function PATCH(req: NextRequest) {
       })
     }
 
-    return NextResponse.json(leave)
+    const response = NextResponse.json(leave)
+    response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
+    return response
   } catch (error: any) {
     console.error("[leave] PATCH error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

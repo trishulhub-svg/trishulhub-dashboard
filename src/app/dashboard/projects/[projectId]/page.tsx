@@ -33,6 +33,15 @@ const taskStatusColors: Record<TaskStatus, string> = {
   DONE: "bg-green-50 dark:bg-green-900/20",
 };
 
+const projectStatusColors: Record<string, string> = {
+  PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  REVIEW: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  DEPLOYED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+};
+
 const priorityColors: Record<TaskPriority, string> = {
   LOW: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
   MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -62,7 +71,7 @@ export default function ProjectDetailPage() {
   const { data: session } = useSession();
   const projectId = params.projectId as string;
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
@@ -229,7 +238,7 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")}>
+        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
@@ -243,7 +252,7 @@ export default function ProjectDetailPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Status</p>
-            <Badge className="mt-1">{(project.status as string).replace("_", " ")}</Badge>
+            <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
           </CardContent>
         </Card>
         <Card>
@@ -360,6 +369,7 @@ export default function ProjectDetailPage() {
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-red-500"
                       onClick={() => handleRemoveMember(member.userId)}
+                      aria-label="Remove member"
                     >
                       <X className="h-3 w-3" />
                     </Button>

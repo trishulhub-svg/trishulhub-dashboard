@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const userRole = (session.user as any)?.role
-    const userId = (session.user as any)?.id
+    const userRole = session.user.role
+    const userId = session.user.id
 
     const agents = await db.agent.findMany({
       include: {
@@ -83,7 +83,7 @@ export async function PATCH(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only admins can update agent settings" }, { status: 403 })
     }

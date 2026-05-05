@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, MessageSquare, Send } from "lucide-react";
+import { Plus, MessageSquare, Send, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ const ticketStatusColors: Record<string, string> = {
 export default function PortalSupportPage() {
   const [tickets, setTickets] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Record<string, unknown> | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -37,6 +38,7 @@ export default function PortalSupportPage() {
       if (res.ok) setTickets(await res.json());
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load tickets");
     } finally {
       setLoading(false);
     }
@@ -113,6 +115,18 @@ export default function PortalSupportPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchTickets(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

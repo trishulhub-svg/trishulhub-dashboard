@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const status = searchParams.get("status")
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { agentId, title, description, dueDate, priority, notifyAt, attachments, crossAgentAccess } = await req.json()
 
     if (!agentId || !title || !dueDate) {
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     // SECURITY: Non-admin users must have canChat access to the target agent
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (!isAdmin(userRole)) {
       const agentAccess = await db.userAgentAccess.findFirst({
         where: { userId, agentId, canChat: true },
@@ -114,8 +114,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { id, title, description, dueDate, priority, status, progress, result } = await req.json()
 
     if (!id) {
@@ -186,8 +186,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 

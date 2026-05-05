@@ -83,7 +83,7 @@ export const authOptions: NextAuthOptions = {
       // ── On Sign In ──
       // The `user` object is only available on sign-in
       if (user) {
-        token.role = (user as any).role
+        token.role = user.role
         token.id = user.id
 
         // Generate and store session token for single-device enforcement.
@@ -108,7 +108,7 @@ export const authOptions: NextAuthOptions = {
       // the DB so the token (and therefore the session) reflects the latest
       // values such as an updated name or email.
       if (trigger === "update") {
-        const userId = token.id as string | undefined
+        const userId = token.id
         if (userId) {
           try {
             const freshUser = await db.user.findUnique({
@@ -134,8 +134,8 @@ export const authOptions: NextAuthOptions = {
       // the user logged in from another device, changed their email,
       // or had their session invalidated by an admin.
 
-      const userId = token.id as string | undefined
-      const currentToken = token.sessionToken as string | undefined
+      const userId = token.id
+      const currentToken = token.sessionToken
 
       if (userId && currentToken) {
         try {
@@ -165,14 +165,14 @@ export const authOptions: NextAuthOptions = {
         // appear in the UI until a full page reload or re-login.
         session.user.name = (token.name as string) ?? session.user.name
         session.user.email = (token.email as string) ?? session.user.email
-        ;(session.user as any).role = token.role
-        ;(session.user as any).id = token.id
+        session.user.role = token.role
+        session.user.id = token.id
       }
 
       // Pass session errors to client for handling
       // Client will detect these and auto-signout with appropriate message
       if (token.error) {
-        ;(session as any).error = token.error
+        session.error = token.error
       }
 
       return session
@@ -186,7 +186,7 @@ export const authOptions: NextAuthOptions = {
   events: {
     // Clean up session record on explicit sign-out
     async signOut({ token }) {
-      const userId = (token as any)?.id
+      const userId = token?.id
       if (userId) {
         try {
           await removeSession(userId)

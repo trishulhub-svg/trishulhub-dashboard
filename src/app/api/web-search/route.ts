@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     }
 
     // SECURITY: Only admin users can use web search (consumes API credits)
-    const userRole = (session.user as any)?.role
+    const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }

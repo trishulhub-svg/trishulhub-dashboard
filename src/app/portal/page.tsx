@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { FolderKanban, FileText, HeadphonesIcon, DollarSign } from "lucide-react";
+import { FolderKanban, FileText, HeadphonesIcon, DollarSign, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +11,7 @@ export default function PortalDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState({ projects: 0, invoices: 0, tickets: 0, pendingAmount: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -35,6 +36,7 @@ export default function PortalDashboard() {
       });
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -51,6 +53,18 @@ export default function PortalDashboard() {
         <div className="grid gap-4 md:grid-cols-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }

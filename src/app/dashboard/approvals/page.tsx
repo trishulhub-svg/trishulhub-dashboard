@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter, Trash2, User,
+  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter, Trash2, User, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,20 +54,23 @@ const statusColors: Record<string, string> = {
 export default function ApprovalsPage() {
   const router = useRouter();
   const { data: session } = useSession();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState("PENDING");
 
   const fetchApprovals = useCallback(async (status?: string) => {
     setLoading(true);
+    setError(null);
     try {
       const url = status ? `/api/approvals?status=${status}` : "/api/approvals?status=PENDING";
       const res = await fetch(url, { credentials: 'include' });
       if (res.ok) setApprovals(await res.json());
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load approvals");
     } finally {
       setLoading(false);
     }
@@ -110,6 +113,18 @@ export default function ApprovalsPage() {
 
   const pendingCount = approvals.filter(a => a.status === "PENDING").length;
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchApprovals(activeTab === "ALL" ? undefined : activeTab); }}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -150,7 +165,7 @@ export default function ApprovalsPage() {
             <div className="space-y-3">
               {approvals.map((item) => {
                 let parsedData: any = {};
-                try { parsedData = JSON.parse(item.data); } catch {}
+                try { parsedData = JSON.parse(item.data); } catch (err) { console.error("Failed to parse approval data:", err); }
 
                 return (
                   <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
@@ -225,6 +240,7 @@ export default function ApprovalsPage() {
                             rows={2}
                             value={feedbackTexts[item.id] || ""}
                             onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                            aria-label="Approval feedback"
                           />
                           <div className="flex gap-2">
                             <Button

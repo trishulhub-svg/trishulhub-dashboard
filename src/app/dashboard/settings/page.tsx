@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
@@ -210,24 +210,28 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
+  // ── Refs for OTP auto-submit handlers (avoids stale closures + dep loops) ──
+  const handlePasswordVerifyOtpRef = useRef<() => void>(null!);
+  const handleVerifyOTPRef = useRef<() => void>(null!);
+
   // Auto-submit password OTP when 6 digits entered
   useEffect(() => {
     if (passwordOtpSent && passwordOtpCode.length === 6 && !changingPassword) {
-      handlePasswordVerifyOtp();
+      handlePasswordVerifyOtpRef.current();
     }
-  }, [passwordOtpCode, passwordOtpSent]);
+  }, [passwordOtpCode, passwordOtpSent, changingPassword]);
 
   // Auto-submit email change OTP when 6 digits entered
   useEffect(() => {
     if (otpSent && otpCode.length === 6 && !emailChangeLoading) {
-      handleVerifyOTP();
+      handleVerifyOTPRef.current();
     }
-  }, [otpCode, otpSent]);
+  }, [otpCode, otpSent, emailChangeLoading]);
 
   // Sync name with session
   useEffect(() => {
@@ -434,7 +438,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          id: (session?.user as any)?.id,
+          id: session?.user?.id,
           name: name,
         }),
       });
@@ -537,6 +541,7 @@ export default function SettingsPage() {
       setChangingPassword(false);
     }
   };
+  handlePasswordVerifyOtpRef.current = handlePasswordVerifyOtp;
 
   // ── Change Password: Resend OTP (no password re-verification) ──
   const handleResendPasswordOtp = async () => {
@@ -630,6 +635,7 @@ export default function SettingsPage() {
       setEmailChangeLoading(false);
     }
   };
+  handleVerifyOTPRef.current = handleVerifyOTP;
 
   // ── Email Change: Resend OTP (no password re-verification) ──
   const handleResendEmailOtp = async () => {

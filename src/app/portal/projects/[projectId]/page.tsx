@@ -16,6 +16,15 @@ const taskStatusColors: Record<string, string> = {
   DONE: "bg-green-100 text-green-800",
 };
 
+const projectStatusColors: Record<string, string> = {
+  PLANNING: "bg-blue-100 text-blue-800",
+  IN_PROGRESS: "bg-yellow-100 text-yellow-800",
+  REVIEW: "bg-purple-100 text-purple-800",
+  APPROVAL: "bg-orange-100 text-orange-800",
+  DEPLOYED: "bg-cyan-100 text-cyan-800",
+  COMPLETED: "bg-green-100 text-green-800",
+};
+
 export default function PortalProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -63,7 +72,7 @@ export default function PortalProjectDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/portal/projects")}>
+        <Button variant="ghost" size="icon" onClick={() => router.push("/portal/projects")} aria-label="Back to projects">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -76,7 +85,7 @@ export default function PortalProjectDetailPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Status</p>
-            <Badge className="mt-1">{(project.status as string).replace("_", " ")}</Badge>
+            <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
           </CardContent>
         </Card>
         <Card>

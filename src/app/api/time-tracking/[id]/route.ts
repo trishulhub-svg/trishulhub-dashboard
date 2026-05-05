@@ -15,8 +15,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
 
     const { id } = await params
@@ -80,8 +80,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
-    const userRole = (session.user as any).role
+    const userId = session.user.id
+    const userRole = session.user.role
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
 
     const { id } = await params

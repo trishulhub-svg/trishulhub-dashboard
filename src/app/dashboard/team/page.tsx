@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot,
+  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,13 +36,14 @@ export default function TeamPage() {
   const [agentAccess, setAgentAccess] = useState<unknown[]>([]);
   const [agents, setAgents] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"team" | "leaves" | "attendance" | "access">("team");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [accessDialogOpen, setAccessDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const router = useRouter();
   const { data: session } = useSession();
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const [addMemberLoading, setAddMemberLoading] = useState(false);
 
@@ -55,14 +56,14 @@ export default function TeamPage() {
   // Add member form
   const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [userRes, leaveRes, attendRes, accessRes, agentsRes] = await Promise.all([
-        fetch("/api/team", { credentials: 'include' }),
-        fetch("/api/team?type=leaves", { credentials: 'include' }),
-        fetch("/api/team?type=attendance", { credentials: 'include' }),
-        fetch("/api/team?type=agent-access", { credentials: 'include' }),
-        fetch("/api/agents", { credentials: 'include' }),
+        fetch("/api/team", { credentials: 'include', signal }),
+        fetch("/api/team?type=leaves", { credentials: 'include', signal }),
+        fetch("/api/team?type=attendance", { credentials: 'include', signal }),
+        fetch("/api/team?type=agent-access", { credentials: 'include', signal }),
+        fetch("/api/agents", { credentials: 'include', signal }),
       ]);
       if (userRes.ok) setUsers(await userRes.json());
       if (leaveRes.ok) setLeaves(await leaveRes.json());
@@ -70,13 +71,19 @@ export default function TeamPage() {
       if (accessRes.ok) setAgentAccess(await accessRes.json());
       if (agentsRes.ok) setAgents(await agentsRes.json());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load team data");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
+  }, [fetchData]);
 
   const handleLeaveAction = async (id: string, status: string, feedback?: string) => {
     try {
@@ -190,6 +197,18 @@ export default function TeamPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -356,7 +375,7 @@ export default function TeamPage() {
                       </div>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleRemoveAccess(access.id)}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleRemoveAccess(access.id)} aria-label="Remove access">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

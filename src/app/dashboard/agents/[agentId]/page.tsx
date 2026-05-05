@@ -242,6 +242,8 @@ function SafeMarkdown({ content }: { content: string }) {
                         navigator.clipboard.writeText(codeStr);
                         toast.success("Code copied!");
                       }}
+                      aria-label="Copy code"
+                      type="button"
                     >
                       <Copy className="h-3 w-3" />
                     </button>
@@ -479,7 +481,7 @@ export default function AgentChatPage() {
     try {
       // Fetch both ACTIVE and ENDED chats so ended chats remain visible in sidebar
       // ADMIN/SUPER_ADMIN: include all users' chats for folder view
-      const isAdmin = (session?.user as { role?: string })?.role === "SUPER_ADMIN" || (session?.user as { role?: string })?.role === "ADMIN";
+      const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
       const allUsersParam = isAdmin ? "&includeAllUsers=true" : "";
       const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED${allUsersParam}`, { credentials: "include" });
       if (res.ok) {
@@ -844,6 +846,8 @@ export default function AgentChatPage() {
             // Agent is still working - resume animation and poll for completion
             startPollingForCompletion(chat.id, info.lastMessageCount);
           }
+        }).catch((err) => {
+          console.error("Failed to fetch messages for processing chat:", err);
         });
         break;
       }
@@ -856,6 +860,10 @@ export default function AgentChatPage() {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
+      }
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+        animationTimeoutRef.current = null;
       }
     };
   }, []);
@@ -1046,8 +1054,8 @@ export default function AgentChatPage() {
         setChatLockInfo({ lockedBy: lockData.lockedBy, lockedByName: lockData.lockedByName, lockedAt: lockData.lockedAt });
         
         // If locked by another user and not admin, show locked state
-        const currentUserId = (session?.user as any)?.id;
-        const currentUserRole = (session?.user as any)?.role;
+        const currentUserId = session?.user?.id;
+        const currentUserRole = session?.user?.role;
         if (lockData.locked && lockData.lockedBy !== currentUserId && currentUserRole !== "SUPER_ADMIN" && currentUserRole !== "ADMIN") {
           setActiveChatId(chatId);
           fetchMessages(chatId);
@@ -1129,6 +1137,8 @@ export default function AgentChatPage() {
           } catch {}
         }
       }
+    }).catch((err) => {
+      console.error("Failed to fetch messages for chat switch:", err);
     });
     if (isMobile) setMobileTab("messages");
   }, [fetchMessages, isMobile, activeChatId, session, getProcessingInfo, startPollingForCompletion]);
@@ -1443,14 +1453,12 @@ export default function AgentChatPage() {
         while (true) {
           // GUARD: Check if the stream was aborted (user switched chats, ended, or deleted)
           if (streamAbortController.signal.aborted) {
-            console.log('[agent-chat] Stream aborted — user switched/ended/deleted chat');
             break;
           }
           // GUARD: Check if the user has switched to a different chat
           // If activeChatId changed, stop processing this stream — it's for a different chat now
           // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
           if (activeChatIdRef.current !== streamChatId && streamChatId !== null) {
-            console.log('[agent-chat] Chat switched during stream — stopping old stream');
             break;
           }
 
@@ -2303,7 +2311,6 @@ export default function AgentChatPage() {
           // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
           if (activeChatIdRef.current !== streamChatId && streamChatId !== null) {
             // User switched chats — don't write the response to the wrong chat
-            console.log('[agent-chat] Skipping finalData write — user switched chats');
           } else {
           if (finalData.steps) setAgentSteps(finalData.steps);
 
@@ -2654,8 +2661,8 @@ export default function AgentChatPage() {
     }
   };
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
-  const currentUserId = (session?.user as { id?: string })?.id;
+  const userRole = session?.user?.role || "DEVELOPER";
+  const currentUserId = session?.user?.id;
 
   // Is the current chat locked by someone else?
   const isChatLockedByOther = !!(activeChatId && chatLockInfo.lockedBy && chatLockInfo.lockedBy !== currentUserId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN");
@@ -2868,7 +2875,7 @@ export default function AgentChatPage() {
         {/* Mobile Header */}
         <div className="flex items-center justify-between pb-3 border-b">
           <div className="flex items-center gap-2 min-w-0">
-            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => router.push("/dashboard/agents")}>
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => router.push("/dashboard/agents")} aria-label="Back to agents">
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
@@ -2886,7 +2893,7 @@ export default function AgentChatPage() {
             {activeChat && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Chat options">
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -2913,7 +2920,7 @@ export default function AgentChatPage() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSettingsOpen(true)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSettingsOpen(true)} aria-label="Agent settings">
                     <Settings className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -3154,7 +3161,7 @@ export default function AgentChatPage() {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={createNewChat}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={createNewChat} aria-label="New chat">
                         <Plus className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
@@ -3164,7 +3171,7 @@ export default function AgentChatPage() {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftPanelOpen(false)}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftPanelOpen(false)} aria-label="Close sidebar">
                         <PanelLeftClose className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
@@ -3197,7 +3204,7 @@ export default function AgentChatPage() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftPanelOpen(true)}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftPanelOpen(true)} aria-label="Open sidebar">
                     <PanelLeftOpen className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -3207,7 +3214,7 @@ export default function AgentChatPage() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={createNewChat}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={createNewChat} aria-label="New chat">
                     <Plus className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -3240,7 +3247,7 @@ export default function AgentChatPage() {
             {activeChat && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Chat options">
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -3272,6 +3279,7 @@ export default function AgentChatPage() {
                     size="icon"
                     className="h-8 w-8"
                     onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                    aria-label="Toggle right panel"
                   >
                     {rightPanelOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
                   </Button>
@@ -3282,7 +3290,7 @@ export default function AgentChatPage() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSettingsOpen(true)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSettingsOpen(true)} aria-label="Agent settings">
                     <Settings className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -3549,10 +3557,10 @@ function ChatSidebar({
             className="h-7 text-xs"
             autoFocus
           />
-          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRename(chat.id, renameValue)} aria-label="Confirm rename">
             <Check className="h-3 w-3" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setRenamingChatId(null)} aria-label="Cancel rename">
             <X className="h-3 w-3" />
           </Button>
         </div>
@@ -3590,6 +3598,7 @@ function ChatSidebar({
                   size="icon"
                   className="h-5 w-5 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
                   title={isOwnChat ? "Delete chat" : "Delete this user's chat"}
+                  aria-label="Delete chat"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onDeleteDialog) onDeleteDialog(chat.id);
@@ -3606,6 +3615,7 @@ function ChatSidebar({
                   size="icon"
                   className="h-5 w-5 opacity-0 group-hover:opacity-100 text-orange-500 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-opacity"
                   title="Request deletion"
+                  aria-label="Request chat deletion"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onDeleteDialog) onDeleteDialog(chat.id);
@@ -3623,6 +3633,7 @@ function ChatSidebar({
                     size="icon"
                     className="h-5 w-5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
                     onClick={(e) => e.stopPropagation()}
+                    aria-label="More options"
                   >
                     <MoreVertical className="h-3 w-3" />
                   </Button>
@@ -3743,7 +3754,7 @@ function ChatSidebar({
                     <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     <div className="flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary shrink-0">
                       {group.user.avatar ? (
-                        <img src={group.user.avatar} alt="" className="h-5 w-5 rounded-full" />
+                        <img src={group.user.avatar} alt={group.user.name || "User avatar"} className="h-5 w-5 rounded-full" />
                       ) : (
                         <User className="h-3 w-3" />
                       )}
@@ -4117,6 +4128,7 @@ function ChatArea({
                                     size="icon"
                                     className="h-7 w-7 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                                     onClick={() => onRetry(retryPrompt)}
+                                    aria-label="Retry"
                                   >
                                     <RotateCw className="h-3.5 w-3.5" />
                                   </Button>
@@ -4273,6 +4285,7 @@ function ChatArea({
                                     navigator.clipboard.writeText(cleanContent);
                                     toast.success("Prompt copied!");
                                   }}
+                                  aria-label="Copy message"
                                 >
                                   <Copy className="h-2.5 w-2.5" />
                                 </Button>
@@ -4297,6 +4310,7 @@ function ChatArea({
                                 navigator.clipboard.writeText(msg.content);
                                 toast.success("Copied!");
                               }}
+                              aria-label="Copy message"
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
@@ -4325,6 +4339,7 @@ function ChatArea({
                                         size="icon"
                                         className="h-6 w-6 text-muted-foreground hover:text-emerald-500"
                                         onClick={() => onRetry(retryPrompt)}
+                                        aria-label="Retry"
                                       >
                                         <RotateCw className="h-3 w-3" />
                                       </Button>
@@ -4346,6 +4361,7 @@ function ChatArea({
                               size="icon"
                               className="h-6 w-6 text-muted-foreground hover:text-emerald-600"
                               onClick={() => toast.success("Approved!")}
+                              aria-label="Approve"
                             >
                               <CheckCircle2 className="h-3 w-3" />
                             </Button>
@@ -4361,6 +4377,7 @@ function ChatArea({
                               size="icon"
                               className="h-6 w-6 text-muted-foreground hover:text-red-500"
                               onClick={() => toast.error("Rejected")}
+                              aria-label="Reject"
                             >
                               <XCircle className="h-3 w-3" />
                             </Button>
@@ -4534,6 +4551,7 @@ function ChatArea({
         <button
           onClick={scrollToBottom}
           className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-background/90 border border-border shadow-lg text-xs font-medium text-foreground hover:bg-background transition-colors backdrop-blur-sm"
+          type="button"
         >
           <ChevronDown className="h-3.5 w-3.5" />
           Scroll to bottom
@@ -4580,6 +4598,7 @@ function ChatArea({
                           if (firstPending) onActivateTodo(firstPending);
                         }}
                         disabled={sending || !todoItems.some(t => t.status === 'pending')}
+                        aria-label="Run next step"
                       >
                         <Zap className="h-3 w-3" />
                       </Button>
@@ -4677,6 +4696,8 @@ function ChatArea({
                   <button
                     onClick={() => onRemoveAttachment(file.url)}
                     className="text-muted-foreground/50 hover:text-destructive shrink-0"
+                    aria-label="Remove attachment"
+                    type="button"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -4697,6 +4718,7 @@ function ChatArea({
                 accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.json,.md,.js,.ts,.tsx,.jsx,.html,.css,.zip"
                 onChange={onFileUpload}
                 disabled={sending}
+                aria-label="Upload file"
               />
               <Button
                 variant="ghost"
@@ -4704,6 +4726,7 @@ function ChatArea({
                 className="shrink-0 h-8 w-8 text-muted-foreground/50 hover:text-foreground/70"
                 disabled={uploading || sending}
                 onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach file"
               >
                 {uploading ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : <PaperclipIcon className="h-3.5 w-3.5" />}
               </Button>
@@ -4718,8 +4741,9 @@ function ChatArea({
             className="min-h-[36px] max-h-32 resize-none text-sm bg-muted/30 border-0 focus-visible:ring-1"
             rows={1}
             disabled={sending || uploading}
+            aria-label="Chat message"
           />
-          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending || uploading} className="shrink-0 h-8 w-8 p-0" size="icon">
+          <Button onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || sending || uploading} className="shrink-0 h-8 w-8 p-0" size="icon" aria-label="Send message">
             {sending ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : uploading ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" /> : <SendIcon className="h-3.5 w-3.5" />}
           </Button>
         </div>
@@ -5249,7 +5273,7 @@ function TasksTab({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={async () => {
+                <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Execute tasks now" onClick={async () => {
                   try {
                     const res = await fetch("/api/cron/execute-tasks", { credentials: "include" });
                     if (res.ok) {
@@ -5272,7 +5296,7 @@ function TasksTab({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} aria-label="Refresh">
                   <Loader2 className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
@@ -5282,7 +5306,7 @@ function TasksTab({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onNewTask}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onNewTask} aria-label="New task">
                   <Plus className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
@@ -5362,7 +5386,7 @@ function TasksTab({
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label="Task options">
                       <MoreVertical className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -5453,7 +5477,7 @@ function CrossAgentTab({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} aria-label="Refresh">
                   <Loader2 className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
@@ -5463,7 +5487,7 @@ function CrossAgentTab({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onSend}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onSend} aria-label="Send to agent">
                   <Send className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
@@ -5534,6 +5558,7 @@ function CrossAgentTab({
                           className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500"
                           onClick={() => handleDelete(msg.id)}
                           disabled={deletingId === msg.id}
+                          aria-label="Delete message"
                         >
                           {deletingId === msg.id ? (
                             <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -5850,7 +5875,7 @@ function NewTaskDialog({
         <div className="space-y-3">
           <div className="space-y-2">
             <Label>Title *</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" aria-label="Task title" />
           </div>
           <div className="space-y-2">
             <Label>Description</Label>
@@ -5864,8 +5889,8 @@ function NewTaskDialog({
           <div className="space-y-2">
             <Label>Due Date & Time *</Label>
             <div className="flex gap-2">
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="flex-1" />
-              <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-28" />
+              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="flex-1" aria-label="Due date" />
+              <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-28" aria-label="Due time" />
             </div>
           </div>
           <div className="space-y-2">
@@ -5894,6 +5919,7 @@ function NewTaskDialog({
               multiple
               className="hidden"
               onChange={handleFileSelect}
+              aria-label="Upload file"
             />
             <Button
               variant="outline"
@@ -5917,6 +5943,7 @@ function NewTaskDialog({
                       size="icon"
                       className="h-4 w-4 shrink-0"
                       onClick={() => removeAttachment(i)}
+                      aria-label="Remove attachment"
                     >
                       <X className="h-2.5 w-2.5" />
                     </Button>
@@ -6046,7 +6073,7 @@ function CrossAgentDialog({
         <div className="space-y-3">
           <div className="space-y-2">
             <Label>From</Label>
-            <Input value={fromAgentName} disabled className="bg-muted" />
+            <Input value={fromAgentName} disabled className="bg-muted" aria-label="From agent" />
           </div>
           <div className="space-y-2">
             <Label>To Agent *</Label>

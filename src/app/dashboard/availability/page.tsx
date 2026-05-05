@@ -79,6 +79,7 @@ export default function AvailabilityPage() {
   const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Dialog states
   const [availDialogOpen, setAvailDialogOpen] = useState(false);
@@ -101,7 +102,7 @@ export default function AvailabilityPage() {
   const [formOverrideIsAvailable, setFormOverrideIsAvailable] = useState(false);
   const [formOverrideReason, setFormOverrideReason] = useState("");
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const fetchData = useCallback(async () => {
@@ -116,6 +117,7 @@ export default function AvailabilityPage() {
       if (teamRes.ok) setTeamUsers(await teamRes.json());
     } catch (err) {
       console.error("Failed to fetch data:", err);
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -310,6 +312,18 @@ export default function AvailabilityPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -377,6 +391,8 @@ export default function AvailabilityPage() {
                                         <button
                                           className="h-4 w-4 rounded-full bg-red-500 text-white flex items-center justify-center"
                                           onClick={(e) => { e.stopPropagation(); handleDeleteAvailability(slot.id); }}
+                                          aria-label="Delete time slot"
+                                          type="button"
                                         >
                                           <Trash2 className="h-2 w-2" />
                                         </button>

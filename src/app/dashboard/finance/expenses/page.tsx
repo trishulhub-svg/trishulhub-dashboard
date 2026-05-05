@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ const categoryColors: Record<string, string> = {
 export default function ExpensesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const userRole = (session?.user as any)?.role || "DEVELOPER";
+  const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // Redirect non-admin users away from this page
@@ -45,21 +45,26 @@ export default function ExpensesPage() {
 
   const [expenses, setExpenses] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
-  const fetchExpenses = useCallback(async () => {
+  const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/expenses", { credentials: 'include' });
+      const res = await fetch("/api/expenses", { credentials: 'include', signal });
       if (res.ok) setExpenses(await res.json());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load expenses");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchExpenses();
+    const controller = new AbortController();
+    fetchExpenses(controller.signal);
+    return () => controller.abort();
   }, [fetchExpenses]);
 
   const handleAddExpense = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -119,6 +124,18 @@ export default function ExpensesPage() {
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchExpenses(); }}>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -206,7 +223,7 @@ export default function ExpensesPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-semibold">{formatCurrency(expense.amount)}</span>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(expense.id)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(expense.id)} aria-label="Delete expense">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

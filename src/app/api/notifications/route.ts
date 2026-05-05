@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { searchParams } = new URL(req.url)
     const unreadOnly = searchParams.get("unread") === "true"
 
@@ -45,7 +45,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const notification = await db.notification.findFirst({
-      where: { id, userId: (session.user as any).id },
+      where: { id, userId: session.user.id },
     })
     if (!notification) {
       return NextResponse.json({ error: "Notification not found" }, { status: 404 })
@@ -77,7 +77,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const notification = await db.notification.findFirst({
-      where: { id, userId: (session.user as any).id },
+      where: { id, userId: session.user.id },
     })
     if (!notification) {
       return NextResponse.json({ error: "Notification not found" }, { status: 404 })
@@ -105,7 +105,7 @@ export async function PUT(req: NextRequest) {
 
     // SECURITY: Verify notification belongs to the requesting user
     const notification = await db.notification.findFirst({
-      where: { id, userId: (session.user as any).id },
+      where: { id, userId: session.user.id },
     })
     if (!notification) {
       return NextResponse.json({ error: "Notification not found" }, { status: 404 })

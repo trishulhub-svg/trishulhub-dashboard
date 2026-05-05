@@ -8,8 +8,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   
   // Developers only see tickets from their assigned projects' clients
   const assignedClientIds = await getAssignedClientIds(userId, userRole)
@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const data = await req.json()
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   
   // Fix #10: Derive clientId from authenticated user if not provided
   let clientId = data.clientId
@@ -78,7 +78,7 @@ export async function PUT(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
   // Only admins can update ticket details
-  const userRole = (session.user as any).role
+  const userRole = session.user.role
   if (!isAdmin(userRole)) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
@@ -100,8 +100,8 @@ export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const sessionUserId = (session.user as any).id
+  const userRole = session.user.role
+  const sessionUserId = session.user.id
   
   const { id, message, ...data } = await req.json()
   

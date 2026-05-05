@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = (session.user as any).id
+    const userId = session.user.id
     const { agentId, message, chatId, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check user has access to this agent
-    const userRole = (session.user as any).role
+    const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       const access = await db.userAgentAccess.findFirst({
         where: { userId, agentId }
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     } catch {}
 
     // Get or create chat
-    const userName = (session.user as any).name || session.user.email || "Unknown"
+    const userName = session.user.name || session.user.email || "Unknown"
     if (chatId) {
       chat = await db.chat.findUnique({
         where: { id: chatId },

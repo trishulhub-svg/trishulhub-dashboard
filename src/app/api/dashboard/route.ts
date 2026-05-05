@@ -8,8 +8,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = (session.user as any).role
-  const userId = (session.user as any).id
+  const role = session.user.role
+  const userId = session.user.id
   if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   // Get project/client scope for developers

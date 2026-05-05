@@ -6,7 +6,7 @@ import {
   Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
   Phone, Monitor, ChevronDown, ChevronUp, X, Check, UserPlus,
   CalendarDays, CalendarRange, List, Grid3X3, VideoIcon,
-  StickyNote, Link2, Play, Circle, AlertCircle,
+  StickyNote, Link2, Play, Circle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -196,8 +196,8 @@ export default function MeetingsPage() {
   const [formAttendeeIds, setFormAttendeeIds] = useState<string[]>([]);
   const [formNotes, setFormNotes] = useState("");
 
-  const userRole = (session?.user as { role?: string })?.role || "DEVELOPER";
-  const userId = (session?.user as { id?: string })?.id || "";
+  const userRole = session?.user?.role || "DEVELOPER";
+  const userId = session?.user?.id || "";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const fetchMeetings = useCallback(async () => {
@@ -228,8 +228,8 @@ export default function MeetingsPage() {
         const projectData = await projectsRes.json();
         setProjects(projectData);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to fetch team and projects:", err);
     }
   }, [userId]);
 
@@ -607,6 +607,7 @@ export default function MeetingsPage() {
                   <button
                     onClick={() => toggleGroup(group)}
                     className="flex items-center gap-2 w-full text-left mb-3 group"
+                    type="button"
                   >
                     {isExpanded ? (
                       <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -645,6 +646,7 @@ export default function MeetingsPage() {
               <button
                 onClick={() => toggleGroup("Cancelled")}
                 className="flex items-center gap-2 w-full text-left mb-3 group"
+                type="button"
               >
                 {expandedGroups["Cancelled"] !== false ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -747,6 +749,7 @@ export default function MeetingsPage() {
                             key={m.id}
                             onClick={() => openDetail(m)}
                             className="w-full text-left"
+                            type="button"
                           >
                             <div className={cn(
                               "text-[10px] px-1.5 py-0.5 rounded truncate font-medium",

@@ -8,8 +8,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
-  const userRole = (session.user as any).role
-  const userId = (session.user as any).id
+  const userRole = session.user.role
+  const userId = session.user.id
   
   // CLIENT users can only see their own projects
   if (userRole === "CLIENT") {
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
   // Only admins can create projects
-  const userRole = (session.user as any).role
+  const userRole = session.user.role
   if (!isAdmin(userRole)) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
@@ -87,7 +87,7 @@ export async function PUT(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
   // Only admins can update projects
-  const userRole = (session.user as any).role
+  const userRole = session.user.role
   if (!isAdmin(userRole)) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
