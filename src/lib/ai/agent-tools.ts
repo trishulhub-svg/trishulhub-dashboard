@@ -83,7 +83,15 @@ function resolveWorkspacePath(filePath: string, forWrite: boolean = false): stri
 
 function isPathWithinWorkspace(fullPath: string, forWrite: boolean = false): boolean {
   const root = forWrite ? getWorkspaceRoot() : PROJECT_ROOT
-  return fullPath.startsWith(root + path.sep) || fullPath === root
+  // FIX: Resolve symlinks to prevent path traversal via symlink attacks
+  try {
+    const realFullPath = fs.realpathSync(fullPath)
+    const realRoot = fs.realpathSync(root)
+    return realFullPath.startsWith(realRoot + path.sep) || realFullPath === realRoot
+  } catch {
+    // If realpath fails (file doesn't exist), fall back to string comparison
+    return fullPath.startsWith(root + path.sep) || fullPath === root
+  }
 }
 
 export interface AgentTool {
@@ -152,6 +160,15 @@ interface LeaveRequest {
 }
 
 // ━━ Shared Tools (available to all agents) ━━
+
+// Shared language map for file extension to syntax highlighting language
+const LANG_MAP: Record<string, string> = {
+  ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+  py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+  css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
+  yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
+  php: "php",
+}
 
 const WEB_SEARCH_TOOL: AgentTool = {
   type: "function",
@@ -930,7 +947,7 @@ export async function executeToolCall(
       case "plan_task": {
         // Generate unique IDs for each todo item
         const planSteps = (args.steps || []).map((s: PlanStep, idx: number) => ({
-          id: `todo-${Date.now()}-${idx}`,
+          id: `todo-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
           step: s.step || idx + 1,
           title: s.title || `Step ${idx + 1}`,
           description: s.description || "",
@@ -995,6 +1012,24 @@ export async function executeToolCall(
         break
 
       case "analyze_website":
+        // FIX: Validate URL to prevent SSRF
+        try {
+          const parsed = new URL(args.url)
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            result = 'Error: Invalid URL protocol. Only http: and https: are allowed.'
+            break
+          }
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
+              parsed.hostname.startsWith('127.') || parsed.hostname.startsWith('10.') ||
+              parsed.hostname.startsWith('192.168.') || parsed.hostname.startsWith('172.16.') ||
+              /^(172\.(1[6-9]|2[0-9]|3[01])\.)/.test(parsed.hostname)) {
+            result = 'Error: Internal/private URLs are not allowed for security reasons.'
+            break
+          }
+        } catch {
+          result = `Error: Invalid URL format: ${args.url}`
+          break
+        }
         result = await executeWebSearch(
           `site:${args.url} OR "${args.url}" review analysis performance`,
           `Analyzing website: ${args.url}`
@@ -1252,7 +1287,18 @@ export async function executeToolCall(
 
 // ━━ Web Search Implementation ━━
 
+// Simple rate limiter for web search — require 2s between searches
+let lastSearchTime = 0
+const SEARCH_COOLDOWN_MS = 2000
+
 async function executeWebSearch(query: string, purpose?: string): Promise<string> {
+  // Rate limit: enforce cooldown between searches
+  const now = Date.now()
+  if (now - lastSearchTime < SEARCH_COOLDOWN_MS) {
+    return `Web search rate limited: please wait ${Math.ceil((SEARCH_COOLDOWN_MS - (now - lastSearchTime)) / 1000)}s before searching again.`
+  }
+  lastSearchTime = now
+
   try {
     // Ensure .z-ai-config exists for the SDK (same fix as web-search route)
     const fs = await import("fs")
@@ -1414,7 +1460,8 @@ async function executeReadFile(filePath: string, purpose?: string): Promise<stri
     /id_rsa/i,                // SSH private keys
     /id_ed25519/i,            // SSH private keys
     /ssh/i,                   // SSH config/keys
-    /aws/i,                   // AWS config/credentials
+    /aws_[a-z]+\.json/i,     // AWS config files (e.g. aws_credentials.json)
+    /\.aws\//i,               // AWS config directory
   ]
   const readBasename = path.basename(fullPath)
   const relativePath = filePath.replace(/\\/g, '/')
@@ -1440,6 +1487,11 @@ async function executeReadFile(filePath: string, purpose?: string): Promise<stri
 }
 
 async function executeWriteFile(filePath: string, content: string, description?: string): Promise<string> {
+  // FIX: Limit file content size to prevent writing arbitrarily large files
+  if (content.length > 500000) {
+    return `Error: File content exceeds 500KB limit (${Math.round(content.length / 1024)}KB provided). Split into smaller files or reduce content size.`
+  }
+
   // Use writable workspace (fixes EROFS on Vercel where /var/task/ is read-only)
   const fullPath = resolveWorkspacePath(filePath, true)
   if (!isPathWithinWorkspace(fullPath, true)) return `Error: Cannot write files outside project directory.`
@@ -1474,14 +1526,7 @@ async function executeWriteFile(filePath: string, content: string, description?:
       : content
     // Detect language from file extension for syntax highlighting
     const ext = path.extname(filePath).slice(1)
-    const langMap: Record<string, string> = {
-      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-      py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
-      css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
-      yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
-      php: "php",
-    }
-    const lang = langMap[ext] || ext
+    const lang = LANG_MAP[ext] || ext
     return `File written successfully: ${filePath}\nLines: ${lines}\nSize: ${Math.round(content.length / 1024)}KB${description ? `\nDescription: ${description}` : ""}\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   } catch (error: any) {
     const isVirtual = isReadOnlyFS()
@@ -1491,14 +1536,7 @@ async function executeWriteFile(filePath: string, content: string, description?:
       ? previewLines.join("\n") + `\n... (${lines - 30} more lines)`
       : content
     const ext = path.extname(filePath).slice(1)
-    const langMap: Record<string, string> = {
-      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-      py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
-      css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
-      yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
-      php: "php",
-    }
-    const lang = langMap[ext] || ext
+    const lang = LANG_MAP[ext] || ext
     if (isVirtual) {
       return `⚠️ Virtual file (read-only server): ${filePath}\nLines: ${lines}${description ? `\nDescription: ${description}` : ""}\n\nNote: This server has a read-only filesystem. The file was created in memory but will be lost when this session ends. To persist changes, use git_commit_push to save to GitHub.\n\n\`\`\`${lang}\n${preview}\n\`\`\``
     }
@@ -1574,13 +1612,9 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
       ? previewLines.join("\n") + `\n... (${newLines.length - 20} more lines)`
       : newContent
     const ext = path.extname(filePath).slice(1)
-    const langMap: Record<string, string> = {
-      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-      py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
-      css: "css", scss: "scss", html: "html", json: "json", yaml: "yaml",
-      yml: "yaml", md: "markdown", sql: "sql", sh: "bash", bash: "bash",
-    }
-    const lang = langMap[ext] || ext
+    // Note: resolveWorkspacePath resolves relative to the project workspace root, not CWD.
+    // This means the path is relative to the workspace, not the current working directory.
+    const lang = LANG_MAP[ext] || ext
     return `File edited successfully: ${filePath}${description ? `\nDescription: ${description}` : ""}\nReplaced ${oldContent.split("\n").length} lines with ${newContent.split("\n").length} lines.\n\n\`\`\`${lang}\n${preview}\n\`\`\``
   } catch (error: any) {
     return `Error editing file: ${error.message}`
@@ -1666,18 +1700,20 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
   }
 
   // Allowlist approach: only allow common development commands
+  // FIX: Removed find, head, cp, mv, cat, less, more from allowlist — these can
+  // read/copy system files outside the workspace, bypassing workspace confinement.
   const allowedPrefixes = [
     'npm', 'npx', 'node', 'yarn', 'pnpm', 'bun',
-    'git ', 'ls', 'head ', 'tail ', 'wc ',
-    'grep ', 'rg ', 'find ', 'echo ',
+    'git ', 'ls', 'tail ', 'wc ',
+    'grep ', 'rg ', 'echo ',
     'tsc', 'eslint', 'prettier',
     'prisma',
-    'mkdir ', 'cp ', 'mv ', 'touch ',
+    'mkdir ', 'touch ',
   ]
   const firstWord = command.trim().split(/\s+/)[0]
   const isAllowed = allowedPrefixes.some(prefix => firstWord === prefix.trim() || command.trim().startsWith(prefix))
   if (!isAllowed) {
-    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, head, tail, wc, grep, rg, find, echo, tsc, eslint, prettier, prisma, mkdir, cp, mv, touch.`
+    return `Error: Command "${firstWord}" is not in the allowed list. Allowed: npm, npx, node, yarn, pnpm, bun, git, ls, tail, wc, grep, rg, echo, tsc, eslint, prettier, prisma, mkdir, touch.`
   }
 
   try {
@@ -1827,8 +1863,20 @@ async function executeGitCommitPush(
     const safeBranch = (branch || '').replace(/[^a-zA-Z0-9\/_\-]/g, '')
     // SECURITY: Block pushes to protected branches
     const protectedBranches = ['main', 'master', 'production', 'release', 'staging']
-    if (protectedBranches.includes(safeBranch)) {
-      return `Error: Cannot push directly to protected branch "${safeBranch}". Please create a feature branch and use a pull request.`
+    // FIX: Always detect current branch and check against protected list
+    // When branch arg is omitted, git push pushes to current branch which could be main
+    let currentBranch = safeBranch
+    if (!currentBranch) {
+      try {
+        const { stdout: branchOut } = await execSafe('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: getWorkspaceRoot(), timeout: 10000 })
+        currentBranch = branchOut.trim()
+      } catch {
+        currentBranch = 'HEAD'
+      }
+    }
+    if (protectedBranches.includes(safeBranch) || (!safeBranch && protectedBranches.includes(currentBranch))) {
+      const blockedBranch = safeBranch || currentBranch
+      return `Error: Cannot push directly to protected branch "${blockedBranch}". Please create a feature branch and use a pull request.`
     }
     const pushArgs = safeBranch ? ['push', 'origin', safeBranch] : ['push']
     const { stdout: pushOut } = await execSafe('git', pushArgs, { cwd: getWorkspaceRoot(), timeout: 60000 })
@@ -2443,6 +2491,20 @@ function executeCreateContentCalendar(args: { duration_weeks: number; content_th
   const platforms = args.platforms || ["instagram", "linkedin", "twitter"]
   const weeks = args.duration_weeks || 2
   const frequency = args.posting_frequency || "3x_week"
+
+  // Guard against division by zero when themes or platforms are empty
+  if (themes.length === 0 || platforms.length === 0) {
+    return JSON.stringify({
+      calendar: {
+        duration_weeks: weeks,
+        platforms,
+        frequency,
+        total_posts: 0,
+        entries: [],
+        warning: "Unable to generate calendar: no content themes or platforms specified",
+      },
+    }, null, 2)
+  }
 
   const calendar: { week: number; posts: { day: string; platform: string; theme: string; topic: string }[] }[] = []
   const daysMap: Record<string, number[]> = {

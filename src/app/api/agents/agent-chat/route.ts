@@ -12,7 +12,7 @@ import { runAgentLoop, AgentStep } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { NVIDIA_API_URL, ZAI_API_URL } from "@/lib/ai/endpoints"
-import { SignJWT } from "jose"
+import { generateZaiToken } from "@/lib/ai/jwt-utils"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // ── Analyze file attachments with Z.ai Vision API ──
@@ -22,19 +22,8 @@ async function analyzeFileAttachments(
   fileUrls: string[],
   apiKey: string
 ): Promise<string> {
-  // Generate JWT token for Z.ai
-  let token = apiKey
-  if (!apiKey.startsWith("eyJ")) {
-    const parts = apiKey.split(".")
-    if (parts.length === 2) {
-      const [id, secret] = parts
-      const secretBytes = new TextEncoder().encode(secret)
-      const nowSec = Math.floor(Date.now() / 1000)
-      token = await new SignJWT({ api_key: id, timestamp: Date.now(), exp: nowSec + 3600 })
-        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
-        .sign(secretBytes)
-    }
-  }
+  // Generate JWT token for Z.ai using shared utility
+  const token = await generateZaiToken(apiKey)
 
   const descriptions: string[] = []
 
@@ -102,7 +91,6 @@ async function nvidiaDirectStream(
   systemPrompt: string | undefined,
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
-  onChunk?: (chunk: string) => void,
 ): Promise<{ fullContent: string; fullReasoning: string; inputTokens: number; outputTokens: number }> {
   // Build messages for NVIDIA API
   const nvidiaMessages: Array<{ role: string; content: string }> = [
@@ -156,7 +144,7 @@ async function nvidiaDirectStream(
     if (statusCode === 401 || statusCode === 403) {
       throw new Error(`NVIDIA API: Invalid authentication`)
     }
-    throw new Error(`NVIDIA API error: ${statusCode} - ${errorText.substring(0, 200)}`)
+    throw new Error(`NVIDIA API error: ${statusCode}`)
   }
 
   // Parse the SSE stream from NVIDIA
@@ -181,17 +169,18 @@ async function nvidiaDirectStream(
         stepNumber: 1,
       }
     })}\n\n`))
-  } catch {}
+  } catch { console.warn('[nvidia-stream] Failed to send thinking step') }
 
   while (true) {
     let readResult: { done: boolean; value: Uint8Array | undefined }
     try {
-      readResult = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Stream read timeout')), 120000)
-        ),
-      ])
+      readResult = await new Promise<{ done: boolean; value: Uint8Array | undefined }>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Stream read timeout')), 120000)
+        reader.read().then(
+          (result) => { clearTimeout(timeout); resolve(result as any); },
+          (err) => { clearTimeout(timeout); reject(err); }
+        )
+      })
     } catch (readErr: any) {
       console.warn(`[nvidia-stream] Stream read error: ${readErr.message}`)
       break
@@ -274,6 +263,7 @@ async function nvidiaDirectStream(
     }
   }
 
+  // TODO: Extract processSSEChunk shared function — NVIDIA SSE buffer processing logic is duplicated between main loop and remaining buffer
   // Process remaining buffer
   if (buffer.trim()) {
     const remainingLines = buffer.split("\n")
@@ -337,6 +327,7 @@ async function nvidiaDirectStream(
 }
 
 export async function POST(req: NextRequest) {
+  let chat: any = null // Declared here so outer catch can access it for lock release
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
@@ -347,6 +338,10 @@ export async function POST(req: NextRequest) {
     const { agentId, message, chatId, stream, fileUrls } = await req.json()
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
+    }
+    // Validate message length
+    if (message.length > 10000) {
+      return NextResponse.json({ error: "Message too long (max 10000 characters)" }, { status: 400 })
     }
 
     // Fix #25: Rate limiting for agentic chat
@@ -428,15 +423,35 @@ export async function POST(req: NextRequest) {
           where: { id: chatId },
           data: { lockedBy: null, lockedAt: null, lockedByName: null },
         })
+        // Update in-memory object to reflect DB change
+        chat = { ...chat, lockedBy: null, lockedAt: null, lockedByName: null }
+      }
+
+      // Reject messages to ENDED chats
+      if (chat.status === "ENDED") {
+        return NextResponse.json({ error: "This chat has ended. Please start a new chat." }, { status: 400 })
       }
 
       // Auto-acquire lock when user sends first message to a chat
+      // CRITICAL FIX: Use atomic updateMany to prevent TOCTOU race condition
       if (!chat.lockedBy) {
         const userName = session.user.name || session.user.email || "Unknown"
-        await db.chat.update({
-          where: { id: chatId },
+        const lockResult = await db.chat.updateMany({
+          where: { id: chatId, lockedBy: null },
           data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
         })
+        if (lockResult.count === 0) {
+          // Lock was acquired by another user between our check and update
+          const freshChat = await db.chat.findUnique({ where: { id: chatId }, select: { lockedBy: true, lockedByName: true } })
+          if (freshChat?.lockedBy && freshChat.lockedBy !== userId) {
+            return NextResponse.json({
+              error: `${freshChat.lockedByName || 'Another user'} is currently working on this chat`,
+              lockedBy: freshChat.lockedBy,
+              lockedByName: freshChat.lockedByName,
+            }, { status: 423 })
+          }
+        }
+        chat = { ...chat, lockedBy: userId, lockedAt: new Date(), lockedByName: userName }
       }
     } else {
       chat = await db.chat.create({
@@ -622,7 +637,9 @@ export async function POST(req: NextRequest) {
     let enrichedMessage = message
     if (fileUrls && fileUrls.length > 0 && eligibleKeys.length > 0) {
       try {
-        const fileDescriptions = await analyzeFileAttachments(fileUrls, eligibleKeys[0].keyValue)
+        // FIX: Use Z.ai key for vision analysis (calls glm-4v-flash on Z.ai API), not NVIDIA key
+        const zaiKey = eligibleKeys.find(k => k.provider === "ZAI")?.keyValue || eligibleKeys[0].keyValue
+        const fileDescriptions = await analyzeFileAttachments(fileUrls, zaiKey)
         if (fileDescriptions) {
           enrichedMessage = `${message}\n\n--- User's File Attachments (analyzed via vision) ---\n${fileDescriptions}\n--- End of attachments ---`
         }
@@ -1085,11 +1102,12 @@ export async function POST(req: NextRequest) {
                 const hasCodeChanges = result.usedTools.includes('write_file') || result.usedTools.includes('edit_file')
                 if (hasCodeChanges) {
                   try {
-                    const { exec } = require("child_process")
+                    const { execFile } = require("child_process")
                     const { promisify } = require("util")
-                    const execAsync = promisify(exec)
+                    const execFileAsync = promisify(execFile)
                     const fs = require("fs")
                     const path = require("path")
+                    const os = require("os")
                     const crypto = require("crypto")
                     let projectRoot = process.cwd()
                     try {
@@ -1115,24 +1133,34 @@ export async function POST(req: NextRequest) {
                     }
 
                     // Create a temporary GIT_ASKPASS script that provides the token
+                    // FIX: Use restrictive temp directory instead of world-readable /tmp
                     const askpassId = crypto.randomBytes(8).toString('hex')
-                    const askpassPath = `/tmp/git-askpass-${askpassId}.sh`
-                    const credsPath = `/tmp/git-creds-${askpassId}`
-                    fs.writeFileSync(askpassPath, `#!/bin/sh\ncat ${credsPath}\n`, { mode: 0o755 })
+                    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-creds-'))
+                    const askpassPath = path.join(tmpDir, 'askpass.sh')
+                    const credsPath = path.join(tmpDir, 'creds')
+                    fs.writeFileSync(askpassPath, `#!/bin/sh\ncat "${credsPath}"\n`, { mode: 0o700 })
                     fs.writeFileSync(credsPath, `protocol=https\nhost=${new URL(repoUrl).hostname}\nusername=TrishulHub\npassword=${token}\n`)
+                    fs.chmodSync(credsPath, 0o600)
+
+                    // FIX: Validate projectRoot to prevent command injection
+                    if (!/^[a-zA-Z0-9_\-\/\.]+$/.test(projectRoot)) {
+                      throw new Error('Invalid project root path')
+                    }
+
+                    const gitOpts = { cwd: projectRoot, timeout: 15000, maxBuffer: 1024 * 1024 }
 
                     try {
-                      // Set remote without token
-                      await execAsync(`git -C "${projectRoot}" remote set-url origin ${repoUrl}`, { timeout: 10000 }).catch(() => {})
-                      await execAsync(`git -C "${projectRoot}" add -A`, { timeout: 15000 }).catch(() => {})
-                      const { stdout: statusOut } = await execAsync(`git -C "${projectRoot}" status --porcelain`, { timeout: 10000 }).catch(() => ({ stdout: '' }))
+                      // Set remote without token (use execFileAsync to avoid shell injection)
+                      await execFileAsync('git', ['remote', 'set-url', 'origin', repoUrl], { ...gitOpts, timeout: 10000 }).catch(() => {})
+                      await execFileAsync('git', ['add', '-A'], { ...gitOpts, timeout: 15000 }).catch(() => {})
+                      const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], { ...gitOpts, timeout: 10000 }).catch(() => ({ stdout: '' }))
 
                       if (statusOut.trim()) {
                         // Sanitize commit message (no shell metacharacters)
                         const rawMsg = `Auto-push by ${agent.name}: ${enrichedMessage.substring(0, 80)}`
                         const safeMessage = rawMsg.replace(/[^a-zA-Z0-9 .,\-_@\/:()]/g, ' ').substring(0, 200)
 
-                        await execAsync(`git -C "${projectRoot}" commit -m "${safeMessage}"`, { timeout: 15000 }).catch(() => {})
+                        await execFileAsync('git', ['commit', '-m', safeMessage], { ...gitOpts, timeout: 15000 }).catch(() => {})
 
                         // Fix #18: Commit but do NOT auto-push. Notify admin instead.
                         console.log(`[agent-chat] Code committed by ${agent.name}, push requires approval`)
@@ -1150,9 +1178,10 @@ export async function POST(req: NextRequest) {
                         }).catch(() => {})
                       }
                     } finally {
-                      // CRITICAL: Always clean up credential files
+                      // CRITICAL: Always clean up credential files and temp directory
                       try { fs.unlinkSync(askpassPath) } catch {}
                       try { fs.unlinkSync(credsPath) } catch {}
+                      try { fs.rmdirSync(tmpDir) } catch {}
                     }
                   } catch (gitErr: any) {
                     console.error(`[agent-chat] Auto-push failed:`, gitErr.message)
@@ -1403,7 +1432,8 @@ export async function POST(req: NextRequest) {
         })
 
         // Success!
-        if (key.status === "ERROR") {
+        // FIX: Only update DB key status for non-env keys (env keys don't exist in DB)
+        if (key.status === "ERROR" && !key.id.startsWith("env-")) {
           await db.apiKey.update({ where: { id: key.id }, data: { status: "ACTIVE" } })
         }
 
@@ -1480,11 +1510,15 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        await db.apiKey.update({
-          where: { id: key.id },
-          data: { currentSpend: { increment: result.cost } },
-        })
+        // FIX: Only update DB key spend for non-env keys (env keys don't exist in DB)
+        if (!key.id.startsWith("env-")) {
+          await db.apiKey.update({
+            where: { id: key.id },
+            data: { currentSpend: { increment: result.cost } },
+          })
+        }
 
+        // TODO: Extract triggerAgentAutomation shared function — cross-agent automation triggers are duplicated across multiple agent type paths
         // Cross-agent automation triggers (same as streaming path)
         try {
           const lowerMsg = enrichedMessage.toLowerCase()
@@ -1589,6 +1623,15 @@ export async function POST(req: NextRequest) {
     }, { status: isRateLimit ? 503 : 500 })
 
   } catch (error: any) {
+    // CRITICAL FIX: Release lock + reset isProcessing in outer catch
+    // If error occurs after chat creation/lock (e.g., getToolsForAgentType throws),
+    // the chat would be permanently locked and stuck in processing without this.
+    if (chat?.id) {
+      await db.chat.update({
+        where: { id: chat.id },
+        data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
+      }).catch(() => {})
+    }
     console.error("[agent-chat] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

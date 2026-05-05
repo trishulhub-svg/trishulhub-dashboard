@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+
+// Lock TTL constant — 30 minutes
+const LOCK_TTL_MS = 30 * 60 * 1000
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +21,11 @@ export async function GET(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
+    // Rate limiting for chat-lock GET
+    const { success: getRateOk } = rateLimit(`chat-lock-get:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!getRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
 
     const chatId = req.nextUrl.searchParams.get("chatId")
     if (!chatId) {
@@ -38,7 +47,6 @@ export async function GET(req: NextRequest) {
     }
 
     // Auto-release stale locks (older than 30 minutes)
-    const LOCK_TTL_MS = 30 * 60 * 1000
     if (chat.lockedBy && chat.lockedAt && (Date.now() - new Date(chat.lockedAt).getTime() > LOCK_TTL_MS)) {
       await db.chat.update({
         where: { id: chatId },
@@ -75,6 +83,11 @@ export async function POST(req: NextRequest) {
     const userId = session.user.id
     const userName = session.user.name || session.user.email || "Unknown"
     const userRole = session.user.role
+    // Rate limiting for chat-lock POST
+    const { success: postRateOk } = rateLimit(`chat-lock-post:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!postRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
     const { chatId } = await req.json()
 
     if (!chatId) {
@@ -110,7 +123,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Check if lock is stale (older than 30 minutes)
-      if (chat.lockedAt && Date.now() - new Date(chat.lockedAt).getTime() > 30 * 60 * 1000) {
+      if (chat.lockedAt && Date.now() - new Date(chat.lockedAt).getTime() > LOCK_TTL_MS) {
         // Force-acquire stale lock
         await db.chat.update({
           where: { id: chatId },
@@ -160,30 +173,48 @@ export async function DELETE(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
+    // Rate limiting for chat-lock DELETE
+    const { success: deleteRateOk } = rateLimit(`chat-lock-delete:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!deleteRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
     const chatId = req.nextUrl.searchParams.get("chatId")
 
     if (!chatId) {
       return NextResponse.json({ error: "chatId is required" }, { status: 400 })
     }
 
-    const chat = await db.chat.findUnique({
-      where: { id: chatId },
-      select: { lockedBy: true, lockedByName: true },
-    })
-
-    if (!chat) {
-      return NextResponse.json({ error: "Chat not found" }, { status: 404 })
-    }
-
-    // Only the locker or admin can release
-    if (chat.lockedBy && chat.lockedBy !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-      return NextResponse.json({ error: "Only the user who locked this chat or an admin can release it" }, { status: 403 })
-    }
-
-    await db.chat.update({
-      where: { id: chatId },
+    // CRITICAL FIX: Use atomic updateMany to prevent TOCTOU race condition
+    // Only release the lock if it belongs to the requesting user
+    const releaseResult = await db.chat.updateMany({
+      where: { id: chatId, lockedBy: userId },
       data: { lockedBy: null, lockedAt: null, lockedByName: null },
     })
+
+    if (releaseResult.count === 0) {
+      // Lock doesn't belong to this user — check if admin override
+      const chat = await db.chat.findUnique({
+        where: { id: chatId },
+        select: { lockedBy: true, lockedByName: true },
+      })
+
+      if (!chat) {
+        return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+      }
+
+      // If locked by another user, only admin can release
+      if (chat.lockedBy && chat.lockedBy !== userId) {
+        if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+          return NextResponse.json({ error: "Only the user who locked this chat or an admin can release it" }, { status: 403 })
+        }
+        // Admin override — release anyone's lock
+        await db.chat.updateMany({
+          where: { id: chatId },
+          data: { lockedBy: null, lockedAt: null, lockedByName: null },
+        })
+      }
+      // If lockedBy is null, lock was already released — nothing to do
+    }
 
     return NextResponse.json({ locked: false, message: "Lock released" })
   } catch (error: any) {

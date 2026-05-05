@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // PATCH /api/chats/messages - Update message metadata
 export async function PATCH(req: NextRequest) {
@@ -12,6 +13,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     const userId = session.user.id
+    // Rate limiting for messages PATCH
+    const { success: patchRateOk } = rateLimit(`messages-patch:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!patchRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
     const body = await req.json()
     const { messageId, metadata } = body
 
@@ -36,7 +42,7 @@ export async function PATCH(req: NextRequest) {
     if (metadata !== undefined) {
       const allowedMetaKeys = ['todoItems', 'planSteps', 'apiKeyId', 'cost', 'model', 'agentic', 'totalSteps', 'usedTools', 'steps', 'thinkingPreview', 'autoTodoItems', 'isError', 'retryPrompt', 'attachments'];
       const sanitizedMeta: Record<string, unknown> = {};
-      const metaObj = typeof metadata === "string" ? JSON.parse(metadata) : metadata;
+      const metaObj = typeof metadata === "string" ? (() => { try { return JSON.parse(metadata); } catch { console.warn('[messages] Failed to parse metadata JSON'); return {}; } })() : metadata;
       for (const key of allowedMetaKeys) {
         if (metaObj[key] !== undefined) {
           sanitizedMeta[key] = metaObj[key];
@@ -68,10 +74,21 @@ export async function GET(req: NextRequest) {
     }
 
     const userId = session.user.id
+    // Rate limiting for messages GET
+    const { success: getRateOk } = rateLimit(`messages-get:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!getRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
     const { searchParams } = new URL(req.url)
     const chatId = searchParams.get("chatId")
     const limit = parseInt(searchParams.get("limit") || "50")
     const offset = parseInt(searchParams.get("offset") || "0")
+
+    // Validate limit/offset
+    if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
+      return NextResponse.json({ error: "Invalid limit or offset" }, { status: 400 })
+    }
+    const safeLimit = Math.min(limit, 100)
 
     if (!chatId) {
       return NextResponse.json({ error: "Chat ID is required" }, { status: 400 })
@@ -92,7 +109,7 @@ export async function GET(req: NextRequest) {
       where: { chatId },
       orderBy: { createdAt: "asc" },
       skip: offset,
-      take: limit,
+      take: safeLimit,
     })
 
     const total = await db.chatMessage.count({ where: { chatId } })

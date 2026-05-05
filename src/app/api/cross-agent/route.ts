@@ -19,6 +19,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const direction = searchParams.get("direction") || "incoming" // incoming or outgoing
+    // FIX: Validate direction parameter
+    if (direction && !['incoming', 'outgoing'].includes(direction)) {
+      return NextResponse.json({ error: "Invalid direction parameter. Must be 'incoming' or 'outgoing'." }, { status: 400 })
+    }
     const status = searchParams.get("status")
 
     const where: any = {}
@@ -145,7 +149,12 @@ export async function POST(req: NextRequest) {
           .filter((m: any) => m.role === "user" || m.role === "assistant")
           .map((m: any) => `${m.role === "user" ? "User" : linkedChat.agent?.name || "Assistant"}: ${m.content}`)
           .join("\n")
-        linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}"]:\n${chatMessages}`
+        // Limit shared chat context to prevent excessive data transfer
+        if (chatMessages.length > 50000) {
+          linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}" (truncated)]:\n${chatMessages.substring(0, 50000)}\n... (truncated)`
+        } else {
+          linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}"]:\n${chatMessages}`
+        }
       } else {
         // Share just a summary
         linkedChatContext = `\n\n[Referenced Chat: "${linkedChat.title}" with ${linkedChat.messages.length} messages]`
@@ -224,7 +233,9 @@ export async function POST(req: NextRequest) {
       }
 
       let aiResponse = ""
+      let hasApiKey = false
       if (apiKey) {
+        hasApiKey = true
         const result = await callAI(
           [
             { role: "system", content: systemPrompt },
@@ -250,14 +261,31 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      // FIX: If no API key exists, set status to PENDING instead of PROCESSED
+      // A message with no AI response should not be marked as PROCESSED
+      const msgStatus = hasApiKey ? "PROCESSED" : "PENDING"
+
       // Update cross-agent message status
       await db.crossAgentMessage.update({
         where: { id: crossMsg.id },
-        data: { status: "PROCESSED" },
+        data: { status: msgStatus },
       })
 
       // If there's a linked chat, add the cross-agent message + shared context to it
+      // FIX: Validate that the chatId belongs to the user or agent before injecting system messages
       if (chatId) {
+        const chatExists = await db.chat.findFirst({
+          where: {
+            id: chatId,
+            OR: [
+              { userId },
+              { agentId: fromAgentId },
+            ],
+          },
+        })
+        if (!chatExists) {
+          return NextResponse.json({ error: "Invalid chatId: chat does not belong to this user or agent" }, { status: 400 })
+        }
         const contextNote = linkedChatId 
           ? `\n\n🔗 This message includes context from another agent's chat.`
           : ""
@@ -298,16 +326,20 @@ export async function POST(req: NextRequest) {
       await db.crossAgentMessage.update({
         where: { id: crossMsg.id },
         data: { status: "FAILED" },
-      })
+      }).catch((dbErr: any) => console.error("[cross-agent] Failed to update message status:", dbErr.message))
 
       return NextResponse.json({
         ...crossMsg,
-        aiResponse: "Message delivered but processing failed",
+        aiResponse: "Message delivered but AI processing failed. The agent will process it later.",
       })
     }
   } catch (error: any) {
     console.error("[cross-agent] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    // Provide more specific error messages for common failures
+    if (error.message?.includes("JSON")) {
+      return NextResponse.json({ error: "Invalid request format. Please check your input." }, { status: 400 })
+    }
+    return NextResponse.json({ error: "An error occurred while processing the cross-agent message" }, { status: 500 })
   }
 }
 
@@ -333,19 +365,10 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Message not found" }, { status: 404 })
     }
 
-    // Only admins or the user who created the linked chat can delete
+    // FIX: Only allow SUPER_ADMIN or the agent's assigned admin to delete messages
+    // canChat is too permissive — any user with chat access could delete any message
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-      // Check if user has access to either agent
-      const hasAccess = await db.userAgentAccess.findFirst({
-        where: {
-          userId,
-          agentId: { in: [msg.fromAgentId, msg.toAgentId] },
-          canChat: true,
-        }
-      })
-      if (!hasAccess) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 })
-      }
+      return NextResponse.json({ error: "Only admins can delete cross-agent messages" }, { status: 403 })
     }
 
     await db.crossAgentMessage.delete({ where: { id } })

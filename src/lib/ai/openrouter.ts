@@ -3,8 +3,8 @@
 // Cross-Provider Model Map - Ensures correct model names for each AI provider
 // This fixes the bug where Z.ai models were sent to Google AI API (which doesn't recognize them)
 
-import { SignJWT } from "jose"
 import { OPENROUTER_API_URL, ZAI_API_URL, GOOGLE_AI_API_URL, NVIDIA_API_URL } from "./endpoints"
+import { generateZaiToken } from "./jwt-utils"
 
 interface ChatMessage {
   role: "system" | "user" | "assistant"
@@ -252,6 +252,7 @@ async function callOpenRouterAPI(
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature || 0.7,
     }),
+    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
   })
 
   if (!response.ok) {
@@ -286,38 +287,9 @@ async function callOpenRouterAPI(
 // ━━ Z.ai JWT Token Generation ━━
 // Z.ai API keys come in format: {id}.{secret}
 // The API requires a JWT token signed with the secret, not the raw key
-async function generateZaiToken(apiKey: string): Promise<string> {
-  // If the key already looks like a JWT (starts with eyJ), use it directly
-  if (apiKey.startsWith("eyJ")) {
-    return apiKey
-  }
-
-  // If the key contains a dot, it's in id.secret format — generate JWT
-  const parts = apiKey.split(".")
-  if (parts.length === 2) {
-    const [id, secret] = parts
-    try {
-      const secretBytes = new TextEncoder().encode(secret)
-      const now = Date.now()
-      const nowSec = Math.floor(now / 1000)
-      const token = await new SignJWT({
-        api_key: id,
-        timestamp: now, // Z.ai expects milliseconds
-        exp: nowSec + 3600, // JWT standard: seconds since epoch
-      })
-        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
-        .sign(secretBytes)
-      return token
-    } catch (err) {
-      console.error("[zai] JWT generation failed, using raw key:", err)
-      // Fall back to using the raw key
-      return apiKey
-    }
-  }
-
-  // If no dot and not a JWT, use as-is (might be a newer format)
-  return apiKey
-}
+// NOTE: generateZaiToken is now in shared jwt-utils.ts — this local alias
+// re-exports it for backward compatibility with any internal references.
+const _generateZaiToken = generateZaiToken
 
 // ━━ Z.ai Direct API ━━
 // Includes automatic retry with exponential backoff for temporary rate limits
@@ -352,6 +324,7 @@ async function callZaiAPI(
         max_tokens: options?.maxTokens || 4096,
         temperature: options?.temperature || 0.7,
       }),
+      signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
     })
 
     if (!response.ok) {
@@ -456,6 +429,7 @@ async function callGoogleAIAPI(
       "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
   })
 
   if (!response.ok) {
@@ -515,6 +489,7 @@ async function callNvidiaAPI(
         clear_thinking: false,
       },
     }),
+    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
   })
 
   if (!response.ok) {

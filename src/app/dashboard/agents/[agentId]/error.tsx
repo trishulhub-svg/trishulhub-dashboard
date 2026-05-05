@@ -65,12 +65,15 @@ export default function AgentChatError({
     actionSuggestion = "Try refreshing the page. The error has been logged for investigation.";
   }
 
-  const copyErrorDetails = () => {
+  const copyErrorDetails = async () => {
     const details = `Error: ${msg}\n\nStack: ${error.stack || "N/A"}\n\nDigest: ${error.digest || "N/A"}`;
-    navigator.clipboard.writeText(details).then(() => {
+    try {
+      await navigator.clipboard.writeText(details);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    } catch {
+      // Clipboard not available in insecure contexts
+    }
   };
 
   return (

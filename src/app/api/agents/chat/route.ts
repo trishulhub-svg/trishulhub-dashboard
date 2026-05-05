@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
     if (!agentId || !message) {
       return NextResponse.json({ error: "Agent ID and message are required" }, { status: 400 })
     }
+    // Validate message length
+    if (message.length > 10000) {
+      return NextResponse.json({ error: "Message too long (max 10000 characters)" }, { status: 400 })
+    }
 
     // Rate limiting for non-agentic chat
     const { success: rateLimitOk } = rateLimit(
@@ -116,11 +120,24 @@ export async function POST(req: NextRequest) {
       }
 
       // Auto-acquire lock when user sends message to a chat
+      // CRITICAL FIX: Use atomic updateMany to prevent TOCTOU race condition
       if (!chat.lockedBy) {
-        await db.chat.update({
-          where: { id: chatId },
+        const lockResult = await db.chat.updateMany({
+          where: { id: chatId, lockedBy: null },
           data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
         })
+        if (lockResult.count === 0) {
+          // Lock was acquired by another user between our check and update
+          const freshChat = await db.chat.findUnique({ where: { id: chatId }, select: { lockedBy: true, lockedByName: true } })
+          if (freshChat?.lockedBy && freshChat.lockedBy !== userId) {
+            return NextResponse.json({
+              error: `${freshChat.lockedByName || 'Another user'} is currently working on this chat`,
+              lockedBy: freshChat.lockedBy,
+              lockedByName: freshChat.lockedByName,
+            }, { status: 423 })
+          }
+        }
+        chat.lockedBy = userId
       }
     } else {
       // Create new chat (already locked by creator)
@@ -281,6 +298,10 @@ export async function POST(req: NextRequest) {
     // Add current user message
     const hasFiles = fileUrls && fileUrls.length > 0
     if (hasFiles) {
+      // FIX: Only allow data: URLs for file attachments (prevent SSRF)
+      if (fileUrls.some((url: string) => !url.startsWith("data:"))) {
+        return NextResponse.json({ error: "Only data: URLs are supported for file attachments" }, { status: 400 })
+      }
       const contentParts: any[] = [{ type: "text", text: message }]
       if (fileUrls) {
         for (const url of fileUrls) {
@@ -309,9 +330,9 @@ export async function POST(req: NextRequest) {
       // Mark exhausted/invalid keys based on what was tried
       // (the failover function already tried all keys, so we just need to update statuses)
 
-      // If the used key was previously ERROR, mark it as ACTIVE
+      // FIX: Only update DB key status for non-env keys (env keys don't exist in DB)
       const usedKey = eligibleKeys.find(k => k.id === result.apiKeyId)
-      if (usedKey && usedKey.status === "ERROR") {
+      if (usedKey && usedKey.status === "ERROR" && !usedKey.id.startsWith("env-")) {
         await db.apiKey.update({
           where: { id: usedKey.id },
           data: { status: "ACTIVE" }
@@ -398,17 +419,19 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Update API key spend
-      await db.apiKey.update({
-        where: { id: result.apiKeyId },
-        data: {
-          currentSpend: { increment: result.cost },
-          // Check if budget exceeded
-          ...(usedKey && usedKey.monthlyBudget > 0 && (usedKey.currentSpend + result.cost) >= usedKey.monthlyBudget
-            ? { status: "EXHAUSTED" }
-            : {}),
-        },
-      })
+      // FIX: Only update DB key spend for non-env keys (env keys don't exist in DB)
+      if (!result.apiKeyId.startsWith("env-")) {
+        await db.apiKey.update({
+          where: { id: result.apiKeyId },
+          data: {
+            currentSpend: { increment: result.cost },
+            // Check if budget exceeded
+            ...(usedKey && usedKey.monthlyBudget > 0 && (usedKey.currentSpend + result.cost) >= usedKey.monthlyBudget
+              ? { status: "EXHAUSTED" }
+              : {}),
+          },
+        })
+      }
 
       // Mark chat as no longer processing and release lock
       await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
@@ -432,8 +455,8 @@ export async function POST(req: NextRequest) {
       // Mark chat as no longer processing and release lock on error
       await db.chat.update({ where: { id: chat.id }, data: { isProcessing: false } }).catch(() => {})
       await db.chat.update({ where: { id: chat.id }, data: { lockedBy: null, lockedAt: null, lockedByName: null } }).catch(() => {})
-      // Keep agent ERROR status for visibility
-      await db.agent.update({ where: { id: agentId }, data: { status: "ERROR" } })
+      // FIX: Do NOT set agent.status = ERROR globally — a single failed chat should not affect all users
+      // agent-chat/route.ts explicitly does not set agent status; this must be consistent
 
       // Handle specific error types
       if (apiError instanceof AllKeysExhaustedError) {
@@ -496,7 +519,6 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             error: "AI model is currently busy (rate limited). Please try again in a moment. This is temporary and your API keys are still valid.",
             chatId: chat.id,
-            details: apiError.errors,
             hint: "The free model (glm-4.7-flash) can be busy at peak times. Try again in 30-60 seconds, or add a paid model API key for more reliable access.",
           }, { status: 503 })
         }
@@ -504,7 +526,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           error: `All API keys exhausted or failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to your existing key at Dashboard > API Keys.`,
           chatId: chat.id,
-          details: apiError.errors,
           hint: "If your Z.ai key shows 'insufficient balance', recharge at open.bigmodel.cn or add an OpenRouter/Google AI key as backup.",
         }, { status: 500 })
       }

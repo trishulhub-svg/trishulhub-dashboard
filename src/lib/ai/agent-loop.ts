@@ -8,6 +8,24 @@ import { SignJWT } from "jose"
 import { AgentTool, getToolsForAgentType, executeToolCall } from "./agent-tools"
 import { ZAI_API_URL, NVIDIA_API_URL } from "./endpoints"
 
+// ━━ Model Pricing Data ━━
+// FIX: Cost calculation for agent loop — previously always returned $0
+const MODEL_PRICING: Record<string, { inputPer1k: number; outputPer1k: number }> = {
+  "glm-4.5-flash": { inputPer1k: 0, outputPer1k: 0 },     // Free
+  "glm-4.7-flash": { inputPer1k: 0, outputPer1k: 0 },     // Free
+  "glm-4-plus": { inputPer1k: 1.5, outputPer1k: 6.0 },    // $1.50/$6.00 per 1M tokens
+  "glm-4.5-air": { inputPer1k: 0.5, outputPer1k: 2.0 },   // $0.50/$2.00 per 1M tokens
+  "glm-5.1": { inputPer1k: 2.0, outputPer1k: 8.0 },       // $2.00/$8.00 per 1M tokens
+  "z-ai/glm-5.1": { inputPer1k: 2.0, outputPer1k: 8.0 },  // Same model, NVIDIA endpoint
+}
+
+function calculateAgentCost(model: string, inputTokens: number, outputTokens: number): number {
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING["glm-4.5-flash"]
+  const inputCost = (inputTokens / 1000) * pricing.inputPer1k
+  const outputCost = (outputTokens / 1000) * pricing.outputPer1k
+  return Math.round((inputCost + outputCost) * 10000) / 10000
+}
+
 // ━━ Types ━━
 export interface AgentStep {
   type: "thinking" | "tool_call" | "tool_result" | "response" | "plan" | "error"
@@ -705,6 +723,7 @@ export async function runAgentLoop(
   messages.push({ role: "user", content: userMessage })
 
   let emptyResponseCount = 0
+  let totalContextTokens = 0 // FIX: Track context size to prevent exceeding model limits
 
   // Detect which provider to use based on model name or explicit provider option
   const useNvidia = options?.provider === "NVIDIA" || isNvidiaModel(model)
@@ -732,6 +751,23 @@ export async function runAgentLoop(
 
       totalInputTokens += result.inputTokens
       totalOutputTokens += result.outputTokens
+
+      // FIX: Track context token usage to prevent exceeding model limits
+      // Estimate context tokens: total input tokens include the full context each iteration
+      totalContextTokens = result.inputTokens
+      const MAX_CONTEXT_TOKENS = 120000 // Safe limit for most models (128K context window)
+      if (totalContextTokens > MAX_CONTEXT_TOKENS) {
+        const contextWarning: AgentStep = {
+          type: "error",
+          content: `Context size (${totalContextTokens} tokens) approaching model limit. Summarizing and wrapping up.`,
+          stepNumber: stepCount,
+          timestamp: Date.now(),
+        }
+        steps.push(contextWarning)
+        options?.onStep?.(contextWarning)
+        // Force a final response instead of continuing the loop
+        break
+      }
 
       // Capture thinking content
       if (result.thinkingContent) {
@@ -768,6 +804,9 @@ export async function runAgentLoop(
             toolArgs = { _raw: toolCall.function.arguments }
           }
 
+          // TODO: Dedup detection is fragile — comparing JSON.stringify of args can fail
+          // for semantically identical calls with different key ordering or whitespace.
+          // Consider normalizing args or using a semantic hash instead.
           // Duplicate tool call detection - prevent infinite loops
           const argsKey = `${toolName}:${JSON.stringify(toolArgs)}`
           const recentArgs = steps.slice(-6).filter(s => s.type === "tool_call" && s.toolName === toolName).map(s => `${s.toolName}:${JSON.stringify((s as any).toolArgs || {})}`)
@@ -917,7 +956,7 @@ export async function runAgentLoop(
           totalOutputTokens,
           model,
           provider: providerName,
-          cost: 0,
+          cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
           apiKeyId: "",
           usedTools: Array.from(usedTools),
           thinkingContent: finalThinkingContent || undefined,
@@ -925,6 +964,8 @@ export async function runAgentLoop(
       }
       
       if (responseContent) {
+        // FIX: Reset emptyResponseCount when a non-empty response is received
+        emptyResponseCount = 0
         // Model provided a text response — use it, with clean enhancement
         let enhancedResponse = responseContent
         const writeSteps = steps.filter(s => s.type === "tool_call" && (s.toolName === "write_file" || s.toolName === "edit_file"))
@@ -1005,7 +1046,7 @@ export async function runAgentLoop(
           totalOutputTokens,
           model,
           provider: providerName,
-          cost: 0, // GLM-4.5-Flash is free
+          cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
           apiKeyId: "", // Will be set by caller
           usedTools: Array.from(usedTools),
           thinkingContent: finalThinkingContent || undefined,
@@ -1028,7 +1069,7 @@ export async function runAgentLoop(
             totalOutputTokens,
             model,
             provider: providerName,
-            cost: 0,
+            cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
             apiKeyId: "",
             usedTools: Array.from(usedTools),
             thinkingContent: finalThinkingContent || undefined,
@@ -1042,7 +1083,7 @@ export async function runAgentLoop(
           totalOutputTokens,
           model,
           provider: providerName,
-          cost: 0,
+          cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
           apiKeyId: "",
           usedTools: Array.from(usedTools),
           thinkingContent: finalThinkingContent || undefined,
@@ -1109,7 +1150,7 @@ export async function runAgentLoop(
                 totalOutputTokens,
                 model,
                 provider: providerName,
-                cost: 0,
+                cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
                 apiKeyId: "",
                 usedTools: Array.from(usedTools),
                 thinkingContent: finalThinkingContent || undefined,
@@ -1187,7 +1228,7 @@ export async function runAgentLoop(
         totalOutputTokens,
         model,
         provider: providerName,
-        cost: 0,
+        cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
         apiKeyId: "",
         usedTools: Array.from(usedTools),
         thinkingContent: finalThinkingContent || undefined,
@@ -1205,7 +1246,7 @@ export async function runAgentLoop(
     totalOutputTokens,
     model,
     provider: providerName,
-    cost: 0,
+    cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
     apiKeyId: "",
     usedTools: Array.from(usedTools),
   }

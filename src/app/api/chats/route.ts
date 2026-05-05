@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/chats - List chats for an agent or all chats for user
 // ADMIN/SUPER_ADMIN: Can see all users' chats (grouped by user in frontend)
@@ -15,6 +16,12 @@ export async function GET(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
+    // Rate limiting for chats GET
+    const { success: getRateOk } = rateLimit(`chats-get:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!getRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
     const statusParam = searchParams.get("status") || "ACTIVE"
@@ -30,6 +37,7 @@ export async function GET(req: NextRequest) {
     }
     if (agentId) where.agentId = agentId
 
+    // TODO: Add pagination (limit/offset) to chats GET endpoint
     const chats = await db.chat.findMany({
       where,
       include: {
@@ -68,6 +76,12 @@ export async function POST(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
+    // Rate limiting for chats POST
+    const { success: postRateOk } = rateLimit(`chats-post:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!postRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const { agentId, title } = await req.json()
 
     if (!agentId) {
@@ -117,6 +131,23 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Chat ID is required" }, { status: 400 })
     }
 
+    // Rate limiting for chats PATCH
+    const { success: patchRateOk } = rateLimit(`chats-patch:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!patchRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // Validate status against allowed values
+    const validStatuses = ["ACTIVE", "ENDED", "ARCHIVED"]
+    if (status && !validStatuses.includes(status)) {
+      return NextResponse.json({ error: `Invalid status. Allowed: ${validStatuses.join(', ')}` }, { status: 400 })
+    }
+
+    // Validate title length
+    if (title && title.length > 200) {
+      return NextResponse.json({ error: "Title too long (max 200 characters)" }, { status: 400 })
+    }
+
     const chat = await db.chat.findUnique({ where: { id } })
     // ADMIN/SUPER_ADMIN can update any chat; other users can only update their own
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
@@ -163,6 +194,11 @@ export async function DELETE(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
+    // Rate limiting for chats DELETE
+    const { success: deleteRateOk } = rateLimit(`chats-delete:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!deleteRateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 

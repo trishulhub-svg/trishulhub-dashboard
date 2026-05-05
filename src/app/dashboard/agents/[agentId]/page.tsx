@@ -13,7 +13,7 @@ import {
   MoreVertical, Search, SendHorizontal, ShieldAlert,
   Wrench, Brain, Eye, FileCode, Globe, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User,
+  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User, Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -259,9 +259,13 @@ function SafeMarkdown({ content }: { content: string }) {
                     <span>{match ? match[1] : "code"}</span>
                     <button
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        navigator.clipboard.writeText(codeStr);
-                        toast.success("Code copied!");
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(codeStr);
+                          toast.success("Code copied!");
+                        } catch {
+                          toast.error("Failed to copy");
+                        }
                       }}
                       aria-label="Copy code"
                       type="button"
@@ -304,6 +308,12 @@ export default function AgentChatPage() {
   const { data: session, status: sessionStatus } = useSession();
   const isMobile = useIsMobile();
   const agentId = (params?.agentId as string) || "";
+
+  // Helper: Handle session expiration (401) by redirecting to login
+  const handleSessionExpired = useCallback(() => {
+    toast.error("Session expired. Please log in again.");
+    router.push("/login");
+  }, [router]);
 
   // Core state
   const [agent, setAgent] = useState<AgentData | null>(null);
@@ -397,7 +407,7 @@ export default function AgentChatPage() {
   useEffect(() => { planStepsRef.current = planSteps; }, [planSteps]);
 
   // File upload state
-  const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean }>>([]);
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ url: string; name: string; type: string; isImage: boolean; size?: number }>>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -459,7 +469,7 @@ export default function AgentChatPage() {
   );
 
   const Icon = agent ? (agentIcons[agent.type] || Bot) : Bot;
-  const agentConfig = agent ? AGENT_TYPES[agent.type as AgentType] : null;
+  const agentConfig = agent ? (AGENT_TYPES[agent.type as AgentType] ?? null) : null;
   const statusColor = agent ? (STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400") : "bg-gray-400";
 
   // ── Fetch Agent ──
@@ -637,19 +647,20 @@ export default function AgentChatPage() {
     setActivatingStepId(null);
     autoTodoCounterRef.current = 0;
     // 5. Clear sessionStorage processing marker for the current chat
-    if (activeChatId && !options?.keepChatId) {
-      markProcessingEnd(activeChatId);
+    const currentChatId = activeChatIdRef.current;
+    if (currentChatId && !options?.keepChatId) {
+      markProcessingEnd(currentChatId);
     }
     // 6. Clear DB isProcessing flag for the current chat
-    if (activeChatId && !options?.keepChatId) {
+    if (currentChatId && !options?.keepChatId) {
       fetch("/api/chats", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: activeChatId, isProcessing: false }),
+        body: JSON.stringify({ id: currentChatId, isProcessing: false }),
       }).catch(() => {});
     }
-  }, [activeChatId, markProcessingEnd]);
+  }, [markProcessingEnd]);
 
   const getProcessingInfo = useCallback((cId: string): { chatId: string; agentId: string; startedAt: number; lastMessageCount: number } | null => {
     try {
@@ -714,9 +725,7 @@ export default function AgentChatPage() {
           setMessages(msgs);
         }
 
-        // BUG FIX: Also check isProcessing flag from chat data
-        // If backend set isProcessing=false but there's no new assistant message,
-        // it means the agent errored without saving a response
+        // TODO: startPollingForCompletion fetches full chat list every 10s — needs a dedicated /api/chats/is-processing?chatId=xxx endpoint
         if (checkCount % 4 === 0) { // Check every 10 seconds (4 * 2.5s)
           try {
             const chatRes = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED`, { credentials: "include" });
@@ -732,7 +741,7 @@ export default function AgentChatPage() {
                 } else {
                   // Backend finished but no new assistant message - agent errored
                   setSending(false);
-                  setTimeout(() => {
+                  animationTimeoutRef.current = setTimeout(() => {
                     setIsAgentic(false);
                     setLiveSteps([]);
                   }, 300);
@@ -896,6 +905,13 @@ export default function AgentChatPage() {
         clearTimeout(animationTimeoutRef.current);
         animationTimeoutRef.current = null;
       }
+      // HIGH FIX #13: Abort the SSE stream on unmount. Without this, if the user
+      // navigates away during streaming, the stream keeps running and tries to update
+      // state on an unmounted component.
+      if (abortControllerRef.current) {
+        try { abortControllerRef.current.abort(); } catch {}
+        abortControllerRef.current = null;
+      }
     };
   }, []);
 
@@ -932,8 +948,8 @@ export default function AgentChatPage() {
   // scrollIntoView scrolls ALL scrollable ancestors (including <main> which was a scroll
   // container), causing the wrong element to scroll. Direct scrollTop targets only the
   // ScrollArea viewport.
+  // TODO: Consolidate three scroll effects into a single effect with proper conditions to prevent janky scrolling
   useEffect(() => {
-    // Only auto-scroll if user is near the bottom
     if (!isUserAtBottomRef.current && userScrolledUpRef.current) {
       return; // User scrolled up — don't force them down
     }
@@ -1021,6 +1037,11 @@ export default function AgentChatPage() {
                 body: JSON.stringify({ id: notif.id, isRead: true }),
               }).catch(() => {});
             }
+          }
+          // Prune shownNotifIdsRef if it grows too large to prevent unbounded memory growth
+          if (shownNotifIdsRef.current.size > 500) {
+            const entries = Array.from(shownNotifIdsRef.current);
+            shownNotifIdsRef.current = new Set(entries.slice(-200));
           }
           // If any new task completion notifications found, refresh the tasks list
           if (taskNotifs.length > 0) {
@@ -1111,6 +1132,19 @@ export default function AgentChatPage() {
       } catch {}
     }
 
+    // HIGH FIX #6: Acquire the lock for the new chat after the lock check passes.
+    // Without this, two users can view and type in the same chat simultaneously.
+    try {
+      await fetch('/api/chat-lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId }),
+        credentials: 'include',
+      });
+    } catch {
+      // Continue even if lock acquisition fails
+    }
+
     setActiveChatId(chatId);
     // Note: todoItems already reset above before the async lock check
     autoTodoCounterRef.current = 0;
@@ -1143,7 +1177,9 @@ export default function AgentChatPage() {
         startPollingForCompletion(chatId, procInfo.lastMessageCount);
       }
       // Only restore from message metadata if chat.todoItems didn't have data
-      if ((!chatData?.todoItems || JSON.parse(chatData.todoItems || '[]').length === 0) && loadedMsgs && loadedMsgs.length > 0) {
+      let parsedTodoItemsLength = 0;
+      try { parsedTodoItemsLength = JSON.parse(chatData?.todoItems || '[]').length; } catch { parsedTodoItemsLength = 0; }
+      if ((!chatData?.todoItems || parsedTodoItemsLength === 0) && loadedMsgs && loadedMsgs.length > 0) {
         const lastAssistantMsg = [...loadedMsgs].reverse().find(m => m.role === 'assistant');
         if (lastAssistantMsg?.metadata) {
           try {
@@ -1181,12 +1217,16 @@ export default function AgentChatPage() {
 
   // ── Release chat lock ──
   const releaseChatLock = useCallback(async () => {
-    if (!activeChatId) return;
+    // HIGH FIX #7: Use activeChatIdRef.current instead of stale closure activeChatId.
+    // If called from a delayed context (e.g., after chat switch), the closure value
+    // may be stale and release the wrong chat's lock.
+    const chatIdToRelease = activeChatIdRef.current;
+    if (!chatIdToRelease) return;
     try {
-      await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
+      await fetch(`/api/chat-lock?chatId=${chatIdToRelease}`, { method: "DELETE", credentials: "include" });
       setChatLockInfo({ lockedBy: null, lockedByName: null, lockedAt: null });
     } catch {}
-  }, [activeChatId]);
+  }, []);
 
   // ── End Chat (release lock + set status to ENDED) ──
   const endChat = useCallback(async () => {
@@ -1300,12 +1340,22 @@ export default function AgentChatPage() {
 
         const isImage = IMAGE_EXTENSIONS.includes(ext);
 
-        setAttachedFiles((prev) => [...prev, {
+        const newFile = {
           url: dataUrl,
           name: file.name,
           type: file.type || `application/${ext}`,
           isImage,
-        }]);
+          size: file.size,
+        };
+        setAttachedFiles((prev) => {
+          const updated = [...prev, newFile];
+          const totalSize = updated.reduce((sum, f) => sum + (f.size || 0), 0);
+          if (totalSize > 20 * 1024 * 1024) {
+            toast.error("Total attachments exceed 20MB limit");
+            return prev;
+          }
+          return updated;
+        });
       }
     } catch (err: any) {
       toast.error("File processing failed: " + err.message);
@@ -1416,6 +1466,10 @@ export default function AgentChatPage() {
     const finallyChatId = resolvedChatId || activeChatId;
     // Track the AbortController for cleanup in the finally block
     let currentStreamAbortController: AbortController | null = null;
+    // CRITICAL FIX #2: Track whether polling was started so the finally block
+    // doesn't override setSending(true) from startPollingForCompletion.
+    // Must be defined OUTSIDE the try block so the finally block can access it.
+    let pollingStarted = false;
 
     try {
       const endpoint = useAgentic ? "/api/agents/agent-chat" : "/api/agents/chat";
@@ -1443,8 +1497,10 @@ export default function AgentChatPage() {
           signal: streamAbortController.signal,
         });
 
+        if (res.status === 401) { handleSessionExpired(); return; }
         if (!res.ok) {
-          const error = await res.json();
+          let error: any = {};
+          try { error = await res.json(); } catch { toast.error("Server returned invalid response"); return; }
           const errorMsg = error.error || "Failed to get response";
           if (error.steps) setAgentSteps(error.steps);
           toast.error(errorMsg, { duration: 6000 });
@@ -1496,12 +1552,14 @@ export default function AgentChatPage() {
         while (true) {
           // GUARD: Check if the stream was aborted (user switched chats, ended, or deleted)
           if (streamAbortController.signal.aborted) {
+            try { reader.cancel(); } catch {}
             break;
           }
           // GUARD: Check if the user has switched to a different chat
           // If activeChatId changed, stop processing this stream — it's for a different chat now
           // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
           if (activeChatIdRef.current !== streamChatId && streamChatId !== null) {
+            try { reader.cancel(); } catch {}
             break;
           }
 
@@ -2054,6 +2112,10 @@ export default function AgentChatPage() {
                   },
                 ]);
                 setLastFailedPrompt(userContent);
+                // HIGH FIX #15: Break out of the while loop after error — without this,
+                // the stream continues processing events after the error, potentially
+                // overwriting the error state.
+                break;
               }
             } catch {
               // Ignore non-JSON lines
@@ -2061,7 +2123,14 @@ export default function AgentChatPage() {
           }
         }
 
+        // CRITICAL FIX #5: Release the reader lock after the while loop ends.
+        // Without this, the reader's lock on the response body is never released,
+        // preventing garbage collection and causing memory leaks on long sessions.
+        try { reader.releaseLock(); } catch {}
+
         // Process remaining buffer content (Bug 2: SSE buffer not fully processed)
+        // TODO: Extract processSSEEvent shared function — buffer drain duplicates ~200 lines from main SSE loop
+        // TODO: Buffer drain TODO generation uses simplified bufPrompt instead of full autoPrompt
         if (buffer.trim()) {
           const remainingLines = buffer.split("\n");
           for (const line of remainingLines) {
@@ -2257,6 +2326,17 @@ export default function AgentChatPage() {
                 const errMsg = event.message || "Agent execution error";
                 const isRateLimit = errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429") || errMsg.includes("try again");
                 toast.error(isRateLimit ? "AI model is experiencing high demand. Click retry to try again." : errMsg, { duration: 8000 });
+                // Add error message to chat (same as main loop)
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `error-buf-${Date.now()}`,
+                    chatId: currentChatId || "",
+                    role: "system" as const,
+                    content: isRateLimit ? "AI model is currently experiencing high demand. Please try again in a moment." : `Stream error: ${errMsg}`,
+                    createdAt: new Date().toISOString(),
+                  },
+                ]);
               }
             } catch {}
           }
@@ -2277,7 +2357,8 @@ export default function AgentChatPage() {
               const checkData = await checkRes.json();
               const dbMsgs = (checkData.messages || checkData) as ChatMessage[];
               // Find an assistant message that wasn't in our original message list
-              const existingIds = new Set(messages.map(m => m.id));
+              // CRITICAL FIX #3: Use messagesRef.current instead of stale closure `messages`
+              const existingIds = new Set(messagesRef.current.map(m => m.id));
               const newAssistantMsg = [...dbMsgs].reverse().find(
                 (m: ChatMessage) => m.role === 'assistant' && !existingIds.has(m.id)
               );
@@ -2306,8 +2387,10 @@ export default function AgentChatPage() {
         // If still no finalData after backend check, start polling instead of showing error immediately
         if (!finalData && resolvedChatId) {
           // Start polling for the response - the backend may still be processing
+          pollingStarted = true;
           startPollingForCompletion(resolvedChatId, messagesRef.current.length + 1);
-          setSending(false);
+          // Don't call setSending(false) here — startPollingForCompletion already set it to true
+          // and the finally block will skip it because pollingStarted = true
           // Don't show error - the polling will handle it
         } else if (!finalData) {
           // No chatId either - show error only as last resort
@@ -2374,6 +2457,11 @@ export default function AgentChatPage() {
         }
       } else {
         // Simple chat (non-agentic) - standard request
+        // HIGH FIX #14: Create an AbortController for the non-agentic path.
+        // Without this, there's no way to abort the request if the user switches chats or cancels.
+        const nonAgenticController = new AbortController();
+        abortControllerRef.current = nonAgenticController;
+        currentStreamAbortController = nonAgenticController;
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2383,10 +2471,13 @@ export default function AgentChatPage() {
             message: userContent,
             chatId: resolvedChatId || undefined,
           }),
+          signal: nonAgenticController.signal,
         });
 
+        if (res.status === 401) { handleSessionExpired(); return; }
         if (res.ok) {
-          const data = await res.json();
+          let data: any;
+          try { data = await res.json(); } catch { toast.error("Server returned invalid response"); return; }
           const assistantMsg: ChatMessage = {
             id: data.messageId || `temp-assistant-${Date.now()}`,
             chatId: data.chatId || currentChatId || "",
@@ -2409,7 +2500,8 @@ export default function AgentChatPage() {
             await fetchChats();
           }
         } else {
-          const errorData = await res.json();
+          let errorData: any = {};
+          try { errorData = await res.json(); } catch { /* non-JSON response */ }
           toast.error(errorData.error || "Failed to get response", { duration: 6000 });
           // Keep user message, add error with retry
           setLastFailedPrompt(userContent);
@@ -2453,12 +2545,17 @@ export default function AgentChatPage() {
       // which would nuke the new chat's sending/isAgentic/abortController state.
       const stillOnSameChat = activeChatIdRef.current === finallyChatId;
 
-      if (stillOnSameChat) {
+      // CRITICAL FIX #1 + #2: Only set sending=false if polling hasn't taken over.
+      // When startPollingForCompletion is called, it sets sending=true — the finally block
+      // must not override it. Also removed the duplicate unconditional setSending(false)
+      // that made the stillOnSameChat guard useless.
+      if (stillOnSameChat && !pollingStarted) {
         setSending(false);
       }
-      // CRITICAL FIX: Always reset sendingRef to prevent permanent lockout
-      sendingRef.current = false;
-      setSending(false);
+      // Always reset sendingRef to prevent permanent lockout — unless polling is managing it
+      if (!pollingStarted) {
+        sendingRef.current = false;
+      }
       // Clear the abort controller ref ONLY if it still belongs to this stream
       if (abortControllerRef.current === currentStreamAbortController) {
         abortControllerRef.current = null;
@@ -2496,11 +2593,20 @@ export default function AgentChatPage() {
         pollingRef.current = null;
       }
       // Mark all plan steps as completed when done
-      if (stillOnSameChat && planSteps.length > 0) {
+      // CRITICAL FIX #4: Use planStepsRef.current instead of stale closure `planSteps`
+      if (stillOnSameChat && planStepsRef.current.length > 0) {
         setPlanSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
       }
     }
+  // TODO: Move input to ref, use refs for planSteps/todoItems deps — HIGH #16
+  // handleSend has input, sending, planSteps, todoItems in deps causing excessive re-renders.
+  // Every keystroke, every streaming step update, every TODO change re-creates handleSend.
   }, [input, sending, uploading, attachedFiles, agentId, activeChatId, fetchChats, agent?.type, features?.agentic, planSteps, markProcessingStart, markProcessingEnd, todoItems]);
+
+  // HIGH FIX #11: Ref to always point to the latest handleSend, avoiding stale closures
+  // when called from delayed contexts (e.g., setTimeout in handleRetry).
+  const handleSendRef = useRef<() => void>(() => {});
+  useEffect(() => { handleSendRef.current = handleSend; }, [handleSend]);
 
   // ── Retry failed prompt ──
   const handleRetry = useCallback((prompt: string) => {
@@ -2520,14 +2626,18 @@ export default function AgentChatPage() {
     // Use a flag to skip adding duplicate user message
     skipDuplicateUserMsgRef.current = true;
     // Trigger send after a tick to let state settle
+    // HIGH FIX #11: Use handleSendRef instead of stale closure handleSend.
+    // handleSend changes frequently due to deps on input, sending, planSteps, todoItems,
+    // so the closure reference can be stale by the time setTimeout fires.
     setTimeout(() => {
-      handleSend();
+      handleSendRef.current();
     }, 50);
-  }, [handleSend]);
+  }, []);
 
   // ── Activate a TODO plan step ──
   const handleActivateTodo = useCallback(async (item: typeof todoItems[0]) => {
-    if (sending || item.status === 'running' || item.status === 'completed') return;
+    // HIGH FIX #17: Use sendingRef.current instead of stale closure `sending`
+    if (sendingRef.current || item.status === 'running' || item.status === 'completed') return;
 
     // Update the item status to running
     const itemId = item.id;
@@ -2540,22 +2650,20 @@ export default function AgentChatPage() {
     // Set the direct message ref and trigger handleSend
     directMessageRef.current = prefixedPrompt;
 
-    let success = false;
+    // HIGH FIX #12: Don't mark TODO as completed prematurely.
+    // handleSend resolves when the function completes, NOT when the agent finishes
+    // processing. The SSE stream may still be running. Instead, rely on the auto-TODO
+    // logic in handleSend that updates items from tool_result events.
     try {
       await handleSend();
-      // If handleSend completed without throwing, mark as completed
-      success = true;
     } catch {
       // On error, mark the item as failed
       setTodoItems(prev => prev.map(t => t.id === itemId ? { ...t, status: 'failed' as const, result: 'Failed to execute step' } : t));
     } finally {
-      if (success && activeTodoIdRef.current === itemId) {
-        setTodoItems(prev => prev.map(t => t.id === itemId ? { ...t, status: 'completed' as const, result: 'Step completed successfully' } : t));
-      }
       setActivatingStepId(null);
       activeTodoIdRef.current = null;
     }
-  }, [sending, todoItems, handleSend]);
+  }, [todoItems, handleSend]);
 
   // ── Cancel waiting for agent response ──
   const handleCancelWaiting = useCallback(() => {
@@ -2570,6 +2678,14 @@ export default function AgentChatPage() {
     setSending(false);
     setIsAgentic(false);
     setLiveSteps([]);
+    // HIGH FIX #8: Reset NVIDIA streaming refs and state that were missing.
+    // Without these, if the user cancels during NVIDIA streaming, the streaming
+    // text and indicator persist.
+    setIsNvidiaStreaming(false);
+    setStreamingText("");
+    setAgentSteps([]);
+    nvidiaReceivedContentRef.current = false;
+    nvidiaReasoningTextRef.current = "";
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -2642,17 +2758,17 @@ export default function AgentChatPage() {
   }, [todoItems, activeChatId]); // FIX: `messages` removed from deps
 
   // ── Key handler ──
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       // Block sending while uploading
       if (uploading) return;
       handleSend();
     }
-  };
+  }, [handleSend, uploading]);
 
   // ── Chat CRUD ──
-  const renameChat = async (chatId: string, title: string) => {
+  const renameChat = useCallback(async (chatId: string, title: string) => {
     if (!title.trim()) {
       toast.error("Chat name cannot be empty");
       setRenamingChatId(null);
@@ -2673,9 +2789,9 @@ export default function AgentChatPage() {
       toast.error("Failed to rename chat");
     }
     setRenamingChatId(null);
-  };
+  }, [fetchChats]);
 
-  const archiveChat = async (chatId: string) => {
+  const archiveChat = useCallback(async (chatId: string) => {
     try {
       const res = await fetch("/api/chats", {
         method: "PATCH",
@@ -2694,9 +2810,28 @@ export default function AgentChatPage() {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
+          // HIGH FIX #9: Add missing resets that were incomplete compared to selectChat/deleteChat.
+          // Without these, sendingRef stays true (blocking future sends), animation timeouts
+          // may fire after chat switch, and NVIDIA streaming state persists.
+          sendingRef.current = false;
+          if (animationTimeoutRef.current) {
+            clearTimeout(animationTimeoutRef.current);
+            animationTimeoutRef.current = null;
+          }
           setSending(false);
           setIsAgentic(false);
           setStreamingText("");
+          setLiveSteps([]);
+          setIsNvidiaStreaming(false);
+          nvidiaReceivedContentRef.current = false;
+          nvidiaReasoningTextRef.current = "";
+          setAgentSteps([]);
+          setPlanSteps([]);
+          setExpandedSteps(new Set());
+          setLastFailedPrompt(null);
+          setFailedMsgId(null);
+          setActivatingStepId(null);
+          autoTodoCounterRef.current = 0;
           // ... then clear chat state
           setActiveChatId(null);
           setMessages([]);
@@ -2708,7 +2843,7 @@ export default function AgentChatPage() {
     } catch {
       toast.error("Failed to archive chat");
     }
-  };
+  }, [activeChatId, fetchChats]);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const currentUserId = session?.user?.id;
@@ -2716,7 +2851,7 @@ export default function AgentChatPage() {
   // Is the current chat locked by someone else?
   const isChatLockedByOther = !!(activeChatId && chatLockInfo.lockedBy && chatLockInfo.lockedBy !== currentUserId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN");
 
-  const deleteChat = async (chatId: string) => {
+  const deleteChat = useCallback(async (chatId: string) => {
     try {
       // 1. If deleting the active chat, reset ALL processing state first
       if (activeChatId === chatId) {
@@ -2736,6 +2871,8 @@ export default function AgentChatPage() {
           animationTimeoutRef.current = null;
         }
         // Reset ALL processing-related state
+        // HIGH FIX #10: Also reset sendingRef.current to prevent permanent send lockout
+        sendingRef.current = false;
         setSending(false);
         setIsAgentic(false);
         setLiveSteps([]);
@@ -2785,7 +2922,7 @@ export default function AgentChatPage() {
     } catch {
       toast.error("Failed to delete chat");
     }
-  };
+  }, [activeChatId, fetchChats]);
 
   // ── Agent settings ──
   const handleUpdateAgent = async (data: Record<string, unknown>) => {
@@ -2800,6 +2937,9 @@ export default function AgentChatPage() {
         toast.success("Agent updated");
         fetchAgent();
         setSettingsOpen(false);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to update agent");
       }
     } catch {
       toast.error("Failed to update agent");
@@ -2824,6 +2964,11 @@ export default function AgentChatPage() {
 
   // ── Create scheduled task ──
   const handleCreateTask = async (data: { title: string; description: string; dueDate: string; priority: string; attachments?: any[]; crossAgentAccess?: string[] }) => {
+    // Validate dueDate is in the future
+    if (data.dueDate && new Date(data.dueDate) < new Date()) {
+      toast.error("Due date must be in the future");
+      return;
+    }
     try {
       const res = await fetch("/api/scheduled-tasks", {
         method: "POST",
@@ -3746,7 +3891,7 @@ function ChatSidebar({
           <div className="flex items-center gap-2 mt-0.5">
             {chat.lockedByName && (
               <Badge variant="secondary" className="text-[8px] h-3 px-1 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 gap-0.5">
-                🔒 {chat.lockedByName}
+                <Lock className="h-2 w-2" /> {chat.lockedByName}
               </Badge>
             )}
             <span className="text-[10px] text-muted-foreground">
@@ -3806,7 +3951,7 @@ function ChatSidebar({
                     <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     <div className="flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary shrink-0">
                       {group.user.avatar ? (
-                        <img src={group.user.avatar} alt={group.user.name || "User avatar"} className="h-5 w-5 rounded-full" />
+                        <img src={group.user.avatar} alt={group.user.name || "User avatar"} className="h-5 w-5 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                       ) : (
                         <User className="h-3 w-3" />
                       )}
@@ -4072,7 +4217,7 @@ function ChatArea({
             </Badge>
             {chatLockInfo.lockedByName && (
               <Badge variant="secondary" className="text-[9px] h-4 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-                🔒 {chatLockInfo.lockedByName}
+                <Lock className="h-2 w-2" /> {chatLockInfo.lockedByName}
               </Badge>
             )}
           </div>
@@ -4331,11 +4476,15 @@ function ChatArea({
                                   variant="ghost"
                                   size="icon"
                                   className="h-5 w-5 text-primary-foreground/40 hover:text-primary-foreground/80"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     // Strip attachment metadata from content before copying
                                     const cleanContent = msg.content?.replace(/\n\n📎 Attached:.*$/, '').trim() || msg.content || "";
-                                    navigator.clipboard.writeText(cleanContent);
-                                    toast.success("Prompt copied!");
+                                    try {
+                                      await navigator.clipboard.writeText(cleanContent);
+                                      toast.success("Prompt copied!");
+                                    } catch {
+                                      toast.error("Failed to copy");
+                                    }
                                   }}
                                   aria-label="Copy message"
                                 >
@@ -4358,9 +4507,13 @@ function ChatArea({
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                              onClick={() => {
-                                navigator.clipboard.writeText(msg.content);
-                                toast.success("Copied!");
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(msg.content);
+                                  toast.success("Copied!");
+                                } catch {
+                                  toast.error("Failed to copy");
+                                }
                               }}
                               aria-label="Copy message"
                             >
@@ -4584,7 +4737,7 @@ function ChatArea({
                       <span className="text-[10px] text-muted-foreground font-medium">Trishul AI</span>
                       <span className="text-[9px] text-muted-foreground/60 animate-pulse">responding...</span>
                     </div>
-                    <div className="prose prose-sm dark:prose-invert max-w-none text-sm whitespace-pre-wrap">
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-sm whitespace-pre-wrap" aria-live="polite">
                       {streamingText}
                       <span className="inline-block w-1.5 h-4 bg-purple-500 animate-pulse ml-0.5 align-text-bottom" />
                     </div>
@@ -4618,6 +4771,7 @@ function ChatArea({
             {/* Minimal header: label + count + chevron + run next */}
             <button
               onClick={() => setBottomTodoMinimized(!bottomTodoMinimized)}
+              aria-expanded={!bottomTodoMinimized}
               className="flex items-center gap-1.5 w-full hover:bg-muted/30 rounded px-1 py-0.5 transition-colors text-left"
             >
               {todoItems.some(t => t.status === 'running') ? (
@@ -6098,7 +6252,7 @@ function CrossAgentDialog({
       toast.error("Select an agent and type a message");
       return;
     }
-    onSend(toAgentId, message.trim(), type, linkedChatId || undefined, linkedChatId ? shareFullChat : undefined);
+    onSend(toAgentId, message.trim(), type, linkedChatId && linkedChatId !== "" ? linkedChatId : undefined, linkedChatId && linkedChatId !== "" ? shareFullChat : undefined);
     setToAgentId("");
     setMessage("");
     setType("INFO");
@@ -6182,7 +6336,7 @@ function CrossAgentDialog({
                   <SelectValue placeholder={targetChatsLoading ? "Loading chats..." : "Select a chat..."} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="">None</SelectItem>
                   {targetChats.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.title} ({c._count?.messages || 0} messages)
@@ -6194,7 +6348,7 @@ function CrossAgentDialog({
           )}
 
           {/* Share Full Chat Context Toggle */}
-          {linkedChatId && linkedChatId !== "none" && (
+          {linkedChatId && linkedChatId !== "" && (
             <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/50">
               <div className="space-y-0.5">
                 <Label className="text-xs">Share full chat context</Label>

@@ -30,6 +30,15 @@ export async function GET(req: NextRequest) {
         } : false,
       },
       orderBy: { createdAt: "asc" },
+      // FIX: Use Prisma where clause for agent type filtering instead of JS filtering
+      // Non-super-admin users should only see agents they have access to
+      ...(userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" ? {
+        where: {
+          userAccess: {
+            some: { userId, canView: true }
+          }
+        }
+      } : {}),
     })
 
     // Filter agents based on user access
