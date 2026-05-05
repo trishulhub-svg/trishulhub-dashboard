@@ -87,6 +87,8 @@ export async function DELETE(
     const test = await db.trainingTest.findUnique({ where: { id } })
     if (!test) return NextResponse.json({ error: "Test not found" }, { status: 404 })
 
+    // Null out testId on assignments before deleting test (FK constraint)
+    await db.trainingAssignment.updateMany({ where: { testId: id }, data: { testId: null } })
     await db.trainingTest.delete({ where: { id } })
 
     return NextResponse.json({ success: true })

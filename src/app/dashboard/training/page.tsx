@@ -129,7 +129,7 @@ export default function TrainingLibraryPage() {
         const data = await res.json()
         toast.error(data.error || "Failed to generate document")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to generate document")
     } finally {
       setGenerating(false)
@@ -149,7 +149,7 @@ export default function TrainingLibraryPage() {
       } else {
         toast.error("Failed to delete document")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to delete document")
     } finally {
       setDeleteId(null)
@@ -307,7 +307,7 @@ export default function TrainingLibraryPage() {
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="">All Status</SelectItem>
             <SelectItem value="READY">Ready</SelectItem>
             <SelectItem value="DRAFT">Draft</SelectItem>
             <SelectItem value="ARCHIVED">Archived</SelectItem>

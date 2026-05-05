@@ -22,7 +22,6 @@ import {
   Calendar,
   BadgeCheck,
   XCircle,
-  ChevronDown,
 } from "lucide-react"
 import { cn, safeDateStr, safeArray } from "@/lib/utils"
 
@@ -156,12 +155,12 @@ export default function DocumentDetailPage() {
         setDocument(data)
         try {
           setImageUrls(JSON.parse(data.imageUrls || "[]"))
-        } catch { /* ignore */ }
+        } catch (_e) { /* ignore */ }
       } else if (res.status === 404) {
         toast.error("Document not found")
         router.push("/dashboard/training")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to load document")
     } finally {
       setLoading(false)
@@ -180,7 +179,7 @@ export default function DocumentDetailPage() {
             .map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role }))
         )
       }
-    } catch { /* ignore */ }
+    } catch (_e) { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -210,7 +209,7 @@ export default function DocumentDetailPage() {
         const data = await res.json()
         toast.error(data.error || "Failed to generate test")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to generate test")
     } finally {
       setGeneratingTest(null)
@@ -229,7 +228,7 @@ export default function DocumentDetailPage() {
       } else {
         toast.error("Failed to delete test")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to delete test")
     } finally {
       setDeleteId(null)
@@ -264,7 +263,7 @@ export default function DocumentDetailPage() {
         const data = await res.json()
         toast.error(data.error || "Failed to assign training")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to assign training")
     } finally {
       setAssigning(false)

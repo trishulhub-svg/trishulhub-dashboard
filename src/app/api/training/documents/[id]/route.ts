@@ -73,6 +73,17 @@ export async function DELETE(
     const document = await db.trainingDocument.findUnique({ where: { id } })
     if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
+    // Delete in correct order to respect FK constraints:
+    // 1. Delete test attempts (via assignments)
+    // 2. Delete assignments
+    // 3. Delete tests (cascade already handled by schema, but be explicit)
+    // 4. Delete document
+    const assignments = await db.trainingAssignment.findMany({ where: { documentId: id }, select: { id: true } })
+    for (const a of assignments) {
+      await db.testAttempt.deleteMany({ where: { assignmentId: a.id } })
+    }
+    await db.trainingAssignment.deleteMany({ where: { documentId: id } })
+    await db.trainingTest.deleteMany({ where: { documentId: id } })
     await db.trainingDocument.delete({ where: { id } })
 
     return NextResponse.json({ success: true })

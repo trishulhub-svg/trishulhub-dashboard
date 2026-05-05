@@ -108,68 +108,74 @@ export default function TrainingReaderPage() {
   } | null>(null)
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const submittingRef = useRef(false)
 
   const fetchAssignment = useCallback(async () => {
     try {
       const res = await fetch(`/api/training/assignments/${assignmentId}`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        setAssignment(data)
-        try {
-          setImageUrls(JSON.parse(data.document.imageUrls || "[]"))
-        } catch { /* ignore */ }
-
-        // Determine view mode
-        if (["PASSED", "FAILED"].includes(data.status)) {
-          setViewMode("results")
-          // Load results from last attempt — API now includes selectedAnswer per question
-          if (data.test && data.attempts.length > 0) {
-            const testQuestions: Question[] = JSON.parse(data.test.questions)
-            const lastAttempt = data.attempts[0]
-            setQuestions(testQuestions)
-            setResults({
-              score: lastAttempt.score,
-              total: lastAttempt.total,
-              passed: lastAttempt.passed,
-              percentage: Math.round((lastAttempt.score / lastAttempt.total) * 100),
-              results: testQuestions.map((q: any, idx: number) => {
-                const selected = q.selectedAnswer ?? null
-                const correct = q.correctAnswer ?? 0
-                return {
-                  question: q.question,
-                  options: q.options,
-                  correctAnswer: correct,
-                  selectedAnswer: selected,
-                  isCorrect: selected === correct,
-                  explanation: q.explanation || "",
-                }
-              }),
-            })
-        } else if (data.status === "TEST_STARTED") {
-          // Resume test - fetch questions with answers hidden
-          if (data.test) {
-            const testRes = await fetch(`/api/training/tests/${data.test.id}?assignmentId=${assignmentId}`, { credentials: "include" })
-            if (testRes.ok) {
-              const testData = await testRes.json()
-              const testQs: Question[] = testData.questions
-              setQuestions(testQs)
-              setAnswers(new Array(testQs.length).fill(null))
-              // Set timer (full time minus some buffer for resumed tests)
-              setTimeLeft(data.test.timeLimit * 60)
-              setTestStartTime(Date.now())
-              setViewMode("test")
-            }
-          }
-        } else if (data.status === "READ") {
-          setViewMode("ready")
-        } else {
-          setViewMode("read")
+      if (!res.ok) {
+        if (res.status === 404) {
+          toast.error("Assignment not found")
         }
-      } else if (res.status === 404) {
-        toast.error("Assignment not found")
         router.push("/dashboard/my-training")
+        return
       }
-    } catch {
+
+      const data = await res.json()
+      setAssignment(data)
+
+      // Parse image URLs safely
+      const imgUrlRaw = data.document?.imageUrls || "[]"
+      try { setImageUrls(JSON.parse(imgUrlRaw)) } catch (_) { /* ignore */ }
+
+      // Determine view mode
+      if (["PASSED", "FAILED"].includes(data.status)) {
+        setViewMode("results")
+        // Load results from last attempt
+        if (data.test && data.attempts && data.attempts.length > 0) {
+          const testQuestions: Question[] = JSON.parse(data.test.questions)
+          const lastAttempt = data.attempts[0]
+          setQuestions(testQuestions)
+          setResults({
+            score: lastAttempt.score,
+            total: lastAttempt.total,
+            passed: lastAttempt.passed,
+            percentage: Math.round((lastAttempt.score / lastAttempt.total) * 100),
+            results: testQuestions.map((q: any, idx: number) => {
+              const selected = q.selectedAnswer ?? null
+              const correct = q.correctAnswer ?? 0
+              return {
+                question: q.question,
+                options: q.options,
+                correctAnswer: correct,
+                selectedAnswer: selected,
+                isCorrect: selected === correct,
+                explanation: q.explanation || "",
+              }
+            }),
+          })
+        }
+      } else if (data.status === "TEST_STARTED") {
+        // Resume test
+        if (data.test) {
+          const testRes = await fetch(`/api/training/tests/${data.test.id}?assignmentId=${assignmentId}`, { credentials: "include" })
+          if (testRes.ok) {
+            const testData = await testRes.json()
+            const testQs: Question[] = testData.questions
+            setQuestions(testQs)
+            setAnswers(new Array(testQs.length).fill(null))
+            setTimeLeft(data.test.timeLimit * 60)
+            setTestStartTime(Date.now())
+            setViewMode("test")
+          }
+        }
+      } else if (data.status === "READ") {
+        setViewMode("ready")
+      } else {
+        setViewMode("read")
+      }
+    } catch (err) {
+      console.error("Failed to load assignment:", err)
       toast.error("Failed to load assignment")
       router.push("/dashboard/my-training")
     }
@@ -193,7 +199,11 @@ export default function TrainingReaderPage() {
         if (prev <= 1) {
           // Auto-submit when time runs out
           if (timerRef.current) clearInterval(timerRef.current)
-          handleAutoSubmit()
+          // Use submittingRef to avoid stale closure
+          if (!submittingRef.current) {
+            toast.warning("Time is up! Auto-submitting your test...")
+            submitTest()
+          }
           return 0
         }
         return prev - 1
@@ -218,7 +228,7 @@ export default function TrainingReaderPage() {
         setViewMode("ready")
         toast.success("Marked as read! You can now start the test.")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to update status")
     }
   }
@@ -238,7 +248,7 @@ export default function TrainingReaderPage() {
         toast.error("Failed to start test")
         return
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to start test")
       return
     }
@@ -255,19 +265,14 @@ export default function TrainingReaderPage() {
         setTestStartTime(Date.now())
         setViewMode("test")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to load test questions")
     }
   }
 
-  const handleAutoSubmit = async () => {
-    if (submitting) return
-    toast.warning("Time is up! Auto-submitting your test...")
-    await submitTest()
-  }
-
   const submitTest = async () => {
-    if (submitting || !assignment) return
+    if (submittingRef.current || !assignment) return
+    submittingRef.current = true
     setSubmitting(true)
     setViewMode("submitting")
 
@@ -299,10 +304,11 @@ export default function TrainingReaderPage() {
         toast.error(data.error || "Failed to submit test")
         setViewMode("test")
       }
-    } catch {
+    } catch (_e) {
       toast.error("Failed to submit test")
       setViewMode("test")
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }

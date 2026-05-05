@@ -38,6 +38,15 @@ export async function POST(req: NextRequest) {
 
     // Parse questions and validate
     const questions: any[] = JSON.parse(assignment.test.questions)
+
+    // Validate answers length matches questions count
+    if (answers.length !== questions.length) {
+      return NextResponse.json(
+        { error: `Expected ${questions.length} answers but received ${answers.length}` },
+        { status: 400 }
+      )
+    }
+
     let score = 0
 
     const results = questions.map((q: any, idx: number) => {

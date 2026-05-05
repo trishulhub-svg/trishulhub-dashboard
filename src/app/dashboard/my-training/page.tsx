@@ -68,7 +68,7 @@ export default function MyTrainingPage() {
     try {
       const res = await fetch("/api/training/assignments", { credentials: "include" })
       if (res.ok) setAssignments(safeArray<Assignment>(await res.json()))
-    } catch {
+    } catch (_e) {
       toast.error("Failed to load assignments")
     } finally {
       setLoading(false)
