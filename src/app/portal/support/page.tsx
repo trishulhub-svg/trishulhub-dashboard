@@ -35,7 +35,8 @@ export default function PortalSupportPage() {
   const fetchTickets = useCallback(async () => {
     try {
       const res = await fetch("/api/support", { credentials: 'include' });
-      if (res.ok) setTickets(await res.json());
+      if (res.ok) { const data = await res.json(); setTickets(Array.isArray(data) ? data : []); }
+      else setError("Failed to load tickets");
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load tickets");

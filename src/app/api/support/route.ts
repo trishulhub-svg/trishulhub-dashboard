@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
@@ -94,9 +95,14 @@ export async function PUT(req: NextRequest) {
   
   const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(ticket)
+  } catch (error: any) {
+    console.error("[support] PUT error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function PATCH(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   
@@ -147,4 +153,8 @@ export async function PATCH(req: NextRequest) {
   
   const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(ticket)
+  } catch (error: any) {
+    console.error("[support] PATCH error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Filter, Trash2, User, AlertCircle,
+  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Trash2, User, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,8 @@ const statusColors: Record<string, string> = {
 
 export default function ApprovalsPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const isSessionLoading = sessionStatus === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,10 @@ export default function ApprovalsPage() {
     try {
       const url = status ? `/api/approvals?status=${status}` : "/api/approvals?status=PENDING";
       const res = await fetch(url, { credentials: 'include' });
-      if (res.ok) setApprovals(await res.json());
+      if (res.ok) {
+        const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
+        setApprovals(safeArray<Approval>(await res.json()));
+      }
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load approvals");
@@ -79,6 +83,23 @@ export default function ApprovalsPage() {
   useEffect(() => {
     fetchApprovals(activeTab === "ALL" ? undefined : activeTab);
   }, [activeTab, fetchApprovals]);
+
+  if (isSessionLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+          <Skeleton className="h-9 w-24" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
+        </div>
+      </div>
+    );
+  }
 
   // Role guard
   if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }

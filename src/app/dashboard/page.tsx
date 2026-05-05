@@ -36,13 +36,16 @@ const invoiceStatusColors: Record<string, string> = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const isSessionLoading = status === "loading";
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  const safeArray = <T,>(data: unknown): T[] => (Array.isArray(data) ? data : []);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -69,7 +72,7 @@ export default function DashboardPage() {
   // Seeding should only happen via explicit admin action at /api/setup POST.
   // If the dashboard fails to load, show an error state instead.
 
-  if (loading || (!data && !error)) {
+  if (isSessionLoading || loading || (!data && !error)) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -119,11 +122,11 @@ export default function DashboardPage() {
     totalLeads: number;
   };
 
-  const agents = (data.agents as { id: string; name: string; type: string; status: string; description: string }[]) || [];
-  const projects = (data.projects as { id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }[]) || [];
-  const invoices = (data.invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }[]) || [];
-  const usageLogs = (data.usageLogs as { agentId: string; agent: { name: string; type: string }; cost: number }[]) || [];
-  const apiKeys = (data.apiKeys as { id: string; keyName: string; currentSpend: number; monthlyBudget: number }[]) || [];
+  const agents = safeArray<{ id: string; name: string; type: string; status: string; description: string }>(data.agents);
+  const projects = safeArray<{ id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }>(data.projects);
+  const invoices = safeArray<{ id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }>(data.invoices);
+  const usageLogs = safeArray<{ agentId: string; agent: { name: string; type: string }; cost: number }>(data.usageLogs);
+  const apiKeys = safeArray<{ id: string; keyName: string; currentSpend: number; monthlyBudget: number }>(data.apiKeys);
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 

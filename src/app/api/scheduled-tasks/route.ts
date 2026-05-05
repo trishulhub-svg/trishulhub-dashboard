@@ -88,16 +88,20 @@ export async function POST(req: NextRequest) {
     })
 
     // Create notification
-    await db.notification.create({
-      data: {
-        userId,
-        title: "New Task Scheduled",
-        message: `"${title}" assigned to ${task.agent.name}, due ${new Date(dueDate).toLocaleDateString()}`,
-        type: "TASK",
-        link: `/dashboard/agents/${agentId}`,
-        metadata: JSON.stringify({ taskId: task.id, agentId }),
-      }
-    })
+    try {
+      await db.notification.create({
+        data: {
+          userId,
+          title: "New Task Scheduled",
+          message: `"${title}" assigned to ${task.agent.name}, due ${new Date(dueDate).toLocaleDateString()}`,
+          type: "TASK",
+          link: `/dashboard/agents/${agentId}`,
+          metadata: JSON.stringify({ taskId: task.id, agentId }),
+        }
+      })
+    } catch (notifyErr: any) {
+      console.error("[scheduled-tasks] notification error (non-blocking):", notifyErr?.message)
+    }
 
     return NextResponse.json(task, { status: 201 })
   } catch (error: any) {

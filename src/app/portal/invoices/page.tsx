@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const safeArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800",
   SENT: "bg-blue-100 text-blue-800",
@@ -22,7 +24,8 @@ export default function PortalInvoicesPage() {
   const fetchInvoices = useCallback(async () => {
     try {
       const res = await fetch("/api/invoices", { credentials: 'include' });
-      if (res.ok) setInvoices(await res.json());
+      if (res.ok) setInvoices(safeArray(await res.json()));
+      else setError("Failed to load invoices");
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load invoices");
@@ -71,7 +74,8 @@ export default function PortalInvoicesPage() {
       ) : (
         <div className="space-y-3">
           {(invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string; items: string }[]).map((inv) => {
-            const items = JSON.parse(inv.items || "[]") as { description: string; quantity: number; rate: number; amount: number }[];
+            let items: { description: string; quantity: number; rate: number; amount: number }[] = [];
+            try { items = JSON.parse(inv.items || "[]"); } catch { /* ignore malformed JSON */ }
             return (
               <Card key={inv.id}>
                 <CardContent className="p-4">

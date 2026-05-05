@@ -105,7 +105,9 @@ const notifIcons: Record<string, React.ComponentType<{ className?: string }>> = 
 };
 
 function formatRelativeTime(dateStr: string): string {
+  if (!dateStr) return "unknown";
   const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "unknown";
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);

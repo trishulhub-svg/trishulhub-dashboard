@@ -130,7 +130,8 @@ const emailTypeLabels: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { data: session, update: updateSession } = useSession();
+  const { data: session, status, update: updateSession } = useSession();
+  const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
   const { theme, setTheme } = useTheme();
   const [name, setName] = useState(session?.user?.name || "");
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -257,7 +258,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/team?type=users", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setTeamMembers(data);
+        setTeamMembers(safeArray(data));
       } else {
         toast.error("Failed to load team members");
       }
@@ -280,7 +281,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/smtp", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setSmtpConfigs(data);
+        setSmtpConfigs(safeArray(data));
       } else {
         toast.error("Failed to load SMTP configurations");
       }

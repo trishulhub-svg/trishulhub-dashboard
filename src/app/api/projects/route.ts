@@ -47,6 +47,10 @@ export async function GET(req: NextRequest) {
     where.id = { in: assignedProjectIds }
   }
   if (projectId) {
+    // SECURITY: For non-admin users, intersect projectId with assigned IDs
+    if (assignedProjectIds && !assignedProjectIds.includes(projectId)) {
+      return NextResponse.json([])
+    }
     where.id = projectId
   }
 

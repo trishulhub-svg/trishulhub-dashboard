@@ -61,7 +61,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     // Previously any authenticated user could access portal pages
     if (status === "authenticated" && session?.user) {
       const userRole = session.user.role
-      if (userRole && userRole !== "CLIENT") {
+      if (!userRole || userRole !== "CLIENT") {
         router.push("/dashboard");
       }
     }
@@ -80,8 +80,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   // SECURITY: Prevent non-CLIENT users from seeing portal content (even briefly)
-  if (!session || (session.user && session.user.role && session.user.role !== "CLIENT")) {
-    return null
+  if (!session || !session.user?.role || session.user.role !== "CLIENT") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <h2 className="text-xl font-bold">Access Denied</h2>
+          <p className="text-muted-foreground">You do not have permission to view this page.</p>
+        </div>
+      </div>
+    );
   }
 
   const userName = session.user?.name || "Client";

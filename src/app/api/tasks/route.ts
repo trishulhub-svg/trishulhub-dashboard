@@ -9,6 +9,7 @@ const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
 
 export async function GET(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -49,9 +50,14 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" }
   })
   return NextResponse.json(tasks)
+  } catch (error: any) {
+    console.error("[tasks] GET error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -131,9 +137,14 @@ export async function POST(req: NextRequest) {
 
   const task = await db.task.create({ data })
   return NextResponse.json(task, { status: 201 })
+  } catch (error: any) {
+    console.error("[tasks] POST error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function PATCH(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -246,9 +257,14 @@ export async function PATCH(req: NextRequest) {
 
   const task = await db.task.update({ where: { id }, data })
   return NextResponse.json(task)
+  } catch (error: any) {
+    console.error("[tasks] PATCH error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -282,4 +298,8 @@ export async function DELETE(req: NextRequest) {
 
   await db.task.delete({ where: { id } })
   return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error("[tasks] DELETE error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
 }

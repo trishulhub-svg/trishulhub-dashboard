@@ -86,16 +86,20 @@ export async function POST(
     })
 
     // Notify the user about project assignment
-    await db.notification.create({
-      data: {
-        userId,
-        title: "Project Assignment",
-        message: `You have been assigned to project "${project.name}" as ${memberRole || "MEMBER"}`,
-        type: "INFO",
-        link: `/dashboard/projects/${projectId}`,
-        metadata: JSON.stringify({ projectId, memberRole: memberRole || "MEMBER" }),
-      },
-    })
+    try {
+      await db.notification.create({
+        data: {
+          userId,
+          title: "Project Assignment",
+          message: `You have been assigned to project "${project.name}" as ${memberRole || "MEMBER"}`,
+          type: "INFO",
+          link: `/dashboard/projects/${projectId}`,
+          metadata: JSON.stringify({ projectId, memberRole: memberRole || "MEMBER" }),
+        },
+      })
+    } catch (notifyErr: any) {
+      console.error("[project-members] notification error (non-blocking):", notifyErr?.message)
+    }
 
     return NextResponse.json(membership, { status: 201 })
   } catch (error: any) {

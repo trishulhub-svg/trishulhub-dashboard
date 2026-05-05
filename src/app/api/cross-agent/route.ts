@@ -303,17 +303,21 @@ export async function POST(req: NextRequest) {
         where: { agentId: toAgentId, canView: true },
       })
 
-      for (const access of usersWithAccess) {
-        await db.notification.create({
-          data: {
-            userId: access.userId,
-            title: `Cross-Agent: ${fromAgent.name} → ${toAgent.name}`,
-            message: `${fromAgent.name} sent a message to ${toAgent.name}: ${message.substring(0, 100)}...`,
-            type: "AGENT",
-            link: `/dashboard/agents/${toAgentId}`,
-            metadata: JSON.stringify({ crossAgentMessageId: crossMsg.id }),
-          }
-        })
+      try {
+        for (const access of usersWithAccess) {
+          await db.notification.create({
+            data: {
+              userId: access.userId,
+              title: `Cross-Agent: ${fromAgent.name} → ${toAgent.name}`,
+              message: `${fromAgent.name} sent a message to ${toAgent.name}: ${message.substring(0, 100)}...`,
+              type: "AGENT",
+              link: `/dashboard/agents/${toAgentId}`,
+              metadata: JSON.stringify({ crossAgentMessageId: crossMsg.id }),
+            }
+          })
+        }
+      } catch (notifyErr: any) {
+        console.error("[cross-agent] notification error (non-blocking):", notifyErr?.message)
       }
 
       return NextResponse.json({

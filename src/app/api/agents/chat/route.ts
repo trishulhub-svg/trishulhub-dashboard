@@ -372,20 +372,24 @@ export async function POST(req: NextRequest) {
           approvalId = approval.id
 
           // Notify users with approval access
-          const approvers = await db.userAgentAccess.findMany({
-            where: { agentId, canApprove: true },
-          })
-          for (const approver of approvers) {
-            await db.notification.create({
-              data: {
-                userId: approver.userId,
-                title: "Approval Required",
-                message: `${agent.name} generated content that needs your approval.`,
-                type: "APPROVAL",
-                link: `/dashboard/approvals`,
-                metadata: JSON.stringify({ approvalId: approval.id }),
-              },
+          try {
+            const approvers = await db.userAgentAccess.findMany({
+              where: { agentId, canApprove: true },
             })
+            for (const approver of approvers) {
+              await db.notification.create({
+                data: {
+                  userId: approver.userId,
+                  title: "Approval Required",
+                  message: `${agent.name} generated content that needs your approval.`,
+                  type: "APPROVAL",
+                  link: `/dashboard/approvals`,
+                  metadata: JSON.stringify({ approvalId: approval.id }),
+                },
+              })
+            }
+          } catch (notifyErr: any) {
+            console.error("[chat] notification error (non-blocking):", notifyErr?.message)
           }
         }
       }
@@ -498,19 +502,23 @@ export async function POST(req: NextRequest) {
           }
 
           // Create notification for admin
-          const admins = await db.user.findMany({
-            where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } }
-          })
-          for (const admin of admins) {
-            await db.notification.create({
-              data: {
-                userId: admin.id,
-                title: "API Keys Exhausted",
-                message: `All API keys have failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to existing ones.`,
-                type: "ERROR",
-                link: "/dashboard/api-keys",
-              }
+          try {
+            const admins = await db.user.findMany({
+              where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } }
             })
+            for (const admin of admins) {
+              await db.notification.create({
+                data: {
+                  userId: admin.id,
+                  title: "API Keys Exhausted",
+                  message: `All API keys have failed. ${apiError.triedKeys} keys tried. Please add a new API key or add balance to existing ones.`,
+                  type: "ERROR",
+                  link: "/dashboard/api-keys",
+                }
+              })
+            }
+          } catch (notifyErr: any) {
+            console.error("[chat] notification error (non-blocking):", notifyErr?.message)
           }
         } // end if (!isOnlyRateLimited)
 

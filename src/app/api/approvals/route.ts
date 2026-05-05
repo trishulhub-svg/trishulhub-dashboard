@@ -93,17 +93,21 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    for (const admin of admins) {
-      await db.notification.create({
-        data: {
-          userId: admin.id,
-          title: "New Approval Request",
-          message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
-          type: "APPROVAL",
-          link: "/dashboard/approvals",
-          metadata: JSON.stringify({ approvalId: approval.id, type }),
-        }
-      })
+    try {
+      for (const admin of admins) {
+        await db.notification.create({
+          data: {
+            userId: admin.id,
+            title: "New Approval Request",
+            message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
+            type: "APPROVAL",
+            link: "/dashboard/approvals",
+            metadata: JSON.stringify({ approvalId: approval.id, type }),
+          }
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error("[approvals] notification error (non-blocking):", notifyErr?.message)
     }
 
     return NextResponse.json(approval, { status: 201 })
@@ -167,16 +171,20 @@ export async function PATCH(req: NextRequest) {
 
     // If approval was requested by a human, notify them
     if (approval.requesterType === "HUMAN" && approval.requesterId) {
-      await db.notification.create({
-        data: {
-          userId: approval.requesterId,
-          title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
-          message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${feedback ? ` Feedback: ${feedback}` : ""}`,
-          type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
-          link: "/dashboard/approvals",
-          metadata: JSON.stringify({ approvalId: id }),
-        }
-      })
+      try {
+        await db.notification.create({
+          data: {
+            userId: approval.requesterId,
+            title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
+            message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${feedback ? ` Feedback: ${feedback}` : ""}`,
+            type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
+            link: "/dashboard/approvals",
+            metadata: JSON.stringify({ approvalId: id }),
+          }
+        })
+      } catch (notifyErr: any) {
+        console.error("[approvals] notification error (non-blocking):", notifyErr?.message)
+      }
     }
 
     // If this is a CHAT_DELETION approval, handle the actual deletion
