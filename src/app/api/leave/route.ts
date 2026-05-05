@@ -65,25 +65,29 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Notify admins about the new leave request
-    const admins = await db.user.findMany({
-      where: {
-        role: { in: ["SUPER_ADMIN", "ADMIN"] },
-        isActive: true,
-      },
-    })
-
-    for (const admin of admins) {
-      await db.notification.create({
-        data: {
-          userId: admin.id,
-          title: "New Leave Request",
-          message: `${session.user.name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
-          type: "APPROVAL",
-          link: "/dashboard/leaves",
-          metadata: JSON.stringify({ leaveRequestId: leave.id }),
+    // Notify admins about the new leave request (fire-and-forget)
+    try {
+      const admins = await db.user.findMany({
+        where: {
+          role: { in: ["SUPER_ADMIN", "ADMIN"] },
+          isActive: true,
         },
       })
+
+      for (const admin of admins) {
+        await db.notification.create({
+          data: {
+            userId: admin.id,
+            title: "New Leave Request",
+            message: `${session.user.name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+            type: "APPROVAL",
+            link: "/dashboard/leaves",
+            metadata: JSON.stringify({ leaveRequestId: leave.id }),
+          },
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error("[leave] POST notification error (non-blocking):", notifyErr.message)
     }
 
     const response = NextResponse.json(leave, { status: 201 })
@@ -128,17 +132,21 @@ export async function PATCH(req: NextRequest) {
       },
     })
 
-    // Notify the employee
-    await db.notification.create({
-      data: {
-        userId: leave.userId,
-        title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-        message: `Your ${leave.type} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
-        type: status === "APPROVED" ? "SUCCESS" : "WARNING",
-        link: "/dashboard/leaves",
-        metadata: JSON.stringify({ leaveRequestId: leave.id }),
-      },
-    })
+    // Notify the employee (fire-and-forget)
+    try {
+      await db.notification.create({
+        data: {
+          userId: leave.userId,
+          title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
+          message: `Your ${leave.type} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
+          type: status === "APPROVED" ? "SUCCESS" : "WARNING",
+          link: "/dashboard/leaves",
+          metadata: JSON.stringify({ leaveRequestId: leave.id }),
+        },
+      })
+    } catch (notifyErr: any) {
+      console.error("[leave] PATCH notification error (non-blocking):", notifyErr.message)
+    }
 
     // Notify HR agent about leave approval for workload tracking
     const hrAgent = await db.agent.findFirst({ where: { type: "HR" } })

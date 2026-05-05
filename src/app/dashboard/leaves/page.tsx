@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -181,6 +181,16 @@ export default function LeaveManagementPage() {
       toast.error("Please select start and end dates");
       return;
     }
+    if (new Date(formStartDate) > new Date(formEndDate)) {
+      toast.error("Start date must be before or equal to end date");
+      return;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (new Date(formEndDate) < today) {
+      toast.error("Leave dates cannot be in the past");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload: any = {
@@ -212,8 +222,9 @@ export default function LeaveManagementPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to submit leave request");
       }
-    } catch {
-      toast.error("Failed to submit leave request");
+    } catch (err) {
+      console.error("[leaves] handleSubmit error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to submit leave request");
     } finally {
       setSubmitting(false);
     }
@@ -234,8 +245,9 @@ export default function LeaveManagementPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to update leave");
       }
-    } catch {
-      toast.error("Failed to update leave");
+    } catch (err) {
+      console.error("[leaves] handleStatusChange error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to update leave");
     }
   };
 
@@ -252,8 +264,9 @@ export default function LeaveManagementPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to delete leave");
       }
-    } catch {
-      toast.error("Failed to delete leave");
+    } catch (err) {
+      console.error("[leaves] handleDelete error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to delete leave");
     }
   };
 
@@ -261,7 +274,7 @@ export default function LeaveManagementPage() {
   const getDaysInMonth = (month: number, year: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (month: number, year: number) => new Date(year, month, 1).getDay();
 
-  const getLeavesForDate = (day: number) => {
+  const getLeavesForDate = useCallback((day: number) => {
     const date = new Date(currentYear, currentMonth, day);
     return leaves.filter((leave) => {
       if (leave.status === "CANCELLED" || leave.status === "REJECTED") return false;
@@ -271,7 +284,7 @@ export default function LeaveManagementPage() {
       end.setHours(23, 59, 59, 999);
       return date >= start && date <= end;
     });
-  };
+  }, [currentYear, currentMonth, leaves]);
 
   const prevMonth = () => {
     if (currentMonth === 0) {
@@ -292,16 +305,22 @@ export default function LeaveManagementPage() {
   };
 
   // Filtered leaves for the table
-  const filteredLeaves = leaves.filter((leave) => {
-    const matchesEmployee = filterEmployee === "ALL" || leave.userId === filterEmployee;
-    const matchesStatus = filterStatus === "ALL" || leave.status === filterStatus;
-    return matchesEmployee && matchesStatus;
-  });
+  const filteredLeaves = useMemo(
+    () => leaves.filter((leave) => {
+      const matchesEmployee = filterEmployee === "ALL" || leave.userId === filterEmployee;
+      const matchesStatus = filterStatus === "ALL" || leave.status === filterStatus;
+      return matchesEmployee && matchesStatus;
+    }),
+    [leaves, filterEmployee, filterStatus],
+  );
 
-  const pendingLeaves = leaves.filter((l) => l.status === "PENDING");
-  const myLeaves = leaves.filter((l) => l.userId === session?.user?.id);
-  const approvedThisMonth = leaves.filter(
-    (l) => l.status === "APPROVED" && safeDateStr(l.createdAt).getMonth() === new Date().getMonth()
+  const pendingLeaves = useMemo(() => leaves.filter((l) => l.status === "PENDING"), [leaves]);
+  const myLeaves = useMemo(() => leaves.filter((l) => l.userId === session?.user?.id), [leaves, session?.user?.id]);
+  const approvedThisMonth = useMemo(
+    () => leaves.filter(
+      (l) => l.status === "APPROVED" && safeDateStr(l.createdAt).getMonth() === new Date().getMonth()
+    ),
+    [leaves],
   );
 
   const monthNames = ["January", "February", "March", "April", "May", "June",

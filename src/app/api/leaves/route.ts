@@ -78,6 +78,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
     }
 
+    // Validate dates are not entirely in the past
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (new Date(endDate) < today) {
+      return NextResponse.json({ error: "Leave dates cannot be entirely in the past" }, { status: 400 })
+    }
+
     // Non-admin users can only create leaves for themselves
     const targetUserId = !isAdmin(userRole) ? sessionUserId : (userId || sessionUserId)
 
@@ -100,21 +107,25 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Notify admins about new leave request
-    const admins = await db.user.findMany({
-      where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
-    })
-    for (const admin of admins) {
-      await db.notification.create({
-        data: {
-          userId: admin.id,
-          title: "New Leave Request",
-          message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
-          type: "APPROVAL",
-          link: "/dashboard/leaves",
-          metadata: JSON.stringify({ leaveId: leave.id }),
-        },
+    // Notify admins about new leave request (fire-and-forget, don't block creation)
+    try {
+      const admins = await db.user.findMany({
+        where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
       })
+      for (const admin of admins) {
+        await db.notification.create({
+          data: {
+            userId: admin.id,
+            title: "New Leave Request",
+            message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+            type: "APPROVAL",
+            link: "/dashboard/leaves",
+            metadata: JSON.stringify({ leaveId: leave.id }),
+          },
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error("[leaves] POST notification error (non-blocking):", notifyErr.message)
     }
 
     return NextResponse.json(leave, { status: 201 })

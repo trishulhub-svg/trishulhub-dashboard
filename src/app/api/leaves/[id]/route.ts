@@ -59,18 +59,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     })
 
-    // Notify the employee about the leave decision
+    // Notify the employee about the leave decision (fire-and-forget)
     if (status === "APPROVED" || status === "REJECTED") {
-      await db.notification.create({
-        data: {
-          userId: leave.userId,
-          title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-          message: `Your ${leave.leaveType.replace("_", " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
-          type: status === "APPROVED" ? "SUCCESS" : "WARNING",
-          link: "/dashboard/leaves",
-          metadata: JSON.stringify({ leaveId: leave.id }),
-        },
-      })
+      try {
+        await db.notification.create({
+          data: {
+            userId: leave.userId,
+            title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
+            message: `Your ${leave.leaveType.replace("_", " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
+            type: status === "APPROVED" ? "SUCCESS" : "WARNING",
+            link: "/dashboard/leaves",
+            metadata: JSON.stringify({ leaveId: leave.id }),
+          },
+        })
+      } catch (notifyErr: any) {
+        console.error("[leaves] PATCH notification error (non-blocking):", notifyErr.message)
+      }
     }
 
     return NextResponse.json(leave)
