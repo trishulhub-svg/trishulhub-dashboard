@@ -4,25 +4,25 @@
 // Also supports NVIDIA (Trishul AI) for OpenAI-compatible API with reasoning
 // Supports ALL agent types with role-specific tools and prompts
 
-import { SignJWT } from "jose"
 import { AgentTool, getToolsForAgentType, executeToolCall } from "./agent-tools"
 import { ZAI_API_URL, NVIDIA_API_URL } from "./endpoints"
+import { generateZaiToken } from "./jwt-utils"
 
 // ━━ Model Pricing Data ━━
-// FIX: Cost calculation for agent loop — previously always returned $0
-const MODEL_PRICING: Record<string, { inputPer1k: number; outputPer1k: number }> = {
-  "glm-4.5-flash": { inputPer1k: 0, outputPer1k: 0 },     // Free
-  "glm-4.7-flash": { inputPer1k: 0, outputPer1k: 0 },     // Free
-  "glm-4-plus": { inputPer1k: 1.5, outputPer1k: 6.0 },    // $1.50/$6.00 per 1M tokens
-  "glm-4.5-air": { inputPer1k: 0.5, outputPer1k: 2.0 },   // $0.50/$2.00 per 1M tokens
-  "glm-5.1": { inputPer1k: 2.0, outputPer1k: 8.0 },       // $2.00/$8.00 per 1M tokens
-  "z-ai/glm-5.1": { inputPer1k: 2.0, outputPer1k: 8.0 },  // Same model, NVIDIA endpoint
+// FIX: Cost calculation — pricing is per 1M tokens, divide by 1_000_000
+const MODEL_PRICING: Record<string, { inputPerM: number; outputPerM: number }> = {
+  "glm-4.5-flash": { inputPerM: 0, outputPerM: 0 },     // Free
+  "glm-4.7-flash": { inputPerM: 0, outputPerM: 0 },     // Free
+  "glm-4-plus": { inputPerM: 1.5, outputPerM: 6.0 },    // $1.50/$6.00 per 1M tokens
+  "glm-4.5-air": { inputPerM: 0.5, outputPerM: 2.0 },   // $0.50/$2.00 per 1M tokens
+  "glm-5.1": { inputPerM: 2.0, outputPerM: 8.0 },       // $2.00/$8.00 per 1M tokens
+  "z-ai/glm-5.1": { inputPerM: 2.0, outputPerM: 8.0 },  // Same model, NVIDIA endpoint
 }
 
 function calculateAgentCost(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = MODEL_PRICING[model] || MODEL_PRICING["glm-4.5-flash"]
-  const inputCost = (inputTokens / 1000) * pricing.inputPer1k
-  const outputCost = (outputTokens / 1000) * pricing.outputPer1k
+  const inputCost = (inputTokens / 1_000_000) * pricing.inputPerM
+  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerM
   return Math.round((inputCost + outputCost) * 10000) / 10000
 }
 
@@ -309,39 +309,8 @@ You are autonomous and creative. Help TrishulHub create compelling content that 
 You are autonomous and dedicated. Help TrishulHub's clients get fast, effective support that keeps them happy and loyal.`,
 }
 
-// ━━ Generate Z.ai JWT Token ━━
-async function generateZaiToken(apiKey: string): Promise<string> {
-  if (!apiKey || typeof apiKey !== 'string') {
-    throw new Error("Invalid API key: key is empty or not a string")
-  }
-  if (apiKey.startsWith("eyJ")) return apiKey
-
-  const parts = apiKey.split(".")
-  if (parts.length === 2) {
-    const [id, secret] = parts
-    if (!id || !secret) {
-      throw new Error("Invalid Z.ai API key format: missing id or secret part")
-    }
-    try {
-      const secretBytes = new TextEncoder().encode(secret)
-      const nowSec = Math.floor(Date.now() / 1000)
-      const token = await new SignJWT({
-        api_key: id,
-        timestamp: Date.now(),
-        exp: nowSec + 3600,
-      })
-        .setProtectedHeader({ alg: "HS256", sign_type: "SIGN" })
-        .sign(secretBytes)
-      return token
-    } catch (jwtErr: any) {
-      console.error("[agent-loop] JWT generation failed:", jwtErr.message)
-      throw new Error(`Failed to generate Z.ai JWT token: ${jwtErr.message}`)
-    }
-  }
-  // If not in id.secret format and not a JWT, use as-is (might be a newer format or raw token)
-  console.warn("[agent-loop] API key is not in expected id.secret format, using as-is")
-  return apiKey
-}
+// ━━ Generate Z.ai JWT Token (imported from jwt-utils to avoid duplication) ━━
+// NOTE: generateZaiToken is imported from ./jwt-utils at the top of this file
 
 // ━━ Call Z.ai API with Function Calling ━━
 async function callZaiWithTools(
@@ -669,7 +638,7 @@ async function callNvidiaWithTools(
 
 // ━━ Detect if model should use NVIDIA provider ━━
 function isNvidiaModel(model: string): boolean {
-  return model.startsWith("z-ai/") || model.includes("nvidia")
+  return model.startsWith("z-ai/") || model.startsWith("nvidia/")
 }
 
 // ━━ Main Agent Loop ━━
@@ -720,7 +689,11 @@ export async function runAgentLoop(
   // Add current user message
   // Note: File attachments are pre-processed by the API route using Z.ai Vision
   // and injected as text descriptions into the userMessage before reaching here
-  messages.push({ role: "user", content: userMessage })
+  // FIX: Truncate excessively large messages to prevent context overflow
+  const safeMessage = userMessage.length > 50000
+    ? userMessage.substring(0, 50000) + "\n... (message truncated due to size)"
+    : userMessage
+  messages.push({ role: "user", content: safeMessage })
 
   let emptyResponseCount = 0
   let totalContextTokens = 0 // FIX: Track context size to prevent exceeding model limits
@@ -733,6 +706,9 @@ export async function runAgentLoop(
   // or we hit the max step limit
   for (let iteration = 0; iteration < maxSteps; iteration++) {
     stepCount++
+    // FIX: Reset emptyResponseCount at start of each iteration
+    // so successful tool calls don't accumulate towards the limit
+    emptyResponseCount = 0
     try {
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {

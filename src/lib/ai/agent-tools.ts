@@ -67,7 +67,7 @@ function getWorkspaceRoot(): string {
  */
 function resolveWorkspacePath(filePath: string, forWrite: boolean = false): string {
   // SECURITY: Reject path traversal attempts early
-  if (filePath.includes('..')) return 'Error: Path traversal not allowed. Absolute paths and parent directory references are prohibited.'
+  if (filePath.includes('..')) throw new Error('Path traversal not allowed. Absolute paths and parent directory references are prohibited.')
   // For write operations, always use workspace root (writable)
   if (forWrite) {
     return path.resolve(getWorkspaceRoot(), filePath)

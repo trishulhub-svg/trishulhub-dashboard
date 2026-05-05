@@ -273,22 +273,26 @@ export async function DELETE(req: NextRequest) {
         },
       })
 
-      // Notify all SUPER_ADMIN users
-      const superAdmins = await db.user.findMany({
-        where: { role: "SUPER_ADMIN", isActive: true },
-      })
-
-      for (const admin of superAdmins) {
-        await db.notification.create({
-          data: {
-            userId: admin.id,
-            title: "Chat Deletion Request",
-            message: `${requester?.name || "A developer"} requested deletion of chat "${chat.title}". Please review and approve or reject.`,
-            type: "APPROVAL",
-            link: "/dashboard/approvals",
-            metadata: JSON.stringify({ approvalId: approval.id, type: "CHAT_DELETION", chatId: chat.id }),
-          }
+      // Notify all SUPER_ADMIN users (fire-and-forget)
+      try {
+        const superAdmins = await db.user.findMany({
+          where: { role: "SUPER_ADMIN", isActive: true },
         })
+
+        for (const admin of superAdmins) {
+          await db.notification.create({
+            data: {
+              userId: admin.id,
+              title: "Chat Deletion Request",
+              message: `${requester?.name || "A developer"} requested deletion of chat "${chat.title}". Please review and approve or reject.`,
+              type: "APPROVAL",
+              link: "/dashboard/approvals",
+              metadata: JSON.stringify({ approvalId: approval.id, type: "CHAT_DELETION", chatId: chat.id }),
+            }
+          })
+        }
+      } catch (notifyErr: any) {
+        console.error("[chats] DELETE notification error (non-blocking):", notifyErr?.message)
       }
 
       return NextResponse.json({

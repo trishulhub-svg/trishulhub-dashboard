@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { isAdmin } from "@/lib/rbac"
+import { rateLimit } from "@/lib/rate-limit"
 
 // POST /api/web-search - Search the web using Z.ai SDK
 export async function POST(req: NextRequest) {
@@ -17,9 +18,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
+    // FIX: Rate limit web search to prevent API credit abuse
+    const { success: rlOk } = rateLimit(`web-search:${session.user.id}`, 20, 60000)
+    if (!rlOk) {
+      return NextResponse.json({ error: "Too many requests. Max 20 searches per minute." }, { status: 429 })
+    }
+
     const { query, numResults } = await req.json()
     if (!query) {
       return NextResponse.json({ error: "Search query is required" }, { status: 400 })
+    }
+
+    // FIX: Validate query length to prevent excessively large inputs
+    if (query.length > 500) {
+      return NextResponse.json({ error: "Search query too long (max 500 characters)" }, { status: 400 })
     }
 
     // SECURITY FIX: Use environment variables directly instead of writing config to disk.

@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer"
+import { randomBytes } from "crypto"
 import { db } from "@/lib/db"
 
 // ━━ Disposable Email Domain Blocklist ━━
@@ -46,7 +47,7 @@ const DISPOSABLE_DOMAINS = new Set([
   "6paq.com", "6url.com", "abstracta.com", "armyspy.com",
   "cuvox.de", "dayrep.com", "einrot.com", "einrot.de",
   "fleckens.hu", "gustr.com", "jourrapide.com", "katz.me",
-  "kozow.com", "matchpol.net", "mt2015.com", "naver.com",
+  "kozow.com", "matchpol.net", "mt2015.com",
   "politikerclub.de", "rhyta.com", "superrito.com", "teleworm.at",
   "teleworm.com", "teleworm.de", "teleworm.fr", "teleworm.us",
   "throwam.com", "trbvm.com", "trbvn.com", "vpn8.ru",
@@ -287,7 +288,6 @@ async function sendViaSmtp(
  * Generate a random 6-digit OTP code
  */
 export function generateOTP(): string {
-  const { randomBytes } = require("crypto") as typeof import("crypto")
   const num = randomBytes(3).readUIntBE(0, 3) % 1000000
   return num.toString().padStart(6, "0")
 }
@@ -296,7 +296,6 @@ export function generateOTP(): string {
  * Generate a secure random token for password reset links
  */
 export function generateResetToken(): string {
-  const { randomBytes } = require("crypto") as typeof import("crypto")
   return randomBytes(32).toString("hex")
 }
 
@@ -380,7 +379,7 @@ export async function sendPasswordResetEmail(
   triggeredBy?: string
 ): Promise<{ success: boolean; error?: string }> {
   // The reset link will point to the app's reset page
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"
+  const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
   const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
 
   const html = `

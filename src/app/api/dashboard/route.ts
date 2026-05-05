@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
 
 export async function GET() {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -121,4 +122,8 @@ export async function GET() {
       totalLeads: leads.length,
     },
   })
+  } catch (error: any) {
+    console.error("[dashboard] GET error:", error?.message)
+    return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 })
+  }
 }

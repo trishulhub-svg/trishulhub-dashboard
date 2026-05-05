@@ -395,7 +395,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Get or create chat
-    let chat
+    // FIX: Removed `let` to avoid shadowing outer-scope `chat` variable (line 330).
+    // The outer variable is needed in the catch block for lock release.
+    chat = null
     if (chatId) {
       chat = await db.chat.findUnique({
         where: { id: chatId },

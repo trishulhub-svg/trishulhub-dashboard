@@ -153,6 +153,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
       }
 
+      // FIX: Enforce password complexity (same as self-service password change)
+      if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+      }
+
       // Hash and update the password
       const hashedPassword = await bcrypt.hash(newPassword, 12)
       await db.user.update({

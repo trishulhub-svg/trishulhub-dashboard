@@ -299,9 +299,7 @@ function LoginForm() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  autoComplete="off"
-                  data-lpignore="true"
-                  data-form-type="other"
+                  autoComplete="email"
                   className="h-11 text-base"
                 />
               </div>
@@ -315,7 +313,7 @@ function LoginForm() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    autoComplete="new-password"
+                    autoComplete="current-password"
                     data-lpignore="true"
                     data-form-type="other"
                     className="h-11 text-base pr-10"

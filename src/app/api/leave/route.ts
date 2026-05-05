@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       ? {}
       : { userId }
 
-    const leaves = await db.leaveRequest.findMany({
+    const leaves = await db.leave.findMany({
       where,
       include: {
         user: { select: { id: true, name: true, email: true } },
@@ -45,16 +45,16 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = session.user.id
-    const { type, startDate, endDate, reason } = await req.json()
+    const { leaveType, startDate, endDate, reason } = await req.json()
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
     }
 
-    const leave = await db.leaveRequest.create({
+    const leave = await db.leave.create({
       data: {
         userId,
-        type: type || "CASUAL",
+        leaveType: leaveType || "SICK_LEAVE",
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         reason: reason || null,
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
           data: {
             userId: admin.id,
             title: "New Leave Request",
-            message: `${session.user.name || "A team member"} requested ${type || "casual"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+            message: `${session.user.name || "A team member"} requested ${leaveType || "sick"} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
             type: "APPROVAL",
             link: "/dashboard/leaves",
             metadata: JSON.stringify({ leaveRequestId: leave.id }),
@@ -114,18 +114,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Only admins can approve/reject leave requests" }, { status: 403 })
     }
 
-    const { id, status, feedback } = await req.json()
+    const { id, status, reason: feedback } = await req.json()
 
     if (!id || !["APPROVED", "REJECTED"].includes(status)) {
       return NextResponse.json({ error: "Valid ID and status (APPROVED/REJECTED) required" }, { status: 400 })
     }
 
-    const leave = await db.leaveRequest.update({
+    const leave = await db.leave.update({
       where: { id },
       data: {
         status,
         approvedBy: userId,
-        feedback: feedback || null,
+        approvedAt: new Date(),
       },
       include: {
         user: { select: { id: true, name: true, email: true } },
@@ -138,7 +138,7 @@ export async function PATCH(req: NextRequest) {
         data: {
           userId: leave.userId,
           title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-          message: `Your ${leave.type} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
+          message: `Your ${leave.leaveType} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
           type: status === "APPROVED" ? "SUCCESS" : "WARNING",
           link: "/dashboard/leaves",
           metadata: JSON.stringify({ leaveRequestId: leave.id }),
@@ -155,7 +155,7 @@ export async function PATCH(req: NextRequest) {
         data: {
           fromAgentId: hrAgent.id,
           toAgentId: hrAgent.id,
-          message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.type} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
+          message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.leaveType} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
           type: "INFO",
           status: "PROCESSED",
         },
