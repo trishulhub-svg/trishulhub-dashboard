@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle,
@@ -74,7 +74,7 @@ const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const dayNamesShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function AvailabilityPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [availabilities, setAvailabilities] = useState<AvailabilityEntry[]>([]);
   const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
@@ -104,6 +104,19 @@ export default function AvailabilityPage() {
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isSessionLoading = status === "loading";
+
+  const safeArray = <T,>(data: unknown): T[] => (Array.isArray(data) ? data : []);
+
+  const safeDateStr = (val: unknown): Date => {
+    if (!val) return new Date();
+    try {
+      const d = new Date(val as string);
+      return isNaN(d.getTime()) ? new Date() : d;
+    } catch {
+      return new Date();
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -112,9 +125,9 @@ export default function AvailabilityPage() {
         fetch("/api/availability/overrides", { credentials: "include" }),
         fetch("/api/team?type=users", { credentials: "include" }),
       ]);
-      if (availRes.ok) setAvailabilities(await availRes.json());
-      if (overrideRes.ok) setOverrides(await overrideRes.json());
-      if (teamRes.ok) setTeamUsers(await teamRes.json());
+      if (availRes.ok) setAvailabilities(safeArray(await availRes.json()));
+      if (overrideRes.ok) setOverrides(safeArray(await overrideRes.json()));
+      if (teamRes.ok) setTeamUsers(safeArray(await teamRes.json()));
     } catch (err) {
       console.error("Failed to fetch data:", err);
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -132,6 +145,10 @@ export default function AvailabilityPage() {
   const handleCreateAvailability = async () => {
     if (!formUserId || formDayOfWeek === undefined) {
       toast.error("Please fill in all required fields");
+      return;
+    }
+    if (formStartTime >= formEndTime) {
+      toast.error("Start time must be before end time");
       return;
     }
     setSubmitting(true);
@@ -182,6 +199,13 @@ export default function AvailabilityPage() {
   const handleCreateOverride = async () => {
     if (!formOverrideUserId || !formOverrideDate) {
       toast.error("Please fill in all required fields");
+      return;
+    }
+    const overrideDate = new Date(formOverrideDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (overrideDate < today) {
+      toast.error("Override date cannot be in the past");
       return;
     }
     setSubmitting(true);
@@ -278,15 +302,34 @@ export default function AvailabilityPage() {
   };
 
   // Group availabilities by user for the grid view
-  const userAvailabilityMap: Record<string, Record<number, AvailabilityEntry[]>> = {};
-  for (const avail of availabilities) {
-    if (!userAvailabilityMap[avail.userId]) userAvailabilityMap[avail.userId] = {};
-    if (!userAvailabilityMap[avail.userId][avail.dayOfWeek]) userAvailabilityMap[avail.userId][avail.dayOfWeek] = [];
-    userAvailabilityMap[avail.userId][avail.dayOfWeek].push(avail);
-  }
+  const userAvailabilityMap = useMemo(() => {
+    const map: Record<string, Record<number, AvailabilityEntry[]>> = {};
+    for (const avail of availabilities) {
+      if (!map[avail.userId]) map[avail.userId] = {};
+      if (!map[avail.userId][avail.dayOfWeek]) map[avail.userId][avail.dayOfWeek] = [];
+      map[avail.userId][avail.dayOfWeek].push(avail);
+    }
+    return map;
+  }, [availabilities]);
 
   // Filter upcoming overrides
-  const upcomingOverrides = overrides.filter((o) => new Date(o.date) >= new Date(new Date().toDateString()));
+  const upcomingOverrides = useMemo(
+    () => overrides.filter((o) => safeDateStr(o.date) >= new Date(new Date().toDateString())),
+    [overrides],
+  );
+
+  if (isSessionLoading) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">Availability Management</h1>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!isUserAdmin) {
     return (
@@ -448,7 +491,7 @@ export default function AvailabilityPage() {
                   {upcomingOverrides.map((override) => (
                     <TableRow key={override.id}>
                       <TableCell className="font-medium text-sm">{override.user?.name || "Unknown"}</TableCell>
-                      <TableCell className="text-xs">{new Date(override.date).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs">{safeDateStr(override.date).toLocaleDateString()}</TableCell>
                       <TableCell className="text-xs">{override.startTime && override.endTime ? `${override.startTime}-${override.endTime}` : "All Day"}</TableCell>
                       <TableCell>
                         <Badge className={`text-[10px] ${override.isAvailable ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}`}>

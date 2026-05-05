@@ -56,14 +56,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User ID, day of week, start time, and end time are required" }, { status: 400 })
     }
 
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-      return NextResponse.json({ error: "Day of week must be 0-6 (Sunday=0)" }, { status: 400 })
+    if (typeof dayOfWeek !== "number" || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+      return NextResponse.json({ error: "Day of week must be a valid number 0-6 (Sunday=0)" }, { status: 400 })
     }
 
     const availability = await db.availability.create({
       data: {
         userId,
-        dayOfWeek: parseInt(dayOfWeek),
+        dayOfWeek,
         startTime,
         endTime,
         isAvailable: isAvailable !== undefined ? isAvailable : true,
