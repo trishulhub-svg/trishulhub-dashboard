@@ -93,16 +93,39 @@ Return format:
         questions = JSON.parse(content)
       }
 
-      // Validate questions
+      // Validate questions structure
       if (!Array.isArray(questions) || questions.length < 5) {
         return NextResponse.json({ error: "AI generated insufficient questions. Please try again." }, { status: 500 })
       }
 
-      // Ensure exactly 10 questions
-      questions = questions.slice(0, 10)
-      // Pad if less than 10
+      // Validate and sanitize each question
+      questions = questions.slice(0, 10).map((q: any, idx: number) => {
+        // Ensure correctAnswer is a valid numeric index (0-3), not a string like "A"
+        let correctAnswer = typeof q.correctAnswer === "number" && q.correctAnswer >= 0 && q.correctAnswer <= 3
+          ? q.correctAnswer
+          : ["A", "a", "B", "b", "C", "c", "D", "d"].indexOf(q.correctAnswer)
+        if (correctAnswer === -1 || typeof correctAnswer !== "number" || isNaN(correctAnswer)) {
+          correctAnswer = 0
+        }
+        return {
+          question: String(q.question || `Question ${idx + 1}`),
+          options: Array.isArray(q.options) && q.options.length === 4
+            ? q.options.map(String)
+            : ["Option A", "Option B", "Option C", "Option D"],
+          correctAnswer,
+          explanation: String(q.explanation || "Refer to the training material."),
+        }
+      })
+
+      // Pad if less than 10 (shouldn't happen after validation, but safety net)
       while (questions.length < 10) {
-        questions.push(questions[questions.length - 1] || { question: "Filler question", options: ["A", "B", "C", "D"], correctAnswer: 0, explanation: "Filler" })
+        const lastQ = questions[questions.length - 1]
+        questions.push({
+          question: `Additional question ${questions.length + 1} about ${document.topic}`,
+          options: ["Option A", "Option B", "Option C", "Option D"],
+          correctAnswer: 0,
+          explanation: "Refer to the training material.",
+        })
       }
     } catch (aiError: any) {
       console.error("[training/tests/generate] AI error:", aiError.message)

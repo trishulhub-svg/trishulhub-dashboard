@@ -39,19 +39,38 @@ export async function GET(
     }
 
     // If employee and assignment not completed, hide correct answers from test
-    if (!isAdmin(session.user.role) && assignment.test && !["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)) {
-      if (assignment.test) {
-        try {
-          const questions = JSON.parse(assignment.test.questions)
+    // If assignment IS completed, show correct answers + the employee's answers for review
+    if (assignment.test) {
+      try {
+        const questions = JSON.parse(assignment.test.questions)
+        const isCompleted = ["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)
+
+        if (!isAdmin(session.user.role) && !isCompleted) {
+          // Hide answers for employee taking the test
           ;(assignment.test as any).questions = JSON.stringify(
             questions.map((q: any) => ({
               question: q.question,
               options: q.options,
             }))
           )
-        } catch {
-          // ignore parse error
         }
+
+        // For completed tests, attach the last attempt's answers to each question for review
+        if (isCompleted && assignment.attempts.length > 0) {
+          try {
+            const attemptAnswers: number[] = JSON.parse(assignment.attempts[0].answers || "[]")
+            ;(assignment.test as any).questions = JSON.stringify(
+              questions.map((q: any, idx: number) => ({
+                ...q,
+                selectedAnswer: attemptAnswers[idx] ?? null,
+              }))
+            )
+          } catch {
+            // ignore parse error — still show questions with correct answers
+          }
+        }
+      } catch {
+        // ignore parse error
       }
     }
 

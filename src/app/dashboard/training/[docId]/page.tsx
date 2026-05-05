@@ -170,7 +170,7 @@ export default function DocumentDetailPage() {
 
   const fetchEmployees = useCallback(async () => {
     try {
-      const res = await fetch("/api/team", { credentials: "include" })
+      const res = await fetch("/api/team?type=users", { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
         // Filter only non-admin employees (DEVELOPER role)

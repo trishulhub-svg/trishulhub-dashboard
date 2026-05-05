@@ -122,30 +122,29 @@ export default function TrainingReaderPage() {
         // Determine view mode
         if (["PASSED", "FAILED"].includes(data.status)) {
           setViewMode("results")
-          // Load results from last attempt
+          // Load results from last attempt — API now includes selectedAnswer per question
           if (data.test && data.attempts.length > 0) {
             const testQuestions: Question[] = JSON.parse(data.test.questions)
             const lastAttempt = data.attempts[0]
-            const attemptAnswers: number[] = JSON.parse(
-              `{"answers": []}` // We need to re-fetch this from attempts API
-            ).answers || []
-            // Show review from test data
             setQuestions(testQuestions)
             setResults({
               score: lastAttempt.score,
               total: lastAttempt.total,
               passed: lastAttempt.passed,
               percentage: Math.round((lastAttempt.score / lastAttempt.total) * 100),
-              results: testQuestions.map((q: any, idx: number) => ({
-                question: q.question,
-                options: q.options,
-                correctAnswer: q.correctAnswer,
-                selectedAnswer: null, // We don't have stored answers visible
-                isCorrect: false,
-                explanation: q.explanation || "",
-              })),
+              results: testQuestions.map((q: any, idx: number) => {
+                const selected = q.selectedAnswer ?? null
+                const correct = q.correctAnswer ?? 0
+                return {
+                  question: q.question,
+                  options: q.options,
+                  correctAnswer: correct,
+                  selectedAnswer: selected,
+                  isCorrect: selected === correct,
+                  explanation: q.explanation || "",
+                }
+              }),
             })
-          }
         } else if (data.status === "TEST_STARTED") {
           // Resume test - fetch questions with answers hidden
           if (data.test) {

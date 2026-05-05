@@ -4,8 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
-import { execSync } from "child_process"
-import { writeFile, mkdir } from "fs/promises"
+import { mkdir, writeFile } from "fs/promises"
 import path from "path"
 
 // GET /api/training/documents - List all training documents
@@ -142,6 +141,8 @@ IMPORTANT RULES:
       content = completion.choices[0]?.message?.content || ""
     } catch (aiError: any) {
       console.error("[training/documents] AI generation error:", aiError.message)
+      // Clean up draft document on failure
+      try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
       return NextResponse.json({ error: "Failed to generate document content. Please try again." }, { status: 500 })
     }
 
@@ -163,42 +164,13 @@ IMPORTANT RULES:
       .trim()
       .slice(0, 300)
 
-    // Generate images for the document
-    const imageUrls: string[] = []
-    try {
-      const imgDir = path.join(process.cwd(), "public", "training-images")
-      await mkdir(imgDir, { recursive: true })
-
-      const imagePrompts = [
-        `Professional training illustration about ${topic.trim()}, clean modern design, educational infographic style`,
-        `Educational concept diagram about ${topic.trim()}, minimalist illustration, blue and white color scheme`,
-      ]
-
-      for (let i = 0; i < imagePrompts.length; i++) {
-        try {
-          const safeTopic = topic.trim().replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()
-          const imgPath = path.join(imgDir, `${safeTopic}-${document.id}-${i}.png`)
-          execSync(`z-ai-generate -p "${imagePrompts[i]}" -o "${imgPath}" -s 1024x1024`, {
-            timeout: 60000,
-            stdio: "pipe",
-          })
-          imageUrls.push(`/training-images/${safeTopic}-${document.id}-${i}.png`)
-        } catch (imgErr: any) {
-          console.error(`[training/documents] Image ${i} generation failed:`, imgErr.message)
-        }
-      }
-    } catch (imgError: any) {
-      console.error("[training/documents] Image generation error:", imgError.message)
-    }
-
-    // Update document with content and status
+    // Save document with content FIRST — return to client immediately
+    // Images will be generated in the background (non-blocking)
     const updated = await db.trainingDocument.update({
       where: { id: document.id },
       data: {
         content,
         summary,
-        imageUrl: imageUrls[0] || null,
-        imageUrls: JSON.stringify(imageUrls),
         status: "READY",
       },
       include: {
@@ -207,9 +179,70 @@ IMPORTANT RULES:
       },
     })
 
+    // Fire-and-forget: generate images in background using SDK (not blocking CLI)
+    generateImagesAsync(document.id, topic.trim()).catch((err) => {
+      console.error("[training/documents] Background image error:", err?.message)
+    })
+
     return NextResponse.json(updated, { status: 201 })
   } catch (error: any) {
     console.error("[training/documents] POST error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
+}
+
+/**
+ * Generate training illustrations asynchronously using the z-ai-web-dev-sdk.
+ * Runs in the background after the document is already saved and returned to the client.
+ * Updates the document record with image URLs once images are ready.
+ */
+async function generateImagesAsync(documentId: string, topic: string) {
+  try {
+    const ZAI = (await import("z-ai-web-dev-sdk")).default
+    const zai = await ZAI.create()
+
+    const imgDir = path.join(process.cwd(), "public", "training-images")
+    await mkdir(imgDir, { recursive: true })
+
+    const prompts = [
+      `Professional training illustration about ${topic}, clean modern design, educational infographic style, no text overlay`,
+      `Educational concept diagram about ${topic}, minimalist flat illustration, blue and white color scheme, no text`,
+    ]
+
+    const imageUrls: string[] = []
+
+    for (let i = 0; i < prompts.length; i++) {
+      try {
+        const response = await zai.images.generations.create({
+          prompt: prompts[i],
+          size: "1024x1024",
+        })
+
+        const base64 = response.data?.[0]?.base64
+        if (!base64) continue
+
+        const safeTopic = topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()
+        const imgPath = path.join(imgDir, `${safeTopic}-${documentId}-${i}.png`)
+        const buffer = Buffer.from(base64, "base64")
+        await writeFile(imgPath, buffer)
+        imageUrls.push(`/training-images/${safeTopic}-${documentId}-${i}.png`)
+      } catch (imgErr: any) {
+        console.error(`[training/documents] Image ${i} failed:`, imgErr.message)
+      }
+    }
+
+    // Update document with image URLs once all images are ready
+    if (imageUrls.length > 0) {
+      await db.trainingDocument.update({
+        where: { id: documentId },
+        data: {
+          imageUrl: imageUrls[0] || null,
+          imageUrls: JSON.stringify(imageUrls),
+        },
+      })
+      console.log(`[training/documents] Generated ${imageUrls.length} images for document ${documentId}`)
+    }
+  } catch (err: any) {
+    console.error("[training/documents] Background image error:", err?.message)
   }
 }
