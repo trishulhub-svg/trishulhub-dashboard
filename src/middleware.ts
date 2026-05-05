@@ -48,13 +48,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Session is valid — check for sessionToken presence
-  // If no sessionToken, the session predates the single-device feature
-  // and should be allowed (graceful migration)
-  if (token && !token.sessionToken) {
-    // Old session without sessionToken — allow through
-    // The JWT callback will add a sessionToken on next refresh
-  }
+  // Session is valid — check for sessionToken presence.
+  // Old sessions without sessionToken predate the single-device feature.
+  // They're allowed through for graceful migration — the JWT callback
+  // will add a sessionToken on the next token refresh.
 
   // Role-based access control
   if (pathname.startsWith("/dashboard")) {

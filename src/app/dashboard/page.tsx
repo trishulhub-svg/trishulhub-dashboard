@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { cn, safeArray } from "@/lib/utils";
 import { AGENT_TYPES, STATUS_COLORS } from "@/lib/types";
 import type { AgentStatus, AgentType } from "@/lib/types";
 
@@ -44,8 +44,6 @@ export default function DashboardPage() {
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-
-  const safeArray = <T,>(data: unknown): T[] => (Array.isArray(data) ? data : []);
 
   const fetchDashboard = useCallback(async () => {
     try {

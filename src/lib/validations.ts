@@ -120,33 +120,48 @@ export const updateTimeEntrySchema = z.object({
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
 })
 
+// Time format validation regex (HH:mm)
+const timeFormat = z.string().regex(/^\d{2}:\d{2}$/, "Time must be in HH:mm format")
+
 export const createMeetingSchema = z.object({
   title: z.string().min(1, "Meeting title is required").max(200),
   description: z.string().max(2000).optional(),
   date: z.string().min(1, "Date is required"),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().optional(),
+  startTime: timeFormat.min(1, "Start time is required"),
+  endTime: timeFormat.optional(),
   meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
   meetingLink: z.string().optional(),
   projectId: z.string().optional(),
   attendeeIds: z.array(z.string()).optional(),
   notes: z.string().max(2000).optional(),
-})
+}).refine(
+  (data) => {
+    if (data.startTime && data.endTime) return data.endTime > data.startTime
+    return true
+  },
+  { message: "End time must be after start time", path: ["endTime"] }
+)
 
 export const updateMeetingSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   date: z.string().optional(),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
+  startTime: timeFormat.optional(),
+  endTime: timeFormat.optional(),
   meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
   meetingLink: z.string().optional(),
   projectId: z.string().optional(),
   status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
   attendeeIds: z.array(z.string()).optional(),
   notes: z.string().max(2000).optional(),
-})
+}).refine(
+  (data) => {
+    if (data.startTime && data.endTime) return data.endTime > data.startTime
+    return true
+  },
+  { message: "End time must be after start time", path: ["endTime"] }
+)
 
 // ━━ Subscriptions ━━
 export const createSubscriptionSchema = z.object({

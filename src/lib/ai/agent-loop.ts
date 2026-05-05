@@ -600,7 +600,7 @@ async function callNvidiaWithTools(
         }
 
         return {
-          id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
           type: "function" as const,
           function: {
             name: tc.function?.name || "unknown",

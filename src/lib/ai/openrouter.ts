@@ -287,9 +287,7 @@ async function callOpenRouterAPI(
 // ━━ Z.ai JWT Token Generation ━━
 // Z.ai API keys come in format: {id}.{secret}
 // The API requires a JWT token signed with the secret, not the raw key
-// NOTE: generateZaiToken is now in shared jwt-utils.ts — this local alias
-// re-exports it for backward compatibility with any internal references.
-const _generateZaiToken = generateZaiToken
+
 
 // ━━ Z.ai Direct API ━━
 // Includes automatic retry with exponential backoff for temporary rate limits

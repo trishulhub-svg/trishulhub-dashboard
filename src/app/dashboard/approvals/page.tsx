@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Approval {
@@ -69,7 +70,6 @@ export default function ApprovalsPage() {
       const url = status ? `/api/approvals?status=${status}` : "/api/approvals?status=PENDING";
       const res = await fetch(url, { credentials: 'include' });
       if (res.ok) {
-        const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
         setApprovals(safeArray<Approval>(await res.json()));
       }
     } catch (err) {

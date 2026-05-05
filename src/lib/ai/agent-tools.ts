@@ -1500,7 +1500,7 @@ async function executeWriteFile(filePath: string, content: string, description?:
   const criticalFiles = [
     '.env', '.env.local', '.env.production', '.env.development', '.env.staging', '.env.test',
     'next.config.js', 'next.config.ts', 'next.config.mjs',
-    'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+    'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock',
     'tsconfig.json',
     '.gitignore', '.gitattributes',
     'vercel.json', 'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
@@ -1556,8 +1556,7 @@ async function executeEditFile(filePath: string, oldContent: string, newContent:
     'vercel.json', 'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
     'prisma/schema.prisma',
   ]
-  const resolvedPath = path.resolve(PROJECT_ROOT, filePath)
-  const fileName = path.basename(resolvedPath)
+  const fileName = path.basename(filePath)
   if (criticalFiles.includes(fileName) || fileName.startsWith('.env')) {
     return 'Error: Cannot edit critical configuration files for security reasons.'
   }

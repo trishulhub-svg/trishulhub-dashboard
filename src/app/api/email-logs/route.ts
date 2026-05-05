@@ -79,8 +79,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type") || undefined
     const status = searchParams.get("status") || undefined
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500)
-    const offset = parseInt(searchParams.get("offset") || "0")
+    // FIX: Validate limit and offset to prevent NaN in Prisma queries
+    const rawLimit = parseInt(searchParams.get("limit") || "100")
+    const rawOffset = parseInt(searchParams.get("offset") || "0")
+    if (isNaN(rawLimit) || isNaN(rawOffset) || rawLimit < 1 || rawOffset < 0) {
+      return NextResponse.json({ error: "Invalid limit or offset" }, { status: 400 })
+    }
+    const limit = Math.min(rawLimit, 500)
+    const offset = rawOffset
 
     const where: any = {}
     if (type) where.type = type

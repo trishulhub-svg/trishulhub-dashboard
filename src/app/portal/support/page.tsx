@@ -96,12 +96,15 @@ export default function PortalSupportPage() {
         }),
       });
       if (res.ok) {
+        const replyData = await res.json().catch(() => ({}));
         toast.success("Reply sent");
         setReplyText("");
+        // FIX: Optimistically append the reply to selectedTicket instead of
+        // reading from stale `tickets` state (fetchTickets is async)
+        if (replyData && replyData.ticket) {
+          setSelectedTicket(replyData.ticket);
+        }
         fetchTickets();
-        // Refresh selected ticket
-        const updated = (tickets as { id: string }[]).find((t) => t.id === selectedTicket.id);
-        if (updated) setSelectedTicket(updated as unknown as Record<string, unknown>);
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to send reply");

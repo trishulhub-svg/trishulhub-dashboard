@@ -35,10 +35,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 
 // ━━ Helpers ━━
-const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
 
 function safeDateStr(date: unknown): Date {
   const d = new Date(date as string);

@@ -34,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface AvailabilityEntry {
@@ -105,8 +106,6 @@ export default function AvailabilityPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isSessionLoading = status === "loading";
-
-  const safeArray = <T,>(data: unknown): T[] => (Array.isArray(data) ? data : []);
 
   const safeDateStr = (val: unknown): Date => {
     if (!val) return new Date();

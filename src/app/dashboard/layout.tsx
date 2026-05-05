@@ -38,9 +38,7 @@ import { useTheme } from "next-themes";
 import { useState, useEffect, useCallback } from "react";
 import { useSessionManager } from "@/hooks/use-session-manager";
 
-// Performance: safe array helper to prevent .map crash on unexpected API responses
-const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
-import { cn } from "@/lib/utils";
+import { cn, safeArray, safeDateStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -117,7 +115,7 @@ function formatRelativeTime(dateStr: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
+  return safeDateStr(date);
 }
 
 function SidebarContent({

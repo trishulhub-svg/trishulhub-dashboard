@@ -39,6 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { safeArray } from "@/lib/utils";
 
 // ─── Team Member Type ──────────────────────────────────────────
 interface TeamMember {
@@ -131,7 +132,6 @@ const emailTypeLabels: Record<string, string> = {
 
 export default function SettingsPage() {
   const { data: session, status, update: updateSession } = useSession();
-  const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
   const { theme, setTheme } = useTheme();
   const [name, setName] = useState(session?.user?.name || "");
   const [emailNotifications, setEmailNotifications] = useState(true);

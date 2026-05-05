@@ -39,7 +39,7 @@ import {
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, safeArray } from "@/lib/utils";
 
 // ━━ Types ━━
 interface MeetingAttendee {
@@ -114,8 +114,6 @@ const rsvpConfig: Record<string, { label: string; color: string; bgColor: string
 };
 
 // ━━ Helpers ━━
-const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
-
 function formatTime(time: string): string {
   if (!time) return "";
   const [h, m] = time.split(":");

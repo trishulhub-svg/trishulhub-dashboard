@@ -79,6 +79,14 @@ export async function POST(req: NextRequest) {
 
   const data = validation.data
 
+  // FIX: Validate dates before creating (NaN check)
+  if (data.startDate && isNaN(new Date(data.startDate).getTime())) {
+    return NextResponse.json({ error: "Invalid start date" }, { status: 400 })
+  }
+  if (data.endDate && isNaN(new Date(data.endDate).getTime())) {
+    return NextResponse.json({ error: "Invalid end date" }, { status: 400 })
+  }
+
   const subscription = await db.subscription.create({
     data: {
       service: data.service,
