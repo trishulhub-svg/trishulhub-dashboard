@@ -43,6 +43,10 @@ model User {
   availabilities        Availability[]
   availabilityOverrides AvailabilityOverride[]
   assignedDeals         Deal[]
+  trainingDocuments    TrainingDocument[] @relation("TrainingDocGenerator")
+  trainingTests        TrainingTest[]     @relation("TrainingTestGenerator")
+  trainingAssigned     TrainingAssignment[] @relation("TrainingEmployee")
+  trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
 }
 
 // ━━ API Keys ━━
@@ -788,4 +792,73 @@ model AvailabilityOverride {
 
   @@index([userId])
   @@index([date])
+}
+
+// ━━ Training System ━━
+model TrainingDocument {
+  id            String   @id @default(cuid())
+  topic         String
+  content       String
+  summary       String?
+  imageUrl      String?
+  imageUrls     String   @default("[]")
+  status        String   @default("DRAFT") // DRAFT, READY, ARCHIVED
+  generatedBy   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  generator      User     @relation("TrainingDocGenerator", fields: [generatedBy], references: [id])
+  tests          TrainingTest[]
+  assignments    TrainingAssignment[]
+}
+
+model TrainingTest {
+  id            String   @id @default(cuid())
+  documentId    String
+  level         String   // LOW, MEDIUM, HIGH
+  questions     String
+  timeLimit     Int      @default(20)
+  generatedBy   String
+  createdAt     DateTime @default(now())
+
+  document      TrainingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  generator     User     @relation("TrainingTestGenerator", fields: [generatedBy], references: [id])
+  assignments   TrainingAssignment[]
+
+  @@unique([documentId, level])
+}
+
+model TrainingAssignment {
+  id            String   @id @default(cuid())
+  documentId    String
+  testId        String?
+  assignedTo    String
+  assignedBy    String
+  testLevel     String   @default("LOW")
+  dueDate       DateTime?
+  status        String   @default("ASSIGNED") // ASSIGNED, READ, TEST_STARTED, COMPLETED, PASSED, FAILED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  document      TrainingDocument @relation(fields: [documentId], references: [id])
+  test          TrainingTest?    @relation(fields: [testId], references: [id])
+  employee      User     @relation("TrainingEmployee", fields: [assignedTo], references: [id])
+  assigner      User     @relation("TrainingAssigner", fields: [assignedBy], references: [id])
+  attempts      TestAttempt[]
+
+  @@index([assignedTo])
+  @@index([status])
+}
+
+model TestAttempt {
+  id            String   @id @default(cuid())
+  assignmentId  String
+  answers       String
+  score         Int
+  total         Int      @default(10)
+  timeTaken     Int?
+  passed        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  assignment    TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 }

@@ -32,6 +32,8 @@ import {
   Briefcase,
   Clock,
   Video,
+  GraduationCap,
+  BookOpen,
 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -80,6 +82,8 @@ const navItems: NavItem[] = [
   { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
   { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
   { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+  { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
+  { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
 ];
 
 interface NotificationItem {

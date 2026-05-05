@@ -63,7 +63,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Admin-only routes
-    const adminOnlyRoutes = ["/dashboard/api-keys", "/dashboard/finance", "/dashboard/crm", "/dashboard/clients", "/dashboard/availability", "/dashboard/team"]
+    const adminOnlyRoutes = ["/dashboard/api-keys", "/dashboard/finance", "/dashboard/crm", "/dashboard/clients", "/dashboard/availability", "/dashboard/team", "/dashboard/training"]
     const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
     if (!isAdmin && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
