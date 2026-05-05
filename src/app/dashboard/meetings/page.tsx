@@ -4,9 +4,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
-  Phone, Monitor, ChevronDown, ChevronUp, X, Check, UserPlus,
-  CalendarDays, CalendarRange, List, Grid3X3, VideoIcon,
-  StickyNote, Link2, Play, Circle,
+  Phone, Monitor, ChevronDown, ChevronUp, X, Check,
+  CalendarDays, CalendarRange, List, Grid3X3,
+  StickyNote, Link2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -37,12 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -120,7 +114,10 @@ const rsvpConfig: Record<string, { label: string; color: string; bgColor: string
 };
 
 // ━━ Helpers ━━
+const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
+
 function formatTime(time: string): string {
+  if (!time) return "";
   const [h, m] = time.split(":");
   const hour = parseInt(h);
   const ampm = hour >= 12 ? "PM" : "AM";
@@ -129,8 +126,13 @@ function formatTime(time: string): string {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "Invalid date";
+    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  } catch {
+    return "Invalid date";
+  }
 }
 
 function isToday(dateStr: string): boolean {
@@ -170,7 +172,7 @@ function getDateLabel(dateStr: string): string {
 
 // ━━ Main Component ━━
 export default function MeetingsPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -205,10 +207,11 @@ export default function MeetingsPage() {
       const res = await fetch("/api/meetings", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setMeetings(data);
+        setMeetings(safeArray<Meeting>(data));
       }
     } catch {
       console.error("Failed to fetch meetings");
+      toast.error("Failed to load meetings");
     } finally {
       setLoading(false);
     }
@@ -222,11 +225,11 @@ export default function MeetingsPage() {
       ]);
       if (teamRes.ok) {
         const teamData = await teamRes.json();
-        setTeamMembers(teamData.filter((u: TeamMember) => u.id !== userId));
+        setTeamMembers(safeArray<TeamMember>(teamData).filter((u: TeamMember) => u.id !== userId));
       }
       if (projectsRes.ok) {
         const projectData = await projectsRes.json();
-        setProjects(projectData);
+        setProjects(safeArray<Project>(projectData));
       }
     } catch (err) {
       console.error("Failed to fetch team and projects:", err);
@@ -334,13 +337,17 @@ export default function MeetingsPage() {
   const openEditDialog = (meeting: Meeting) => {
     setFormTitle(meeting.title);
     setFormDescription(meeting.description || "");
-    setFormDate(new Date(meeting.date).toISOString().split("T")[0]);
-    setFormStartTime(meeting.startTime);
+    try {
+      setFormDate(new Date(meeting.date).toISOString().split("T")[0]);
+    } catch {
+      setFormDate("");
+    }
+    setFormStartTime(meeting.startTime || "09:00");
     setFormEndTime(meeting.endTime || "");
     setFormMeetingType(meeting.meetingType);
     setFormMeetingLink(meeting.meetingLink || "");
     setFormProjectId(meeting.projectId || "");
-    setFormAttendeeIds(meeting.attendees.map((a) => a.userId));
+    setFormAttendeeIds(safeArray<MeetingAttendee>(meeting.attendees).map((a) => a.userId));
     setFormNotes(meeting.notes || "");
     setEditMode(true);
     setDetailOpen(false);
@@ -469,6 +476,20 @@ export default function MeetingsPage() {
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
   };
+
+  // ━━ Session loading guard ━━
+  if (status === "loading") {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // ━━ Loading State ━━
   if (loading) {
