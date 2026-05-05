@@ -11,7 +11,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
-  Users, TrendingUp, Calendar,
+  Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
@@ -43,6 +47,7 @@ interface Lead {
   score: number;
   status: LeadStatus;
   notes?: string;
+  clientId?: string | null;
   createdAt: string;
 }
 
@@ -377,10 +382,89 @@ export default function CRMPage() {
     }
   };
 
-  // CRM-004: Quick email handler
-  const handleQuickEmail = () => {
-    toast.info("Email sending will be available once the email API is configured");
-    // Future: POST to /api/leads/emails
+  // Quick email handler — wired to /api/leads/emails
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const handleQuickEmail = async () => {
+    if (!selectedLead || !emailSubject.trim() || !emailBody.trim()) return;
+    setSendingEmail(true);
+    try {
+      const res = await fetch("/api/leads/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          leadId: selectedLead.id,
+          subject: emailSubject.trim(),
+          body: emailBody.trim(),
+        }),
+      });
+      if (res.ok) {
+        toast.success("Email saved as draft for approval");
+        setEmailSubject("");
+        setEmailBody("");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to send email");
+      }
+    } catch {
+      toast.error("Failed to send email");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // Delete lead handler
+  const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const handleDeleteLead = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/leads/${deleteTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Lead deleted");
+        fetchLeads();
+        if (selectedLead?.id === deleteTarget.id) setSelectedLead(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete lead");
+      }
+    } catch {
+      toast.error("Failed to delete lead");
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
+  // Convert lead to client
+  const [converting, setConverting] = useState(false);
+  const handleConvertLead = async () => {
+    if (!selectedLead) return;
+    setConverting(true);
+    try {
+      const res = await fetch(`/api/leads/${selectedLead.id}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Lead converted to client!");
+        fetchLeads();
+        setSelectedLead(null);
+        // Navigate to clients page to see the new client
+        router.push("/dashboard/clients");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to convert lead");
+      }
+    } catch {
+      toast.error("Failed to convert lead");
+    } finally {
+      setConverting(false);
+    }
   };
 
   // CRM-002: Show loading skeleton while session is loading
@@ -696,16 +780,70 @@ export default function CRMPage() {
                 <Button
                   size="sm"
                   className="w-full"
-                  disabled={!emailSubject.trim() || !emailBody.trim()}
+                  disabled={!emailSubject.trim() || !emailBody.trim() || sendingEmail}
                   onClick={handleQuickEmail}
                 >
-                  <Send className="h-3 w-3 mr-1" /> Send Email
+                  {sendingEmail ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
+                  {sendingEmail ? "Sending..." : "Send Email"}
+                </Button>
+              </div>
+              <Separator />
+              {/* Action buttons */}
+              <div className="space-y-2">
+                {!selectedLead.clientId && selectedLead.status !== "WON" && (
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    variant="default"
+                    disabled={converting}
+                    onClick={handleConvertLead}
+                  >
+                    {converting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <UserCheck className="h-3 w-3 mr-1" />}
+                    {converting ? "Converting..." : "Convert to Client"}
+                  </Button>
+                )}
+                {selectedLead.clientId && (
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    variant="outline"
+                    onClick={() => router.push("/dashboard/clients")}
+                  >
+                    <Building2 className="h-3 w-3 mr-1" /> View Client
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  variant="outline"
+                  onClick={() => setDeleteTarget(selectedLead)}
+                  disabled={deleting}
+                >
+                  <Trash2 className="h-3 w-3 mr-1" /> Delete Lead
                 </Button>
               </div>
             </div>
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Delete Lead Confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Lead</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &quot;{deleteTarget?.name}&quot; and all associated emails. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteLead} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

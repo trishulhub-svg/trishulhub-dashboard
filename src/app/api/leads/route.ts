@@ -54,8 +54,8 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
   }
 }
 
-// GET /api/leads - List leads (ADMIN/SUPER_ADMIN only)
-export async function GET() {
+// GET /api/leads - List leads with search/filter/sort (ADMIN/SUPER_ADMIN only)
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -64,11 +64,53 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const leads = await db.lead.findMany({
-    include: { client: true, emails: true },
-    orderBy: { createdAt: "desc" },
-  })
-  return NextResponse.json(leads)
+  const { searchParams } = new URL(req.url)
+  const search = searchParams.get("search") || ""
+  const status = searchParams.get("status") || ""
+  const source = searchParams.get("source") || ""
+  const sortBy = searchParams.get("sortBy") || "createdAt"
+  const sortOrder = searchParams.get("sortOrder") || "desc"
+
+  // Validate sort params
+  const validSortBy = ["name", "createdAt", "score"]
+  const validSortOrder = ["asc", "desc"]
+  if (sortBy && !validSortBy.includes(sortBy)) {
+    return NextResponse.json({ error: "Invalid sortBy. Must be one of: name, createdAt, score" }, { status: 400 })
+  }
+  if (sortOrder && !validSortOrder.includes(sortOrder)) {
+    return NextResponse.json({ error: "Invalid sortOrder. Must be asc or desc" }, { status: 400 })
+  }
+
+  // Build where clause
+  const where: Record<string, unknown> = {}
+  if (status) where.status = status
+  if (source) where.source = source
+  if (search) {
+    where.OR = [
+      { name: { contains: search } },
+      { email: { contains: search } },
+      { company: { contains: search } },
+      { phone: { contains: search } },
+    ]
+  }
+
+  const orderBy: Record<string, string> = sortBy === "score"
+    ? { score: sortOrder === "asc" ? "asc" : "desc" }
+    : sortBy === "name"
+      ? { name: sortOrder === "asc" ? "asc" : "desc" }
+      : { createdAt: sortOrder === "asc" ? "asc" : "desc" }
+
+  try {
+    const leads = await db.lead.findMany({
+      where,
+      include: { client: true, emails: true },
+      orderBy,
+    })
+    return NextResponse.json(leads)
+  } catch (error: unknown) {
+    console.error("Error fetching leads:", error)
+    return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 })
+  }
 }
 
 // POST /api/leads - Create lead (ADMIN/SUPER_ADMIN only)

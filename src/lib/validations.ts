@@ -86,6 +86,20 @@ export const createLeadSchema = z.object({
   clientId: z.string().optional(),
 })
 
+export const updateLeadSchema = z.object({
+  id: z.string().min(1, "Lead ID is required"),
+  name: z.string().min(1).max(200).optional(),
+  email: z.string().email("Valid email is required").max(200).optional(),
+  company: z.string().max(200).optional(),
+  website: z.string().max(500).optional(),
+  phone: z.string().max(50).optional(),
+  source: z.enum(["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"]).optional(),
+  score: z.number().int().min(0).max(100).optional(),
+  status: z.enum(["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]).optional(),
+  notes: z.string().max(5000).optional(),
+  clientId: z.string().optional(),
+})
+
 export const supportTicketSchema = z.object({
   clientId: z.string().optional(),
   subject: z.string().min(1, "Subject is required"),
