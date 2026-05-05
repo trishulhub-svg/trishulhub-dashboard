@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot, AlertCircle,
+  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot, AlertCircle, RefreshCw, MessageSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,66 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
+
+// ── TypeScript Interfaces ── [FIX M3: Replace unknown[] with proper types]
+
+interface AgentInfo {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface UserAgentAccessItem {
+  id: string;
+  userId: string;
+  agentId: string;
+  canChat: boolean;
+  canView: boolean;
+  canApprove: boolean;
+  user?: { id: string; name: string; email: string; role: string; department?: string | null };
+  agent?: AgentInfo;
+}
+
+interface TeamUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department?: string | null;
+  isActive: boolean;
+  avatar?: string | null;
+  agentAccess?: UserAgentAccessItem[];
+}
+
+interface LeaveRecord {
+  id: string;
+  userId: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+  feedback?: string | null;
+  status: string;
+  user?: { id: string; name: string; email: string; role: string };
+}
+
+interface AttendanceRecord {
+  id: string;
+  userId: string;
+  date: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  status: string;
+  user?: { id: string; name: string; email: string; role: string };
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
+  type: string;
+}
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -29,23 +88,35 @@ const roleColors: Record<string, string> = {
   CLIENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
 };
 
+// ── Helper: safe array fallback ── [FIX C1: Prevent .map crash on non-array responses]
+function safeArray<T>(data: unknown): T[] {
+  return Array.isArray(data) ? data : [];
+}
+
 export default function TeamPage() {
-  const [users, setUsers] = useState<unknown[]>([]);
-  const [leaves, setLeaves] = useState<unknown[]>([]);
-  const [attendance, setAttendance] = useState<unknown[]>([]);
-  const [agentAccess, setAgentAccess] = useState<unknown[]>([]);
-  const [agents, setAgents] = useState<unknown[]>([]);
+  const [users, setUsers] = useState<TeamUser[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [agentAccess, setAgentAccess] = useState<UserAgentAccessItem[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"team" | "leaves" | "attendance" | "access">("team");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [accessDialogOpen, setAccessDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectingLeaveId, setRejectingLeaveId] = useState<string | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState("");
+  const [removeAccessConfirmId, setRemoveAccessConfirmId] = useState<string | null>(null);
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+
+  // [FIX C2: Use sessionStatus to avoid redirecting during loading]
   const userRole = session?.user?.role || "DEVELOPER";
-  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const [addMemberLoading, setAddMemberLoading] = useState(false);
+  const [mutating, setMutating] = useState(false); // [FIX H3: Global mutation loading guard]
 
   // Leave form
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
@@ -65,11 +136,48 @@ export default function TeamPage() {
         fetch("/api/team?type=agent-access", { credentials: 'include', signal }),
         fetch("/api/agents", { credentials: 'include', signal }),
       ]);
-      if (userRes.ok) setUsers(await userRes.json());
-      if (leaveRes.ok) setLeaves(await leaveRes.json());
-      if (attendRes.ok) setAttendance(await attendRes.json());
-      if (accessRes.ok) setAgentAccess(await accessRes.json());
-      if (agentsRes.ok) setAgents(await agentsRes.json());
+
+      // [FIX C1: Safe array fallback for all responses]
+      // [FIX H2: Show error toast for non-ok responses]
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        setUsers(safeArray<TeamUser>(userData));
+      } else {
+        const errData = await userRes.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load team members");
+      }
+
+      if (leaveRes.ok) {
+        const leaveData = await leaveRes.json();
+        setLeaves(safeArray<LeaveRecord>(leaveData));
+      } else {
+        const errData = await leaveRes.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load leave requests");
+      }
+
+      if (attendRes.ok) {
+        const attendData = await attendRes.json();
+        setAttendance(safeArray<AttendanceRecord>(attendData));
+      } else {
+        const errData = await attendRes.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load attendance data");
+      }
+
+      if (accessRes.ok) {
+        const accessData = await accessRes.json();
+        setAgentAccess(safeArray<UserAgentAccessItem>(accessData));
+      } else {
+        const errData = await accessRes.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load agent access");
+      }
+
+      if (agentsRes.ok) {
+        const agentsData = await agentsRes.json();
+        setAgents(safeArray<AgentOption>(agentsData));
+      } else {
+        const errData = await agentsRes.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load agents");
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
@@ -85,7 +193,9 @@ export default function TeamPage() {
     return () => controller.abort();
   }, [fetchData]);
 
-  const handleLeaveAction = async (id: string, status: string, feedback?: string) => {
+  const handleLeaveAction = useCallback(async (id: string, status: string, feedback?: string) => {
+    if (mutating) return; // [FIX H3: Prevent double-click]
+    setMutating(true);
     try {
       const res = await fetch("/api/team", {
         method: "PATCH",
@@ -96,11 +206,26 @@ export default function TeamPage() {
       if (res.ok) {
         toast.success(`Leave ${status.toLowerCase()}`);
         fetchData();
+      } else {
+        // [FIX H4: Show error toast for non-ok leave action response]
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || `Failed to ${status.toLowerCase()} leave`);
       }
-    } catch { toast.error("Failed to update leave"); }
-  };
+    } catch {
+      toast.error("Failed to update leave");
+    } finally {
+      setMutating(false);
+    }
+  }, [mutating, fetchData]);
 
-  const handleApplyLeave = async () => {
+  const handleApplyLeave = useCallback(async () => {
+    // [FIX M7: Client-side date validation]
+    if (leaveForm.startDate && leaveForm.endDate && new Date(leaveForm.startDate) > new Date(leaveForm.endDate)) {
+      toast.error("End date must be on or after start date");
+      return;
+    }
+    if (mutating) return; // [FIX H3]
+    setMutating(true);
     try {
       const res = await fetch("/api/team", {
         method: "POST",
@@ -117,10 +242,16 @@ export default function TeamPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to submit leave");
       }
-    } catch { toast.error("Failed to submit leave"); }
-  };
+    } catch {
+      toast.error("Failed to submit leave");
+    } finally {
+      setMutating(false);
+    }
+  }, [leaveForm, mutating, fetchData]);
 
-  const handleGrantAccess = async () => {
+  const handleGrantAccess = useCallback(async () => {
+    if (mutating) return; // [FIX H3]
+    setMutating(true);
     try {
       const res = await fetch("/api/team", {
         method: "POST",
@@ -137,10 +268,16 @@ export default function TeamPage() {
         const err = await res.json();
         toast.error(err.error || "Failed to grant access");
       }
-    } catch { toast.error("Failed to grant access"); }
-  };
+    } catch {
+      toast.error("Failed to grant access");
+    } finally {
+      setMutating(false);
+    }
+  }, [accessForm, mutating, fetchData]);
 
-  const handleRemoveAccess = async (id: string) => {
+  const handleRemoveAccess = useCallback(async (id: string) => {
+    if (mutating) return; // [FIX H3]
+    setMutating(true);
     try {
       const res = await fetch(`/api/team?type=agent-access&id=${id}`, {
         method: "DELETE",
@@ -148,14 +285,34 @@ export default function TeamPage() {
       });
       if (res.ok) {
         toast.success("Access removed");
+        setRemoveAccessConfirmId(null);
         fetchData();
+      } else {
+        // [FIX H5: Show error toast for non-ok delete response]
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to remove access");
       }
-    } catch { toast.error("Failed to remove access"); }
-  };
+    } catch {
+      toast.error("Failed to remove access");
+    } finally {
+      setMutating(false);
+    }
+  }, [mutating, fetchData]);
 
-  const handleAddMember = async () => {
+  const handleAddMember = useCallback(async () => {
     if (!memberForm.name || !memberForm.email || !memberForm.password) {
       toast.error("Name, email, and password are required");
+      return;
+    }
+    // [FIX H1: Match client-side validation with API minimum of 8 characters]
+    if (memberForm.password.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    // [FIX: Client-side email validation]
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(memberForm.email)) {
+      toast.error("Please enter a valid email address");
       return;
     }
     setAddMemberLoading(true);
@@ -187,10 +344,24 @@ export default function TeamPage() {
     } finally {
       setAddMemberLoading(false);
     }
-  };
+  }, [memberForm, fetchData]);
 
-  // Role guard
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
+  // [FIX C2: Wait for session to load before checking role guard]
+  // Show loading skeleton while session is loading to prevent false redirect
+  if (sessionStatus === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  // Role guard — only redirect AFTER session is confirmed loaded and user is not admin
+  if (!isAdminUser) {
+    router.push("/dashboard");
+    return null;
+  }
 
   if (loading) {
     return (
@@ -206,12 +377,15 @@ export default function TeamPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchData(); }}>
           Try Again
         </Button>
       </div>
     );
   }
+
+  // Tab counts for badges
+  const pendingLeavesCount = leaves.filter(l => l.status === "PENDING").length;
 
   return (
     <div className="space-y-4">
@@ -221,6 +395,10 @@ export default function TeamPage() {
           <p className="text-muted-foreground text-sm">Manage team members, leave requests, and agent access</p>
         </div>
         <div className="flex gap-2">
+          {/* [FIX M10: Add refresh button] */}
+          <Button size="sm" variant="outline" onClick={() => { setLoading(true); fetchData(); }} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </Button>
           {tab === "team" && (
             <Button size="sm" onClick={() => setAddMemberOpen(true)} className="bg-primary hover:bg-primary/90">
               <Plus className="h-4 w-4 mr-1" /> Add Member
@@ -242,20 +420,27 @@ export default function TeamPage() {
       <div className="flex gap-2 flex-wrap">
         {(["team", "leaves", "attendance", "access"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "default" : "outline"} size="sm" onClick={() => setTab(t)}>
-            {t === "team" ? "Team" : t === "leaves" ? "Leave Requests" : t === "attendance" ? "Attendance" : "Agent Access"}
+            {t === "team" ? `Team (${users.length})`
+              : t === "leaves" ? `Leave Requests${pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}`
+              : t === "attendance" ? "Attendance"
+              : "Agent Access"}
           </Button>
         ))}
       </div>
 
       {tab === "team" && (
         <div className="grid gap-4 md:grid-cols-2">
-          {(users as any[]).map((user) => (
+          {users.map((user) => (
             <Card key={user.id}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                  </div>
+                  {/* [FIX M8: Show user avatar if available] */}
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={user.avatar || undefined} alt={user.name} />
+                    <AvatarFallback className="bg-muted">
+                      <User className="h-5 w-5 text-muted-foreground" />
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="flex-1">
                     <p className="text-sm font-medium">{user.name}</p>
                     <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -272,7 +457,7 @@ export default function TeamPage() {
                 </div>
                 {user.agentAccess && user.agentAccess.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-3">
-                    {user.agentAccess.map((a: any) => (
+                    {user.agentAccess.map((a) => (
                       <Badge key={a.id} variant="outline" className="text-[10px]">
                         <Bot className="h-2.5 w-2.5 mr-0.5" /> {a.agent?.name}
                       </Badge>
@@ -282,12 +467,20 @@ export default function TeamPage() {
               </CardContent>
             </Card>
           ))}
+          {/* [FIX M1: Empty state for team tab] */}
+          {users.length === 0 && (
+            <div className="col-span-2 text-center py-12 text-muted-foreground">
+              <User className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>No team members found.</p>
+              <p className="text-xs mt-1">Click &quot;Add Member&quot; to invite someone to the team.</p>
+            </div>
+          )}
         </div>
       )}
 
       {tab === "leaves" && (
         <div className="space-y-3">
-          {(leaves as any[]).map((leave) => (
+          {leaves.map((leave) => (
             <Card key={leave.id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -310,10 +503,23 @@ export default function TeamPage() {
                     <Badge variant="secondary" className="text-xs">{leave.status}</Badge>
                     {leave.status === "PENDING" && (
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 text-green-600" onClick={() => handleLeaveAction(leave.id, "APPROVED")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-green-600"
+                          onClick={() => handleLeaveAction(leave.id, "APPROVED")}
+                          disabled={mutating}
+                        >
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleLeaveAction(leave.id, "REJECTED")}>
+                        {/* [FIX H6: Reject button opens feedback dialog instead of instant reject] */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-red-500"
+                          onClick={() => { setRejectingLeaveId(leave.id); setRejectFeedback(""); setRejectDialogOpen(true); }}
+                          disabled={mutating}
+                        >
                           <XCircle className="h-4 w-4" />
                         </Button>
                       </div>
@@ -323,7 +529,7 @@ export default function TeamPage() {
               </CardContent>
             </Card>
           ))}
-          {(leaves as unknown[]).length === 0 && (
+          {leaves.length === 0 && (
             <p className="text-center py-8 text-muted-foreground">No leave requests</p>
           )}
         </div>
@@ -331,7 +537,7 @@ export default function TeamPage() {
 
       {tab === "attendance" && (
         <div className="space-y-3">
-          {(attendance as any[]).map((record) => (
+          {attendance.map((record) => (
             <Card key={record.id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -340,8 +546,8 @@ export default function TeamPage() {
                     <div>
                       <p className="text-sm font-medium">{record.user?.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(record.date).toLocaleDateString()} •
-                        Check-in: {record.checkIn ? new Date(record.checkIn).toLocaleTimeString() : "N/A"} •
+                        {new Date(record.date).toLocaleDateString()} &bull;
+                        Check-in: {record.checkIn ? new Date(record.checkIn).toLocaleTimeString() : "N/A"} &bull;
                         Check-out: {record.checkOut ? new Date(record.checkOut).toLocaleTimeString() : "N/A"}
                       </p>
                     </div>
@@ -351,12 +557,20 @@ export default function TeamPage() {
               </CardContent>
             </Card>
           ))}
+          {/* [FIX M2: Empty state for attendance tab] */}
+          {attendance.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <Clock className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>No attendance records found.</p>
+              <p className="text-xs mt-1">Attendance data will appear here once team members start checking in.</p>
+            </div>
+          )}
         </div>
       )}
 
       {tab === "access" && (
         <div className="space-y-3">
-          {(agentAccess as any[]).map((access) => (
+          {agentAccess.map((access) => (
             <Card key={access.id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -366,7 +580,7 @@ export default function TeamPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium">
-                        {access.user?.name} <span className="text-muted-foreground">→</span> {access.agent?.name}
+                        {access.user?.name} <span className="text-muted-foreground">&rarr;</span> {access.agent?.name}
                       </p>
                       <div className="flex gap-2 mt-1">
                         {access.canChat && <Badge variant="outline" className="text-[10px]">Chat</Badge>}
@@ -375,15 +589,27 @@ export default function TeamPage() {
                       </div>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleRemoveAccess(access.id)} aria-label="Remove access">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {/* [FIX M4: Confirmation before removing access] */}
+                  {removeAccessConfirmId === access.id ? (
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleRemoveAccess(access.id)} disabled={mutating}>
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setRemoveAccessConfirmId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setRemoveAccessConfirmId(access.id)} aria-label="Remove access">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           ))}
-          {(agentAccess as unknown[]).length === 0 && (
-            <p className="text-center py-8 text-muted-foreground">No agent access mappings. Click "Grant Access" to add one.</p>
+          {agentAccess.length === 0 && (
+            <p className="text-center py-8 text-muted-foreground">No agent access mappings. Click &quot;Grant Access&quot; to add one.</p>
           )}
         </div>
       )}
@@ -416,6 +642,10 @@ export default function TeamPage() {
                 <Input type="date" value={leaveForm.endDate} onChange={(e) => setLeaveForm(p => ({ ...p, endDate: e.target.value }))} />
               </div>
             </div>
+            {/* [FIX M7: Show date validation error] */}
+            {leaveForm.startDate && leaveForm.endDate && new Date(leaveForm.startDate) > new Date(leaveForm.endDate) && (
+              <p className="text-xs text-destructive">End date must be on or after start date</p>
+            )}
             <div className="space-y-2">
               <Label>Reason (Optional)</Label>
               <Textarea value={leaveForm.reason} onChange={(e) => setLeaveForm(p => ({ ...p, reason: e.target.value }))} rows={2} />
@@ -423,7 +653,43 @@ export default function TeamPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLeaveDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleApplyLeave} disabled={!leaveForm.startDate || !leaveForm.endDate}>Submit</Button>
+            <Button onClick={handleApplyLeave} disabled={!leaveForm.startDate || !leaveForm.endDate || mutating}>Submit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* [FIX H6: Reject Leave Dialog with feedback] */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Leave Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Reason for rejection (optional)</Label>
+              <Textarea
+                value={rejectFeedback}
+                onChange={(e) => setRejectFeedback(e.target.value)}
+                placeholder="Provide feedback to the employee..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectDialogOpen(false); setRejectingLeaveId(null); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (rejectingLeaveId) {
+                  handleLeaveAction(rejectingLeaveId, "REJECTED", rejectFeedback || undefined);
+                  setRejectDialogOpen(false);
+                  setRejectingLeaveId(null);
+                }
+              }}
+              disabled={mutating}
+            >
+              Reject Leave
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -440,7 +706,7 @@ export default function TeamPage() {
               <Select value={accessForm.userId} onValueChange={(v) => setAccessForm(p => ({ ...p, userId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select member" /></SelectTrigger>
                 <SelectContent>
-                  {(users as any[]).map((u: any) => (
+                  {users.map((u) => (
                     <SelectItem key={u.id} value={u.id}>{u.name} ({u.role})</SelectItem>
                   ))}
                 </SelectContent>
@@ -451,7 +717,7 @@ export default function TeamPage() {
               <Select value={accessForm.agentId} onValueChange={(v) => setAccessForm(p => ({ ...p, agentId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                 <SelectContent>
-                  {(agents as any[]).map((a: any) => (
+                  {agents.map((a) => (
                     <SelectItem key={a.id} value={a.id}>{a.name} ({a.type})</SelectItem>
                   ))}
                 </SelectContent>
@@ -474,7 +740,7 @@ export default function TeamPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAccessDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleGrantAccess} disabled={!accessForm.userId || !accessForm.agentId}>Grant Access</Button>
+            <Button onClick={handleGrantAccess} disabled={!accessForm.userId || !accessForm.agentId || mutating}>Grant Access</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -522,12 +788,16 @@ export default function TeamPage() {
             </div>
             <div className="space-y-2">
               <Label>Password *</Label>
-              <Input type="password" placeholder="Minimum 6 characters" value={memberForm.password} onChange={(e) => setMemberForm(p => ({ ...p, password: e.target.value }))} />
+              {/* [FIX H1: Match placeholder with API requirement of 8 characters] */}
+              <Input type="password" placeholder="Minimum 8 characters" value={memberForm.password} onChange={(e) => setMemberForm(p => ({ ...p, password: e.target.value }))} />
+              {memberForm.password && memberForm.password.length < 8 && (
+                <p className="text-xs text-destructive">Password must be at least 8 characters</p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddMemberOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddMember} disabled={!memberForm.name || !memberForm.email || !memberForm.password || addMemberLoading}>
+            <Button onClick={handleAddMember} disabled={!memberForm.name || !memberForm.email || !memberForm.password || memberForm.password.length < 8 || addMemberLoading}>
               {addMemberLoading ? "Adding..." : "Add Member"}
             </Button>
           </DialogFooter>

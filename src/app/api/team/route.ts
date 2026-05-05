@@ -132,12 +132,32 @@ export async function POST(req: NextRequest) {
       const sessionUserRole = session.user.role
       const leaveUserId = !isAdmin(sessionUserRole) ? sessionUserId : (data.userId || sessionUserId)
 
+      // [FIX C3: Validate start/end dates]
+      if (!data.startDate || !data.endDate) {
+        return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
+      }
+      const parsedStart = new Date(data.startDate)
+      const parsedEnd = new Date(data.endDate)
+      if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
+        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+      }
+      if (parsedStart > parsedEnd) {
+        return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
+      }
+
+      // [FIX H7: Validate leave type against allowed values]
+      const validLeaveTypes = ["CASUAL", "SICK", "PAID"]
+      const leaveType = data.leaveType || "CASUAL"
+      if (!validLeaveTypes.includes(leaveType)) {
+        return NextResponse.json({ error: "Invalid leave type. Must be CASUAL, SICK, or PAID" }, { status: 400 })
+      }
+
       const leave = await db.leaveRequest.create({
         data: {
           userId: leaveUserId,
-          type: data.leaveType || "CASUAL",
-          startDate: new Date(data.startDate),
-          endDate: new Date(data.endDate),
+          type: leaveType,
+          startDate: parsedStart,
+          endDate: parsedEnd,
           reason: data.reason || null,
           status: "PENDING",
         },
@@ -170,8 +190,15 @@ export async function POST(req: NextRequest) {
       if (!isAdmin(attendanceUserRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
-      // Sanitize attendance data - only allow specific fields
+      // [FIX H8: Validate attendance status against allowed values]
+      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE"]
       const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
+      if (attStatus && !validAttStatuses.includes(attStatus)) {
+        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, or LEAVE" }, { status: 400 })
+      }
+      if (!date) {
+        return NextResponse.json({ error: "Date is required" }, { status: 400 })
+      }
       const attendance = await db.attendance.create({
         data: {
           date: new Date(date),
@@ -289,10 +316,29 @@ export async function PATCH(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
 
     if (type === "leave") {
+      // [FIX C5: Validate leave status against allowed values]
+      const validLeaveStatuses = ["PENDING", "APPROVED", "REJECTED"]
+      if (data.status && !validLeaveStatuses.includes(data.status)) {
+        return NextResponse.json({ error: "Invalid leave status. Must be PENDING, APPROVED, or REJECTED" }, { status: 400 })
+      }
       // SECURITY: Only admins can approve/reject leave requests
       const leavePatchRole = session.user.role
       if (data.status && !isAdmin(leavePatchRole)) {
         return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
+      }
+      // [FIX H9: Prevent admin from approving their own leave]
+      if (data.status === "APPROVED" || data.status === "REJECTED") {
+        const targetLeave = await db.leaveRequest.findUnique({ where: { id } })
+        if (!targetLeave) {
+          return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
+        }
+        if (targetLeave.userId === session.user.id) {
+          return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
+        }
+        // Prevent updating already-decided leaves
+        if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
+          return NextResponse.json({ error: `Leave request is already ${targetLeave.status.toLowerCase()}` }, { status: 400 })
+        }
       }
       // SECURITY: Set approvedBy from session user, not request body
       const leave = await db.leaveRequest.update({
