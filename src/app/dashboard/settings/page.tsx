@@ -51,6 +51,22 @@ interface TeamMember {
   createdAt: string;
 }
 
+// ─── SMTP Config Type ─────────────────────────────────────────
+interface SmtpConfig {
+  id: string;
+  host: string;
+  port: number;
+  username: string;
+  fromEmail: string;
+  fromName: string;
+  secure: boolean;
+  isPrimary: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  passwordSet?: boolean;
+}
+
 // ─── Email Log Type ────────────────────────────────────────────
 interface EmailLog {
   id: string;
@@ -155,13 +171,15 @@ export default function SettingsPage() {
   const [emailChangeLoading, setEmailChangeLoading] = useState(false);
 
   // SMTP Config state (SUPER_ADMIN only)
-  const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
+  const [smtpConfigs, setSmtpConfigs] = useState<SmtpConfig[]>([]);
   const [smtpLoading, setSmtpLoading] = useState(false);
   const [smtpDialogOpen, setSmtpDialogOpen] = useState(false);
   const [smtpEditId, setSmtpEditId] = useState<string | null>(null);
   const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpDeleteConfirm, setSmtpDeleteConfirm] = useState<string | null>(null);
+  const [smtpDeleteLoading, setSmtpDeleteLoading] = useState(false);
 
   // Email Logs state (SUPER_ADMIN only)
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
@@ -170,6 +188,7 @@ export default function SettingsPage() {
   const [emailLogTypeFilter, setEmailLogTypeFilter] = useState<string>("ALL");
   const [emailLogStatusFilter, setEmailLogStatusFilter] = useState<string>("ALL");
   const [clearingLogs, setClearingLogs] = useState(false);
+  const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
 
   // Password Reset Dialog state (SUPER_ADMIN only)
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
@@ -196,10 +215,35 @@ export default function SettingsPage() {
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
+  // Auto-submit password OTP when 6 digits entered
+  useEffect(() => {
+    if (passwordOtpSent && passwordOtpCode.length === 6 && !changingPassword) {
+      handlePasswordVerifyOtp();
+    }
+  }, [passwordOtpCode, passwordOtpSent]);
+
+  // Auto-submit email change OTP when 6 digits entered
+  useEffect(() => {
+    if (otpSent && otpCode.length === 6 && !emailChangeLoading) {
+      handleVerifyOTP();
+    }
+  }, [otpCode, otpSent]);
+
   // Sync name with session
   useEffect(() => {
     if (session?.user?.name) setName(session.user.name);
   }, [session?.user?.name]);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (name !== session?.user?.name) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [name, session?.user?.name]);
 
   // ── Fetch Team Members ──
   const fetchTeamMembers = useCallback(async () => {
@@ -396,9 +440,9 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         toast.success("Settings saved successfully!");
-        // updateSession() triggers JWT callback with trigger="update"
+        // updateSession({ name }) triggers JWT callback with trigger="update"
         // which re-reads the user from DB, including the new name
-        await updateSession();
+        await updateSession({ name: name });
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to save settings");
@@ -422,6 +466,11 @@ export default function SettingsPage() {
     }
     if (newPassword.length < 8) {
       toast.error("Password must be at least 8 characters");
+      return;
+    }
+    // Client-side password complexity (matches server requirement)
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      toast.error("Password must contain at least one letter and one number");
       return;
     }
 
@@ -484,6 +533,29 @@ export default function SettingsPage() {
       }
     } catch {
       toast.error("Failed to change password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  // ── Change Password: Resend OTP (no password re-verification) ──
+  const handleResendPasswordOtp = async () => {
+    setChangingPassword(true);
+    try {
+      const res = await fetch("/api/password-change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ currentPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "New OTP sent to your email");
+      } else {
+        toast.error(data.error || "Failed to resend OTP");
+      }
+    } catch {
+      toast.error("Failed to resend OTP");
     } finally {
       setChangingPassword(false);
     }
@@ -554,6 +626,29 @@ export default function SettingsPage() {
       }
     } catch {
       toast.error("OTP verification failed");
+    } finally {
+      setEmailChangeLoading(false);
+    }
+  };
+
+  // ── Email Change: Resend OTP (no password re-verification) ──
+  const handleResendEmailOtp = async () => {
+    setEmailChangeLoading(true);
+    try {
+      const res = await fetch("/api/email-change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ newEmail: newEmailAddress, currentPassword: emailChangePassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "New OTP sent to your new email");
+      } else {
+        toast.error(data.error || "Failed to resend OTP");
+      }
+    } catch {
+      toast.error("Failed to resend OTP");
     } finally {
       setEmailChangeLoading(false);
     }
@@ -637,12 +732,12 @@ export default function SettingsPage() {
 
   // ── SMTP: Delete Config ──
   const handleDeleteSmtp = async (id: string) => {
-    // TODO: Replace with Dialog component for better UX
-    if (!confirm("Are you sure you want to delete this SMTP configuration? Any emails using this server will fail until a new one is configured.")) return;
+    setSmtpDeleteLoading(true);
     try {
       const res = await fetch(`/api/smtp?id=${id}`, { method: "DELETE", credentials: "include" });
       if (res.ok) {
         toast.success("SMTP config deleted");
+        setSmtpDeleteConfirm(null);
         fetchSmtpConfigs();
       } else {
         const data = await res.json();
@@ -650,11 +745,13 @@ export default function SettingsPage() {
       }
     } catch {
       toast.error("Failed to delete SMTP config");
+    } finally {
+      setSmtpDeleteLoading(false);
     }
   };
 
   // ── SMTP: Edit Config ──
-  const handleEditSmtp = (config: any) => {
+  const handleEditSmtp = (config: SmtpConfig) => {
     setSmtpEditId(config.id);
     setShowSmtpPassword(false);
     setSmtpForm({
@@ -672,8 +769,6 @@ export default function SettingsPage() {
 
   // ── Email Logs: Clear Old Logs ──
   const handleClearOldLogs = async () => {
-    // TODO: Replace with Dialog component for better UX
-    if (!confirm("Are you sure you want to permanently delete all email logs older than 30 days? This action cannot be undone.")) return;
     setClearingLogs(true);
     try {
       const res = await fetch("/api/email-logs?olderThanDays=30", {
@@ -683,6 +778,7 @@ export default function SettingsPage() {
       const data = await res.json();
       if (res.ok) {
         toast.success(data.message || `Deleted ${data.deleted} old log(s)`);
+        setClearLogsConfirm(false);
         fetchEmailLogs();
       } else {
         toast.error(data.error || "Failed to clear logs");
@@ -709,6 +805,10 @@ export default function SettingsPage() {
       }
       if (resetPasswordNewPwd.length < 8) {
         toast.error("Password must be at least 8 characters");
+        return;
+      }
+      if (!/[a-zA-Z]/.test(resetPasswordNewPwd) || !/[0-9]/.test(resetPasswordNewPwd)) {
+        toast.error("Password must contain at least one letter and one number");
         return;
       }
     }
@@ -792,7 +892,13 @@ export default function SettingsPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs" htmlFor="profile-name">Name</Label>
-              <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    handleSave();
+                  }
+                }}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs" htmlFor="profile-email">Email</Label>
@@ -809,7 +915,8 @@ export default function SettingsPage() {
             <Badge variant="secondary" className={roleBadgeColors[userRole] || ""}>{userRole.replace(/_/g, " ")}</Badge>
           </div>
           <Button size="sm" onClick={handleSave} disabled={saving || !name.trim() || name === session?.user?.name}>
-            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : "Save Changes"}
+            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : 
+             name === session?.user?.name ? "No Changes" : "Save Changes"}
           </Button>
         </CardContent>
       </Card>
@@ -842,7 +949,8 @@ export default function SettingsPage() {
                     size="icon"
                     className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                     onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    tabIndex={0}
+                    tabIndex={-1}
+                    aria-label="Toggle current password visibility"
                   >
                     {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -851,6 +959,7 @@ export default function SettingsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">New Password</Label>
+                  <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
                   <div className="relative">
                     <Input
                       type={showNewPassword ? "text" : "password"}
@@ -865,7 +974,8 @@ export default function SettingsPage() {
                       size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                       onClick={() => setShowNewPassword(!showNewPassword)}
-                      tabIndex={0}
+                      tabIndex={-1}
+                      aria-label="Toggle new password visibility"
                     >
                       {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
@@ -897,7 +1007,8 @@ export default function SettingsPage() {
                       size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      tabIndex={0}
+                      tabIndex={-1}
+                      aria-label="Toggle confirm password visibility"
                     >
                       {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
@@ -929,12 +1040,16 @@ export default function SettingsPage() {
                 <Label className="text-xs">OTP Code *</Label>
                 <Input
                   value={passwordOtpCode}
-                  onChange={(e) => setPasswordOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setPasswordOtpCode(val);
+                  }}
                   placeholder="Enter 6-digit OTP"
                   maxLength={6}
                   inputMode="numeric"
                   pattern="[0-9]*"
                   className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+                  autoFocus
                 />
                 <div className="flex items-center gap-2">
                   <p className="text-[11px] text-muted-foreground">Check your email inbox. OTP expires in 10 minutes.</p>
@@ -942,7 +1057,7 @@ export default function SettingsPage() {
                     type="button"
                     className="text-[11px] text-primary hover:underline disabled:opacity-50"
                     disabled={changingPassword}
-                    onClick={handlePasswordSendOtp}
+                    onClick={handleResendPasswordOtp}
                   >
                     Resend OTP
                   </button>
@@ -1069,7 +1184,7 @@ export default function SettingsPage() {
           </div>
           <Separator />
           <div className="space-y-1">
-            <Label className="text-xs">Auto-downgrade Threshold</Label>
+            <Label className="text-xs">Auto-downgrade Threshold <span className="text-[10px] text-muted-foreground">(Coming soon)</span></Label>
             <Input
               type="number"
               value={autoDowngradeThreshold}
@@ -1117,7 +1232,7 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground">No team members found</p>
               </div>
             ) : (
-              <div className="rounded-lg border overflow-x-auto">
+              <div className="rounded-lg border overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1143,7 +1258,7 @@ export default function SettingsPage() {
                         <TableCell className="text-sm text-muted-foreground truncate max-w-[180px]">
                           {member.email}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-sm text-muted-foreground" title={member.department || undefined}>
                           {member.department || "\u2014"}
                         </TableCell>
                         <TableCell>
@@ -1168,6 +1283,7 @@ export default function SettingsPage() {
                                 className="h-6 w-6"
                                 disabled={editRoleLoading}
                                 onClick={() => handleUpdateRole(member.id, editRoleValue)}
+                                aria-label="Confirm role change"
                               >
                                 {editRoleLoading ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -1180,6 +1296,7 @@ export default function SettingsPage() {
                                 variant="ghost"
                                 className="h-6 w-6"
                                 onClick={() => setEditingUserId(null)}
+                                aria-label="Cancel role edit"
                               >
                                 <XCircle className="h-3 w-3 text-muted-foreground" />
                               </Button>
@@ -1187,7 +1304,7 @@ export default function SettingsPage() {
                           ) : (
                             <Badge
                               variant="secondary"
-                              className={`text-[10px] cursor-pointer ${roleBadgeColors[member.role] || ""}`}
+                              className={`text-[10px] ${isSuperAdminOnly && member.role !== "SUPER_ADMIN" ? "cursor-pointer" : ""} ${roleBadgeColors[member.role] || ""}`}
                               onClick={() => {
                                 if (member.role !== "SUPER_ADMIN" && isSuperAdminOnly) {
                                   setEditingUserId(member.id);
@@ -1223,6 +1340,7 @@ export default function SettingsPage() {
                                   setEditRoleValue(member.role);
                                 }}
                                 title="Change role"
+                                aria-label="Edit role"
                               >
                                 <Pencil className="h-3 w-3" />
                               </Button>
@@ -1232,6 +1350,7 @@ export default function SettingsPage() {
                                 className="h-7 w-7"
                                 onClick={() => openResetPasswordDialog(member)}
                                 title="Reset password"
+                                aria-label="Reset password"
                               >
                                 <Key className="h-3 w-3" />
                               </Button>
@@ -1300,10 +1419,10 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEditSmtp(config)} title="Edit">
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEditSmtp(config)} title="Edit" aria-label="Edit SMTP config">
                         <Pencil className="h-3 w-3" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => handleDeleteSmtp(config.id)} title="Delete">
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => setSmtpDeleteConfirm(config.id)} title="Delete" aria-label="Delete SMTP config">
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
@@ -1330,7 +1449,7 @@ export default function SettingsPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleClearOldLogs}
+                onClick={() => setClearLogsConfirm(true)}
                 disabled={clearingLogs}
               >
                 {clearingLogs ? (
@@ -1389,7 +1508,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground mt-1">Email activity will appear here when emails are sent</p>
               </div>
             ) : (
-              <div className="rounded-lg border max-h-96 overflow-auto">
+              <div className="rounded-lg border max-h-96 overflow-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1512,6 +1631,7 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Password *</Label>
+              <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
               <div className="relative">
                 <Input
                   type={showNewUserPassword ? "text" : "password"}
@@ -1526,7 +1646,8 @@ export default function SettingsPage() {
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => setShowNewUserPassword(!showNewUserPassword)}
-                  tabIndex={0}
+                  tabIndex={-1}
+                  aria-label="Toggle password visibility"
                 >
                   {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -1646,7 +1767,8 @@ export default function SettingsPage() {
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => setShowEmailChangePassword(!showEmailChangePassword)}
-                  tabIndex={0}
+                  tabIndex={-1}
+                  aria-label="Toggle password visibility"
                 >
                   {showEmailChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -1658,12 +1780,16 @@ export default function SettingsPage() {
                 <Label className="text-xs">OTP Code *</Label>
                 <Input
                   value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setOtpCode(val);
+                  }}
                   placeholder="Enter 6-digit OTP"
                   maxLength={6}
                   inputMode="numeric"
                   pattern="[0-9]*"
                   className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+                  autoFocus
                 />
                 <div className="flex items-center gap-2">
                   <p className="text-[11px] text-muted-foreground">Check your new email inbox. OTP expires in 10 minutes.</p>
@@ -1671,7 +1797,7 @@ export default function SettingsPage() {
                     type="button"
                     className="text-[11px] text-primary hover:underline disabled:opacity-50"
                     disabled={emailChangeLoading}
-                    onClick={handleSendOTP}
+                    onClick={handleResendEmailOtp}
                   >
                     Resend OTP
                   </button>
@@ -1775,7 +1901,8 @@ export default function SettingsPage() {
                     size="icon"
                     className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                     onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                    tabIndex={0}
+                    tabIndex={-1}
+                    aria-label="Toggle SMTP password visibility"
                   >
                     {showSmtpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -1909,6 +2036,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">New Password *</Label>
+                    <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
                     <div className="relative">
                       <Input
                         type={showResetPwd ? "text" : "password"}
@@ -1923,7 +2051,8 @@ export default function SettingsPage() {
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowResetPwd(!showResetPwd)}
-                        tabIndex={0}
+                        tabIndex={-1}
+                        aria-label="Toggle new password visibility"
                       >
                         {showResetPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -1955,7 +2084,8 @@ export default function SettingsPage() {
                         size="icon"
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowResetPwdConfirm(!showResetPwdConfirm)}
-                        tabIndex={0}
+                        tabIndex={-1}
+                        aria-label="Toggle confirm password visibility"
                       >
                         {showResetPwdConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -1977,6 +2107,42 @@ export default function SettingsPage() {
               ) : (
                 <><Key className="h-4 w-4 mr-1" /> Reset Password</>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SMTP Delete Confirmation Dialog */}
+      <Dialog open={!!smtpDeleteConfirm} onOpenChange={(open) => !open && setSmtpDeleteConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete SMTP Configuration</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete this SMTP configuration? Any emails using this server will fail until a new one is configured.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSmtpDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => smtpDeleteConfirm && handleDeleteSmtp(smtpDeleteConfirm)} disabled={smtpDeleteLoading}>
+              {smtpDeleteLoading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting...</> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear Logs Confirmation Dialog */}
+      <Dialog open={clearLogsConfirm} onOpenChange={setClearLogsConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Clear Old Email Logs</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to permanently delete all email logs older than 30 days? This action cannot be undone.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setClearLogsConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleClearOldLogs} disabled={clearingLogs}>
+              {clearingLogs ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Clearing...</> : "Clear Old Logs"}
             </Button>
           </DialogFooter>
         </DialogContent>
