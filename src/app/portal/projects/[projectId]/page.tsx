@@ -41,10 +41,20 @@ export default function PortalProjectDetailPage() {
         fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
       ]);
       if (projRes.ok) {
-        const projects = await projRes.json();
-        if (projects.length > 0) setProject(projects[0]);
+        const projData = await projRes.json();
+        // Handle both array, single object, and paginated { data: [...] } responses
+        if (Array.isArray(projData)) {
+          if (projData.length > 0) setProject(projData[0]);
+        } else if (projData?.id) {
+          setProject(projData);
+        } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
+          setProject(projData.data[0]);
+        }
       }
-      if (taskRes.ok) setTasks(await taskRes.json());
+      if (taskRes.ok) {
+        const taskData = await taskRes.json();
+        setTasks(Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []));
+      }
     } catch (err) {
       console.error(err);
     } finally {

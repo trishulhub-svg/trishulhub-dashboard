@@ -18,7 +18,13 @@ export default function PortalProjectsPage() {
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch("/api/projects", { credentials: 'include' });
-      if (res.ok) setProjects(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        // Handle both array and paginated { data: [...] } responses
+        setProjects(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []));
+      } else {
+        setError("Failed to load projects");
+      }
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load projects");
