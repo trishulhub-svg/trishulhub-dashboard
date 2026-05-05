@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -36,6 +36,14 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+
+// ━━ Helpers ━━
+const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
+
+function safeDateStr(date: unknown): Date {
+  const d = new Date(date as string);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
 
 interface LeaveRecord {
   id: string;
@@ -101,7 +109,7 @@ const calendarBgColors: Record<string, string> = {
 };
 
 export default function LeaveManagementPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,11 +142,11 @@ export default function LeaveManagementPage() {
     async function loadData() {
       try {
         const leavesRes = await fetch("/api/leaves", { credentials: "include", signal });
-        if (leavesRes.ok) setLeaves(await leavesRes.json());
+        if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
         if (isUserAdmin) {
           const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
-          if (teamRes.ok) setTeamUsers(await teamRes.json());
+          if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -153,19 +161,20 @@ export default function LeaveManagementPage() {
     return () => controller.abort();
   }, [isUserAdmin]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const leavesRes = await fetch("/api/leaves", { credentials: "include" });
-      if (leavesRes.ok) setLeaves(await leavesRes.json());
+      if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
       if (isUserAdmin) {
         const teamRes = await fetch("/api/team?type=users", { credentials: "include" });
-        if (teamRes.ok) setTeamUsers(await teamRes.json());
+        if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
       }
     } catch (err) {
       console.error("Failed to fetch data:", err);
+      toast.error("Failed to refresh data");
     }
-  };
+  }, [isUserAdmin]);
 
   const handleSubmit = async () => {
     if (!formStartDate || !formEndDate) {
@@ -256,8 +265,8 @@ export default function LeaveManagementPage() {
     const date = new Date(currentYear, currentMonth, day);
     return leaves.filter((leave) => {
       if (leave.status === "CANCELLED" || leave.status === "REJECTED") return false;
-      const start = new Date(leave.startDate);
-      const end = new Date(leave.endDate);
+      const start = safeDateStr(leave.startDate);
+      const end = safeDateStr(leave.endDate);
       start.setHours(0, 0, 0, 0);
       end.setHours(23, 59, 59, 999);
       return date >= start && date <= end;
@@ -292,12 +301,26 @@ export default function LeaveManagementPage() {
   const pendingLeaves = leaves.filter((l) => l.status === "PENDING");
   const myLeaves = leaves.filter((l) => l.userId === session?.user?.id);
   const approvedThisMonth = leaves.filter(
-    (l) => l.status === "APPROVED" && new Date(l.createdAt).getMonth() === new Date().getMonth()
+    (l) => l.status === "APPROVED" && safeDateStr(l.createdAt).getMonth() === new Date().getMonth()
   );
 
   const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // Session loading guard
+  if (status === "loading") {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">Leave Management</h1>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -385,8 +408,8 @@ export default function LeaveManagementPage() {
                 {leaves.filter((l) => {
                   if (l.status !== "APPROVED") return false;
                   const now = new Date();
-                  const start = new Date(l.startDate);
-                  const end = new Date(l.endDate);
+                  const start = safeDateStr(l.startDate);
+                  const end = safeDateStr(l.endDate);
                   return now >= start && now <= end;
                 }).length}
               </span>
@@ -450,12 +473,12 @@ export default function LeaveManagementPage() {
                             {leave.user?.name?.split(" ")[0]}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="font-medium">{leave.user?.name}</p>
-                          <p className="text-xs">{leaveTypeLabels[leave.leaveType] || leave.leaveType}</p>
-                          <p className="text-xs">{new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}</p>
-                          <Badge className={`text-[9px] mt-1 ${leaveStatusColors[leave.status]}`}>{leave.status}</Badge>
-                        </TooltipContent>
+                          <TooltipContent>
+                            <p className="font-medium">{leave.user?.name}</p>
+                            <p className="text-xs">{leaveTypeLabels[leave.leaveType] || leave.leaveType}</p>
+                            <p className="text-xs">{safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}</p>
+                            <Badge className={`text-[9px] mt-1 ${leaveStatusColors[leave.status]}`}>{leave.status}</Badge>
+                          </TooltipContent>
                       </Tooltip>
                     ))}
                   </TooltipProvider>
@@ -488,8 +511,8 @@ export default function LeaveManagementPage() {
                     <Badge className={`text-[10px] ${leaveTypeColors[leave.leaveType] || ""}`}>{leaveTypeLabels[leave.leaveType] || leave.leaveType}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
-                    {" "} ({Math.ceil((new Date(leave.endDate).getTime() - new Date(leave.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1} days)
+                    {safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}
+                    {" "} ({(() => { const s = safeDateStr(leave.startDate); const e = safeDateStr(leave.endDate); const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1; return isNaN(diff) ? "?" : `${diff}`; })()} days)
                   </p>
                   {leave.reason && <p className="text-xs text-muted-foreground mt-1">Reason: {leave.reason}</p>}
                 </div>
@@ -571,7 +594,7 @@ export default function LeaveManagementPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
+                        {safeDateStr(leave.startDate).toLocaleDateString()} - {safeDateStr(leave.endDate).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                         {leave.reason || "-"}
