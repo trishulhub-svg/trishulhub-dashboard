@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PATCH /api/notifications - Mark as read
+// PATCH /api/notifications - Mark as read (single or batch)
 export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -39,7 +39,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { id, isRead } = await req.json()
+    const body = await req.json()
+    const { id, isRead, markAllRead } = body
+
+    // Batch: mark all as read in one DB query instead of N requests
+    if (markAllRead) {
+      await db.notification.updateMany({
+        where: { userId: session.user.id, isRead: false },
+        data: { isRead: true },
+      })
+      return NextResponse.json({ success: true, updated: true })
+    }
+
     if (!id) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
     }
@@ -90,7 +101,7 @@ export async function DELETE(req: NextRequest) {
   }
 }
 
-// PUT /api/notifications - Legacy: Mark as read
+// PUT /api/notifications - Mark single or all as read (batch-optimized)
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -98,12 +109,21 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { id } = await req.json()
+    const body = await req.json()
+    const { markAllRead, id } = body
+
+    if (markAllRead) {
+      await db.notification.updateMany({
+        where: { userId: session.user.id, isRead: false },
+        data: { isRead: true },
+      })
+      return NextResponse.json({ success: true, updated: true })
+    }
+
     if (!id) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
     }
 
-    // SECURITY: Verify notification belongs to the requesting user
     const notification = await db.notification.findFirst({
       where: { id, userId: session.user.id },
     })

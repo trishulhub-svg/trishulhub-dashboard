@@ -37,6 +37,9 @@ import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useState, useEffect, useCallback } from "react";
 import { useSessionManager } from "@/hooks/use-session-manager";
+
+// Performance: safe array helper to prevent .map crash on unexpected API responses
+const safeArray = <T,>(data: unknown): T[] => Array.isArray(data) ? data : [];
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -209,6 +212,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   useSessionManager();
+  // Note: useSessionManager is intentionally called here (not removed) because the
+  // dashboard layout needs its own inactivity tracking lifecycle independent of auth-provider.
+  // The auth-provider wrapper handles it globally for non-dashboard routes.
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -227,7 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const res = await fetch("/api/notifications", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data);
+        setNotifications(safeArray<NotificationItem>(data));
       }
     } catch (err) {
       console.error("Failed to fetch notifications:", err);
@@ -247,7 +253,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (session) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 30000);
+      const interval = setInterval(fetchNotifications, 45000);
       return () => clearInterval(interval);
     }
   }, [session, fetchNotifications]);
@@ -270,8 +276,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const markAllAsRead = async () => {
     try {
-      const unreadIds = notifications.filter((n) => !n.isRead).map((n) => n.id);
-      await Promise.all(unreadIds.map((id) => markAsRead(id)));
+      // PERF FIX: Single batch request instead of N parallel requests
+      const res = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ markAllRead: true }),
+      });
+      if (res.ok) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      }
     } catch (err) {
       console.error("Failed to mark all notifications as read:", err);
     }
