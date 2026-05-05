@@ -3,22 +3,50 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-export async function GET() {
+const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"]
+const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`tasks-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   const userRole = session.user.role
   const userId = session.user.id
-  
+
+  const { searchParams } = new URL(req.url)
+  const projectId = searchParams.get("projectId")
+
   // Developers only see tasks from their assigned projects
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
-  const taskWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
-  
-  const tasks = await db.task.findMany({ 
-    where: taskWhere,
-    include: { project: true }, 
-    orderBy: { createdAt: "desc" } 
+
+  // Build where clause
+  const where: Record<string, unknown> = {}
+  if (assignedProjectIds) {
+    where.projectId = { in: assignedProjectIds }
+  }
+  if (projectId) {
+    where.projectId = assignedProjectIds
+      ? { in: [...(assignedProjectIds as string[])].filter(id => id === projectId) }
+      : projectId
+    // If projectId filter + assignedProjectIds, ensure we only get tasks for this project if user has access
+    if (assignedProjectIds && !(assignedProjectIds as string[]).includes(projectId)) {
+      return NextResponse.json([])
+    }
+    where.projectId = projectId
+  }
+
+  const tasks = await db.task.findMany({
+    where,
+    include: { project: true },
+    orderBy: { createdAt: "desc" }
   })
   return NextResponse.json(tasks)
 }
@@ -26,7 +54,13 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   const userRole = session.user.role
   const userId = session.user.id
   const body = await req.json()
@@ -34,6 +68,11 @@ export async function POST(req: NextRequest) {
   // projectId is required by schema
   if (!body.projectId) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+  }
+
+  // Title is required
+  if (!body.title) {
+    return NextResponse.json({ error: "Task title is required" }, { status: 400 })
   }
 
   // Developers can only create tasks in projects they're assigned to
@@ -46,12 +85,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Validate status
+  const taskStatus = body.status || "TODO"
+  if (!VALID_TASK_STATUSES.includes(taskStatus)) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
+  }
+
+  // Validate priority
+  const taskPriority = body.priority || "MEDIUM"
+  if (!VALID_TASK_PRIORITIES.includes(taskPriority)) {
+    return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
+  }
+
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data = {
     title: body.title as string,
     description: (body.description as string | null) || null,
-    status: (body.status as string) || "TODO",
-    priority: (body.priority as string) || "MEDIUM",
+    status: taskStatus,
+    priority: taskPriority,
     projectId: body.projectId as string,
     assignedTo: (body.assignedTo as string | null) || null,
     assigneeType: (body.assigneeType as string) || "HUMAN",
@@ -79,13 +130,19 @@ export async function POST(req: NextRequest) {
   }
 
   const task = await db.task.create({ data })
-  return NextResponse.json(task)
+  return NextResponse.json(task, { status: 201 })
 }
 
-export async function PUT(req: NextRequest) {
+export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   const userRole = session.user.role
   const userId = session.user.id
   const body = await req.json()
@@ -97,8 +154,18 @@ export async function PUT(req: NextRequest) {
   const data: Parameters<typeof db.task.update>[0]["data"] = {}
   if (body.title !== undefined) data.title = body.title
   if (body.description !== undefined) data.description = body.description
-  if (body.status !== undefined) data.status = body.status
-  if (body.priority !== undefined) data.priority = body.priority
+  if (body.status !== undefined) {
+    if (!VALID_TASK_STATUSES.includes(body.status)) {
+      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
+    }
+    data.status = body.status
+  }
+  if (body.priority !== undefined) {
+    if (!VALID_TASK_PRIORITIES.includes(body.priority)) {
+      return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
+    }
+    data.priority = body.priority
+  }
   if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo
   if (body.assigneeType !== undefined) data.assigneeType = body.assigneeType
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(body.deadline) : null
@@ -115,7 +182,7 @@ export async function PUT(req: NextRequest) {
   if (!isAdmin(userRole)) {
     const existingTask = await db.task.findUnique({ where: { id } })
     if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
-    
+
     const membership = await db.projectMember.findFirst({
       where: { userId, projectId: existingTask.projectId }
     })
@@ -167,7 +234,7 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({
           error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
         }, { status: 400 })
-      }
+        }
     }
   }
 
@@ -179,4 +246,40 @@ export async function PUT(req: NextRequest) {
 
   const task = await db.task.update({ where: { id }, data })
   return NextResponse.json(task)
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // Rate limit
+  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
+  const userRole = session.user.role
+  const userId = session.user.id
+
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get("id")
+
+  if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
+
+  // Verify task exists
+  const existingTask = await db.task.findUnique({ where: { id } })
+  if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+
+  // Developers can only delete tasks in their assigned projects
+  if (!isAdmin(userRole)) {
+    const membership = await db.projectMember.findFirst({
+      where: { userId, projectId: existingTask.projectId }
+    })
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden: You can only delete tasks in your assigned projects" }, { status: 403 })
+    }
+  }
+
+  await db.task.delete({ where: { id } })
+  return NextResponse.json({ success: true })
 }

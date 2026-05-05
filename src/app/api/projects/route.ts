@@ -3,39 +3,62 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-export async function GET() {
+const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
+
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`projects-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   const userRole = session.user.role
   const userId = session.user.id
-  
+
+  const { searchParams } = new URL(req.url)
+  const projectId = searchParams.get("projectId")
+
   // CLIENT users can only see their own projects
   if (userRole === "CLIENT") {
     const client = await db.client.findFirst({ where: { userId } })
     if (!client) return NextResponse.json([])
-    const projects = await db.project.findMany({ 
-      where: { clientId: client.id },
-      include: { client: true, tasks: true }, 
-      orderBy: { createdAt: "desc" } 
+    const projects = await db.project.findMany({
+      where: {
+        clientId: client.id,
+        ...(projectId ? { id: projectId } : {}),
+      },
+      include: { client: true, tasks: true },
+      orderBy: { createdAt: "desc" }
     })
     return NextResponse.json(projects)
   }
-  
+
   // DEVELOPER users only see projects they're assigned to
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
-  const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
-  
+
+  // Build where clause
+  const where: Record<string, unknown> = {}
+  if (assignedProjectIds) {
+    where.id = { in: assignedProjectIds }
+  }
+  if (projectId) {
+    where.id = projectId
+  }
+
   // For developers: don't expose budget info
   const includeBudget = isAdmin(userRole)
-  
-  const projects = await db.project.findMany({ 
-    where: projectWhere,
-    include: { client: true, tasks: true, members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }, 
-    orderBy: { createdAt: "desc" } 
+
+  const projects = await db.project.findMany({
+    where,
+    include: { client: true, tasks: true, members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } },
+    orderBy: { createdAt: "desc" }
   })
-  
+
   // For developers: hide budget and client financial details
   if (!includeBudget) {
     const filtered = projects.map(({ budget, client, ...rest }) => ({
@@ -45,22 +68,28 @@ export async function GET() {
     }))
     return NextResponse.json(filtered)
   }
-  
+
   return NextResponse.json(projects)
 }
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   // Only admins can create projects
   const userRole = session.user.role
   if (!isAdmin(userRole)) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
-  
+
   const data = await req.json()
-  
+
   // SECURITY: Sanitize project creation data (whitelist allowed fields)
   const { name, description, status, clientId, budget, deadline } = data
   if (!name) {
@@ -69,31 +98,60 @@ export async function POST(req: NextRequest) {
   if (!clientId) {
     return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
   }
+
+  // Validate status
+  const projectStatus = status || "PLANNING"
+  if (!VALID_PROJECT_STATUSES.includes(projectStatus)) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
+  }
+
+  // Verify client exists
+  const clientExists = await db.client.findUnique({ where: { id: clientId } })
+  if (!clientExists) {
+    return NextResponse.json({ error: "Client not found" }, { status: 400 })
+  }
+
   const project = await db.project.create({
     data: {
       name,
       description: description || null,
-      status: status || "PLANNING",
+      status: projectStatus,
       clientId,
       budget: budget || null,
       deadline: deadline ? new Date(deadline) : null,
     },
   })
-  return NextResponse.json(project)
+  return NextResponse.json(project, { status: 201 })
 }
 
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+
+  // Rate limit
+  const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+  }
+
   // Only admins can update projects
   const userRole = session.user.role
   if (!isAdmin(userRole)) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
-  
+
   const { id, ...data } = await req.json()
-  
+
+  if (!id) {
+    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+  }
+
+  // Verify project exists
+  const existing = await db.project.findUnique({ where: { id } })
+  if (!existing) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 })
+  }
+
   // SECURITY: Sanitize project update data (whitelist allowed fields)
   const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
   const sanitizedData: Record<string, any> = {}
@@ -101,12 +159,23 @@ export async function PUT(req: NextRequest) {
     if (data[key] !== undefined) {
       if (key === "deadline") {
         sanitizedData[key] = data[key] ? new Date(data[key]) : null
+      } else if (key === "status") {
+        if (!VALID_PROJECT_STATUSES.includes(data[key])) {
+          return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
+        }
+        sanitizedData[key] = data[key]
+      } else if (key === "progress") {
+        const progressVal = Number(data[key])
+        if (isNaN(progressVal) || progressVal < 0 || progressVal > 100) {
+          return NextResponse.json({ error: "Progress must be between 0 and 100" }, { status: 400 })
+        }
+        sanitizedData[key] = progressVal
       } else {
         sanitizedData[key] = data[key]
       }
     }
   }
-  
+
   const project = await db.project.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(project)
 }

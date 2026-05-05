@@ -45,8 +45,20 @@ export default function ProjectsPage() {
         fetch("/api/projects", { credentials: 'include' }),
         fetch("/api/clients", { credentials: 'include' }),
       ]);
-      if (projRes.ok) setProjects(await projRes.json());
-      if (clientRes.ok) setClients(await clientRes.json());
+      if (projRes.ok) {
+        const projData = await projRes.json();
+        // Handle both array and paginated { data: [...] } responses
+        setProjects(Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []));
+      } else {
+        toast.error("Failed to load projects");
+      }
+      if (clientRes.ok) {
+        const clientData = await clientRes.json();
+        // Handle both array and paginated { data: [...] } responses
+        setClients(Array.isArray(clientData) ? clientData : (Array.isArray(clientData?.data) ? clientData.data : []));
+      } else {
+        toast.error("Failed to load clients");
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to load projects");
@@ -136,11 +148,15 @@ export default function ProjectsPage() {
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>
                 <Select name="clientId" required>
-                  <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={clients.length === 0 ? "No clients available" : "Select client"} /></SelectTrigger>
                   <SelectContent>
-                    {(clients as { id: string; name: string }[]).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
+                    {clients.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No clients found. Create a client first.</div>
+                    ) : (
+                      (clients as { id: string; name: string }[]).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

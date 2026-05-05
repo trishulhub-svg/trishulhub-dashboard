@@ -93,20 +93,35 @@ export default function ProjectDetailPage() {
       ]);
 
       if (projRes.ok) {
-        const projects = await projRes.json();
-        if (projects.length > 0) setProject(projects[0]);
+        const projData = await projRes.json();
+        // Handle both array and paginated { data: [...] } responses
+        const projectsList = Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []);
+        if (projectsList.length > 0) setProject(projectsList[0]);
       }
-      if (taskRes.ok) setTasks(await taskRes.json());
-      if (agentRes.ok) setAgents(await agentRes.json());
-      if (memberRes.ok) setMembers(await memberRes.json());
+      if (taskRes.ok) {
+        const taskData = await taskRes.json();
+        setTasks(Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []));
+      }
+      if (agentRes.ok) {
+        const agentData = await agentRes.json();
+        setAgents(Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []));
+      }
+      if (memberRes.ok) {
+        const memberData = await memberRes.json();
+        setMembers(Array.isArray(memberData) ? memberData : (Array.isArray(memberData?.data) ? memberData.data : []));
+      }
 
       // Only fetch team users if admin (for member assignment)
       if (isAdminUser) {
         const userRes = await fetch("/api/team?type=users", { credentials: 'include' });
-        if (userRes.ok) setTeamUsers(await userRes.json());
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setTeamUsers(Array.isArray(userData) ? userData : (Array.isArray(userData?.data) ? userData.data : []));
+        }
       }
     } catch (err) {
       console.error(err);
+      toast.error("Failed to load project data");
     } finally {
       setLoading(false);
     }
@@ -426,7 +441,18 @@ export default function ProjectDetailPage() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Assignee</Label>
-                  <Input name="assignedTo" placeholder="Select from above" />
+                  <Select name="assignedTo">
+                    <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Unassigned</SelectItem>
+                      {members.map((m) => (
+                        <SelectItem key={m.userId} value={m.userId}>{m.user.name}</SelectItem>
+                      ))}
+                      {(agents as { id: string; name: string }[]).map((a) => (
+                        <SelectItem key={a.id} value={a.id}>{a.name} (AI)</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <Button type="submit" className="w-full">Create Task</Button>
               </form>
