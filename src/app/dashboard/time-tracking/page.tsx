@@ -5,14 +5,13 @@ import { useSession } from "next-auth/react";
 import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
-  ChevronDown, AlertCircle,
+  RefreshCw, AlertCircle, Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -78,8 +77,13 @@ interface AnalyticsData {
   totalHours: number;
 }
 
-// ── Helpers ──
+// ── Helpers ── [FIX C1: safe array fallback]
+function safeArray<T>(data: unknown): T[] {
+  return Array.isArray(data) ? data : [];
+}
+
 function formatDuration(ms: number): string {
+  if (ms < 0) return "0m"; // [FIX: handle negative elapsed]
   const totalMinutes = Math.floor(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -123,12 +127,20 @@ function getDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// [FIX M3: Proper CSV escaping]
+function escapeCSV(value: string): string {
+  if (value.includes('"') || value.includes(",") || value.includes("\n") || value.includes("\r")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return `"${value}"`;
+}
+
 // ── Component ──
 export default function TimeTrackingPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
-  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // State
   const [entries, setEntries] = useState<TimeEntry[]>([]);
@@ -140,6 +152,8 @@ export default function TimeTrackingPage() {
   const [activeTab, setActiveTab] = useState("my-time");
   const [analyticsTab, setAnalyticsTab] = useState("employee");
   const [dateRange, setDateRange] = useState("week");
+  const [teamLoading, setTeamLoading] = useState(false); // [FIX M6]
+  const [analyticsLoading, setAnalyticsLoading] = useState(false); // [FIX M6]
 
   // Timer state
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
@@ -170,9 +184,15 @@ export default function TimeTrackingPage() {
       const res = await fetch("/api/time-tracking", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setEntries(data);
-        const active = data.find((e: TimeEntry) => e.status === "ACTIVE");
+        // [FIX C1: safe array fallback]
+        const arr = safeArray<TimeEntry>(data);
+        setEntries(arr);
+        const active = arr.find((e) => e.status === "ACTIVE");
         setActiveEntry(active || null);
+      } else {
+        // [FIX H1: Show error toast for non-ok responses]
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load time entries");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -189,7 +209,12 @@ export default function TimeTrackingPage() {
       const res = await fetch("/api/projects", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setProjects(data.filter((p: Project) => p.status !== "COMPLETED"));
+        // [FIX C1: safe array fallback before .filter()]
+        const arr = safeArray<Project>(data);
+        setProjects(arr.filter((p) => p.status !== "COMPLETED"));
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load projects");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -199,18 +224,23 @@ export default function TimeTrackingPage() {
 
   // ── Fetch team users ──
   const fetchTeamUsers = useCallback(async (signal?: AbortSignal) => {
-    if (!isAdmin) return;
+    if (!isAdminUser) return;
     try {
       const res = await fetch("/api/team", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setTeamUsers(data.map((u: any) => ({ id: u.id, name: u.name })));
+        // [FIX C1: safe array fallback before .map()]
+        const arr = safeArray<any>(data);
+        setTeamUsers(arr.map((u: any) => ({ id: u.id, name: u.name })));
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load team users");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch team users");
     }
-  }, [isAdmin]);
+  }, [isAdminUser]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -239,8 +269,8 @@ export default function TimeTrackingPage() {
     };
   }, [activeEntry]);
 
-  // ── Start timer ──
-  const handleStart = async () => {
+  // ── Start timer ── [FIX M5: wrap in useCallback]
+  const handleStart = useCallback(async () => {
     setStarting(true);
     try {
       const res = await fetch("/api/time-tracking", {
@@ -266,10 +296,10 @@ export default function TimeTrackingPage() {
     } finally {
       setStarting(false);
     }
-  };
+  }, [selectedProject, timerDescription, fetchEntries]);
 
-  // ── Stop timer ──
-  const handleStop = async () => {
+  // ── Stop timer ── [FIX M5: wrap in useCallback]
+  const handleStop = useCallback(async () => {
     if (!activeEntry) return;
     setStopping(true);
     try {
@@ -292,37 +322,17 @@ export default function TimeTrackingPage() {
     } finally {
       setStopping(false);
     }
-  };
+  }, [activeEntry, fetchEntries]);
 
-  // ── Delete entry ──
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    try {
-      const res = await fetch(`/api/time-tracking/${deleteId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Entry deleted");
-        fetchEntries();
-        if (activeTab === "team") fetchTeamLogs();
-      } else {
-        toast.error("Failed to delete entry");
-      }
-    } catch {
-      toast.error("Failed to delete entry");
-    } finally {
-      setDeleteId(null);
-    }
-  };
-
-  // ── Fetch team logs ──
+  // ── Fetch team logs ── (declared before handleDelete to avoid use-before-declaration)
   const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
-    if (!isAdmin) return;
+    if (!isAdminUser) return;
+    setTeamLoading(true); // [FIX M6]
     try {
       const params = new URLSearchParams();
-      if (teamFilterUser) params.set("userId", teamFilterUser);
-      if (teamFilterProject) params.set("projectId", teamFilterProject);
+      // [FIX H2/H3: Don't send "all" as userId/projectId to API]
+      if (teamFilterUser && teamFilterUser !== "all") params.set("userId", teamFilterUser);
+      if (teamFilterProject && teamFilterProject !== "all") params.set("projectId", teamFilterProject);
       if (teamFilterStartDate) params.set("startDate", teamFilterStartDate);
       if (teamFilterEndDate) params.set("endDate", teamFilterEndDate);
       // If no date filter, show this week
@@ -336,24 +346,54 @@ export default function TimeTrackingPage() {
       const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setTeamEntries(data);
+        setTeamEntries(safeArray<TimeEntry>(data)); // [FIX C1]
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load team logs");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch team logs");
+    } finally {
+      setTeamLoading(false); // [FIX M6]
     }
-  }, [isAdmin, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
+  }, [isAdminUser, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
+
+  // ── Delete entry ──
+  const handleDelete = useCallback(async () => {
+    if (!deleteId) return;
+    try {
+      const res = await fetch(`/api/time-tracking/${deleteId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Entry deleted");
+        fetchEntries();
+        if (activeTab === "team") fetchTeamLogs();
+      } else {
+        // [FIX H4: Read error body from API response]
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to delete entry");
+      }
+    } catch {
+      toast.error("Failed to delete entry");
+    } finally {
+      setDeleteId(null);
+    }
+  }, [deleteId, activeTab, fetchEntries, fetchTeamLogs]);
 
   useEffect(() => {
-    if (activeTab === "team" && isAdmin) {
+    if (activeTab === "team" && isAdminUser) {
       const controller = new AbortController();
       fetchTeamLogs(controller.signal);
       return () => controller.abort();
     }
-  }, [activeTab, isAdmin, fetchTeamLogs]);
+  }, [activeTab, isAdminUser, fetchTeamLogs]);
 
   // ── Fetch analytics ──
   const fetchAnalytics = useCallback(async (signal?: AbortSignal) => {
+    setAnalyticsLoading(true); // [FIX M6]
     try {
       const params = new URLSearchParams();
       params.set("type", analyticsTab);
@@ -374,10 +414,15 @@ export default function TimeTrackingPage() {
       if (res.ok) {
         const data = await res.json();
         setAnalyticsData(data);
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load analytics");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch analytics");
+    } finally {
+      setAnalyticsLoading(false); // [FIX M6]
     }
   }, [analyticsTab, dateRange]);
 
@@ -390,7 +435,7 @@ export default function TimeTrackingPage() {
   }, [activeTab, fetchAnalytics]);
 
   // ── Export CSV ──
-  const exportCSV = () => {
+  const exportCSV = useCallback(() => {
     const headers = ["Employee", "Project", "Description", "Date", "Clock In", "Clock Out", "Duration (hours)"];
     const rows = teamEntries.map((e) => [
       e.user?.name || "Unknown",
@@ -402,7 +447,8 @@ export default function TimeTrackingPage() {
       e.totalHours ? e.totalHours.toFixed(2) : "0",
     ]);
 
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    // [FIX M3: Proper CSV escaping]
+    const csv = [headers, ...rows].map((r) => r.map(escapeCSV).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -410,12 +456,13 @@ export default function TimeTrackingPage() {
     a.download = `time-entries-${getDateStr(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [teamEntries]);
 
   // ── Computed stats ──
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const weekDays = getWeekDays();
+  const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
 
   const todayHours = entries
     .filter((e) => {
@@ -427,7 +474,7 @@ export default function TimeTrackingPage() {
   const weekHours = entries
     .filter((e) => {
       const d = new Date(e.date);
-      return d >= weekDays[0] && d < new Date(weekDays[6].getTime() + 86400000);
+      return d >= weekDays[0] && d < endOfWeek;
     })
     .reduce((sum, e) => sum + (e.totalHours || 0), 0);
 
@@ -436,11 +483,12 @@ export default function TimeTrackingPage() {
   const todayTotal = todayHours + activeTimerHours;
   const weekTotal = weekHours + activeTimerHours;
 
+  // [FIX M4: Add end bound to activeProjectIds filter]
   const activeProjectIds = new Set(
     entries
       .filter((e) => {
         const d = new Date(e.date);
-        return d >= weekDays[0] && e.projectId;
+        return d >= weekDays[0] && d < endOfWeek && e.projectId;
       })
       .map((e) => e.projectId)
   );
@@ -464,7 +512,21 @@ export default function TimeTrackingPage() {
     return { day, total, entries: dayEntries, isToday };
   });
 
-  // ── Loading state ──
+  // [FIX C2: Show loading skeleton during session loading]
+  if (sessionStatus === "loading") {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">Time Tracking</h1>
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+        <div className="h-64 bg-muted animate-pulse rounded-lg" />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -484,7 +546,7 @@ export default function TimeTrackingPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchEntries(); }}>
+        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchEntries(); }}>
           Try Again
         </Button>
       </div>
@@ -506,33 +568,40 @@ export default function TimeTrackingPage() {
           </p>
         </div>
 
-        {/* Active Timer Status */}
-        {activeEntry && (
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+        <div className="flex items-center gap-2">
+          {/* [FIX M7: Add refresh button] */}
+          <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchEntries(); }}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </Button>
+
+          {/* Active Timer Status */}
+          {activeEntry && (
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                </span>
+                <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                  Working on {activeEntry.project?.name || "General"}
+                </span>
+              </div>
+              <span className="text-lg font-bold text-green-700 dark:text-green-300 tabular-nums">
+                {formatDuration(elapsed)}
               </span>
-              <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                Working on {activeEntry.project?.name || "General"}
-              </span>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-8"
+                onClick={handleStop}
+                disabled={stopping}
+              >
+                <Square className="h-3.5 w-3.5 mr-1.5" />
+                {stopping ? "Stopping..." : "STOP"}
+              </Button>
             </div>
-            <span className="text-lg font-bold text-green-700 dark:text-green-300 tabular-nums">
-              {formatDuration(elapsed)}
-            </span>
-            <Button
-              size="sm"
-              variant="destructive"
-              className="h-8"
-              onClick={handleStop}
-              disabled={stopping}
-            >
-              <Square className="h-3.5 w-3.5 mr-1.5" />
-              {stopping ? "Stopping..." : "STOP"}
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -581,7 +650,7 @@ export default function TimeTrackingPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">{isAdmin ? "Team Entries" : "My Entries"}</CardDescription>
+            <CardDescription className="text-xs">{isAdminUser ? "Team Entries" : "My Entries"}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
@@ -598,7 +667,7 @@ export default function TimeTrackingPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="my-time">My Time</TabsTrigger>
-          {isAdmin && <TabsTrigger value="team">Team Logs</TabsTrigger>}
+          {isAdminUser && <TabsTrigger value="team">Team Logs</TabsTrigger>}
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
@@ -700,7 +769,7 @@ export default function TimeTrackingPage() {
                   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
                   return (
                     <div
-                      key={i}
+                      key={day.toISOString()} // [FIX M1: Use stable key instead of array index]
                       className={`text-center p-3 rounded-lg border transition-colors ${
                         isToday
                           ? "bg-primary/5 border-primary/30"
@@ -716,7 +785,7 @@ export default function TimeTrackingPage() {
                         {day.getDate()}
                       </div>
                       <div className={`text-sm font-bold mt-1 ${total > 0 ? "text-foreground" : "text-muted-foreground"}`}>
-                        {total > 0 ? formatHours(total) : "—"}
+                        {total > 0 ? formatHours(total) : "\u2014"}
                       </div>
                     </div>
                   );
@@ -765,11 +834,11 @@ export default function TimeTrackingPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                            {entry.description || "—"}
+                            {entry.description || "\u2014"}
                           </TableCell>
                           <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
                           <TableCell className="text-sm tabular-nums">
-                            {entry.clockOut ? formatTime(entry.clockOut) : "—"}
+                            {entry.clockOut ? formatTime(entry.clockOut) : "\u2014"}
                           </TableCell>
                           <TableCell className="text-sm font-medium tabular-nums">
                             {formatHours(entry.totalHours)}
@@ -796,7 +865,7 @@ export default function TimeTrackingPage() {
         </TabsContent>
 
         {/* ── Tab 2: Team Logs (Admin) ── */}
-        {isAdmin && (
+        {isAdminUser && (
           <TabsContent value="team" className="space-y-6 mt-4">
             {/* Filters */}
             <Card>
@@ -867,13 +936,19 @@ export default function TimeTrackingPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Team Time Logs</CardTitle>
-                  <Button variant="outline" size="sm" onClick={exportCSV}>
+                  <Button variant="outline" size="sm" onClick={exportCSV} disabled={teamEntries.length === 0}>
                     <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {teamEntries.length === 0 ? (
+                {/* [FIX M6: Loading state for team logs] */}
+                {teamLoading ? (
+                  <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-sm">Loading team logs...</span>
+                  </div>
+                ) : teamEntries.length === 0 ? (
                   <div className="text-center py-8">
                     <Users className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
                     <p className="text-sm text-muted-foreground">No entries found for the selected filters</p>
@@ -904,12 +979,12 @@ export default function TimeTrackingPage() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                              {entry.description || "—"}
+                              {entry.description || "\u2014"}
                             </TableCell>
                             <TableCell className="text-sm">{formatDate(entry.date)}</TableCell>
                             <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
                             <TableCell className="text-sm tabular-nums">
-                              {entry.clockOut ? formatTime(entry.clockOut) : "—"}
+                              {entry.clockOut ? formatTime(entry.clockOut) : "\u2014"}
                             </TableCell>
                             <TableCell className="text-sm font-medium tabular-nums">
                               {formatHours(entry.totalHours)}
@@ -949,7 +1024,15 @@ export default function TimeTrackingPage() {
           </div>
 
           {/* Analytics Content */}
-          {analyticsData && analyticsData.data.length > 0 ? (
+          {/* [FIX M6: Loading state for analytics] */}
+          {analyticsLoading ? (
+            <Card>
+              <CardContent className="py-12 flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading analytics...</span>
+              </CardContent>
+            </Card>
+          ) : analyticsData && analyticsData.data.length > 0 ? (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -970,7 +1053,6 @@ export default function TimeTrackingPage() {
                     : 0;
                   const barWidth = Math.max(2, (hours / maxHours) * 100);
 
-                  // Color palette for bars
                   const colors = [
                     "bg-emerald-500",
                     "bg-teal-500",
@@ -984,9 +1066,11 @@ export default function TimeTrackingPage() {
                     "bg-amber-500",
                   ];
                   const color = colors[i % colors.length];
+                  // [FIX M2: Use stable key instead of array index]
+                  const stableKey = analyticsTab === "employee" ? item.userId : item.projectId;
 
                   return (
-                    <div key={i} className="space-y-1.5">
+                    <div key={stableKey || i} className="space-y-1.5">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium truncate max-w-[200px]">{name || "Unknown"}</span>
                         <div className="flex items-center gap-3">

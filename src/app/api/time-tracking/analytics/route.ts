@@ -17,6 +17,10 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type") || "employee" // employee | project
+    // [FIX M8: Validate type parameter early]
+    if (type !== "employee" && type !== "project") {
+      return NextResponse.json({ error: "Invalid type. Use 'employee' or 'project'" }, { status: 400 })
+    }
     const startDateParam = searchParams.get("startDate")
     const endDateParam = searchParams.get("endDate")
     const filterUserId = searchParams.get("userId")
@@ -30,6 +34,10 @@ export async function GET(req: NextRequest) {
     if (startDateParam && endDateParam) {
       startDate = new Date(startDateParam)
       endDate = new Date(endDateParam)
+      // [FIX M9: Validate date parameters]
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date format for startDate or endDate" }, { status: 400 })
+      }
       endDate.setDate(endDate.getDate() + 1)
     } else {
       // This week (Monday to Sunday)
@@ -156,7 +164,8 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    return NextResponse.json({ error: "Invalid type. Use 'employee' or 'project'" }, { status: 400 })
+    // This should never be reached due to early validation above
+    return NextResponse.json({ error: "Unhandled analytics type" }, { status: 400 })
   } catch (error: any) {
     console.error("[time-tracking/analytics] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -44,13 +44,20 @@ export async function PATCH(
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null
 
-    // If updating status to COMPLETED, set clockOut and calculate totalHours
-    if (status === "COMPLETED" && existing.status === "ACTIVE") {
+    // [FIX H5: Only allow COMPLETED status on ACTIVE entries — prevent restarting stopped timers]
+    if (status === "COMPLETED") {
+      if (existing.status !== "ACTIVE") {
+        return NextResponse.json({ error: "Cannot complete a timer that is not active" }, { status: 400 })
+      }
       const now = new Date()
       updateData.clockOut = now
       updateData.status = "COMPLETED"
       const diffMs = now.getTime() - new Date(existing.clockIn).getTime()
       updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
+    }
+    // Prevent setting status back to ACTIVE on a completed entry
+    if (status === "ACTIVE" && existing.status === "COMPLETED") {
+      return NextResponse.json({ error: "Cannot restart a completed time entry. Please start a new timer." }, { status: 400 })
     }
 
     const entry = await db.timeEntry.update({
