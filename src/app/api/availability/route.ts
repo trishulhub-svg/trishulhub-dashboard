@@ -3,10 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
+import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/availability - List availability entries
 export async function GET(req: NextRequest) {
   try {
+    await ensureTable("Availability")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -42,6 +44,7 @@ export async function GET(req: NextRequest) {
 // POST /api/availability - Create availability entry
 export async function POST(req: NextRequest) {
   try {
+    await ensureTable("Availability")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

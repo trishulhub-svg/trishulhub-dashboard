@@ -3,10 +3,13 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
+import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/availability/check - Check who is available on a given date/time
 export async function GET(req: NextRequest) {
   try {
+    await ensureTable("Availability")
+    await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

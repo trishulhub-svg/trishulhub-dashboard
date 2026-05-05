@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/leave - List leave requests (DEPRECATED: use /api/leaves instead)
 export async function GET(req: NextRequest) {
   try {
+    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -39,6 +41,7 @@ export async function GET(req: NextRequest) {
 // POST /api/leave - Create a leave request
 export async function POST(req: NextRequest) {
   try {
+    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -102,6 +105,7 @@ export async function POST(req: NextRequest) {
 // PATCH /api/leave - Approve or reject a leave request
 export async function PATCH(req: NextRequest) {
   try {
+    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

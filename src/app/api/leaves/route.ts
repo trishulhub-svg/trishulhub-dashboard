@@ -3,10 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
+import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/leaves - List leaves with filters
 export async function GET(req: NextRequest) {
   try {
+    // Auto-migrate: ensure Leave table exists (handles case where prisma db push hasn't been run)
+    await ensureTable("Leave")
+
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -57,6 +61,9 @@ export async function GET(req: NextRequest) {
 // POST /api/leaves - Create a leave request
 export async function POST(req: NextRequest) {
   try {
+    // Auto-migrate: ensure Leave table exists
+    await ensureTable("Leave")
+
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
