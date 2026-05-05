@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Code2, Crosshair, DollarSign, ClipboardList, Users, PenTool, HeadphonesIcon,
-  ArrowRight, Bot, MessageSquare, Calendar, Zap, Brain,
+  ArrowRight, Bot, MessageSquare, Calendar, Zap, Brain, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ export default function AgentsPage() {
   const router = useRouter();
   const [agents, setAgents] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -44,9 +45,11 @@ export default function AgentsPage() {
         }
       } else {
         console.error('Failed to fetch agents:', res.status, await res.text().catch(() => ''));
+        setError('Failed to fetch agents');
       }
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to fetch agents");
     } finally {
       setLoading(false);
     }
@@ -65,6 +68,16 @@ export default function AgentsPage() {
             <Skeleton key={i} className="h-56 rounded-lg" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchAgents(); }}>Try Again</Button>
       </div>
     );
   }

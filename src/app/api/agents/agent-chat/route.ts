@@ -1366,8 +1366,10 @@ export async function POST(req: NextRequest) {
           // Client disconnected — clear isProcessing to prevent orphaned state
           clientDisconnected = true
           console.log(`[agent-chat] Client disconnected — clearing isProcessing for chat ${chat.id}`)
-          await db.chat.update({
-            where: { id: chat.id },
+          // SECURITY: Only clear the lock if it's still held by the current user
+          // This prevents one user's disconnect from clearing another user's lock
+          await db.chat.updateMany({
+            where: { id: chat.id, lockedBy: userId },
             data: { isProcessing: false, lockedBy: null, lockedAt: null, lockedByName: null },
           }).catch(() => {})
         },

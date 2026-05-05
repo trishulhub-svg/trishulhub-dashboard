@@ -373,14 +373,25 @@ async function callZaiWithTools(
     const body = buildBody(useNoThinking)
 
     try {
-      const response = await fetch(ZAI_API_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      })
+      // Add timeout for Z.ai API calls (can hang indefinitely)
+      const ZAI_TIMEOUT_MS = 120000 // 2 minutes max per API call
+      const zaiController = new AbortController()
+      const zaiTimeout = setTimeout(() => zaiController.abort(), ZAI_TIMEOUT_MS)
+
+      let response: Response
+      try {
+        response = await fetch(ZAI_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: zaiController.signal,
+        })
+      } finally {
+        clearTimeout(zaiTimeout)
+      }
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -401,6 +412,7 @@ async function callZaiWithTools(
         if (statusCode === 500) {
           // 500 errors are often temporary or caused by thinking mode
           // Retry without thinking mode on next attempt
+          disableThinking = true
           lastError = new Error(`Z.ai API error: 500 - ${errorText.substring(0, 100)}`)
           if (attempt < MAX_RETRIES) continue
           throw lastError
@@ -438,7 +450,14 @@ async function callZaiWithTools(
     } catch (err: any) {
       // Network errors — retry
       lastError = err
-      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout"))) {
+      // Handle abort/timeout errors
+      if (err.name === 'AbortError') {
+        lastError = new Error(`Z.ai API timeout (request took > 2 minutes)`)
+        console.warn(`[zai-agent] Request timed out on attempt ${attempt}`)
+        if (attempt < MAX_RETRIES) continue
+        throw lastError
+      }
+      if (attempt < MAX_RETRIES && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("timeout") || err.message.includes("abort"))) {
         continue
       }
       throw err

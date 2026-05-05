@@ -536,14 +536,13 @@ async function callNvidiaAPI(
 
   // NVIDIA API returns OpenAI-compatible response format
   // May include reasoning_content in the message for thinking models
+  // SECURITY: reasoning_content is internal chain-of-thought — NEVER expose to users
   const choice = data.choices?.[0]
   const content = choice?.message?.content || ""
-  const reasoningContent = choice?.message?.reasoning_content || ""
 
-  // If there's reasoning content, prepend it as a collapsible section
-  const fullContent = reasoningContent
-    ? `<details><summary>💭 Reasoning</summary>\n\n${reasoningContent}\n\n</details>\n\n${content}`
-    : content
+  // Do NOT include reasoning_content in the response — it contains raw planning
+  // that should not be shown to users
+  const fullContent = content || ''
 
   const cost = estimateCost(mappedModel, data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0)
 

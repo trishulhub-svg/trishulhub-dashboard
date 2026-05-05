@@ -2,15 +2,12 @@
 // Multi-agent tool system: each agent type gets role-specific tools
 // All agents share web_search and plan_task, plus unique tools per role
 
-import { exec, execFile, ExecFileOptions } from "child_process"
-import { promisify } from "util"
+import { execFile, ExecFileOptions } from "child_process"
 import fs from "fs"
 import path from "path"
 
-const execAsync = promisify(exec)
-
 /**
- * Safe alternative to execAsync that uses execFile to avoid shell injection.
+ * Safe alternative to shell execution that uses execFile to avoid shell injection.
  * Passes args as an array so they are never interpreted by a shell.
  */
 function execSafe(cmd: string, args: string[], options: ExecFileOptions): Promise<{ stdout: string; stderr: string }> {
@@ -69,6 +66,8 @@ function getWorkspaceRoot(): string {
  * falls back to PROJECT_ROOT for read-only operations.
  */
 function resolveWorkspacePath(filePath: string, forWrite: boolean = false): string {
+  // SECURITY: Reject path traversal attempts early
+  if (filePath.includes('..')) return 'Error: Path traversal not allowed. Absolute paths and parent directory references are prohibited.'
   // For write operations, always use workspace root (writable)
   if (forWrite) {
     return path.resolve(getWorkspaceRoot(), filePath)
@@ -1401,16 +1400,21 @@ async function executeReadFile(filePath: string, purpose?: string): Promise<stri
 
   // SECURITY: Block reading sensitive files
   const blockedReadPatterns = [
+    /\/etc\//i,               // System configuration directory
+    /\/proc\//i,              // Process information directory
+    /\/sys\//i,               // System kernel directory
     /\.env(\.|$)/i,           // .env, .env.local, .env.production, etc.
     /\.git(\/|$)/i,           // .git directory and its contents
     /\.key$/i,                // Private key files
     /\.pem$/i,                // Certificate files
     /\.p12$/i,                // PKCS12 files
     /\.cert$/i,               // Certificate files
-    /credentials\.json/i,     // Google/AWS credentials
+    /credentials/i,           // Credentials files
     /serviceAccountKey/i,     // Firebase service account
     /id_rsa/i,                // SSH private keys
     /id_ed25519/i,            // SSH private keys
+    /ssh/i,                   // SSH config/keys
+    /aws/i,                   // AWS config/credentials
   ]
   const readBasename = path.basename(fullPath)
   const relativePath = filePath.replace(/\\/g, '/')
@@ -1441,10 +1445,21 @@ async function executeWriteFile(filePath: string, content: string, description?:
   if (!isPathWithinWorkspace(fullPath, true)) return `Error: Cannot write files outside project directory.`
 
   // Prevent overwriting critical files
-  const criticalFiles = ['.env', '.env.local', '.env.production', 'next.config.js', 'next.config.ts', 'next.config.mjs']
+  const criticalFiles = [
+    '.env', '.env.local', '.env.production', '.env.development', '.env.staging', '.env.test',
+    'next.config.js', 'next.config.ts', 'next.config.mjs',
+    'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+    'tsconfig.json',
+    '.gitignore', '.gitattributes',
+    'vercel.json', 'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
+    'prisma/schema.prisma',
+  ]
   const basename = path.basename(fullPath)
   if (criticalFiles.includes(basename)) {
     return `Error: Cannot overwrite critical file: ${basename}. This file is protected for safety.`
+  }
+  if (basename.startsWith('.env')) {
+    return 'Error: Cannot write to environment configuration files for security reasons.'
   }
 
   try {
@@ -1493,6 +1508,22 @@ async function executeWriteFile(filePath: string, content: string, description?:
 }
 
 async function executeEditFile(filePath: string, oldContent: string, newContent: string, description?: string): Promise<string> {
+  // SECURITY: Block editing critical configuration files
+  const criticalFiles = [
+    '.env', '.env.local', '.env.production', '.env.development', '.env.staging', '.env.test',
+    'next.config.js', 'next.config.ts', 'next.config.mjs',
+    'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+    'tsconfig.json',
+    '.gitignore', '.gitattributes',
+    'vercel.json', 'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
+    'prisma/schema.prisma',
+  ]
+  const resolvedPath = path.resolve(PROJECT_ROOT, filePath)
+  const fileName = path.basename(resolvedPath)
+  if (criticalFiles.includes(fileName) || fileName.startsWith('.env')) {
+    return 'Error: Cannot edit critical configuration files for security reasons.'
+  }
+
   // Try writable workspace first for existing files, then fall back to read path
   let fullPath = resolveWorkspacePath(filePath, true)
   if (!fs.existsSync(fullPath)) {
@@ -1610,9 +1641,14 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
     return `Error: Command contains blocked subshell or chaining syntax.`
   }
 
+  // Block rm -rf on ANY path (not just /)
+  if (/rm\s+-[a-zA-Z]*f/i.test(command)) {
+    return 'Error: Recursive force delete (rm -rf) is not allowed. Delete files individually instead.'
+  }
+
   // Blocklist: comprehensive dangerous patterns
   const blockedPatterns = [
-    /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--)\s*\//i,  // rm -rf /, rm -f /
+    /node\s+(-e|--eval)\s/i,                        // Block inline JavaScript execution
     /mkfs/i,                                        // Format filesystem
     /dd\s+if=/i,                                    // Disk dump
     />\s*\/dev\//i,                                 // Redirect to /dev
@@ -1645,7 +1681,7 @@ async function executeRunCommand(command: string, purpose?: string): Promise<str
   }
 
   try {
-    // CRITICAL FIX: Use execSafe (execFile) instead of execAsync (exec) to prevent shell injection.
+    // CRITICAL FIX: Use execSafe (execFile) instead of raw exec() to prevent shell injection.
     // Split command into binary + args array so no shell interpretation occurs.
     const parts = command.trim().split(/\s+/)
     const cmd = parts[0]
@@ -1789,6 +1825,11 @@ async function executeGitCommitPush(
     // 4. Push
     // Sanitize branch name for push
     const safeBranch = (branch || '').replace(/[^a-zA-Z0-9\/_\-]/g, '')
+    // SECURITY: Block pushes to protected branches
+    const protectedBranches = ['main', 'master', 'production', 'release', 'staging']
+    if (protectedBranches.includes(safeBranch)) {
+      return `Error: Cannot push directly to protected branch "${safeBranch}". Please create a feature branch and use a pull request.`
+    }
     const pushArgs = safeBranch ? ['push', 'origin', safeBranch] : ['push']
     const { stdout: pushOut } = await execSafe('git', pushArgs, { cwd: getWorkspaceRoot(), timeout: 60000 })
 

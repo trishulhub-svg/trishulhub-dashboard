@@ -81,51 +81,68 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "chatId is required" }, { status: 400 })
     }
 
-    const chat = await db.chat.findUnique({
-      where: { id: chatId },
-      select: { lockedBy: true, lockedByName: true, lockedAt: true, status: true },
+    // CRITICAL FIX: Atomic lock acquisition — use updateMany with condition
+    // instead of findUnique + update (TOCTOU race condition). The old pattern
+    // allowed two concurrent requests to both see lockedBy=null and both acquire the lock.
+    const result = await db.chat.updateMany({
+      where: { id: chatId, lockedBy: null },
+      data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
     })
 
-    if (!chat) {
-      return NextResponse.json({ error: "Chat not found" }, { status: 404 })
-    }
-
-    // If chat is ENDED, auto-release lock
-    if (chat.status === "ENDED") {
-      await db.chat.update({
+    if (result.count === 0) {
+      // Lock already held — check if stale or owned by same user
+      const chat = await db.chat.findUnique({
         where: { id: chatId },
-        data: { lockedBy: null, lockedAt: null, lockedByName: null },
+        select: { lockedBy: true, lockedByName: true, lockedAt: true, status: true },
       })
-      return NextResponse.json({ locked: false, lockedBy: null, lockedByName: null, message: "Chat ended, lock released" })
-    }
 
-    // If already locked by the same user, just confirm
-    if (chat.lockedBy === userId) {
-      return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: chat.lockedByName, message: "Already locked by you" })
-    }
+      if (!chat) {
+        return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+      }
 
-    // If locked by another user, check if current user is admin
-    if (chat.lockedBy && chat.lockedBy !== userId) {
+      // If chat is ENDED, auto-release lock
+      if (chat.status === "ENDED") {
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: null, lockedAt: null, lockedByName: null },
+        })
+        return NextResponse.json({ locked: false, lockedBy: null, lockedByName: null, message: "Chat ended, lock released" })
+      }
+
+      // Check if lock is stale (older than 30 minutes)
+      if (chat.lockedAt && Date.now() - new Date(chat.lockedAt).getTime() > 30 * 60 * 1000) {
+        // Force-acquire stale lock
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
+        })
+        return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: userName, message: "Stale lock force-acquired" })
+      }
+
+      // Already locked by us — refresh
+      if (chat.lockedBy === userId) {
+        await db.chat.update({
+          where: { id: chatId },
+          data: { lockedAt: new Date() },
+        })
+        return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: chat.lockedByName, message: "Already locked by you" })
+      }
+
+      // Locked by another user — check if admin can override
       if (userRole === "SUPER_ADMIN" || userRole === "ADMIN") {
-        // Admins can override locks
         await db.chat.update({
           where: { id: chatId },
           data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
         })
         return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: userName, message: "Lock overridden by admin" })
       }
+
       return NextResponse.json({
         error: `This chat is currently being worked on by ${chat.lockedByName}`,
         lockedBy: chat.lockedBy,
         lockedByName: chat.lockedByName,
       }, { status: 423 })
     }
-
-    // Acquire lock
-    await db.chat.update({
-      where: { id: chatId },
-      data: { lockedBy: userId, lockedAt: new Date(), lockedByName: userName },
-    })
 
     return NextResponse.json({ locked: true, lockedBy: userId, lockedByName: userName, message: "Lock acquired" })
   } catch (error: any) {

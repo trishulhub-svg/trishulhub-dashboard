@@ -60,6 +60,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Type and title are required" }, { status: 400 })
     }
 
+    // SECURITY: Validate approval type and requester type
+    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "CHAT_DELETION", "TASK_EXECUTION", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION", "CROSS_AGENT_REQUEST"]
+    if (!validApprovalTypes.includes(type)) {
+      return NextResponse.json({ error: "Invalid approval type" }, { status: 400 })
+    }
+    if (requesterType && !["AI", "HUMAN"].includes(requesterType)) {
+      return NextResponse.json({ error: "Invalid requester type" }, { status: 400 })
+    }
+
     const approval = await db.approval.create({
       data: {
         type,
@@ -198,7 +207,7 @@ export async function PATCH(req: NextRequest) {
       } else if (status === "NEEDS_IMPROVEMENT") {
         await db.agent.update({
           where: { id: approval.agentId },
-          data: { status: "RUNNING" }
+          data: { status: "IDLE" }
         })
         // Notify the agent's chat users
         const chats = await db.chat.findMany({

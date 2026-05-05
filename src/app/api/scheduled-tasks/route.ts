@@ -136,12 +136,27 @@ export async function PATCH(req: NextRequest) {
     if (title !== undefined) data.title = title
     if (description !== undefined) data.description = description
     if (dueDate !== undefined) data.dueDate = new Date(dueDate)
-    if (priority !== undefined) data.priority = priority
+    if (priority !== undefined) {
+      const validPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+      if (!validPriorities.includes(priority)) {
+        return NextResponse.json({ error: "Invalid priority" }, { status: 400 })
+      }
+      data.priority = priority
+    }
     if (status !== undefined) {
+      const validStatuses = ["PENDING", "IN_PROGRESS", "COMPLETED", "OVERDUE", "CANCELLED"];
+      if (!validStatuses.includes(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+      }
       data.status = status
       if (status === "COMPLETED") data.completedAt = new Date()
     }
-    if (progress !== undefined) data.progress = progress
+    if (progress !== undefined) {
+      if (typeof progress !== 'number' || progress < 0 || progress > 100) {
+        return NextResponse.json({ error: "Progress must be between 0 and 100" }, { status: 400 })
+      }
+      data.progress = progress
+    }
     if (result !== undefined) data.result = result
 
     const task = await db.scheduledTask.update({
@@ -200,8 +215,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    if (task.userId !== userId && userRole !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    if (task.userId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     await db.scheduledTask.delete({ where: { id } })

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { callAI, estimateCost } from "@/lib/ai/openrouter"
+import { isAdmin } from "@/lib/rbac"
 
 // GET /api/cross-agent - Get cross-agent messages (filtered by user's agent access)
 export async function GET(req: NextRequest) {
@@ -74,6 +75,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "From agent, to agent, and message are required" }, { status: 400 })
     }
 
+    // Prevent self-messaging
+    if (fromAgentId === toAgentId) {
+      return NextResponse.json({ error: "Cannot send message to self" }, { status: 400 })
+    }
+
+    // Validate message type
+    const validTypes = ["INFO", "REQUEST", "RESULT", "ALERT"]
+    if (type && !validTypes.includes(type)) {
+      return NextResponse.json({ error: "Invalid message type" }, { status: 400 })
+    }
+
+    // Validate message length
+    if (message && message.length > 10000) {
+      return NextResponse.json({ error: "Message too long (max 10000 characters)" }, { status: 400 })
+    }
+
     // SECURITY: Verify user has access to both agents
     const userRole = session.user.role
     const userId = session.user.id
@@ -100,7 +117,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
-    // If linking a chat from the receiving agent, verify it exists
+    // If linking a chat from the receiving agent, verify it exists AND user has access
     let linkedChatContext = ""
     if (linkedChatId) {
       const linkedChat = await db.chat.findUnique({
@@ -110,18 +127,28 @@ export async function POST(req: NextRequest) {
           messages: { orderBy: { createdAt: "asc" } },
         },
       })
-      if (linkedChat) {
-        if (shareFullChat) {
-          // Share full chat context with the receiving agent
-          const chatMessages = linkedChat.messages
-            .filter((m: any) => m.role === "user" || m.role === "assistant")
-            .map((m: any) => `${m.role === "user" ? "User" : linkedChat.agent?.name || "Assistant"}: ${m.content}`)
-            .join("\n")
-          linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}"]:\n${chatMessages}`
-        } else {
-          // Share just a summary
-          linkedChatContext = `\n\n[Referenced Chat: "${linkedChat.title}" with ${linkedChat.messages.length} messages]`
+      if (!linkedChat) {
+        return NextResponse.json({ error: "Linked chat not found" }, { status: 404 })
+      }
+      // SECURITY: Verify access - user must own the chat or have canView on the agent that owns it
+      if (linkedChat.userId !== userId) {
+        const access = await db.userAgentAccess.findFirst({
+          where: { userId, agentId: linkedChat.agentId, canView: true }
+        })
+        if (!access && !isAdmin(userRole)) {
+          return NextResponse.json({ error: "Access denied to linked chat" }, { status: 403 })
         }
+      }
+      if (shareFullChat) {
+        // Share full chat context with the receiving agent
+        const chatMessages = linkedChat.messages
+          .filter((m: any) => m.role === "user" || m.role === "assistant")
+          .map((m: any) => `${m.role === "user" ? "User" : linkedChat.agent?.name || "Assistant"}: ${m.content}`)
+          .join("\n")
+        linkedChatContext = `\n\n[Shared Chat Context from "${linkedChat.title}"]:\n${chatMessages}`
+      } else {
+        // Share just a summary
+        linkedChatContext = `\n\n[Referenced Chat: "${linkedChat.title}" with ${linkedChat.messages.length} messages]`
       }
     }
 
@@ -270,7 +297,7 @@ export async function POST(req: NextRequest) {
       console.error("[cross-agent] AI processing error:", aiError.message);
       await db.crossAgentMessage.update({
         where: { id: crossMsg.id },
-        data: { status: "PENDING" },
+        data: { status: "FAILED" },
       })
 
       return NextResponse.json({

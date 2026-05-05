@@ -29,10 +29,27 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
-    // Update metadata
+    // CRITICAL FIX: Whitelist allowed metadata keys to prevent mass assignment.
+    // Previously, any key in metadata was persisted to DB, allowing injection of
+    // arbitrary fields (e.g. role, permissions). Now only known-safe keys are allowed.
+    let data: { metadata: string };
+    if (metadata !== undefined) {
+      const allowedMetaKeys = ['todoItems', 'planSteps', 'apiKeyId', 'cost', 'model', 'agentic', 'totalSteps', 'usedTools', 'steps', 'thinkingPreview', 'autoTodoItems', 'isError', 'retryPrompt', 'attachments'];
+      const sanitizedMeta: Record<string, unknown> = {};
+      const metaObj = typeof metadata === "string" ? JSON.parse(metadata) : metadata;
+      for (const key of allowedMetaKeys) {
+        if (metaObj[key] !== undefined) {
+          sanitizedMeta[key] = metaObj[key];
+        }
+      }
+      data = { metadata: JSON.stringify(sanitizedMeta) };
+    } else {
+      return NextResponse.json({ error: "Metadata is required" }, { status: 400 });
+    }
+
     const updated = await db.chatMessage.update({
       where: { id: messageId },
-      data: { metadata: typeof metadata === "string" ? metadata : JSON.stringify(metadata) },
+      data,
     })
 
     return NextResponse.json({ success: true, message: updated })

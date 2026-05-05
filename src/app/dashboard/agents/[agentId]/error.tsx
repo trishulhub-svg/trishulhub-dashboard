@@ -129,13 +129,20 @@ export default function AgentChatError({
         </div>
         <div className="flex gap-3 justify-center">
           <Button
+            onClick={reset}
+            className="gap-2"
+          >
+            <RefreshCw className="h-4 w-4" /> Try Again
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => {
-              // Full page reload to clear any stale state
+              // Hard refresh to clear any stale state
               window.location.reload();
             }}
             className="gap-2"
           >
-            <RefreshCw className="h-4 w-4" /> Reload Page
+            Hard Refresh
           </Button>
           <Button
             variant="outline"

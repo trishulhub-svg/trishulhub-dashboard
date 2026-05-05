@@ -57,6 +57,27 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
+// ─── All Agent Tools (used for auto-TODO generation) ──────────────
+const ALL_AGENT_TOOLS = [
+  // Dev Agent tools
+  'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
+  'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code',
+  // Client Hunter tools
+  'search_leads', 'analyze_website', 'score_lead', 'draft_email', 'plan_outreach_campaign',
+  // Finance tools
+  'calculate_estimate', 'generate_quotation', 'generate_invoice', 'research_market_pricing', 'calculate_roi',
+  // Project Manager tools
+  'break_down_project', 'create_timeline', 'assess_risks', 'plan_sprint', 'estimate_effort',
+  // HR tools
+  'analyze_workload', 'find_best_fit', 'plan_onboarding', 'assess_leave_conflicts',
+  // Content tools
+  'research_trends', 'analyze_seo', 'draft_content', 'create_content_calendar', 'research_competitors',
+  // Support tools
+  'troubleshoot_issue', 'search_knowledge_base', 'draft_client_response', 'create_kb_article', 'assess_escalation',
+  // Shared tools
+  'web_search', 'plan_task',
+];
+
 // ─── Icon Map ───────────────────────────────────────────────────
 const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   DEV: Code2,
@@ -409,6 +430,11 @@ export default function AgentChatPage() {
   const activeChatIdRef = useRef<string | null>(null);
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
 
+  // CRITICAL FIX: sendingRef tracks the current sending state in a ref so async callbacks
+  // (handleSend re-entry, SSE stream loop) can reliably check if a send is in progress
+  // without suffering from stale closures. Without this, double-sends are possible.
+  const sendingRef = useRef(false);
+
   // CRITICAL FIX: Track animation timeouts so we can cancel them when chats switch/delete.
   // Without this, a 300ms setTimeout from the old chat's finally block can fire and
   // overwrite the new chat's isAgentic/liveSteps state.
@@ -437,6 +463,9 @@ export default function AgentChatPage() {
   const statusColor = agent ? (STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400") : "bg-gray-400";
 
   // ── Fetch Agent ──
+  // NOTE: fetchAgent fetches ALL agents via /api/agents because the API doesn't support
+  // single-agent fetch. This is a known issue but low-priority since there are only 7 agents.
+  // TODO: Add GET /api/agents/:id endpoint for single-agent fetch.
   const fetchAgent = useCallback(async () => {
     if (!agentId) {
       setLoading(false);
@@ -638,7 +667,9 @@ export default function AgentChatPage() {
 
   // ── Poll for completion when resuming after navigation ──
   const startPollingForCompletion = useCallback((cId: string, knownMsgCount: number) => {
+    // CRITICAL FIX: Prevent duplicate polling — clear any existing interval first
     if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = null; // Clear immediately to prevent re-entry
 
     setSending(true);
     setIsAgentic(true);
@@ -1032,6 +1063,7 @@ export default function AgentChatPage() {
     }
     // ALWAYS reset processing state (prevents stale "sending/streaming" from a deleted/ended chat)
     setSending(false);
+    sendingRef.current = false;
     setIsAgentic(false);
     setLiveSteps([]);
     setStreamingText("");
@@ -1045,6 +1077,9 @@ export default function AgentChatPage() {
     setFailedMsgId(null);
     setActivatingStepId(null);
     autoTodoCounterRef.current = 0;
+    // FIX: Reset todoItems early — before the async lock check — so old items
+    // aren't briefly visible during chat switch
+    setTodoItems([]);
 
     // Check lock status before selecting
     try {
@@ -1068,15 +1103,16 @@ export default function AgentChatPage() {
     }
 
     // Release previous chat lock if switching chats
-    if (activeChatId && activeChatId !== chatId) {
+    // FIX: Use activeChatIdRef.current instead of stale closure activeChatId
+    const prevChatId = activeChatIdRef.current;
+    if (prevChatId && prevChatId !== chatId) {
       try {
-        await fetch(`/api/chat-lock?chatId=${activeChatId}`, { method: "DELETE", credentials: "include" });
+        await fetch(`/api/chat-lock?chatId=${prevChatId}`, { method: "DELETE", credentials: "include" });
       } catch {}
     }
 
     setActiveChatId(chatId);
-    // Clear existing todoItems when switching chats
-    setTodoItems([]);
+    // Note: todoItems already reset above before the async lock check
     autoTodoCounterRef.current = 0;
 
     // Find the chat object to check persistent todoItems and isProcessing
@@ -1294,6 +1330,10 @@ export default function AgentChatPage() {
     // Allow sending with just text, just attachments, or both
     if ((!userContent.trim() && attachedFiles.length === 0) || sending || uploading) return;
 
+    // CRITICAL FIX: Prevent re-entry using ref (sending state may be stale in closure)
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+
     const currentAttachments = [...attachedFiles];
     setInput("");
     setAttachedFiles([]);
@@ -1302,10 +1342,13 @@ export default function AgentChatPage() {
     const isRetry = skipDuplicateUserMsgRef.current;
     skipDuplicateUserMsgRef.current = false;
 
+    // Capture current chat ID at the start to avoid stale activeChatId closure
+    const currentChatId = activeChatIdRef.current || activeChatId;
+
     // Always create the tempUserMsg for ID reference, but only add to chat if not retry
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
-      chatId: activeChatId || "",
+      chatId: currentChatId || "",
       role: "user",
       content: userContent + (currentAttachments.length > 0 ? `\n\n📎 Attached: ${currentAttachments.map(f => f.name).join(", ")}` : ""),
       createdAt: new Date().toISOString(),
@@ -1332,7 +1375,7 @@ export default function AgentChatPage() {
     }
 
     // Mark agent as processing in sessionStorage (persists across navigation)
-    const currentMsgCount = messages.length + 1; // +1 for the temp user msg
+    const currentMsgCount = messagesRef.current.length + 1; // +1 for the temp user msg
     
     // If no active chat, create one on the server FIRST so we have a chatId
     // This ensures chat is saved even if user navigates away mid-processing
@@ -1420,7 +1463,7 @@ export default function AgentChatPage() {
             ...prev,
             {
               id: `error-${Date.now()}`,
-              chatId: activeChatId || "",
+              chatId: currentChatId || "",
               role: "system",
               content: friendlyMsg,
               createdAt: new Date().toISOString(),
@@ -1469,14 +1512,21 @@ export default function AgentChatPage() {
           }
 
           // BUG FIX: Use Promise.race with timeout for reader.read()
-          let readResult: { done: boolean; value: Uint8Array | undefined };
+          let readResult: ReadableStreamReadResult<Uint8Array>;
           try {
-            readResult = await Promise.race([
-              reader.read(),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Stream read timeout')), 120000) // 120s per chunk
-              ),
-            ]);
+            // CRITICAL FIX: Clear timeout on success to prevent memory leak.
+            // The old Promise.race pattern never cleared the setTimeout on success,
+            // leaking 120s timers for every chunk read.
+            readResult = await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+              const timeoutId = setTimeout(() => reject(new Error('Stream read timeout')), 120000);
+              reader.read().then(result => {
+                clearTimeout(timeoutId);
+                resolve(result);
+              }).catch(err => {
+                clearTimeout(timeoutId);
+                reject(err);
+              });
+            });
           } catch (readErr: any) {
             // Stream read timed out or failed - break out and check backend
             console.warn('[agent-chat] Stream read error:', readErr.message);
@@ -1575,25 +1625,6 @@ export default function AgentChatPage() {
                 // When the agent uses tools like write_file, edit_file, etc., auto-create
                 // TODO items so the user sees a progress list in real-time at the bottom
                 // ALL agent tools that should generate auto-TODO items (not just Dev tools)
-                const ALL_AGENT_TOOLS = [
-                  // Dev Agent tools
-                  'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
-                  'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code',
-                  // Client Hunter tools
-                  'search_leads', 'analyze_website', 'score_lead', 'draft_email', 'plan_outreach_campaign',
-                  // Finance tools
-                  'calculate_estimate', 'generate_quotation', 'generate_invoice', 'research_market_pricing', 'calculate_roi',
-                  // Project Manager tools
-                  'break_down_project', 'create_timeline', 'assess_risks', 'plan_sprint', 'estimate_effort',
-                  // HR tools
-                  'analyze_workload', 'find_best_fit', 'plan_onboarding', 'assess_leave_conflicts',
-                  // Content tools
-                  'research_trends', 'analyze_seo', 'draft_content', 'create_content_calendar', 'research_competitors',
-                  // Support tools
-                  'troubleshoot_issue', 'search_knowledge_base', 'draft_client_response', 'create_kb_article', 'assess_escalation',
-                  // Shared tools
-                  'web_search', 'plan_task',
-                ];
 
                 if (step.type === "tool_call" && step.toolName && ALL_AGENT_TOOLS.includes(step.toolName)) {
                   // Only auto-generate if we don't already have plan_task-based TODOs
@@ -2013,7 +2044,7 @@ export default function AgentChatPage() {
                   ...prev,
                   {
                     id: `error-${Date.now()}`,
-                    chatId: activeChatId || "",
+                    chatId: currentChatId || "",
                     role: "system",
                     content: isRateLimit
                       ? "AI model is currently experiencing high demand. Please try again in a moment."
@@ -2128,19 +2159,8 @@ export default function AgentChatPage() {
                 });
 
                 // ── Auto-generate TODO items from live tool calls (buffer drain) ──
-                // Use the same ALL_AGENT_TOOLS list as the main loop above
-                const ALL_AGENT_TOOLS_BUF = [
-                  'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
-                  'git_commit_push', 'git_status', 'git_diff', 'git_create_branch', 'analyze_code',
-                  'search_leads', 'analyze_website', 'score_lead', 'draft_email', 'plan_outreach_campaign',
-                  'calculate_estimate', 'generate_quotation', 'generate_invoice', 'research_market_pricing', 'calculate_roi',
-                  'break_down_project', 'create_timeline', 'assess_risks', 'plan_sprint', 'estimate_effort',
-                  'analyze_workload', 'find_best_fit', 'plan_onboarding', 'assess_leave_conflicts',
-                  'research_trends', 'analyze_seo', 'draft_content', 'create_content_calendar', 'research_competitors',
-                  'troubleshoot_issue', 'search_knowledge_base', 'draft_client_response', 'create_kb_article', 'assess_escalation',
-                  'web_search', 'plan_task',
-                ];
-                if (step.type === "tool_call" && step.toolName && ALL_AGENT_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                // Uses the module-level ALL_AGENT_TOOLS constant
+                if (step.type === "tool_call" && step.toolName && ALL_AGENT_TOOLS.includes(step.toolName) && collectedTodoItems.length === 0) {
                   autoTodoCounterRef.current += 1;
                   const todoStep = autoTodoCounterRef.current;
                   const args = step.toolArgs || {};
@@ -2193,7 +2213,7 @@ export default function AgentChatPage() {
                     setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
                   });
                 }
-                if (step.type === "tool_result" && step.toolName && ALL_AGENT_TOOLS_BUF.includes(step.toolName) && collectedTodoItems.length === 0) {
+                if (step.type === "tool_result" && step.toolName && ALL_AGENT_TOOLS.includes(step.toolName) && collectedTodoItems.length === 0) {
                   const success = step.content && !step.content.includes('failed');
                   // FIX: Wrap in startTransition to prevent React error #185
                   startTransition(() => {
@@ -2286,7 +2306,7 @@ export default function AgentChatPage() {
         // If still no finalData after backend check, start polling instead of showing error immediately
         if (!finalData && resolvedChatId) {
           // Start polling for the response - the backend may still be processing
-          startPollingForCompletion(resolvedChatId, messages.length + 1);
+          startPollingForCompletion(resolvedChatId, messagesRef.current.length + 1);
           setSending(false);
           // Don't show error - the polling will handle it
         } else if (!finalData) {
@@ -2295,7 +2315,7 @@ export default function AgentChatPage() {
             ...prev,
             {
               id: `error-${Date.now()}`,
-              chatId: activeChatId || "",
+              chatId: currentChatId || "",
               role: "system",
               content: "Agent response stream was interrupted and no chat was created. Please try again.",
               createdAt: new Date().toISOString(),
@@ -2328,7 +2348,7 @@ export default function AgentChatPage() {
 
           const assistantMsg: ChatMessage = {
             id: finalData.messageId || `temp-assistant-${Date.now()}`,
-            chatId: finalData.chatId || activeChatId || "",
+            chatId: finalData.chatId || currentChatId || "",
             role: "assistant",
             content: finalData.content || "No response",
             metadata: JSON.stringify({
@@ -2369,7 +2389,7 @@ export default function AgentChatPage() {
           const data = await res.json();
           const assistantMsg: ChatMessage = {
             id: data.messageId || `temp-assistant-${Date.now()}`,
-            chatId: data.chatId || activeChatId || "",
+            chatId: data.chatId || currentChatId || "",
             role: "assistant",
             content: data.content || "No response",
             metadata: JSON.stringify({
@@ -2398,7 +2418,7 @@ export default function AgentChatPage() {
             ...prev,
             {
               id: `error-${Date.now()}`,
-              chatId: activeChatId || "",
+              chatId: currentChatId || "",
               role: "system",
               content: `Error: ${errorData.error || "Failed to get response"}`,
               createdAt: new Date().toISOString(),
@@ -2420,7 +2440,7 @@ export default function AgentChatPage() {
         ...prev,
         {
           id: `error-${Date.now()}`,
-          chatId: activeChatId || "",
+          chatId: currentChatId || "",
           role: "system",
           content: "Network error. Check your connection and try again.",
           createdAt: new Date().toISOString(),
@@ -2436,6 +2456,9 @@ export default function AgentChatPage() {
       if (stillOnSameChat) {
         setSending(false);
       }
+      // CRITICAL FIX: Always reset sendingRef to prevent permanent lockout
+      sendingRef.current = false;
+      setSending(false);
       // Clear the abort controller ref ONLY if it still belongs to this stream
       if (abortControllerRef.current === currentStreamAbortController) {
         abortControllerRef.current = null;
@@ -2536,6 +2559,14 @@ export default function AgentChatPage() {
 
   // ── Cancel waiting for agent response ──
   const handleCancelWaiting = useCallback(() => {
+    // CRITICAL FIX: Abort the active SSE stream when canceling — without this,
+    // the stream's while(true) loop keeps running even after the user clicks Cancel.
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch {}
+      abortControllerRef.current = null;
+    }
+    // Reset sendingRef to allow future sends
+    sendingRef.current = false;
     setSending(false);
     setIsAgentic(false);
     setLiveSteps([]);
@@ -2622,6 +2653,11 @@ export default function AgentChatPage() {
 
   // ── Chat CRUD ──
   const renameChat = async (chatId: string, title: string) => {
+    if (!title.trim()) {
+      toast.error("Chat name cannot be empty");
+      setRenamingChatId(null);
+      return;
+    }
     try {
       const res = await fetch("/api/chats", {
         method: "PATCH",
@@ -2649,6 +2685,19 @@ export default function AgentChatPage() {
       });
       if (res.ok) {
         if (activeChatId === chatId) {
+          // Reset processing state
+          if (abortControllerRef.current) {
+            try { abortControllerRef.current.abort(); } catch {}
+            abortControllerRef.current = null;
+          }
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          setSending(false);
+          setIsAgentic(false);
+          setStreamingText("");
+          // ... then clear chat state
           setActiveChatId(null);
           setMessages([]);
           setTodoItems([]);
@@ -3685,11 +3734,14 @@ function ChatSidebar({
             </div>
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            {chat.messages && chat.messages.length > 0 && (
-              <span className="text-[10px] text-muted-foreground truncate">
-                {truncate(chat.messages[0]?.content, 30)}
-              </span>
-            )}
+            {chat.messages && chat.messages.length > 0 && (() => {
+              const lastMsg = chat.messages[chat.messages.length - 1];
+              return (
+                <span className="text-[10px] text-muted-foreground truncate">
+                  {truncate(lastMsg?.content, 30)}
+                </span>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             {chat.lockedByName && (
@@ -5657,6 +5709,10 @@ function AgentSettingsForm({
   const [activeTab, setActiveTab] = useState<'general' | 'github'>('general');
 
   const handleSave = () => {
+    if (!systemPrompt.trim()) {
+      toast.error("System prompt cannot be empty");
+      return;
+    }
     onSave({
       model,
       systemPrompt,
