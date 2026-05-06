@@ -84,6 +84,12 @@ type ViewMode = "loading" | "read" | "ready" | "test" | "submitting" | "results"
 
 const OPTION_LABELS = ["A", "B", "C", "D"]
 
+const LEVEL_LABELS: Record<string, string> = {
+  LOW: "Easy",
+  MEDIUM: "Medium",
+  HIGH: "Hard",
+}
+
 export default function TrainingReaderPage() {
   const { data: session, status: authStatus } = useSession()
   const router = useRouter()
@@ -109,6 +115,12 @@ export default function TrainingReaderPage() {
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const submittingRef = useRef(false)
+  const answersRef = useRef<(number | null)[]>([])
+
+  // Keep answersRef in sync so timer auto-submit always has the latest answers
+  useEffect(() => {
+    answersRef.current = answers
+  }, [answers])
 
   const fetchAssignment = useCallback(async () => {
     try {
@@ -163,7 +175,9 @@ export default function TrainingReaderPage() {
             const testData = await testRes.json()
             const testQs: Question[] = testData.questions
             setQuestions(testQs)
-            setAnswers(new Array(testQs.length).fill(null))
+            const initAnswers = new Array(testQs.length).fill(null)
+            setAnswers(initAnswers)
+            answersRef.current = initAnswers
             setTimeLeft(data.test.timeLimit * 60)
             setTestStartTime(Date.now())
             setViewMode("test")
@@ -260,7 +274,9 @@ export default function TrainingReaderPage() {
         const testData = await testRes.json()
         const testQs: Question[] = testData.questions
         setQuestions(testQs)
-        setAnswers(new Array(testQs.length).fill(null))
+        const initAnswers = new Array(testQs.length).fill(null)
+        setAnswers(initAnswers)
+        answersRef.current = initAnswers
         setTimeLeft(assignment.test.timeLimit * 60)
         setTestStartTime(Date.now())
         setViewMode("test")
@@ -285,7 +301,7 @@ export default function TrainingReaderPage() {
         credentials: "include",
         body: JSON.stringify({
           assignmentId,
-          answers,
+          answers: answersRef.current,
           timeTaken,
         }),
       })
@@ -494,6 +510,7 @@ export default function TrainingReaderPage() {
                   const newAnswers = [...answers]
                   newAnswers[currentQ] = idx
                   setAnswers(newAnswers)
+                  answersRef.current = newAnswers
                 }}
                 className={cn(
                   "w-full flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left",
@@ -726,10 +743,4 @@ export default function TrainingReaderPage() {
   }
 
   return null
-}
-
-const LEVEL_LABELS: Record<string, string> = {
-  LOW: "Easy",
-  MEDIUM: "Medium",
-  HIGH: "Hard",
 }

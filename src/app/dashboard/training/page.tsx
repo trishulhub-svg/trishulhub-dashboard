@@ -77,7 +77,7 @@ export default function TrainingLibraryPage() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState("ALL")
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false)
@@ -90,7 +90,7 @@ export default function TrainingLibraryPage() {
     try {
       const params = new URLSearchParams()
       if (search) params.set("search", search)
-      if (statusFilter) params.set("status", statusFilter)
+      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       const res = await fetch(`/api/training/documents?${params.toString()}`, { credentials: "include" })
       if (res.ok) setDocuments(safeArray<TrainingDocument>(await res.json()))
     } catch (err) {
@@ -307,7 +307,7 @@ export default function TrainingLibraryPage() {
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Status</SelectItem>
+            <SelectItem value="ALL">All Status</SelectItem>
             <SelectItem value="READY">Ready</SelectItem>
             <SelectItem value="DRAFT">Draft</SelectItem>
             <SelectItem value="ARCHIVED">Archived</SelectItem>
@@ -325,10 +325,10 @@ export default function TrainingLibraryPage() {
             <div>
               <h3 className="text-lg font-semibold">No Training Documents</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                {search || statusFilter ? "No documents match your filters. Try adjusting them." : "Create your first AI-generated training document to get started."}
+                {search || (statusFilter && statusFilter !== "ALL") ? "No documents match your filters. Try adjusting them." : "Create your first AI-generated training document to get started."}
               </p>
             </div>
-            {!search && !statusFilter && (
+            {!search && (!statusFilter || statusFilter === "ALL") && (
               <Button onClick={() => setCreateOpen(true)} className="gap-2">
                 <Plus className="h-4 w-4" />
                 Generate First Training
