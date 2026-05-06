@@ -5,6 +5,23 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
 
+// Vercel serverless function timeout (seconds) — AI generation needs more time
+export const maxDuration = 60
+
+/**
+ * Create a ZAI SDK instance using env vars (Vercel-safe).
+ * Falls back to ZAI.create() for local dev where .z-ai-config exists.
+ */
+function createZAI(ZAI: any) {
+  const baseUrl = process.env.ZAI_BASE_URL
+  const apiKey = process.env.ZAI_API_KEY
+  if (baseUrl && apiKey) {
+    return new ZAI({ baseUrl, apiKey })
+  }
+  // @ts-ignore — static create method exists on the SDK class
+  return ZAI.create()
+}
+
 // POST /api/training/tests/generate - Generate test for a document
 export async function POST(req: NextRequest) {
   try {
@@ -45,7 +62,7 @@ export async function POST(req: NextRequest) {
     let questions: any[] = []
     try {
       const ZAI = (await import("z-ai-web-dev-sdk")).default
-      const zai = await ZAI.create()
+      const zai = createZAI(ZAI)
 
       const completion = await zai.chat.completions.create({
         messages: [
@@ -128,8 +145,14 @@ Return format:
         })
       }
     } catch (aiError: any) {
-      console.error("[training/tests/generate] AI error:", aiError.message)
-      return NextResponse.json({ error: "Failed to generate test. Please try again." }, { status: 500 })
+      console.error("[training/tests/generate] AI error:", aiError.message, aiError.stack)
+      const msg = aiError.message || "Unknown error"
+      const isConfigError = msg.includes("Configuration file") || msg.includes("config") || msg.includes("baseUrl") || msg.includes("apiKey")
+      return NextResponse.json({
+        error: isConfigError
+          ? `AI SDK not configured. Set ZAI_BASE_URL and ZAI_API_KEY in Vercel env vars. Details: ${msg}`
+          : `AI generation failed: ${msg}`,
+      }, { status: 500 })
     }
 
     // Create test in database
@@ -148,7 +171,7 @@ Return format:
 
     return NextResponse.json(test, { status: 201 })
   } catch (error: any) {
-    console.error("[training/tests/generate] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[training/tests/generate] POST error:", error.message, error.stack)
+    return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
   }
 }

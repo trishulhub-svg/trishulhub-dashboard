@@ -7,6 +7,9 @@ import { rateLimit } from "@/lib/rate-limit"
 import { mkdir, writeFile } from "fs/promises"
 import path from "path"
 
+// Vercel serverless function timeout (seconds) — AI generation needs more time
+export const maxDuration = 60
+
 // GET /api/training/documents - List all training documents
 export async function GET(req: NextRequest) {
   try {
@@ -75,7 +78,7 @@ export async function POST(req: NextRequest) {
     let summary = ""
     try {
       const ZAI = (await import("z-ai-web-dev-sdk")).default
-      const zai = await ZAI.create()
+      const zai = createZAI(ZAI)
 
       const completion = await zai.chat.completions.create({
         messages: [
@@ -140,10 +143,16 @@ IMPORTANT RULES:
 
       content = completion.choices[0]?.message?.content || ""
     } catch (aiError: any) {
-      console.error("[training/documents] AI generation error:", aiError.message)
+      console.error("[training/documents] AI generation error:", aiError.message, aiError.stack)
       // Clean up draft document on failure
       try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
-      return NextResponse.json({ error: "Failed to generate document content. Please try again." }, { status: 500 })
+      const msg = aiError.message || "Unknown error"
+      const isConfigError = msg.includes("Configuration file") || msg.includes("config") || msg.includes("baseUrl") || msg.includes("apiKey")
+      return NextResponse.json({
+        error: isConfigError
+          ? `AI SDK not configured. Set ZAI_BASE_URL and ZAI_API_KEY in Vercel env vars. Details: ${msg}`
+          : `AI generation failed: ${msg}`,
+      }, { status: 500 })
     }
 
     if (!content) {
@@ -186,20 +195,36 @@ IMPORTANT RULES:
 
     return NextResponse.json(updated, { status: 201 })
   } catch (error: any) {
-    console.error("[training/documents] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    console.error("[training/documents] POST error:", error.message, error.stack)
+    return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
   }
 }
 
 /**
- * Generate training illustrations asynchronously using the z-ai-web-dev-sdk.
- * Runs in the background after the document is already saved and returned to the client.
- * Updates the document record with image URLs once images are ready.
+ * Create a ZAI SDK instance using env vars (Vercel-safe).
+ * Falls back to ZAI.create() for local dev where .z-ai-config exists.
  */
+function createZAI(ZAI: any) {
+  const baseUrl = process.env.ZAI_BASE_URL
+  const apiKey = process.env.ZAI_API_KEY
+  if (baseUrl && apiKey) {
+    return new ZAI({ baseUrl, apiKey })
+  }
+  // Fallback: let the SDK read from .z-ai-config (works in local dev)
+  // @ts-ignore — static create method exists on the SDK class
+  return ZAI.create()
+}
+
 async function generateImagesAsync(documentId: string, topic: string) {
   try {
+    // Skip image generation on Vercel (read-only filesystem)
+    if (process.env.NODE_ENV === "production") {
+      console.log("[training/documents] Skipping image generation on production (read-only FS)")
+      return
+    }
+
     const ZAI = (await import("z-ai-web-dev-sdk")).default
-    const zai = await ZAI.create()
+    const zai = createZAI(ZAI)
 
     const imgDir = path.join(process.cwd(), "public", "training-images")
     await mkdir(imgDir, { recursive: true })

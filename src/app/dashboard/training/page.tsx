@@ -127,10 +127,11 @@ export default function TrainingLibraryPage() {
         fetchDocuments()
       } else {
         const data = await res.json()
-        toast.error(data.error || "Failed to generate document")
+        const errMsg = data.error || "Failed to generate document"
+        toast.error(errMsg, { duration: 8000, description: `Status: ${res.status}` })
       }
     } catch (_e) {
-      toast.error("Failed to generate document")
+      toast.error("Network error — check your connection", { duration: 8000 })
     } finally {
       setGenerating(false)
     }
