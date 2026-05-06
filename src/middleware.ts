@@ -16,33 +16,34 @@ export async function middleware(request: NextRequest) {
   // Decode JWT token to check session validity
   const token = await getToken({ req: request })
 
-  // No valid token — redirect to login
+    // No valid token — redirect to login for pages only.
+  // API routes are NOT blocked here because every route handler already
+  // has its own getServerSession() + role check. Blocking API routes here
+  // causes a silent 401 when NEXTAUTH_SECRET is missing or JWT decryption fails.
   if (!token) {
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
       const loginUrl = new URL("/login", request.url)
       loginUrl.searchParams.set("callbackUrl", pathname)
       return addSecurityHeaders(request, NextResponse.redirect(loginUrl))
     }
-    if (pathname.startsWith("/api/")) {
-      return addSecurityHeaders(request, NextResponse.json({ error: "Unauthorized" }, { status: 401 }))
-    }
+    // /api/* requests pass through — route handlers do their own auth
   }
 
   // Check for session errors set by the JWT callback
   // SessionKicked = another device logged in, email changed, or session invalidated
   if (token?.error === "SessionKicked") {
+    // For pages: redirect to login with kicked reason
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
       const loginUrl = new URL("/login", request.url)
       loginUrl.searchParams.set("reason", "kicked")
-      // Clear the session cookie
       const response = NextResponse.redirect(loginUrl)
       response.cookies.set("next-auth.session-token", "", { maxAge: 0, path: "/" })
       response.cookies.set("__Secure-next-auth.session-token", "", { maxAge: 0, path: "/" })
       return addSecurityHeaders(request, response)
     }
+    // For API routes: return 401 with kicked reason and clear cookies
+    // so the client can detect and handle the session invalidation
     if (pathname.startsWith("/api/")) {
-      // FIX: Also clear cookies for API routes with kicked sessions
-      // so the client can detect and handle the session invalidation
       const response = NextResponse.json(
         { error: "Session invalidated. Please log in again.", reason: "kicked" },
         { status: 401 }
