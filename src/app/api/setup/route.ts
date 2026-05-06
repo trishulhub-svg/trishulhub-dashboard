@@ -47,6 +47,10 @@ const ALLOWED_TABLE_NAMES = new Set([
   "Leave",
   "Availability",
   "AvailabilityOverride",
+  "TrainingDocument",
+  "TrainingTest",
+  "TrainingAssignment",
+  "TestAttempt",
 ])
 
 /** Validate a table name against the allowlist. Throws if the name is not recognized. */
