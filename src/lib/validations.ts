@@ -49,13 +49,13 @@ export const createClientSchema = z.object({
 export const updateClientSchema = z.object({
   id: z.string().min(1, "Client ID is required"),
   name: z.string().min(1).max(200).optional(),
-  email: z.string().email("Valid email is required").optional(),
-  phone: z.string().optional(),
-  company: z.string().optional(),
-  website: z.string().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
-  userId: z.string().optional(),
-  notes: z.string().optional(),
+  email: z.string().email("Valid email is required").nullable().optional(),
+  phone: z.string().nullable().optional(),
+  company: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).nullable().optional(),
+  userId: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
 })
 
 export const createInvoiceSchema = z.object({
