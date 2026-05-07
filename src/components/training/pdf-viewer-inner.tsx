@@ -16,9 +16,24 @@ interface PdfViewerInnerProps {
 
 export default function PdfViewerInner({ pdfUrl, topic, onClose }: PdfViewerInnerProps) {
   const [numPages, setNumPages] = useState<number>(0)
+  const [isMobile, setIsMobile] = useState(false)
   const [scale, setScale] = useState(1)
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // On mobile, 75% actual scale looks perfect — but we display it as "100%"
+  // This gives the user a "100%" that's actually comfortable on phone screens
+  const mobileDefaultScale = 0.75
+  const displayMultiplier = isMobile ? 100 / mobileDefaultScale : 1
+
+  // Detect mobile on mount
+  useEffect(() => {
+    const mobile = window.innerWidth < 640
+    setIsMobile(mobile)
+    if (mobile) {
+      setScale(mobileDefaultScale)
+    }
+  }, [])
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages)
@@ -58,6 +73,7 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose }: PdfViewerInne
   }, [pdfUrl, topic])
 
   const isFullyRendered = numPages > 0 && renderedPages.size === numPages
+  const displayPercent = Math.round(scale * displayMultiplier)
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-[#E5E7EB] dark:bg-zinc-800">
@@ -82,7 +98,7 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose }: PdfViewerInne
             <ZoomOut className="h-4 w-4" />
           </Button>
           <span className="text-[10px] sm:text-xs font-medium text-muted-foreground min-w-[36px] sm:min-w-[42px] text-center tabular-nums">
-            {Math.round(scale * 100)}%
+            {displayPercent}%
           </span>
           <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={zoomIn} disabled={scale >= 3} title="Zoom in">
             <ZoomIn className="h-4 w-4" />

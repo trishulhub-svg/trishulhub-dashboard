@@ -172,15 +172,25 @@ export default function DocumentDetailPage() {
       const res = await fetch("/api/team?type=users", { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
-        // Filter only non-admin employees (DEVELOPER role)
-        setEmployees(
-          safeArray<Employee>(data)
-            .filter((e: Employee) => e.role === "DEVELOPER")
-            .map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role }))
-        )
+        const allUsers = safeArray<Employee>(data)
+        const myRole = session?.user?.role || ""
+        const myId = session?.user?.id || ""
+
+        let filtered: Employee[]
+        if (myRole === "SUPER_ADMIN") {
+          // Superadmin can assign to anyone (self, admins, developers)
+          filtered = allUsers.filter((e: Employee) => ["SUPER_ADMIN", "ADMIN", "DEVELOPER"].includes(e.role))
+        } else {
+          // Admin can assign to self and developers, but NOT superadmins
+          filtered = allUsers.filter((e: Employee) =>
+            e.id === myId || e.role === "DEVELOPER" || e.role === "ADMIN"
+          ).filter((e: Employee) => e.role !== "SUPER_ADMIN")
+        }
+
+        setEmployees(filtered.map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role })))
       }
     } catch (_e) { /* ignore */ }
-  }, [])
+  }, [session])
 
   useEffect(() => {
     if (authStatus === "loading") return

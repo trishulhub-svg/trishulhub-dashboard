@@ -177,6 +177,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Test level must be LOW, MEDIUM, or HIGH" }, { status: 400 })
     }
 
+    // Permission check: ADMIN cannot assign training to SUPER_ADMIN users
+    if (session.user.role === "ADMIN") {
+      const targetUsers = await db.user.findMany({
+        where: { id: { in: employeeIds } },
+        select: { id: true, role: true },
+      })
+      const superAdminTargets = targetUsers.filter((u) => u.role === "SUPER_ADMIN")
+      if (superAdminTargets.length > 0) {
+        return NextResponse.json({ error: "Admin cannot assign training to Super Admin users" }, { status: 403 })
+      }
+    }
+
     // Find the test for this document and level
     const test = await db.trainingTest.findUnique({
       where: { documentId_level: { documentId, level: testLevel } },

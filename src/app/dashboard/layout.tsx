@@ -67,24 +67,63 @@ interface NavItem {
   roles: UserRole[];
 }
 
-const navItems: NavItem[] = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Agents", href: "/dashboard/agents", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
-  { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-  { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+// Navigation organized into logical groups — industry-grade layout
+const navGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [
+      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Agents", href: "/dashboard/agents", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+    ],
+  },
+  {
+    label: "Business",
+    items: [
+      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
+    label: "Team & Work",
+    items: [
+      { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+    ],
+  },
+  {
+    label: "HR & People",
+    items: [
+      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+    ],
+  },
+  {
+    label: "Learning",
+    items: [
+      { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+    ],
+  },
 ];
+
+// Flat list for header title lookup (order-independent)
+const allNavItems = navGroups.flatMap((g) => g.items);
 
 interface NotificationItem {
   id: string;
@@ -135,11 +174,17 @@ function SidebarContent({
   pathname: string;
   onNavigate: (href: string) => void;
 }) {
-  const filteredNavItems = navItems.filter((item) => item.roles.includes(userRole));
+  // Filter groups: only show groups that have at least one visible item for this role
+  const visibleGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.roles.includes(userRole)),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Logo Section - BIGGER and more prominent */}
+      {/* Logo Section */}
       <div className={cn(
         "flex items-center gap-3 px-4 py-5 border-b border-sidebar-border",
         collapsed && "justify-center px-2"
@@ -165,32 +210,48 @@ function SidebarContent({
         )}
       </div>
 
-      {/* Navigation - bigger items with more padding */}
+      {/* Navigation with grouped sections */}
       <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-1 px-3">
-          {filteredNavItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            return (
-              <button
-                key={item.href}
-                onClick={() => onNavigate(item.href)}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-                type="button"
-              >
-                <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
-                {!collapsed && <span>{item.title}</span>}
-              </button>
-            );
-          })}
+        <nav className="space-y-5 px-3">
+          {visibleGroups.map((group, groupIdx) => (
+            <div key={group.label}>
+              {/* Section header — hidden when sidebar is collapsed */}
+              {!collapsed && (
+                <p className="px-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 select-none">
+                  {group.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  return (
+                    <button
+                      key={item.href}
+                      onClick={() => onNavigate(item.href)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
+                        isActive
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      )}
+                      type="button"
+                    >
+                      <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
+                      {!collapsed && <span>{item.title}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Separator between groups (not after last group) */}
+              {groupIdx < visibleGroups.length - 1 && !collapsed && (
+                <div className="mt-4 border-t border-sidebar-border/50" />
+              )}
+            </div>
+          ))}
         </nav>
       </ScrollArea>
 
-      {/* User Section - bigger avatar and text */}
+      {/* User Section */}
       <div className="border-t border-sidebar-border p-4">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
           <Avatar className="h-10 w-10">
@@ -400,7 +461,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </SheetTrigger>
             </Sheet>
             <h2 className="text-base font-semibold text-foreground">
-              {navItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href)))?.title || "Dashboard"}
+              {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href)))?.title || "Dashboard"}
             </h2>
           </div>
 
