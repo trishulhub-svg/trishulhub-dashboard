@@ -332,10 +332,11 @@ export default function AgentsPage() {
           setTimeout(pollAndTrigger, 2000);
         }
       } else {
-        toast.error("Failed to toggle all agents");
+        const data = await res.json().catch(() => ({ error: "Unknown error" }));
+        toast.error(data.error || "Failed to toggle all agents");
       }
     } catch (err) {
-      toast.error("Failed to toggle all agents");
+      toast.error(err instanceof Error ? err.message : "Failed to toggle all agents");
     }
   };
 
@@ -353,10 +354,11 @@ export default function AgentsPage() {
         fetchAutonomy();
         setTimeout(pollAndTrigger, 2000);
       } else {
-        toast.error("Failed to restart agent");
+        const data = await res.json().catch(() => ({ error: "Unknown error" }));
+        toast.error(data.error || "Failed to restart agent");
       }
     } catch (err) {
-      toast.error("Failed to restart agent");
+      toast.error(err instanceof Error ? err.message : "Failed to restart agent");
     } finally {
       setTogglingAgent(null);
     }

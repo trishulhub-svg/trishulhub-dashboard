@@ -16,7 +16,9 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Ensure configs exist
+    // Ensure tables + configs exist before any DB operations
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
     await initAutonomyConfigs()
 
     // Find agents that are due for a thinking cycle

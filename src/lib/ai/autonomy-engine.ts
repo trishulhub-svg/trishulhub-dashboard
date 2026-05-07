@@ -384,9 +384,15 @@ async function runThinkingCycle(agentId: string): Promise<ThinkingCycleResult> {
     const tools = allTools
 
     // Get the active autonomous prompt for this agent (if any)
-    const activePrompt = await db.agentAutonomousPrompt.findFirst({
-      where: { agentId, isActive: true },
-    })
+    // Guard: table may not exist yet on fresh deployments
+    let activePrompt: { id: string; content: string } | null = null
+    try {
+      activePrompt = await db.agentAutonomousPrompt.findFirst({
+        where: { agentId, isActive: true },
+      })
+    } catch {
+      // AgentAutonomousPrompt table may not exist yet — skip custom prompt
+    }
 
     // Build the autonomous system prompt
     // If there's an active custom prompt, use it as the primary direction

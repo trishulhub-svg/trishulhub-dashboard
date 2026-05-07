@@ -11,8 +11,14 @@ import { isAdmin } from "@/lib/rbac"
 
 // ━━ Auto-migration for Turso ━━
 let migrationAttempted = false
+let migrationSucceeded = false
 async function ensureAutonomyTables(): Promise<void> {
-  if (migrationAttempted) return
+  if (migrationSucceeded) return
+  if (migrationAttempted) {
+    // Previous attempt failed — wait and retry once
+    await new Promise(r => setTimeout(r, 1000))
+    if (migrationSucceeded) return
+  }
   migrationAttempted = true
   try {
     // Always attempt to add missing columns (safe — fails silently if column exists)
@@ -20,13 +26,16 @@ async function ensureAutonomyTables(): Promise<void> {
     try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
 
     await db.$queryRawUnsafe(`SELECT 1 FROM AgentAutonomyConfig LIMIT 0`)
+    migrationSucceeded = true // Mark as successful
   } catch {
     // Trigger migration via cron endpoint (which handles full migration)
     console.log("[autonomy] Tables not yet available, initializing...")
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""
+    const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_APP_URL || ""
     if (baseUrl) {
       await fetch(`${baseUrl}/api/agents/autonomy/cron`, { method: "POST" }).catch(() => {})
     }
+    // Reset flag so next call retries
+    migrationAttempted = false
   }
 }
 
@@ -45,7 +54,7 @@ export async function GET() {
     return NextResponse.json(status)
   } catch (error: any) {
     console.error("[autonomy] GET error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "An error occurred" }, { status: 500 })
   }
 }
 
@@ -58,6 +67,10 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json()
     const { action, agentId, enabled, interval } = body
+
+    // CRITICAL: Ensure migration + init BEFORE any DB operations
+    await ensureAutonomyTables()
+    await initAutonomyConfigs()
 
     switch (action) {
       case "toggle": {
@@ -190,6 +203,6 @@ export async function PATCH(req: NextRequest) {
     }
   } catch (error: any) {
     console.error("[autonomy] PATCH error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: error.message || "An error occurred" }, { status: 500 })
   }
 }

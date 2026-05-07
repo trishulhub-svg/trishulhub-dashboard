@@ -55,7 +55,9 @@ export async function POST(req: NextRequest) {
     const { agentId } = await req.json()
     if (!agentId) return new Response(JSON.stringify({ error: "agentId required" }), { status: 400 })
 
-    // Ensure configs exist
+    // Ensure tables + configs exist before any DB operations
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
     await initAutonomyConfigs()
 
     // Get agent
@@ -107,9 +109,14 @@ export async function POST(req: NextRequest) {
           sendEvent({ type: "step", step: { type: "thinking", content: `Using ${provider} API...`, stepNumber: 2 } })
 
           // 4. Build system prompt (use active autonomous prompt if available)
-          const activePrompt = await db.agentAutonomousPrompt.findFirst({
-            where: { agentId, isActive: true },
-          })
+          let activePrompt: { id: string; content: string } | null = null
+          try {
+            activePrompt = await db.agentAutonomousPrompt.findFirst({
+              where: { agentId, isActive: true },
+            })
+          } catch {
+            // AgentAutonomousPrompt table may not exist yet — skip custom prompt
+          }
           let autonomousPrompt = getAutonomousSystemPrompt(agent.type, context.rolePrompt)
           if (activePrompt) {
             autonomousPrompt = `${context.rolePrompt}\n\n---\n\n## YOUR AUTONOMOUS MISSION (set by admin)\n\n${activePrompt.content}\n\n---\n\n${getAutonomousBaseRules()}${getAutonomousRoleFocus(agent.type)}`
