@@ -412,7 +412,7 @@ async function runThinkingCycle(agentId: string): Promise<ThinkingCycleResult> {
     // internal retry will already handle further fallbacks.
     const result = await withRetry(async () => {
       return runAgentLoop(thinkingPrompt, [], apiKey, context.model, {
-        maxSteps: 8, // Fewer steps for autonomous cycles to save tokens
+        maxSteps: 3, // Fewer steps for autonomous cycles to save tokens and reduce 500 errors
         agentType: agent.type,
         systemPrompt: autonomousPrompt,
         tools,

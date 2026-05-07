@@ -100,6 +100,7 @@ export default function AgentsPage() {
   const [pendingInterAgent, setPendingInterAgent] = useState(0);
   const [showActivity, setShowActivity] = useState(true);
   const [pollStatus, setPollStatus] = useState<"idle" | "polling" | "triggering">("idle");
+  const [currentlyRunningAgents, setCurrentlyRunningAgents] = useState<Array<{agentId: string; agentName: string; agentType: string; startedBy: string | null; startedByRole: string | null}>>([]);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const runningAgentsRef = useRef<Set<string>>(new Set());
 
@@ -155,6 +156,7 @@ export default function AgentsPage() {
       setActivityLogs(data.recentActivity || []);
       setPendingApprovals(data.pendingApprovals || 0);
       setPendingInterAgent(data.pendingInterAgent || 0);
+      setCurrentlyRunningAgents(data.currentlyRunning || []);
 
       if (dueAgents.length > 0) {
         const agent = dueAgents[0];
@@ -265,7 +267,7 @@ export default function AgentsPage() {
 
     const initialTimeout = setTimeout(() => {
       pollAndTrigger();
-      pollingIntervalRef.current = setInterval(pollAndTrigger, 30000);
+      pollingIntervalRef.current = setInterval(pollAndTrigger, 10000);
     }, 5000);
 
     return () => {
@@ -545,6 +547,30 @@ export default function AgentsPage() {
                             <p className="text-[10px] sm:text-[11px] text-green-600 dark:text-green-500 break-words line-clamp-2">{step.step}</p>
                           </div>
                           <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0 mt-1" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Agents running by another admin session */}
+                {currentlyRunningAgents.length > 0 && liveSteps.filter(s => s.status === "running").length === 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider mt-1 mb-1 px-1">Running by another admin</p>
+                    {currentlyRunningAgents.map((agent) => {
+                      const Icon = agentIcons[agent.agentType] || Bot;
+                      return (
+                        <div key={agent.agentId} className="flex items-center gap-2 p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
+                          <div className="h-6 w-6 sm:h-7 sm:w-7 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                            <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] sm:text-xs font-medium text-blue-700 dark:text-blue-400 truncate">{agent.agentName}</p>
+                            <p className="text-[10px] sm:text-[11px] text-blue-600/70 dark:text-blue-500/70">
+                              {agent.startedByRole === "SUPER_ADMIN" ? "Running by Super Admin" : agent.startedByRole === "ADMIN" ? "Running by Admin" : "Running..."}
+                            </p>
+                          </div>
+                          <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
                         </div>
                       );
                     })}

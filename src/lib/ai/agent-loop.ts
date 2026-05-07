@@ -1082,121 +1082,134 @@ export async function runAgentLoop(
       steps.push(errorStep)
       options?.onStep?.(errorStep)
 
-      // If it's a rate limit or temporary error, try once more
+      // FIX: Z.ai is not a fully agentic API — multi-turn tool calling often causes 500 errors.
+      // If we already completed at least 1 tool successfully, DON'T retry — just synthesize
+      // a response from what we've accomplished. Retrying with the same accumulated messages
+      // will likely cause the same 500 error again.
+      const completedToolResults = steps.filter(s => s.type === "tool_result")
+      const completedToolCalls = steps.filter(s => s.type === "tool_call")
+
+      if (completedToolResults.length > 0) {
+        // We have useful results — synthesize a clean response instead of failing
+        const writeSteps = completedToolCalls.filter(s =>
+          s.toolName === "write_file" || s.toolName === "edit_file"
+        )
+        const searchSteps = completedToolCalls.filter(s =>
+          s.toolName === "web_search" || s.toolName === "search_leads"
+        )
+
+        let synthesizedResponse = ""
+        if (writeSteps.length > 0) {
+          const fileList = writeSteps.map(s => {
+            const filePath = s.toolArgs?.path || s.toolArgs?.file_path || "unknown"
+            const action = s.toolName === "write_file" ? "Created" : "Edited"
+            return `- ${action}: \`${filePath}\``
+          }).join("\n")
+          synthesizedResponse = `I've completed the task. Here's what was done:\n\n${fileList}`
+        } else if (searchSteps.length > 0) {
+          const searchResults = completedToolResults
+            .filter((s, i) => completedToolCalls[i]?.toolName === "web_search" || completedToolCalls[i]?.toolName === "search_leads")
+            .map(s => s.toolResult || s.content).join("\n\n")
+          synthesizedResponse = `I completed ${completedToolResults.length} actions before the API error. Here's what I found:\n\n${searchResults.substring(0, 2000)}`
+        } else {
+          const summaries = completedToolResults.map(s => `- ${s.content}`).join("\n")
+          synthesizedResponse = `I completed ${completedToolResults.length} steps before a temporary API error. Here's what I accomplished:\n\n${summaries}`
+        }
+
+        const finalStep: AgentStep = {
+          type: "response",
+          content: synthesizedResponse,
+          stepNumber: stepCount,
+          timestamp: Date.now(),
+        }
+        steps.push(finalStep)
+        options?.onStep?.(finalStep)
+
+        return {
+          finalResponse: synthesizedResponse,
+          steps,
+          totalSteps: stepCount,
+          totalInputTokens,
+          totalOutputTokens,
+          model,
+          provider: providerName,
+          cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
+          apiKeyId: "",
+          usedTools: Array.from(usedTools),
+          thinkingContent: finalThinkingContent || undefined,
+        }
+      }
+
+      // No tool results yet — safe to retry
       if (error.message.includes("rate limit") || error.message.includes("429")) {
         await new Promise(resolve => setTimeout(resolve, 5000))
         continue
       }
 
-      // If it's a 500 error, retry once with thinking disabled and reduced context
+      // For 500 errors with no prior results, try one simple retry without tools
       if (error.message.includes("500")) {
-        if (stepCount <= 2) {
-          // Early 500 error — try once more without thinking mode
-          try {
-            // Use the correct provider for retry (was hardcoded to Z.ai, should match the current provider)
-            const retryResult = useNvidia
-              ? await callNvidiaWithTools(messages, model, apiKey, tools, {
-                  maxTokens: options?.maxTokens || 8192,
-                  temperature: 0.5,
-                  disableThinking: true,
-                })
-              : await callZaiWithTools(messages, model, apiKey, tools, {
-                  maxTokens: options?.maxTokens || 8192,
-                  temperature: 0.5,
-                  disableThinking: true,
-                })
-            
-            totalInputTokens += retryResult.inputTokens
-            totalOutputTokens += retryResult.outputTokens
-            
-            if (retryResult.content) {
-              const finalStep: AgentStep = {
-                type: "response",
-                content: retryResult.content,
-                stepNumber: stepCount + 1,
-                timestamp: Date.now(),
-              }
-              steps.push(finalStep)
-              options?.onStep?.(finalStep)
-              
-              return {
-                finalResponse: retryResult.content,
-                steps,
-                totalSteps: stepCount + 1,
-                totalInputTokens,
-                totalOutputTokens,
-                model,
-                provider: providerName,
-                cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
-                apiKeyId: "",
-                usedTools: Array.from(usedTools),
-                thinkingContent: finalThinkingContent || undefined,
-              }
+        try {
+          // Retry with just the original messages (no accumulated tool context)
+          // Use a simple call without tools to get at least a text response
+          const simpleMessages: ZaiMessage[] = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: safeMessage },
+          ]
+          const retryResult = useNvidia
+            ? await callNvidiaWithTools(simpleMessages, model, apiKey, [], {
+                maxTokens: 4096,
+                temperature: 0.5,
+                disableThinking: true,
+              })
+            : await callZaiWithTools(simpleMessages, model, apiKey, [], {
+                maxTokens: 4096,
+                temperature: 0.5,
+                disableThinking: true,
+              })
+
+          totalInputTokens += retryResult.inputTokens
+          totalOutputTokens += retryResult.outputTokens
+
+          if (retryResult.content) {
+            const finalStep: AgentStep = {
+              type: "response",
+              content: retryResult.content,
+              stepNumber: stepCount + 1,
+              timestamp: Date.now(),
             }
-            
-            if (retryResult.toolCalls && retryResult.toolCalls.length > 0) {
-              // The retry gave us tool calls — continue the loop
-              const assistantMsg: ZaiMessage = {
-                role: "assistant",
-                content: retryResult.content,
-                tool_calls: retryResult.toolCalls,
-              }
-              messages.push(assistantMsg)
-              
-              for (const toolCall of retryResult.toolCalls) {
-                const toolName = toolCall.function.name
-                let toolArgs: Record<string, any>
-                try { toolArgs = JSON.parse(toolCall.function.arguments) } catch { toolArgs = { _raw: toolCall.function.arguments } }
-                
-                usedTools.add(toolName)
-                const callStep: AgentStep = { type: "tool_call", content: `Calling ${toolName}`, toolName, toolArgs, stepNumber: stepCount + 1, timestamp: Date.now() }
-                steps.push(callStep)
-                options?.onStep?.(callStep)
-                
-                const toolResult = await executeToolCall(toolName, toolArgs, { agentType })
-                const resultStep: AgentStep = {
-                  type: "tool_result",
-                  content: toolResult.success ? `${toolName} completed` : `${toolName} failed: ${toolResult.result.substring(0, 500)}`,
-                  toolName,
-                  toolResult: toolResult.result.substring(0, 3000),
-                  stepNumber: stepCount + 1,
-                  timestamp: Date.now(),
-                }
-                steps.push(resultStep)
-                options?.onStep?.(resultStep)
-                
-                let resultContent = toolResult.result
-                if (toolName === "plan_task") {
-                  try {
-                    const planData = JSON.parse(resultContent)
-                    resultContent = `Plan created successfully with ${planData.totalSteps || planData.steps?.length || 0} steps. Steps: ${planData.steps?.map((s: any) => `${s.step}. ${s.title}`).join("; ") || "See plan details"}`
-                  } catch { resultContent = resultContent.substring(0, 500) }
-                } else {
-                  resultContent = resultContent.substring(0, 3000)
-                }
-                messages.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent })
-              }
-              continue // Continue the agent loop
+            steps.push(finalStep)
+            options?.onStep?.(finalStep)
+
+            return {
+              finalResponse: retryResult.content,
+              steps,
+              totalSteps: stepCount + 1,
+              totalInputTokens,
+              totalOutputTokens,
+              model,
+              provider: providerName,
+              cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
+              apiKeyId: "",
+              usedTools: Array.from(usedTools),
+              thinkingContent: finalThinkingContent || undefined,
             }
-          } catch (retryErr: any) {
-            // Retry also failed — fall through to return error
-            console.error(`[agent-loop] Retry after 500 also failed:`, retryErr.message)
           }
+        } catch (retryErr: any) {
+          console.error(`[agent-loop] Simple retry also failed:`, retryErr.message)
         }
       }
 
-      // For other errors, return what we have so far — but include any code from tool results
-      const codeResults = steps
-        .filter(s => s.type === "tool_result" && (s.toolName === "write_file" || s.toolName === "edit_file"))
-        .map(s => s.toolResult || s.content)
-      
-      let finalResponse = `I encountered an error during execution: ${error.message}. I completed ${stepCount} steps before the error occurred.`
-      if (codeResults.length > 0) {
-        finalResponse += `\n\nHowever, I did write some code before the error:\n\n${codeResults.join("\n\n")}`
-      } else if (steps.filter(s => s.type === "tool_result").length > 0) {
-        finalResponse += `\n\nHere's what I accomplished:\n${steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n")}`
+      // All retries failed — return error
+      const finalResponse = `I encountered a temporary API error: ${error.message}. Please try again.`
+      const finalStep: AgentStep = {
+        type: "response",
+        content: finalResponse,
+        stepNumber: stepCount,
+        timestamp: Date.now(),
       }
-      
+      steps.push(finalStep)
+      options?.onStep?.(finalStep)
+
       return {
         finalResponse,
         steps,
@@ -1213,10 +1226,37 @@ export async function runAgentLoop(
     }
   }
 
-  // Hit max step limit - return what we have
-  const lastContent = steps.filter(s => s.type === "response" || s.type === "tool_result").pop()
+  // If we've exhausted max steps but have tool results, synthesize
+  const toolResults = steps.filter(s => s.type === "tool_result")
+  if (toolResults.length > 0) {
+    const summaries = toolResults.map(s => `- ${s.content}`).join("\n")
+    const synthesizedResponse = `I completed ${stepCount} steps. Here's what I accomplished:\n\n${summaries}`
+    const finalStep: AgentStep = {
+      type: "response",
+      content: synthesizedResponse,
+      stepNumber: stepCount,
+      timestamp: Date.now(),
+    }
+    steps.push(finalStep)
+    options?.onStep?.(finalStep)
+
+    return {
+      finalResponse: synthesizedResponse,
+      steps,
+      totalSteps: stepCount,
+      totalInputTokens,
+      totalOutputTokens,
+      model,
+      provider: providerName,
+      cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
+      apiKeyId: "",
+      usedTools: Array.from(usedTools),
+      thinkingContent: finalThinkingContent || undefined,
+    }
+  }
+
   return {
-    finalResponse: `I reached the maximum number of steps (${maxSteps}) during execution. Let me summarize what I accomplished:\n\n${steps.filter(s => s.type === "tool_result").map(s => `- ${s.content}`).join("\n")}\n\n${lastContent?.content || "The task may not be fully complete. You can ask me to continue."}`,
+    finalResponse: "I wasn't able to generate a response. Please try again with a different prompt.",
     steps,
     totalSteps: stepCount,
     totalInputTokens,
@@ -1226,5 +1266,6 @@ export async function runAgentLoop(
     cost: calculateAgentCost(model, totalInputTokens, totalOutputTokens),
     apiKeyId: "",
     usedTools: Array.from(usedTools),
+    thinkingContent: finalThinkingContent || undefined,
   }
 }

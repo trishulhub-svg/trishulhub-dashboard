@@ -39,6 +39,19 @@ export async function GET() {
       take: 3, // Max 3 agents at a time to avoid overloading
     })
 
+    // Also find agents currently being executed by another user's browser
+    const currentlyRunning = await db.agentAutonomyConfig.findMany({
+      where: {
+        enabled: true,
+        status: "RUNNING",
+        agent: { type: { not: "DEV" }, status: "RUNNING" },
+      },
+      include: {
+        agent: { select: { id: true, name: true, type: true } },
+      },
+      take: 5,
+    })
+
     // Get recent activity (last 10 logs across all agents)
     const recentActivity = await db.agentActivityLog.findMany({
       where: {
@@ -92,6 +105,14 @@ export async function GET() {
       })),
       pendingApprovals,
       pendingInterAgent,
+      currentlyRunning: currentlyRunning.map(c => ({
+        agentId: c.agent.id,
+        agentName: c.agent.name,
+        agentType: c.agent.type,
+        startedBy: c.startedBy,
+        startedByRole: c.startedByRole,
+        lastRunAt: c.lastRunAt,
+      })),
       polledAt: now.toISOString(),
     })
   } catch (error: any) {

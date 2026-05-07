@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
           // FIX: Disable thinking mode for autonomous cycles to prevent Z.ai 500 errors.
           // Thinking + tools causes "内部服务器错误" on most GLM models.
           const result = await runAgentLoop(thinkingPrompt, [], apiKey, context.model, {
-            maxSteps: 8,
+            maxSteps: 3,
             agentType: agent.type,
             systemPrompt: autonomousPrompt,
             tools,
