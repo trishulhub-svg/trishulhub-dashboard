@@ -90,6 +90,8 @@ model Agent {
   sentMessages    CrossAgentMessage[] @relation("FromAgent")
   receivedMessages CrossAgentMessage[] @relation("ToAgent")
   approvals       Approval[]
+  autonomyConfig  AgentAutonomyConfig?
+  activityLogs    AgentActivityLog[]
 }
 
 // ━━ Agent Role Configuration ━━
@@ -231,6 +233,7 @@ model CrossAgentMessage {
   type            String   // INFO, REQUEST, RESULT, ALERT
   status          String   @default("PENDING") // PENDING, PROCESSED, IGNORED
   shareFullChat   Boolean  @default(false) // Whether to share full chat context with the receiving agent
+  isAutonomous    Boolean  @default(false) // Was this message generated autonomously?
   createdAt       DateTime @default(now())
 
   fromAgent  Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
@@ -239,6 +242,46 @@ model CrossAgentMessage {
 
   @@index([toAgentId, status])
   @@index([fromAgentId])
+}
+
+// ━━ Agent Autonomy ━━
+model AgentAutonomyConfig {
+  id            String    @id @default(cuid())
+  agentId       String    @unique
+  enabled       Boolean   @default(false)       // Is autonomy enabled for this agent?
+  interval      Int       @default(5)           // Minutes between thinking cycles
+  lastRunAt     DateTime? // Last time the thinking cycle ran
+  nextRunAt     DateTime? // Next scheduled run
+  totalRuns     Int       @default(0)           // Total thinking cycles executed
+  totalErrors   Int       @default(0)           // Total errors encountered
+  lastError     String?   // Last error message
+  status        String    @default("PAUSED")    // RUNNING, PAUSED, ERROR
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  agent             Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activityLogs      AgentActivityLog[]
+}
+
+model AgentActivityLog {
+  id            String    @id @default(cuid())
+  agentId       String
+  configId      String
+  action        String    // thinking_cycle, tool_call, message_sent, report_generated, error
+  title         String    // Short human-readable title
+  description   String?   // Detailed description of what happened
+  result        String?   // JSON: Result data from the action
+  status        String    @default("SUCCESS") // SUCCESS, FAILED, SKIPPED, PENDING_APPROVAL
+  tokensUsed    Int       @default(0)
+  cost          Float     @default(0)
+  duration      Int       @default(0)          // Execution time in ms
+  createdAt     DateTime  @default(now())
+
+  config AgentAutonomyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  agent  Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([configId, createdAt])
 }
 
 // ━━ Clients ━━

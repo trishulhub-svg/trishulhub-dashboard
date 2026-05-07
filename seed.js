@@ -47,7 +47,7 @@ async function seed() {
       { name: 'Project Manager Agent', type: 'PROJECT_MANAGER', description: 'Breaks down projects into phases & tasks, assigns work, tracks deadlines, manages approvals', model: 'glm-4.7-flash', systemPrompt: 'You are Project Manager Agent for TrishulHub. Break down projects into tasks, set deadlines, track progress, assign work to team members and AI agents.', status: 'IDLE' },
       { name: 'HR Agent', type: 'HR', description: 'Manages leave, tracks attendance, monitors workload, suggests best-fit employees for tasks', model: 'glm-4.7-flash', systemPrompt: 'You are HR Agent for TrishulHub. Track attendance, manage leave, monitor workload, find best-fit employees for tasks.', status: 'IDLE' },
       { name: 'Content Agent', type: 'CONTENT', description: 'Writes website copy, social media posts, blog articles, SEO-optimized content', model: 'glm-4.7-flash', systemPrompt: 'You are Content Agent for TrishulHub. Write professional, engaging, SEO-optimized content for websites, social media, and blogs.', status: 'IDLE' },
-      { name: 'Support Agent', type: 'SUPPORT', description: 'Handles client tickets, answers FAQs, provides technical support, escalates issues', model: 'glm-4.7-flash', systemPrompt: 'You are Support Agent for TrishulHub. Help clients with website, hosting, and domain questions. Be patient and thorough.', status: 'IDLE' },
+      { name: 'Support Agent', type: 'SUPPORT', description: 'Handles client tickets, answers FAQs, provides technical support, escalates issues', model: 'glm-4.5-flash', systemPrompt: 'You are Support Agent for TrishulHub. Help clients with website, hosting, and domain questions. Be patient and thorough.', status: 'IDLE' },
     ];
 
     const createdAgents = [];
@@ -207,7 +207,7 @@ async function seed() {
           { id: "sup-assign-dev", label: "Send to Dev", prompt: "Escalate this issue to Dev Agent: ", icon: "Code2" },
           { id: "sup-close", label: "Close Ticket", prompt: "Close this ticket with resolution: ", icon: "CheckCircle" },
         ]),
-        features: JSON.stringify({ agentic: true, webSearch: false, autoTask: true, crossAgent: true, autoEscalation: true, knowledgeBase: true }),
+        features: JSON.stringify({ agentic: true, webSearch: true, autoTask: true, crossAgent: true, approvalRequired: false, autoEscalation: true, knowledgeBase: true }),
         suggestedPrompts: JSON.stringify([
           { id: "sup-sp1", label: "Email not working", prompt: "My business email is not sending or receiving messages." },
           { id: "sup-sp2", label: "Website down", prompt: "My website is showing a 500 error." },
