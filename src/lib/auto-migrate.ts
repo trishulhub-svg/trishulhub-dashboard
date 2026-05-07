@@ -8,6 +8,7 @@ interface TableMigration {
   name: string
   sql: string
   indexes?: string[]
+  skipIfExists?: boolean // For ALTER TABLE ADD COLUMN — silently ignore if column exists
 }
 
 // Tables that may not exist in older databases and need auto-creation
@@ -73,6 +74,36 @@ const AUTO_MIGRATIONS: TableMigration[] = [
       `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_date_idx" ON "AvailabilityOverride"("date")`,
     ],
   },
+  {
+    name: "AgentAutonomyConfig_Alter",
+    sql: `ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "AgentAutonomyConfig_Alter2",
+    sql: `ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "AgentAutonomousPrompt",
+    sql: `CREATE TABLE IF NOT EXISTS "AgentAutonomousPrompt" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "agentId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "content" TEXT NOT NULL,
+      "isActive" BOOLEAN NOT NULL DEFAULT false,
+      "isDefault" BOOLEAN NOT NULL DEFAULT false,
+      "createdBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "AgentAutonomousPrompt_agentId_isActive_idx" ON "AgentAutonomousPrompt"("agentId", "isActive")`,
+    ],
+  },
 ]
 
 // Track which tables have been checked
@@ -102,8 +133,22 @@ export async function ensureTable(tableName: string): Promise<boolean> {
   }
 
   try {
-    await db.$executeRawUnsafe(migration.sql)
-    console.log(`[auto-migrate] Created table: ${tableName}`)
+    if (migration.sql.startsWith("ALTER TABLE")) {
+      // ALTER TABLE can fail if column already exists — handle gracefully
+      try {
+        await db.$executeRawUnsafe(migration.sql)
+        console.log(`[auto-migrate] Applied ALTER for: ${tableName}`)
+      } catch (alterErr: any) {
+        if (alterErr.message?.includes("duplicate column") || migration.skipIfExists) {
+          console.log(`[auto-migrate] Column already exists, skipping ALTER for: ${tableName}`)
+        } else {
+          throw alterErr
+        }
+      }
+    } else {
+      await db.$executeRawUnsafe(migration.sql)
+      console.log(`[auto-migrate] Created table: ${tableName}`)
+    }
 
     // Create indexes
     if (migration.indexes) {

@@ -139,6 +139,67 @@ Consider business hours (Mon-Fri 9AM-6PM UK time) when deciding whether to take 
   return `${rolePrompt}\n\n---\n\n${baseAutonomyPrompt}${roleSpecific[agentType] || ""}`
 }
 
+// Extracted helper: base autonomous rules (used when custom prompt is active)
+export function getAutonomousBaseRules(): string {
+  return `You are operating in FULLY AUTONOMOUS MODE. No human has triggered this message — you decided to think and act on your own.
+
+## Your Mission
+Review your current situation and decide what actions to take. You have context about:
+- Recent cross-agent messages from other agents
+- Your scheduled tasks and their status
+- Your recent activity log
+
+## Rules for Autonomous Mode
+1. Be PROACTIVE — don't just report status, TAKE ACTION
+2. Be EFFICIENT — only take actions that add real value
+3. Be THOUGHTFUL — consider the current time and business context
+4. Use your TOOLS to accomplish real work (search, analyze, calculate, plan)
+5. If another agent messaged you, RESPOND appropriately using cross-agent messaging
+6. If you have pending tasks, WORK on them or update their status
+7. Keep your final response CONCISE — summarize what you did and why
+8. If there's nothing useful to do right now, say "No action needed" briefly
+
+## IMPORTANT: Time Awareness
+The current date/time is ${new Date().toISOString()}.
+Consider business hours (Mon-Fri 9AM-6PM UK time) when deciding whether to take actions that involve external communication.
+
+## Tool Usage in Autonomous Mode
+- Use tools to do REAL work (search leads, analyze data, update tasks)
+- For actions that send emails or create documents, draft them and they will go through approval
+- You can message other agents if you need their help or have information for them`
+}
+
+// Extracted helper: role-specific focus (used when custom prompt is active)
+export function getAutonomousRoleFocus(agentType: string): string {
+  const roleFocus: Record<string, string> = {
+    CLIENT_HUNTER: `\n\n## Additional Focus Areas
+- Search for new leads in UK web development market
+- Score and analyze promising leads
+- Track market trends for web development services`,
+    FINANCE: `\n\n## Additional Focus Areas
+- Check for overdue invoices or pending payments
+- Review financial metrics and flag anomalies
+- Track budget utilization`,
+    PROJECT_MANAGER: `\n\n## Additional Focus Areas
+- Check for overdue tasks and missed deadlines
+- Identify blockers and risks
+- Plan sprints if needed`,
+    HR: `\n\n## Additional Focus Areas
+- Monitor team workload and flag burnout risks
+- Check for leave conflicts
+- Track attendance patterns`,
+    CONTENT: `\n\n## Additional Focus Areas
+- Research current trends in web development and digital marketing
+- Analyze SEO opportunities
+- Review competitor content strategies`,
+    SUPPORT: `\n\n## Additional Focus Areas
+- Check for any unaddressed support issues
+- Search knowledge base for common problems
+- Create knowledge base articles for recurring issues`,
+  }
+  return roleFocus[agentType] || ""
+}
+
 // ━━ Context Gathering ━━
 export async function gatherAutonomyContext(agentId: string, agentType: string, agentName: string): Promise<AutonomyContext> {
   // Get agent details
@@ -322,8 +383,17 @@ async function runThinkingCycle(agentId: string): Promise<ThinkingCycleResult> {
     // on which ones need approval. The agent loop executes all tools.
     const tools = allTools
 
+    // Get the active autonomous prompt for this agent (if any)
+    const activePrompt = await db.agentAutonomousPrompt.findFirst({
+      where: { agentId, isActive: true },
+    })
+
     // Build the autonomous system prompt
-    const autonomousPrompt = getAutonomousSystemPrompt(agent.type, context.rolePrompt)
+    // If there's an active custom prompt, use it as the primary direction
+    let autonomousPrompt = getAutonomousSystemPrompt(agent.type, context.rolePrompt)
+    if (activePrompt) {
+      autonomousPrompt = `${context.rolePrompt}\n\n---\n\n## YOUR AUTONOMOUS MISSION (set by admin)\n\n${activePrompt.content}\n\n---\n\n${getAutonomousBaseRules()}${getAutonomousRoleFocus(agent.type)}`
+    }
 
     // Determine provider
     const useNvidia = provider === "NVIDIA" || context.model.startsWith("z-ai/")
@@ -604,6 +674,8 @@ export async function getAutonomyStatus() {
     totalRuns: c.totalRuns,
     totalErrors: c.totalErrors,
     lastError: c.lastError,
+    startedBy: c.startedBy,
+    startedByRole: c.startedByRole,
     totalActivityLogs: c._count.activityLogs,
   }))
 }

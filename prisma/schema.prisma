@@ -92,6 +92,7 @@ model Agent {
   approvals       Approval[]
   autonomyConfig  AgentAutonomyConfig?
   activityLogs    AgentActivityLog[]
+  autonomousPrompts AgentAutonomousPrompt[]
 }
 
 // ━━ Agent Role Configuration ━━
@@ -256,11 +257,30 @@ model AgentAutonomyConfig {
   totalErrors   Int       @default(0)           // Total errors encountered
   lastError     String?   // Last error message
   status        String    @default("PAUSED")    // RUNNING, PAUSED, ERROR
+  startedBy      String?   // userId who started the agent
+  startedByRole  String?   // Role of the user who started (SUPER_ADMIN, ADMIN, DEVELOPER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   agent             Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
   activityLogs      AgentActivityLog[]
+}
+
+// ━━ Agent Autonomous Prompts ━━
+model AgentAutonomousPrompt {
+  id        String   @id @default(cuid())
+  agentId   String
+  title     String
+  content   String   // The actual prompt/instructions for autonomous mode
+  isActive  Boolean  @default(false) // Only ONE active prompt per agent
+  isDefault Boolean  @default(false) // System default — cannot be deleted
+  createdBy String?  // userId of the admin who created it
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, isActive])
 }
 
 model AgentActivityLog {

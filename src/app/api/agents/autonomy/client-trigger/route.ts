@@ -13,7 +13,7 @@ import { isAdmin } from "@/lib/rbac"
 import { initAutonomyConfigs } from "@/lib/ai/autonomy-engine"
 
 // Import the building blocks we need
-import { gatherAutonomyContext, buildThinkingPrompt, getAutonomousSystemPrompt, AUTO_EXECUTE_TOOLS, DRAFT_APPROVAL_TOOLS } from "@/lib/ai/autonomy-engine"
+import { gatherAutonomyContext, buildThinkingPrompt, getAutonomousSystemPrompt, getAutonomousBaseRules, getAutonomousRoleFocus, AUTO_EXECUTE_TOOLS, DRAFT_APPROVAL_TOOLS } from "@/lib/ai/autonomy-engine"
 import type { AutonomyContext } from "@/lib/ai/autonomy-engine"
 import { runAgentLoop } from "@/lib/ai/agent-loop"
 import type { AgentStep } from "@/lib/ai/agent-loop"
@@ -106,8 +106,14 @@ export async function POST(req: NextRequest) {
           const { apiKey, apiKeyId, provider } = await getApiKeyForAgent(agentId, context.model)
           sendEvent({ type: "step", step: { type: "thinking", content: `Using ${provider} API...`, stepNumber: 2 } })
 
-          // 4. Build system prompt
-          const autonomousPrompt = getAutonomousSystemPrompt(agent.type, context.rolePrompt)
+          // 4. Build system prompt (use active autonomous prompt if available)
+          const activePrompt = await db.agentAutonomousPrompt.findFirst({
+            where: { agentId, isActive: true },
+          })
+          let autonomousPrompt = getAutonomousSystemPrompt(agent.type, context.rolePrompt)
+          if (activePrompt) {
+            autonomousPrompt = `${context.rolePrompt}\n\n---\n\n## YOUR AUTONOMOUS MISSION (set by admin)\n\n${activePrompt.content}\n\n---\n\n${getAutonomousBaseRules()}${getAutonomousRoleFocus(agent.type)}`
+          }
           const tools = getToolsForAgentType(agent.type)
           const useNvidia = provider === "NVIDIA" || context.model.startsWith("z-ai/")
 
