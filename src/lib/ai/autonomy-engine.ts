@@ -17,7 +17,7 @@ import { getToolsForAgentType } from "./agent-tools"
 import type { AgentTool } from "./agent-tools"
 
 // ━━ Types ━━
-interface AutonomyContext {
+export interface AutonomyContext {
   agentId: string
   agentType: string
   agentName: string
@@ -42,7 +42,7 @@ interface ThinkingCycleResult {
 
 // ━━ Approval Gate Classification ━━
 // Actions that can auto-execute without human approval
-const AUTO_EXECUTE_TOOLS: Record<string, string[]> = {
+export const AUTO_EXECUTE_TOOLS: Record<string, string[]> = {
   CLIENT_HUNTER: ["web_search", "search_leads", "analyze_website", "score_lead", "plan_outreach_campaign"],
   FINANCE: ["web_search", "calculate_estimate", "research_market_pricing", "calculate_roi"],
   PROJECT_MANAGER: ["web_search", "break_down_project", "create_timeline", "assess_risks", "estimate_effort"],
@@ -52,7 +52,7 @@ const AUTO_EXECUTE_TOOLS: Record<string, string[]> = {
 }
 
 // Actions that create drafts requiring approval
-const DRAFT_APPROVAL_TOOLS: Record<string, string[]> = {
+export const DRAFT_APPROVAL_TOOLS: Record<string, string[]> = {
   CLIENT_HUNTER: ["draft_email"],
   FINANCE: ["generate_quotation", "generate_invoice"],
   PROJECT_MANAGER: ["plan_sprint"],
@@ -63,7 +63,7 @@ const DRAFT_APPROVAL_TOOLS: Record<string, string[]> = {
 // ━━ Autonomous System Prompts ━━
 // These override the agentic prompts for autonomous thinking cycles.
 // They instruct agents to think proactively and decide what to do.
-function getAutonomousSystemPrompt(agentType: string, rolePrompt: string): string {
+export function getAutonomousSystemPrompt(agentType: string, rolePrompt: string): string {
   const baseAutonomyPrompt = `You are operating in FULLY AUTONOMOUS MODE. No human has triggered this message — you decided to think and act on your own.
 
 ## Your Mission
@@ -140,7 +140,7 @@ Consider business hours (Mon-Fri 9AM-6PM UK time) when deciding whether to take 
 }
 
 // ━━ Context Gathering ━━
-async function gatherAutonomyContext(agentId: string, agentType: string, agentName: string): Promise<AutonomyContext> {
+export async function gatherAutonomyContext(agentId: string, agentType: string, agentName: string): Promise<AutonomyContext> {
   // Get agent details
   const agent = await db.agent.findUnique({
     where: { id: agentId },
@@ -199,7 +199,7 @@ async function gatherAutonomyContext(agentId: string, agentType: string, agentNa
 }
 
 // ━━ Build Thinking Prompt from Context ━━
-function buildThinkingPrompt(context: AutonomyContext): string {
+export function buildThinkingPrompt(context: AutonomyContext): string {
   const parts: string[] = []
 
   parts.push(`[AUTONOMOUS THINKING CYCLE — ${new Date().toISOString()}]`)

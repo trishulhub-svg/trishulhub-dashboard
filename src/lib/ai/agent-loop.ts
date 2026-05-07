@@ -345,12 +345,13 @@ async function callZaiWithTools(
     return body
   }
 
-  const MAX_RETRIES = 2
+  const MAX_RETRIES = 3 // Auto-retry up to 3 times on failure
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delayMs = Math.pow(2, attempt) * 1000
+      const delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 500 // Exponential backoff + jitter
+      console.log(`[zai-agent] Retry attempt ${attempt}/${MAX_RETRIES} after ${Math.round(delayMs)}ms`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
@@ -494,12 +495,13 @@ async function callNvidiaWithTools(
     return body
   }
 
-  const MAX_RETRIES = 2
+  const MAX_RETRIES = 3 // Auto-retry up to 3 times on failure
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delayMs = Math.pow(2, attempt) * 1000
+      const delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 500 // Exponential backoff + jitter
+      console.log(`[nvidia-agent] Retry attempt ${attempt}/${MAX_RETRIES} after ${Math.round(delayMs)}ms`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
 
