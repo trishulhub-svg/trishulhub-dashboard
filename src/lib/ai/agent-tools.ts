@@ -475,6 +475,65 @@ export const CLIENT_HUNTER_TOOLS: AgentTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "export_leads_csv",
+      description: "Export discovered leads as a CSV file for import into CRM or spreadsheet tools. Generates a structured CSV with business names, websites, contact info, scores, tiers, and outreach status. Use after search_leads and score_lead to create a shareable leads database.",
+      parameters: {
+        type: "object",
+        properties: {
+          leads: { type: "array", items: { type: "object", properties: { business_name: { type: "string" }, location: { type: "string" }, website: { type: "string" }, industry: { type: "string" }, score: { type: "number" }, tier: { type: "string" }, contact_status: { type: "string" }, email_drafted: { type: "boolean" }, notes: { type: "string" } } }, description: "Lead data to export (from search_leads + score_lead results)." },
+          search_location: { type: "string", description: "Location where leads were searched." },
+          search_industry: { type: "string", description: "Industry searched." },
+        },
+        required: ["leads"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_proposal_document",
+      description: "Generate a professional client proposal document in formatted markdown. Creates a comprehensive proposal with company overview, service description, pricing breakdown, timeline, deliverables, and terms & conditions. Use for HOT leads after scoring.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_business: { type: "string", description: "Client business name." },
+          client_contact: { type: "string", description: "Client contact person name." },
+          service_type: { type: "string", description: "Type of service proposed (e.g., 'Website Redesign', 'E-commerce Development')." },
+          scope_of_work: { type: "string", description: "Detailed scope of work." },
+          deliverables: { type: "array", items: { type: "string" }, description: "List of deliverables." },
+          timeline_weeks: { type: "number", description: "Estimated timeline in weeks." },
+          pricing_gbp: { type: "number", description: "Total pricing in GBP." },
+          payment_terms: { type: "string", description: "Payment terms (e.g., '50% upfront, 50% on completion')." },
+        },
+        required: ["client_business", "service_type", "scope_of_work"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_campaign_report",
+      description: "Export outreach campaign progress and results as a formatted document. Creates a campaign report with lead statistics, response rates, conversion metrics, and next steps. Use after running an outreach campaign.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_name: { type: "string", description: "Campaign name or identifier." },
+          target_industry: { type: "string", description: "Target industry." },
+          target_location: { type: "string", description: "Target location." },
+          total_leads_contacted: { type: "number", description: "Total leads contacted." },
+          responses_received: { type: "number", description: "Number of responses received." },
+          meetings_booked: { type: "number", description: "Number of meetings booked." },
+          proposals_sent: { type: "number", description: "Number of proposals sent." },
+          hot_leads: { type: "array", items: { type: "object", properties: { business: { type: "string" }, score: { type: "number" }, next_action: { type: "string" } } }, description: "Hot leads identified." },
+          next_steps: { type: "array", items: { type: "string" }, description: "Recommended next steps." },
+        },
+        required: ["campaign_name", "total_leads_contacted"],
+      },
+    },
+  },
   PLAN_TASK_TOOL,
 ]
 
@@ -653,6 +712,75 @@ export const PROJECT_MANAGER_TOOLS: AgentTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "export_project_document",
+      description: "Export a comprehensive project plan as a professional formatted document. Creates a structured project document with phases, milestones, deliverables, timeline, and team assignments. Use after break_down_project to create a shareable project plan.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_name: { type: "string", description: "Project name." },
+          phases: {
+            type: "array",
+            description: "Project phases with milestones and tasks.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                milestones: { type: "array", items: { type: "object", properties: { title: { type: "string" }, deadline: { type: "string" }, status: { type: "string" } } } },
+                tasks: { type: "array", items: { type: "object", properties: { title: { type: "string" }, assignee: { type: "string" }, hours: { type: "number" } } } },
+              },
+            },
+          },
+          project_scope: { type: "string", description: "Brief project scope/description." },
+          tech_stack: { type: "array", items: { type: "string" }, description: "Technologies used." },
+          risks: { type: "array", items: { type: "object", properties: { risk: { type: "string" }, mitigation: { type: "string" } } }, description: "Key risks and mitigations." },
+          total_estimated_hours: { type: "number", description: "Total estimated hours for the project." },
+          client_name: { type: "string", description: "Client name (if applicable)." },
+        },
+        required: ["project_name", "phases"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_sprint_report",
+      description: "Export sprint planning or retrospective report as a formatted document. Creates a professional sprint document with goals, velocity metrics, completed/in-progress items, and action items. Use after plan_sprint.",
+      parameters: {
+        type: "object",
+        properties: {
+          sprint_number: { type: "number", description: "Sprint number." },
+          sprint_goal: { type: "string", description: "Main sprint goal." },
+          team_size: { type: "number", description: "Team size." },
+          velocity: { type: "number", description: "Team velocity (story points)." },
+          completed_items: { type: "array", items: { type: "object", properties: { title: { type: "string" }, points: { type: "number" }, assignee: { type: "string" } } }, description: "Completed items." },
+          in_progress_items: { type: "array", items: { type: "object", properties: { title: { type: "string" }, points: { type: "number" }, assignee: { type: "string" } } }, description: "Items still in progress." },
+          blocked_items: { type: "array", items: { type: "object", properties: { title: { type: "string" }, blocker: { type: "string" } } }, description: "Blocked items." },
+          action_items: { type: "array", items: { type: "string" }, description: "Action items for next sprint." },
+        },
+        required: ["sprint_number", "sprint_goal"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_risk_assessment",
+      description: "Export a project risk assessment as a professional formatted document. Creates a comprehensive risk report with risk matrix, probability/impact analysis, mitigation strategies, and risk owner assignments. Use after assess_risks.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_name: { type: "string", description: "Project name." },
+          project_scope: { type: "string", description: "Brief project scope." },
+          risks: { type: "array", items: { type: "object", properties: { risk: { type: "string" }, probability: { type: "string" }, impact: { type: "string" }, severity: { type: "string" }, mitigation: { type: "string" }, owner: { type: "string" } } }, description: "Identified risks with details." },
+          overall_risk_level: { type: "string", description: "Overall project risk level: Low, Medium, High, Critical." },
+        },
+        required: ["project_name", "risks"],
+      },
+    },
+  },
   PLAN_TASK_TOOL,
 ]
 
@@ -717,6 +845,59 @@ export const HR_TOOLS: AgentTool[] = [
           active_projects: { type: "array", items: { type: "string" }, description: "Currently active projects." },
         },
         required: ["leave_requests"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_workload_csv",
+      description: "Export team workload analysis data as a CSV file. Generates a downloadable CSV with team member names, tasks, hours, utilization percentage, and status. Use after analyze_workload to create a shareable report.",
+      parameters: {
+        type: "object",
+        properties: {
+          team_data: { type: "array", items: { type: "object", properties: { name: { type: "string" }, current_tasks: { type: "number" }, hours_per_week: { type: "number" }, utilization_pct: { type: "number" }, status: { type: "string" }, skills: { type: "array", items: { type: "string" } }, recommendation: { type: "string" } } }, description: "Workload data for each team member (typically from analyze_workload results)." },
+          report_title: { type: "string", description: "Title for the report." },
+        },
+        required: ["team_data"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_onboarding_document",
+      description: "Generate a professional onboarding document in formatted markdown for a new team member. Creates a comprehensive guide covering first day, first week, first month milestones, team introductions, tools setup, and expectations. Use after plan_onboarding to create a shareable onboarding guide.",
+      parameters: {
+        type: "object",
+        properties: {
+          role: { type: "string", description: "Role of the new team member." },
+          department: { type: "string", description: "Department they're joining." },
+          start_date: { type: "string", description: "Start date." },
+          mentor: { type: "string", description: "Assigned mentor/buddy name." },
+          tools: { type: "array", items: { type: "string" }, description: "Tools and software they need access to." },
+          first_day_tasks: { type: "array", items: { type: "string" }, description: "Tasks for the first day." },
+          first_week_goals: { type: "array", items: { type: "string" }, description: "Goals for the first week." },
+          first_month_milestones: { type: "array", items: { type: "string" }, description: "Milestones for the first month." },
+          company_name: { type: "string", description: "Company name (default: TrishulHub)." },
+        },
+        required: ["role", "department"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_leave_report",
+      description: "Export leave conflict analysis and team availability as a formatted document. Creates a professional leave management report with conflict summary, coverage recommendations, and team impact assessment. Use after assess_leave_conflicts.",
+      parameters: {
+        type: "object",
+        properties: {
+          leave_data: { type: "array", items: { type: "object", properties: { person: { type: "string" }, dates: { type: "string" }, reason: { type: "string" }, impact: { type: "string" } } }, description: "Leave requests and their assessed impact." },
+          conflicts: { type: "array", items: { type: "object", properties: { persons: { type: "array", items: { type: "string" } }, overlap_dates: { type: "string" }, severity: { type: "string" } } }, description: "Identified conflicts." },
+          coverage_plan: { type: "string", description: "Recommended coverage arrangements." },
+        },
+        required: ["leave_data"],
       },
     },
   },
@@ -1062,6 +1243,18 @@ export async function executeToolCall(
         }, null, 2)
         break
 
+      case "export_leads_csv":
+        result = executeExportLeadsCsv(args as any)
+        break
+
+      case "generate_proposal_document":
+        result = executeGenerateProposalDocument(args as any)
+        break
+
+      case "export_campaign_report":
+        result = executeExportCampaignReport(args as any)
+        break
+
       // ── Finance tools ──
       case "calculate_estimate":
         result = executeCalculateEstimate(args as Parameters<typeof executeCalculateEstimate>[0])
@@ -1181,6 +1374,18 @@ export async function executeToolCall(
         result = executeEstimateEffort(args as Parameters<typeof executeEstimateEffort>[0])
         break
 
+      case "export_project_document":
+        result = executeExportProjectDocument(args as any)
+        break
+
+      case "export_sprint_report":
+        result = executeExportSprintReport(args as any)
+        break
+
+      case "export_risk_assessment":
+        result = executeExportRiskAssessment(args as any)
+        break
+
       // ── HR tools ──
       case "analyze_workload":
         result = executeAnalyzeWorkload(args as Parameters<typeof executeAnalyzeWorkload>[0])
@@ -1196,6 +1401,18 @@ export async function executeToolCall(
 
       case "assess_leave_conflicts":
         result = executeAssessLeaveConflicts(args as Parameters<typeof executeAssessLeaveConflicts>[0])
+        break
+
+      case "export_workload_csv":
+        result = executeExportWorkloadCsv(args as any)
+        break
+
+      case "generate_onboarding_document":
+        result = executeGenerateOnboardingDocument(args as any)
+        break
+
+      case "export_leave_report":
+        result = executeExportLeaveReport(args as any)
         break
 
       // ── Content tools ──
@@ -2678,5 +2895,899 @@ function executeAssessEscalation(args: { issue_description: string; client_impac
       troubleshooting_completed: args.attempts_made || "Standard steps completed",
       recommended_action: "Investigate root cause, implement fix, and deploy",
     } : null,
+  }, null, 2)
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DOCUMENT & FILE GENERATION TOOLS
+// For HR, PM, and Client Hunter agents
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ── CSV Generation Utility ──
+function generateCsvContent(headers: string[], rows: string[][]): string {
+  const escape = (val: string) => {
+    const str = String(val || "")
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+  const headerLine = headers.map(escape).join(",")
+  const dataLines = rows.map(row => row.map(escape).join(","))
+  return [headerLine, ...dataLines].join("\n")
+}
+
+// ── Save file to workspace (same pattern as DEV write_file) ──
+function saveToWorkspace(filename: string, content: string): { path: string; success: boolean } {
+  try {
+    const root = getWorkspaceRoot()
+    const filePath = resolveWorkspacePath(filename, true)
+    const fs = require("fs")
+    const path = require("path")
+    const dir = path.dirname(filePath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(filePath, content, "utf-8")
+    return { path: filePath, success: true }
+  } catch (err: any) {
+    return { path: filename, success: false }
+  }
+}
+
+// ━━ CLIENT HUNTER: Export Leads CSV ━━
+function executeExportLeadsCsv(args: {
+  leads: Array<{
+    business_name: string
+    location?: string
+    website?: string
+    industry?: string
+    score?: number
+    tier?: string
+    contact_status?: string
+    email_drafted?: boolean
+    notes?: string
+  }>
+  search_location?: string
+  search_industry?: string
+}): string {
+  const headers = ["#", "Business Name", "Location", "Website", "Industry", "Score", "Tier", "Contact Status", "Email Drafted", "Notes"]
+  const rows = (args.leads || []).map((lead, i) => [
+    String(i + 1),
+    lead.business_name || "Unknown",
+    lead.location || args.search_location || "",
+    lead.website || "",
+    lead.industry || args.search_industry || "",
+    String(lead.score ?? 0),
+    lead.tier || "COLD",
+    lead.contact_status || "Not contacted",
+    lead.email_drafted ? "Yes" : "No",
+    lead.notes || "",
+  ])
+
+  const csvContent = generateCsvContent(headers, rows)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `leads-${args.search_industry || "all"}-${args.search_location || "uk"}-${timestamp}.csv`
+  const saveResult = saveToWorkspace(filename, csvContent)
+
+  // Summary stats
+  const totalLeads = args.leads?.length || 0
+  const hotLeads = args.leads?.filter(l => l.tier === "HOT").length || 0
+  const warmLeads = args.leads?.filter(l => l.tier === "WARM").length || 0
+  const avgScore = totalLeads > 0
+    ? Math.round((args.leads?.reduce((sum: number, l: any) => sum + (l.score || 0), 0) || 0) / totalLeads)
+    : 0
+
+  return JSON.stringify({
+    status: "CSV exported successfully",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      total_leads: totalLeads,
+      hot_leads: hotLeads,
+      warm_leads: warmLeads,
+      cold_leads: totalLeads - hotLeads - warmLeads,
+      average_score: avgScore,
+    },
+    search_context: {
+      location: args.search_location || "Not specified",
+      industry: args.search_industry || "Not specified",
+      exported_at: new Date().toISOString(),
+    },
+    csv_preview: csvContent.split("\n").slice(0, 6).join("\n") + "\n... (full CSV saved to file)",
+  }, null, 2)
+}
+
+// ━━ CLIENT HUNTER: Generate Proposal Document ━━
+function executeGenerateProposalDocument(args: {
+  client_business: string
+  client_contact?: string
+  service_type: string
+  scope_of_work: string
+  deliverables?: string[]
+  timeline_weeks?: number
+  pricing_gbp?: number
+  payment_terms?: string
+}): string {
+  const company = "TrishulHub"
+  const now = new Date()
+  const proposalDate = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+  const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+  const pricing = args.pricing_gbp || 0
+  const vat = Math.round(pricing * 0.2)
+  const total = pricing + vat
+  const timeline = args.timeline_weeks || 4
+
+  const deliverablesList = (args.deliverables || [
+    `Professional ${args.service_type.toLowerCase()}`,
+    "Responsive design (mobile + desktop)",
+    "Search engine optimization (SEO)",
+    "Content management system",
+    "Testing and quality assurance",
+    "Deployment and launch support",
+    "30-day post-launch support",
+  ])
+
+  const proposal = `# ${company} — Project Proposal
+
+**Proposal Date:** ${proposalDate}
+**Valid Until:** ${validUntil}
+**Prepared For:** ${args.client_business}${args.client_contact ? ` (${args.client_contact})` : ""}
+
+---
+
+## 1. About ${company}
+
+${company} is a UK-based web development agency specialising in modern, high-performance websites and digital solutions. We help businesses establish a powerful online presence that drives growth and engagement.
+
+---
+
+## 2. Project Overview
+
+**Client:** ${args.client_business}
+**Service:** ${args.service_type}
+**Estimated Timeline:** ${timeline} weeks
+**Investment:** GBP ${pricing.toLocaleString()} (+ VAT)
+
+### Scope of Work
+
+${args.scope_of_work}
+
+---
+
+## 3. Deliverables
+
+${deliverablesList.map((d, i) => `${i + 1}. ${d}`).join("\n")}
+
+---
+
+## 4. Project Timeline
+
+| Phase | Duration | Key Activities |
+|-------|----------|----------------|
+| Discovery & Planning | Week 1 | Requirements gathering, wireframes, design mockups |
+| Design & Development | Week ${(timeline / 2).toFixed(0)} | Frontend/backend development, content integration |
+| Testing & QA | Week ${Math.ceil(timeline * 0.75)} | Cross-browser testing, performance optimisation |
+| Launch & Handover | Week ${timeline} | Deployment, training, documentation |
+
+---
+
+## 5. Investment Summary
+
+| Item | Amount (GBP) |
+|------|-------------|
+| ${args.service_type} | ${pricing.toLocaleString()} |
+| Subtotal | ${pricing.toLocaleString()} |
+| VAT (20%) | ${vat.toLocaleString()} |
+| **Total** | **${total.toLocaleString()}** |
+
+**Payment Terms:** ${args.payment_terms || "50% upfront, 50% on completion"}
+
+---
+
+## 6. Why Choose ${company}?
+
+- UK-based team with direct communication
+- Modern tech stack (React, Next.js, Node.js)
+- Responsive, mobile-first design approach
+- SEO-optimised development
+- Ongoing support and maintenance available
+
+---
+
+## 7. Next Steps
+
+1. Review this proposal and provide feedback
+2. Schedule a kick-off meeting to discuss details
+3. Sign agreement and begin discovery phase
+4. Regular progress updates throughout the project
+
+---
+
+*This proposal is confidential and intended solely for ${args.client_business}.*
+*For questions, contact the ${company} team.*
+
+---
+
+**Generated by ${company} Client Hunter Agent on ${proposalDate}**`
+
+  // Also save as markdown file
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `proposal-${args.client_business.toLowerCase().replace(/\s+/g, "-")}-${timestamp}.md`
+  const saveResult = saveToWorkspace(filename, proposal)
+
+  return JSON.stringify({
+    status: "Proposal document generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      client: args.client_business,
+      service: args.service_type,
+      timeline_weeks: timeline,
+      pricing_gbp: pricing,
+      total_with_vat: total,
+      deliverables_count: deliverablesList.length,
+    },
+    document_content: proposal,
+  }, null, 2)
+}
+
+// ━━ CLIENT HUNTER: Export Campaign Report ━━
+function executeExportCampaignReport(args: {
+  campaign_name: string
+  target_industry?: string
+  target_location?: string
+  total_leads_contacted: number
+  responses_received?: number
+  meetings_booked?: number
+  proposals_sent?: number
+  hot_leads?: Array<{ business: string; score: number; next_action: string }>
+  next_steps?: string[]
+}): string {
+  const responses = args.responses_received || 0
+  const meetings = args.meetings_booked || 0
+  const proposals = args.proposals_sent || 0
+  const total = args.total_leads_contacted
+  const responseRate = total > 0 ? ((responses / total) * 100).toFixed(1) : "0.0"
+  const meetingRate = total > 0 ? ((meetings / total) * 100).toFixed(1) : "0.0"
+  const conversionRate = total > 0 ? ((proposals / total) * 100).toFixed(1) : "0.0"
+
+  const now = new Date()
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `campaign-${args.campaign_name.toLowerCase().replace(/\s+/g, "-")}-${timestamp}.md`
+
+  const hotLeadsTable = (args.hot_leads || []).length > 0
+    ? `\n### Hot Leads\n\n| # | Business | Score | Next Action |\n|---|----------|-------|-------------|\n${(args.hot_leads || []).map((l, i) => `| ${i + 1} | ${l.business} | ${l.score} | ${l.next_action} |`).join("\n")}\n`
+    : ""
+
+  const nextStepsList = (args.next_steps || [
+    "Follow up with warm leads that haven't responded",
+    "Schedule discovery calls with interested businesses",
+    "Prepare tailored proposals for hot leads",
+    "Expand search to adjacent industries",
+    "Refine outreach messaging based on response data",
+  ])
+
+  const report = `# Campaign Report: ${args.campaign_name}
+
+**Generated:** ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+**Target Industry:** ${args.target_industry || "Not specified"}
+**Target Location:** ${args.target_location || "Not specified"}
+
+---
+
+## Campaign Metrics
+
+| Metric | Value | Rate |
+|--------|-------|------|
+| Total Leads Contacted | ${total} | - |
+| Responses Received | ${responses} | ${responseRate}% |
+| Meetings Booked | ${meetings} | ${meetingRate}% |
+| Proposals Sent | ${proposals} | ${conversionRate}% |
+
+---
+
+## Performance Summary
+
+- **Response Rate:** ${responseRate}% ${parseFloat(responseRate) > 15 ? "(Above average)" : parseFloat(responseRate) > 8 ? "(Average)" : "(Below average - consider refining messaging)"}
+- **Meeting Conversion:** ${meetingRate}% ${parseFloat(meetingRate) > 5 ? "(Strong)" : "(Room for improvement)"}
+- **Pipeline Value:** ${proposals} proposals in progress
+${hotLeadsTable}
+## Recommended Next Steps
+
+${nextStepsList.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+---
+
+*Report generated by TrishulHub Client Hunter Agent*`
+
+  const saveResult = saveToWorkspace(filename, report)
+
+  return JSON.stringify({
+    status: "Campaign report generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    metrics: {
+      total_leads: total,
+      responses,
+      response_rate: `${responseRate}%`,
+      meetings,
+      meeting_rate: `${meetingRate}%`,
+      proposals,
+      conversion_rate: `${conversionRate}%`,
+    },
+    document_content: report,
+  }, null, 2)
+}
+
+// ━━ PM: Export Project Document ━━
+function executeExportProjectDocument(args: {
+  project_name: string
+  phases: Array<{
+    name: string
+    milestones?: Array<{ title: string; deadline?: string; status?: string }>
+    tasks?: Array<{ title: string; assignee?: string; hours?: number }>
+  }>
+  project_scope?: string
+  tech_stack?: string[]
+  risks?: Array<{ risk: string; mitigation: string }>
+  total_estimated_hours?: number
+  client_name?: string
+}): string {
+  const now = new Date()
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `project-plan-${args.project_name.toLowerCase().replace(/\s+/g, "-")}-${timestamp}.md`
+
+  let totalTasks = 0
+  let totalHours = 0
+  const phasesContent = (args.phases || []).map((phase, phaseIdx) => {
+    const milestones = phase.milestones || []
+    const tasks = phase.tasks || []
+    totalTasks += tasks.length
+    totalHours += tasks.reduce((sum: number, t: any) => sum + (t.hours || 0), 0)
+
+    let content = `\n### Phase ${phaseIdx + 1}: ${phase.name}\n`
+    if (milestones.length > 0) {
+      content += `\n**Milestones:**\n\n| Milestone | Deadline | Status |\n|-----------|----------|--------|\n${milestones.map(m => `| ${m.title} | ${m.deadline || "TBD"} | ${m.status || "Planned"} |`).join("\n")}\n`
+    }
+    if (tasks.length > 0) {
+      content += `\n**Tasks:**\n\n| # | Task | Assignee | Hours |\n|---|------|----------|-------|\n${tasks.map((t, i) => `| ${(phaseIdx + 1)}.${i + 1} | ${t.title} | ${t.assignee || "TBD"} | ${t.hours || 0}h |`).join("\n")}\n`
+    }
+    return content
+  }).join("\n")
+
+  const techStack = (args.tech_stack || ["React", "Next.js", "Node.js", "PostgreSQL"]).join(", ")
+
+  const doc = `# Project Plan: ${args.project_name}
+
+**Prepared:** ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+${args.client_name ? `**Client:** ${args.client_name}\n` : ""}**Project Manager:** TrishulHub PM Agent
+**Status:** Planning
+
+---
+
+## Project Scope
+
+${args.project_scope || "To be defined in discovery phase."}
+
+## Technology Stack
+
+${techStack}
+
+---
+
+## Project Phases
+
+${phasesContent}
+
+---
+
+## Project Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Phases | ${(args.phases || []).length} |
+| Total Tasks | ${totalTasks} |
+| Estimated Hours | ${args.total_estimated_hours || totalHours || "TBD"} |
+| Tech Stack | ${techStack} |
+
+${(args.risks || []).length > 0 ? `---\n\n## Key Risks\n\n| Risk | Mitigation |\n|------|------------|\n${(args.risks || []).map(r => `| ${r.risk} | ${r.mitigation} |`).join("\n")}\n` : ""}
+---
+
+*Project plan generated by TrishulHub PM Agent*`
+
+  const saveResult = saveToWorkspace(filename, doc)
+
+  return JSON.stringify({
+    status: "Project document generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      project: args.project_name,
+      phases: (args.phases || []).length,
+      total_tasks: totalTasks,
+      total_hours: args.total_estimated_hours || totalHours,
+      tech_stack: args.tech_stack || [],
+    },
+    document_content: doc,
+  }, null, 2)
+}
+
+// ━━ PM: Export Sprint Report ━━
+function executeExportSprintReport(args: {
+  sprint_number: number
+  sprint_goal: string
+  team_size?: number
+  velocity?: number
+  completed_items?: Array<{ title: string; points?: number; assignee?: string }>
+  in_progress_items?: Array<{ title: string; points?: number; assignee?: string }>
+  blocked_items?: Array<{ title: string; blocker?: string }>
+  action_items?: string[]
+}): string {
+  const now = new Date()
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `sprint-${args.sprint_number}-report-${timestamp}.md`
+
+  const completed = args.completed_items || []
+  const inProgress = args.in_progress_items || []
+  const blocked = args.blocked_items || []
+  const completedPoints = completed.reduce((sum: number, i: any) => sum + (i.points || 0), 0)
+  const inProgressPoints = inProgress.reduce((sum: number, i: any) => sum + (i.points || 0), 0)
+
+  const actions = args.action_items || [
+    "Review and address any blocked items",
+    "Carry over incomplete in-progress items",
+    "Refine backlog based on sprint learnings",
+  ]
+
+  const doc = `# Sprint ${args.sprint_number} Report
+
+**Generated:** ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+**Sprint Goal:** ${args.sprint_goal}
+**Team Size:** ${args.team_size || "Not specified"}
+**Velocity:** ${args.velocity || completedPoints} story points
+
+---
+
+## Sprint Metrics
+
+| Metric | Value |
+|--------|-------|
+| Sprint Goal | ${args.sprint_goal} |
+| Completed Items | ${completed.length} (${completedPoints} pts) |
+| In Progress | ${inProgress.length} (${inProgressPoints} pts) |
+| Blocked | ${blocked.length} |
+| Team Velocity | ${args.velocity || completedPoints} pts |
+
+---
+
+## Completed Items
+
+${completed.length > 0
+    ? `| # | Item | Points | Assignee |\n|---|------|--------|----------|\n${completed.map((i, idx) => `| ${idx + 1} | ${i.title} | ${i.points || 0} | ${i.assignee || "-"} |`).join("\n")}`
+    : "No items completed in this sprint."}
+
+## In Progress
+
+${inProgress.length > 0
+    ? `| # | Item | Points | Assignee |\n|---|------|--------|----------|\n${inProgress.map((i, idx) => `| ${idx + 1} | ${i.title} | ${i.points || 0} | ${i.assignee || "-"} |`).join("\n")}`
+    : "No items currently in progress."}
+
+## Blocked Items
+
+${blocked.length > 0
+    ? `| # | Item | Blocker |\n|---|------|----------|\n${blocked.map((i, idx) => `| ${idx + 1} | ${i.title} | ${i.blocker || "Unknown"} |`).join("\n")}`
+    : "No blocked items."}
+
+---
+
+## Action Items for Next Sprint
+
+${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
+
+---
+
+*Sprint report generated by TrishulHub PM Agent*`
+
+  const saveResult = saveToWorkspace(filename, doc)
+
+  return JSON.stringify({
+    status: "Sprint report generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    sprint_metrics: {
+      number: args.sprint_number,
+      completed: completed.length,
+      completed_points: completedPoints,
+      in_progress: inProgress.length,
+      blocked: blocked.length,
+      velocity: args.velocity || completedPoints,
+    },
+    document_content: doc,
+  }, null, 2)
+}
+
+// ━━ PM: Export Risk Assessment ━━
+function executeExportRiskAssessment(args: {
+  project_name: string
+  project_scope?: string
+  risks: Array<{
+    risk: string
+    probability?: string
+    impact?: string
+    severity?: string
+    mitigation?: string
+    owner?: string
+  }>
+  overall_risk_level?: string
+}): string {
+  const now = new Date()
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `risk-assessment-${args.project_name.toLowerCase().replace(/\s+/g, "-")}-${timestamp}.md`
+
+  const risks = args.risks || []
+  const critical = risks.filter(r => r.severity === "Critical" || r.impact === "Critical").length
+  const high = risks.filter(r => r.severity === "High" || r.impact === "High").length
+  const medium = risks.filter(r => r.severity === "Medium" || r.impact === "Medium").length
+  const low = risks.filter(r => r.severity === "Low" || r.impact === "Low").length
+  const overall = args.overall_risk_level || (critical > 0 ? "Critical" : high > 0 ? "High" : medium > 0 ? "Medium" : "Low")
+
+  const doc = `# Risk Assessment: ${args.project_name}
+
+**Generated:** ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+**Overall Risk Level:** ${overall}
+**Total Risks Identified:** ${risks.length}
+
+---
+
+## Project Scope
+
+${args.project_scope || "To be defined."}
+
+---
+
+## Risk Matrix
+
+| # | Risk | Probability | Impact | Severity | Mitigation | Owner |
+|---|------|-------------|--------|----------|------------|-------|
+${risks.map((r, i) => `| ${i + 1} | ${r.risk} | ${r.probability || "Medium"} | ${r.impact || "Medium"} | ${r.severity || "Medium"} | ${r.mitigation || "TBD"} | ${r.owner || "TBD"} |`).join("\n")}
+
+---
+
+## Risk Summary
+
+| Severity | Count |
+|----------|-------|
+| Critical | ${critical} |
+| High | ${high} |
+| Medium | ${medium} |
+| Low | ${low} |
+| **Total** | **${risks.length}** |
+
+---
+
+## Recommendations
+
+${critical > 0 ? `1. **URGENT:** Address ${critical} critical risk(s) immediately before proceeding.\n` : ""}${high > 0 ? `${critical > 0 ? "2" : "1"}. **IMPORTANT:** Monitor ${high} high-risk item(s) closely and review weekly.\n` : ""}${medium > 0 ? `${critical > 0 || high > 0 ? "3" : "1"}. Plan mitigation strategies for ${medium} medium-risk item(s).\n` : ""}${low > 0 ? `${critical > 0 || high > 0 || medium > 0 ? "4" : "1"}. Accept ${low} low-risk item(s) and monitor periodically.\n` : ""}5. Review this assessment at each project milestone.
+
+---
+
+*Risk assessment generated by TrishulHub PM Agent*`
+
+  const saveResult = saveToWorkspace(filename, doc)
+
+  return JSON.stringify({
+    status: "Risk assessment generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      project: args.project_name,
+      overall_risk_level: overall,
+      total_risks: risks.length,
+      critical,
+      high,
+      medium,
+      low,
+    },
+    document_content: doc,
+  }, null, 2)
+}
+
+// ━━ HR: Export Workload CSV ━━
+function executeExportWorkloadCsv(args: {
+  team_data: Array<{
+    name: string
+    current_tasks?: number
+    hours_per_week?: number
+    utilization_pct?: number
+    status?: string
+    skills?: string[]
+    recommendation?: string
+  }>
+  report_title?: string
+}): string {
+  const headers = ["#", "Name", "Current Tasks", "Hours/Week", "Utilisation %", "Status", "Skills", "Recommendation"]
+  const rows = (args.team_data || []).map((member, i) => [
+    String(i + 1),
+    member.name,
+    String(member.current_tasks ?? 0),
+    String(member.hours_per_week ?? 0),
+    `${member.utilization_pct ?? 0}%`,
+    member.status || "Unknown",
+    (member.skills || []).join("; "),
+    member.recommendation || "",
+  ])
+
+  const csvContent = generateCsvContent(headers, rows)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `workload-report-${timestamp}.csv`
+  const saveResult = saveToWorkspace(filename, csvContent)
+
+  // Summary stats
+  const team = args.team_data || []
+  const avgUtil = team.length > 0
+    ? Math.round(team.reduce((sum: number, m: any) => sum + (m.utilization_pct || 0), 0) / team.length)
+    : 0
+  const overloaded = team.filter((m: any) => (m.utilization_pct || 0) > 90).length
+  const underutilized = team.filter((m: any) => (m.utilization_pct || 0) < 50).length
+
+  return JSON.stringify({
+    status: "Workload CSV exported",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    title: args.report_title || "Team Workload Report",
+    summary: {
+      team_size: team.length,
+      average_utilisation: `${avgUtil}%`,
+      overloaded_members: overloaded,
+      underutilised_members: underutilized,
+    },
+    csv_preview: csvContent.split("\n").slice(0, 6).join("\n") + "\n... (full CSV saved to file)",
+  }, null, 2)
+}
+
+// ━━ HR: Generate Onboarding Document ━━
+function executeGenerateOnboardingDocument(args: {
+  role: string
+  department: string
+  start_date?: string
+  mentor?: string
+  tools?: string[]
+  first_day_tasks?: string[]
+  first_week_goals?: string[]
+  first_month_milestones?: string[]
+  company_name?: string
+}): string {
+  const company = args.company_name || "TrishulHub"
+  const now = new Date()
+  const startDate = args.start_date || now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+
+  const firstDayTasks = args.first_day_tasks || [
+    "Meet your mentor/buddy and team",
+    "Set up development environment and tools",
+    "Review company handbook and policies",
+    "Get access to all required systems",
+    "Attend welcome orientation session",
+  ]
+  const firstWeekGoals = args.first_week_goals || [
+    "Complete all onboarding paperwork",
+    "Set up all required tools and access",
+    "Shadow team members on active tasks",
+    "Review codebase / project documentation",
+    "Attend team stand-up meetings",
+    "Complete any required training modules",
+  ]
+  const firstMonthMilestones = args.first_month_milestones || [
+    "Complete initial training programme",
+    "Take ownership of first small task/feature",
+    "Contribute to code reviews",
+    "Attend 1:1 with manager to review progress",
+    "Understand team workflows and processes",
+    "Build relationships with key team members",
+  ]
+  const tools = args.tools || ["GitHub", "VS Code", "Slack", "Figma", "Google Workspace"]
+
+  const doc = `# Welcome to ${company}!
+
+## Onboarding Guide
+
+**Role:** ${args.role}
+**Department:** ${args.department}
+**Start Date:** ${startDate}
+${args.mentor ? `**Mentor/Buddy:** ${args.mentor}\n` : ""}**Prepared by:** ${company} HR Agent
+
+---
+
+## Your First Day
+
+Your first day at ${company} is all about getting settled in. Here's what to expect:
+
+${firstDayTasks.map(t => `- [ ] ${t}`).join("\n")}
+
+> Don't worry about being productive on day one. Focus on getting comfortable and meeting the team.
+
+---
+
+## Your First Week
+
+By the end of your first week, you should aim to:
+
+${firstWeekGoals.map(g => `- [ ] ${g}`).join("\n")}
+
+### Key Contacts
+
+- **Your Manager:** TBD (will be assigned before start date)
+${args.mentor ? `- **Your Mentor:** ${args.mentor}` : "- **Your Mentor:** TBD"}
+- **IT Support:** it@trishulhub.com
+- **HR Contact:** hr@trishulhub.com
+
+---
+
+## Your First Month
+
+Key milestones for your first 30 days:
+
+${firstMonthMilestones.map(m => `- [ ] ${m}`).join("\n")}
+
+### 30-Day Review
+
+At the end of your first month, you'll have a 1:1 review with your manager to discuss:
+- How you're settling in
+- Any challenges or concerns
+- Progress towards role expectations
+- Goals for the next 60-90 days
+
+---
+
+## Tools & Access
+
+You'll need access to the following tools:
+
+${tools.map(t => `- **${t}**`).join("\n")}
+
+> If you don't have access to any of these tools by your first day, contact IT support.
+
+---
+
+## Company Values
+
+At ${company}, we believe in:
+1. **Quality First** — We deliver work we're proud of
+2. **Collaboration** — We succeed together as a team
+3. **Growth** — We continuously learn and improve
+4. **Communication** — We keep everyone in the loop
+5. **Initiative** — We take ownership and proactively solve problems
+
+---
+
+## Helpful Resources
+
+- Company Handbook: (will be provided on day one)
+- Internal Wiki: (access will be set up before start)
+- Team Channel: #team-${args.department.toLowerCase().replace(/\s+/g, "-")}
+- Emergency Contacts: Posted in office kitchen area
+
+---
+
+*Welcome aboard! We're excited to have you on the team.*
+
+---
+
+*Onboarding document generated by ${company} HR Agent on ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}*`
+
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `onboarding-${args.role.toLowerCase().replace(/\s+/g, "-")}-${timestamp}.md`
+  const saveResult = saveToWorkspace(filename, doc)
+
+  return JSON.stringify({
+    status: "Onboarding document generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      role: args.role,
+      department: args.department,
+      start_date: startDate,
+      first_day_tasks: firstDayTasks.length,
+      first_week_goals: firstWeekGoals.length,
+      first_month_milestones: firstMonthMilestones.length,
+    },
+    document_content: doc,
+  }, null, 2)
+}
+
+// ━━ HR: Export Leave Report ━━
+function executeExportLeaveReport(args: {
+  leave_data: Array<{
+    person: string
+    dates: string
+    reason?: string
+    impact?: string
+  }>
+  conflicts?: Array<{
+    persons: string[]
+    overlap_dates: string
+    severity: string
+  }>
+  coverage_plan?: string
+}): string {
+  const now = new Date()
+  const timestamp = now.toISOString().replace(/[:.]/g, "-").substring(0, 19)
+  const filename = `leave-report-${timestamp}.md`
+
+  const conflicts = args.conflicts || []
+  const leaveEntries = args.leave_data || []
+  const criticalConflicts = conflicts.filter(c => c.severity === "HIGH" || c.severity === "CRITICAL").length
+
+  const doc = `# Leave Management Report
+
+**Generated:** ${now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+**Prepared by:** TrishulHub HR Agent
+
+---
+
+## Leave Requests
+
+| # | Person | Dates | Reason | Impact Assessment |
+|---|--------|-------|--------|-------------------|
+${leaveEntries.map((entry, i) => `| ${i + 1} | ${entry.person} | ${entry.dates} | ${entry.reason || "Not specified"} | ${entry.impact || "Low"} |`).join("\n")}
+
+---
+
+## Conflicts Identified
+
+${conflicts.length > 0
+    ? `| # | Persons Involved | Overlap Dates | Severity |\n|---|----------------|---------------|----------|\n${conflicts.map((c, i) => `| ${i + 1} | ${c.persons.join(", ")} | ${c.overlap_dates} | ${c.severity} |`).join("\n")}`
+    : "No conflicts detected. All leave requests can be approved."}
+
+${criticalConflicts > 0 ? `> **WARNING:** ${criticalConflicts} critical conflict(s) detected. Immediate coverage planning required.\n` : ""}---
+
+## Coverage Plan
+
+${args.coverage_plan || "Standard coverage arrangements apply. Team members will redistribute workload as needed."}
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Leave Requests | ${leaveEntries.length} |
+| Conflicts Detected | ${conflicts.length} |
+| Critical Conflicts | ${criticalConflicts} |
+| Status | ${criticalConflicts > 0 ? "ACTION REQUIRED" : "All Clear"} |
+
+---
+
+*Leave report generated by TrishulHub HR Agent*`
+
+  const saveResult = saveToWorkspace(filename, doc)
+
+  return JSON.stringify({
+    status: "Leave report generated",
+    format: "markdown",
+    filename,
+    file_saved: saveResult.success,
+    file_path: saveResult.path,
+    summary: {
+      total_requests: leaveEntries.length,
+      conflicts: conflicts.length,
+      critical_conflicts: criticalConflicts,
+      status: criticalConflicts > 0 ? "ACTION REQUIRED" : "All Clear",
+    },
+    document_content: doc,
   }, null, 2)
 }
