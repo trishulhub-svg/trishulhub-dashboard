@@ -4,31 +4,22 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
-import { mkdir, writeFile } from "fs/promises"
-import path from "path"
+import { callAIWithFailover } from "@/lib/ai/openrouter"
 
 // Vercel serverless function timeout (seconds) — AI generation needs more time
 export const maxDuration = 60
 
 // ━━ Auto-migration: Ensure training tables exist on Turso ━━
-// Tracks whether migration has been attempted in this serverless instance
 let migrationAttempted = false
 
-/**
- * Auto-create training tables if they don't exist.
- * This runs once per cold start and handles the case where Turso
- * doesn't have the training tables (added after initial DB setup).
- */
 async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> {
   if (migrationAttempted) return { ok: true }
   migrationAttempted = true
 
   try {
-    // Quick check — if TrainingDocument table is accessible, all good
     await db.$queryRawUnsafe(`SELECT 1 FROM TrainingDocument LIMIT 0`)
     return { ok: true }
   } catch {
-    // Table doesn't exist — create all training tables
     console.log("[training] TrainingDocument table missing — running auto-migration...")
     try {
       await db.$executeRawUnsafe(`
@@ -91,7 +82,6 @@ async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> 
           FOREIGN KEY ("assignmentId") REFERENCES "TrainingAssignment"("id") ON DELETE CASCADE ON UPDATE CASCADE
         )
       `)
-      // Create indexes
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_idx" ON "TrainingAssignment"("assignedTo")`)
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_status_idx" ON "TrainingAssignment"("status")`)
       console.log("[training] Auto-migration complete — all training tables created")
@@ -110,7 +100,6 @@ export async function GET(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
       return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
@@ -151,14 +140,13 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
       return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
     }
 
     const userId = session.user.id
-    const rl = rateLimit(userId, 5, 60000) // 5 per min - AI generation is expensive
+    const rl = rateLimit(userId, 5, 60000)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
     const body = await req.json()
@@ -178,15 +166,25 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Generate document content with AI
+    // Generate document content with AI (using the existing multi-provider AI system)
     let content = ""
     let summary = ""
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default
-      const zai = createZAI(ZAI)
+      // Get available API keys from database
+      const apiKeys = await db.apiKey.findMany({
+        where: { status: { in: ["ACTIVE"] } },
+        orderBy: { priority: "asc" },
+      })
 
-      const completion = await zai.chat.completions.create({
-        messages: [
+      if (!apiKeys || apiKeys.length === 0) {
+        try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
+        return NextResponse.json({
+          error: "No AI API keys configured. Go to Dashboard > API Keys and add at least one API key (OpenRouter, Z.ai, Google AI, or NVIDIA).",
+        }, { status: 500 })
+      }
+
+      const result = await callAIWithFailover(
+        [
           {
             role: "system",
             content: `You are an expert corporate trainer. Create comprehensive, easy-to-understand training materials. Write in VERY SIMPLE English that anyone can understand. Use short sentences, simple words, and clear examples.`,
@@ -207,12 +205,8 @@ Main concepts explained simply with real-world analogies (at least 5 key points)
 ## 3. How It Works
 Step-by-step explanation with examples (use numbered lists)
 
-[CHART: Flow diagram showing the process]
-
 ## 4. Types / Categories
 Different types with explanations and when to use each
-
-[CHART: Comparison table of types]
 
 ## 5. Best Practices
 Top 10 best practices with explanations (numbered list)
@@ -229,34 +223,43 @@ Summary table or cheat sheet
 ## 9. Key Takeaways
 5 bullet points of the most important things to remember
 
-[IMAGE: An illustration showing the main concept of ${topic.trim()}]
-
 IMPORTANT RULES:
 - Use simple English (8th grade reading level)
 - Each section should be detailed (at least 3-5 paragraphs or 5+ list items)
-- Include [CHART: description] placeholders where a chart would help understanding
-- Include [IMAGE: description] placeholders where an illustration would help
 - Use bold for key terms
 - Use code blocks for any code examples
 - Use tables for comparisons
 - Make it engaging and practical`,
           },
         ],
-        max_tokens: 8000,
-        temperature: 0.7,
-      })
+        "glm-4.7-flash", // Use free model by default
+        apiKeys,
+        { maxTokens: 8000, temperature: 0.7 }
+      )
 
-      content = completion.choices[0]?.message?.content || ""
+      content = result.content
+
+      // Update API key usage tracking
+      if (result.apiKeyId && result.cost > 0) {
+        await db.apiKey.update({
+          where: { id: result.apiKeyId },
+          data: { currentSpend: { increment: result.cost } },
+        })
+        await db.apiUsageLog.create({
+          data: {
+            apiKeyId: result.apiKeyId,
+            model: result.model,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cost: result.cost,
+          },
+        })
+      }
     } catch (aiError: any) {
       console.error("[training/documents] AI generation error:", aiError.message, aiError.stack)
-      // Clean up draft document on failure
       try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
-      const msg = aiError.message || "Unknown error"
-      const isConfigError = msg.includes("Configuration file") || msg.includes("config") || msg.includes("baseUrl") || msg.includes("apiKey")
       return NextResponse.json({
-        error: isConfigError
-          ? `AI SDK not configured. Set ZAI_BASE_URL and ZAI_API_KEY in Vercel env vars. Details: ${msg}`
-          : `AI generation failed: ${msg}`,
+        error: `AI generation failed: ${aiError.message}. Make sure you have active API keys configured in Dashboard > API Keys.`,
       }, { status: 500 })
     }
 
@@ -278,8 +281,7 @@ IMPORTANT RULES:
       .trim()
       .slice(0, 300)
 
-    // Save document with content FIRST — return to client immediately
-    // Images will be generated in the background (non-blocking)
+    // Save document with content
     const updated = await db.trainingDocument.update({
       where: { id: document.id },
       data: {
@@ -293,86 +295,9 @@ IMPORTANT RULES:
       },
     })
 
-    // Fire-and-forget: generate images in background using SDK (not blocking CLI)
-    generateImagesAsync(document.id, topic.trim()).catch((err) => {
-      console.error("[training/documents] Background image error:", err?.message)
-    })
-
     return NextResponse.json(updated, { status: 201 })
   } catch (error: any) {
     console.error("[training/documents] POST error:", error.message, error.stack)
     return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
-  }
-}
-
-/**
- * Create a ZAI SDK instance using env vars (Vercel-safe).
- * Falls back to ZAI.create() for local dev where .z-ai-config exists.
- */
-function createZAI(ZAI: any) {
-  const baseUrl = process.env.ZAI_BASE_URL
-  const apiKey = process.env.ZAI_API_KEY
-  if (baseUrl && apiKey) {
-    return new ZAI({ baseUrl, apiKey })
-  }
-  // Fallback: let the SDK read from .z-ai-config (works in local dev)
-  // @ts-ignore — static create method exists on the SDK class
-  return ZAI.create()
-}
-
-async function generateImagesAsync(documentId: string, topic: string) {
-  try {
-    // Skip image generation on Vercel (read-only filesystem)
-    if (process.env.NODE_ENV === "production") {
-      console.log("[training/documents] Skipping image generation on production (read-only FS)")
-      return
-    }
-
-    const ZAI = (await import("z-ai-web-dev-sdk")).default
-    const zai = createZAI(ZAI)
-
-    const imgDir = path.join(process.cwd(), "public", "training-images")
-    await mkdir(imgDir, { recursive: true })
-
-    const prompts = [
-      `Professional training illustration about ${topic}, clean modern design, educational infographic style, no text overlay`,
-      `Educational concept diagram about ${topic}, minimalist flat illustration, blue and white color scheme, no text`,
-    ]
-
-    const imageUrls: string[] = []
-
-    for (let i = 0; i < prompts.length; i++) {
-      try {
-        const response = await zai.images.generations.create({
-          prompt: prompts[i],
-          size: "1024x1024",
-        })
-
-        const base64 = response.data?.[0]?.base64
-        if (!base64) continue
-
-        const safeTopic = topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()
-        const imgPath = path.join(imgDir, `${safeTopic}-${documentId}-${i}.png`)
-        const buffer = Buffer.from(base64, "base64")
-        await writeFile(imgPath, buffer)
-        imageUrls.push(`/training-images/${safeTopic}-${documentId}-${i}.png`)
-      } catch (imgErr: any) {
-        console.error(`[training/documents] Image ${i} failed:`, imgErr.message)
-      }
-    }
-
-    // Update document with image URLs once all images are ready
-    if (imageUrls.length > 0) {
-      await db.trainingDocument.update({
-        where: { id: documentId },
-        data: {
-          imageUrl: imageUrls[0] || null,
-          imageUrls: JSON.stringify(imageUrls),
-        },
-      })
-      console.log(`[training/documents] Generated ${imageUrls.length} images for document ${documentId}`)
-    }
-  } catch (err: any) {
-    console.error("[training/documents] Background image error:", err?.message)
   }
 }

@@ -4,26 +4,19 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
+import { callAIWithFailover } from "@/lib/ai/openrouter"
 
 // ━━ Auto-migration: Ensure training tables exist on Turso ━━
-// Tracks whether migration has been attempted in this serverless instance
 let migrationAttempted = false
 
-/**
- * Auto-create training tables if they don't exist.
- * This runs once per cold start and handles the case where Turso
- * doesn't have the training tables (added after initial DB setup).
- */
 async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> {
   if (migrationAttempted) return { ok: true }
   migrationAttempted = true
 
   try {
-    // Quick check — if TrainingDocument table is accessible, all good
     await db.$queryRawUnsafe(`SELECT 1 FROM TrainingDocument LIMIT 0`)
     return { ok: true }
   } catch {
-    // Table doesn't exist — create all training tables
     console.log("[training] TrainingDocument table missing — running auto-migration...")
     try {
       await db.$executeRawUnsafe(`
@@ -86,7 +79,6 @@ async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> 
           FOREIGN KEY ("assignmentId") REFERENCES "TrainingAssignment"("id") ON DELETE CASCADE ON UPDATE CASCADE
         )
       `)
-      // Create indexes
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_idx" ON "TrainingAssignment"("assignedTo")`)
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_status_idx" ON "TrainingAssignment"("status")`)
       console.log("[training] Auto-migration complete — all training tables created")
@@ -101,20 +93,6 @@ async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> 
 // Vercel serverless function timeout (seconds) — AI generation needs more time
 export const maxDuration = 60
 
-/**
- * Create a ZAI SDK instance using env vars (Vercel-safe).
- * Falls back to ZAI.create() for local dev where .z-ai-config exists.
- */
-function createZAI(ZAI: any) {
-  const baseUrl = process.env.ZAI_BASE_URL
-  const apiKey = process.env.ZAI_API_KEY
-  if (baseUrl && apiKey) {
-    return new ZAI({ baseUrl, apiKey })
-  }
-  // @ts-ignore — static create method exists on the SDK class
-  return ZAI.create()
-}
-
 // POST /api/training/tests/generate - Generate test for a document
 export async function POST(req: NextRequest) {
   try {
@@ -122,7 +100,6 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
       return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
@@ -151,7 +128,6 @@ export async function POST(req: NextRequest) {
     })
     if (existingTest) return NextResponse.json({ error: "Test already exists for this level" }, { status: 409 })
 
-    // Generate test with AI
     const difficultyInstructions: Record<string, string> = {
       LOW: "basic recall and understanding questions. Simple concepts directly from the text.",
       MEDIUM: "application questions. Test if the reader can apply concepts to scenarios.",
@@ -160,11 +136,20 @@ export async function POST(req: NextRequest) {
 
     let questions: any[] = []
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default
-      const zai = createZAI(ZAI)
+      // Get available API keys from database
+      const apiKeys = await db.apiKey.findMany({
+        where: { status: { in: ["ACTIVE"] } },
+        orderBy: { priority: "asc" },
+      })
 
-      const completion = await zai.chat.completions.create({
-        messages: [
+      if (!apiKeys || apiKeys.length === 0) {
+        return NextResponse.json({
+          error: "No AI API keys configured. Go to Dashboard > API Keys and add at least one API key.",
+        }, { status: 500 })
+      }
+
+      const result = await callAIWithFailover(
+        [
           {
             role: "system",
             content: "You are an expert assessment creator. Create questions based ONLY on the provided training material.",
@@ -197,61 +182,73 @@ Return format:
 ]`,
           },
         ],
-        max_tokens: 4000,
-        temperature: 0.5,
-      })
+        "glm-4.7-flash",
+        apiKeys,
+        { maxTokens: 4000, temperature: 0.5 }
+      )
 
-      const content = completion.choices[0]?.message?.content || "[]"
-      const jsonMatch = content.match(/\[[\s\S]*\]/)
+      const aiContent = result.content
+      const jsonMatch = aiContent.match(/\[[\s\S]*\]/)
       if (jsonMatch) {
         questions = JSON.parse(jsonMatch[0])
       } else {
-        questions = JSON.parse(content)
+        questions = JSON.parse(aiContent)
       }
 
-      // Validate questions structure
-      if (!Array.isArray(questions) || questions.length < 5) {
-        return NextResponse.json({ error: "AI generated insufficient questions. Please try again." }, { status: 500 })
-      }
-
-      // Validate and sanitize each question
-      questions = questions.slice(0, 10).map((q: any, idx: number) => {
-        // Ensure correctAnswer is a valid numeric index (0-3), not a string like "A"
-        let correctAnswer = typeof q.correctAnswer === "number" && q.correctAnswer >= 0 && q.correctAnswer <= 3
-          ? q.correctAnswer
-          : ["A", "a", "B", "b", "C", "c", "D", "d"].indexOf(q.correctAnswer)
-        if (correctAnswer === -1 || typeof correctAnswer !== "number" || isNaN(correctAnswer)) {
-          correctAnswer = 0
-        }
-        return {
-          question: String(q.question || `Question ${idx + 1}`),
-          options: Array.isArray(q.options) && q.options.length === 4
-            ? q.options.map(String)
-            : ["Option A", "Option B", "Option C", "Option D"],
-          correctAnswer,
-          explanation: String(q.explanation || "Refer to the training material."),
-        }
-      })
-
-      // Pad if less than 10 (shouldn't happen after validation, but safety net)
-      while (questions.length < 10) {
-        const lastQ = questions[questions.length - 1]
-        questions.push({
-          question: `Additional question ${questions.length + 1} about ${document.topic}`,
-          options: ["Option A", "Option B", "Option C", "Option D"],
-          correctAnswer: 0,
-          explanation: "Refer to the training material.",
+      // Update API key usage tracking
+      if (result.apiKeyId && result.cost > 0) {
+        await db.apiKey.update({
+          where: { id: result.apiKeyId },
+          data: { currentSpend: { increment: result.cost } },
+        })
+        await db.apiUsageLog.create({
+          data: {
+            apiKeyId: result.apiKeyId,
+            model: result.model,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cost: result.cost,
+          },
         })
       }
     } catch (aiError: any) {
       console.error("[training/tests/generate] AI error:", aiError.message, aiError.stack)
-      const msg = aiError.message || "Unknown error"
-      const isConfigError = msg.includes("Configuration file") || msg.includes("config") || msg.includes("baseUrl") || msg.includes("apiKey")
       return NextResponse.json({
-        error: isConfigError
-          ? `AI SDK not configured. Set ZAI_BASE_URL and ZAI_API_KEY in Vercel env vars. Details: ${msg}`
-          : `AI generation failed: ${msg}`,
+        error: `AI generation failed: ${aiError.message}. Make sure you have active API keys configured in Dashboard > API Keys.`,
       }, { status: 500 })
+    }
+
+    // Validate questions structure
+    if (!Array.isArray(questions) || questions.length < 5) {
+      return NextResponse.json({ error: "AI generated insufficient questions. Please try again." }, { status: 500 })
+    }
+
+    // Validate and sanitize each question
+    questions = questions.slice(0, 10).map((q: any, idx: number) => {
+      let correctAnswer = typeof q.correctAnswer === "number" && q.correctAnswer >= 0 && q.correctAnswer <= 3
+        ? q.correctAnswer
+        : ["A", "a", "B", "b", "C", "c", "D", "d"].indexOf(q.correctAnswer)
+      if (correctAnswer === -1 || typeof correctAnswer !== "number" || isNaN(correctAnswer)) {
+        correctAnswer = 0
+      }
+      return {
+        question: String(q.question || `Question ${idx + 1}`),
+        options: Array.isArray(q.options) && q.options.length === 4
+          ? q.options.map(String)
+          : ["Option A", "Option B", "Option C", "Option D"],
+        correctAnswer,
+        explanation: String(q.explanation || "Refer to the training material."),
+      }
+    })
+
+    while (questions.length < 10) {
+      const lastQ = questions[questions.length - 1]
+      questions.push({
+        question: `Additional question ${questions.length + 1} about ${document.topic}`,
+        options: ["Option A", "Option B", "Option C", "Option D"],
+        correctAnswer: 0,
+        explanation: "Refer to the training material.",
+      })
     }
 
     // Create test in database
