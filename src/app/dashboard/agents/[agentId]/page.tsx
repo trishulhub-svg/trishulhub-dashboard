@@ -13,7 +13,7 @@ import {
   MoreVertical, Search, SendHorizontal, ShieldAlert,
   Wrench, Brain, Eye, FileCode, Globe, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User, Lock,
+  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User, Lock, Radio,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -338,7 +338,15 @@ export default function AgentChatPage() {
   const [mobileTab, setMobileTab] = useState<"chats" | "messages" | "features">("messages");
 
   // Right panel tab
-  const [rightTab, setRightTab] = useState<"features" | "tasks" | "crossagent" | "live">("live");
+  const [rightTab, setRightTab] = useState<"features" | "tasks" | "crossagent" | "live" | "auto">("auto");
+
+  // Autonomous activity logs
+  const [autoActivity, setAutoActivity] = useState<Array<{
+    id: string; action: string; title: string; description: string | null;
+    status: string; tokensUsed: number; cost: number; duration: number; createdAt: string;
+    result?: string | null;
+  }>>([]);
+  const [autoActivityLoading, setAutoActivityLoading] = useState(false);
 
   // Dialogs
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -570,7 +578,23 @@ export default function AgentChatPage() {
     }
   }, [agentId]);
 
-  // ── Fetch Cross-Agent Messages ──
+  // ── Fetch Autonomous Activity Logs ──
+  const fetchAutoActivity = useCallback(async () => {
+    if (!agentId) return;
+    setAutoActivityLoading(true);
+    try {
+      const res = await fetch(`/api/agents/autonomy/activity?agentId=${agentId}&limit=30`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setAutoActivity(Array.isArray(data?.logs) ? data.logs : []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch auto activity:", err);
+    } finally {
+      setAutoActivityLoading(false);
+    }
+  }, [agentId]);
+
   const fetchCrossAgent = useCallback(async () => {
     if (!agentId) return;
     setCrossAgentLoading(true);
@@ -836,8 +860,9 @@ export default function AgentChatPage() {
       fetchChats();
       fetchTasks();
       fetchCrossAgent();
+      fetchAutoActivity();
     }
-  }, [agent, fetchChats, fetchTasks, fetchCrossAgent]);
+  }, [agent, fetchChats, fetchTasks, fetchCrossAgent, fetchAutoActivity]);
 
   // ── Check for active processing on mount (navigation resume) ──
   // FIX: Wrap cascading setState calls inside startTransition to prevent React error #185.
@@ -3232,6 +3257,9 @@ export default function AgentChatPage() {
               expandedSteps={expandedSteps}
               setExpandedSteps={setExpandedSteps}
               sending={sending}
+              autoActivity={autoActivity}
+              autoActivityLoading={autoActivityLoading}
+              onRefreshAutoActivity={fetchAutoActivity}
             />
           </TabsContent>
         </Tabs>
@@ -3568,6 +3596,9 @@ export default function AgentChatPage() {
             expandedSteps={expandedSteps}
             setExpandedSteps={setExpandedSteps}
             sending={sending}
+            autoActivity={autoActivity}
+            autoActivityLoading={autoActivityLoading}
+            onRefreshAutoActivity={fetchAutoActivity}
           />
         </div>
       )}
@@ -4990,9 +5021,12 @@ function RightPanel({
   expandedSteps,
   setExpandedSteps,
   sending,
+  autoActivity,
+  autoActivityLoading,
+  onRefreshAutoActivity,
 }: {
   rightTab: string;
-  setRightTab: (tab: "features" | "tasks" | "crossagent" | "live") => void;
+  setRightTab: (tab: "features" | "tasks" | "crossagent" | "live" | "auto") => void;
   agent: AgentData;
   quickActions: QuickAction[];
   specialCommands: SpecialCommand[];
@@ -5018,13 +5052,19 @@ function RightPanel({
   expandedSteps: Set<number>;
   setExpandedSteps: (steps: Set<number>) => void;
   sending: boolean;
+  autoActivity: Array<{ id: string; action: string; title: string; description: string | null; status: string; tokensUsed: number; cost: number; duration: number; createdAt: string; result?: string | null }>;
+  autoActivityLoading: boolean;
+  onRefreshAutoActivity: () => void;
 }) {
   return (
     <>
       {/* Panel header */}
       <div className="p-3 border-b">
-        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent" | "live")}>
+        <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent" | "live" | "auto")}>
           <TabsList className="w-full h-8">
+            <TabsTrigger value="auto" className="text-xs flex-1">
+              <Radio className="h-3 w-3 mr-1" /> Auto
+            </TabsTrigger>
             <TabsTrigger value="live" className="text-xs flex-1">
               <Terminal className="h-3 w-3 mr-1" /> Live
             </TabsTrigger>
@@ -5042,6 +5082,13 @@ function RightPanel({
       </div>
 
       <ScrollArea className="flex-1 min-h-0 h-0">
+        {rightTab === "auto" && (
+          <AutoTab
+            activity={autoActivity}
+            loading={autoActivityLoading}
+            onRefresh={onRefreshAutoActivity}
+          />
+        )}
         {rightTab === "live" && (
           <LiveTab
             liveSteps={liveSteps}
@@ -6370,5 +6417,150 @@ function CrossAgentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// AUTO TAB — Autonomous Activity Log (shows AgentActivityLog entries)
+// ──────────────────────────────────────────────────────────────────
+function AutoTab({
+  activity,
+  loading,
+  onRefresh,
+}: {
+  activity: Array<{
+    id: string; action: string; title: string; description: string | null;
+    status: string; tokensUsed: number; cost: number; duration: number; createdAt: string;
+    result?: string | null;
+  }>;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  if (loading) {
+    return (
+      <div className="p-4 space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Autonomous Activity
+        </h4>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">{activity.length} cycles</span>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} aria-label="Refresh">
+            <Loader2 className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+
+      {activity.length === 0 ? (
+        <div className="text-center py-8">
+          <Radio className="h-8 w-8 mx-auto text-muted-foreground/30 mb-2" />
+          <p className="text-xs text-muted-foreground">No autonomous activity yet</p>
+          <p className="text-[10px] text-muted-foreground/60 mt-1">
+            Enable autonomous mode from the Agents page to see activity here
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {activity.map((log) => {
+            const isSuccess = log.status === "SUCCESS";
+            const isExpanded = expandedId === log.id;
+
+            // Parse result JSON for tools used
+            let toolsUsed: string[] = [];
+            let stepsCount = 0;
+            try {
+              if (log.result) {
+                const parsed = JSON.parse(log.result);
+                toolsUsed = parsed.toolsUsed || [];
+                stepsCount = parsed.steps || 0;
+              }
+            } catch {}
+
+            return (
+              <div
+                key={log.id}
+                className={`rounded-lg border p-2.5 cursor-pointer transition-colors ${
+                  isSuccess
+                    ? "border-green-200 dark:border-green-800/40 bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20"
+                    : "border-red-200 dark:border-red-800/40 bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20"
+                }`}
+                onClick={() => setExpandedId(isExpanded ? null : log.id)}
+              >
+                <div className="flex items-start gap-2">
+                  {isSuccess ? (
+                    <CircleCheck className="h-3.5 w-3.5 text-green-500 mt-0.5 shrink-0" />
+                  ) : (
+                    <CircleX className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{log.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-0.5">
+                        <Clock className="h-2.5 w-2.5" />
+                        {(log.duration / 1000).toFixed(1)}s
+                      </span>
+                      {log.tokensUsed > 0 && <span>{log.tokensUsed} tokens</span>}
+                      {log.cost > 0 && <span>${log.cost.toFixed(4)}</span>}
+                      <span>{formatRelativeTime(log.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expanded details */}
+                {isExpanded && (
+                  <div className="mt-2 pt-2 border-t space-y-2">
+                    {/* Description (agent's response summary) */}
+                    {log.description && isSuccess && (
+                      <div className="text-[11px] text-muted-foreground bg-muted/50 rounded p-2 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                        {log.description}
+                      </div>
+                    )}
+
+                    {/* Tools used */}
+                    {toolsUsed.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        <span className="text-[10px] text-muted-foreground">Tools:</span>
+                        {toolsUsed.map((tool, idx) => (
+                          <Badge key={idx} variant="outline" className="text-[9px] px-1.5 py-0 h-4">
+                            <Wrench className="h-2 w-2 mr-0.5" />{tool}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Error details */}
+                    {!isSuccess && log.description && (
+                      <div className="text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded p-2">
+                        {log.description}
+                      </div>
+                    )}
+
+                    {/* Action type */}
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span>Action: {log.action}</span>
+                      {stepsCount > 0 && <span>| {stepsCount} steps</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

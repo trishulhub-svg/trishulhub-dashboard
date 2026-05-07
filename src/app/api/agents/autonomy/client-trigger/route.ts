@@ -230,7 +230,6 @@ export async function POST(req: NextRequest) {
               lastRunAt: new Date(),
               nextRunAt: nextRun,
               totalRuns: config.totalRuns + 1,
-              totalErrors: 0,
               lastError: null,
               status: "RUNNING",
             },
