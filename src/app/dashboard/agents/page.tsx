@@ -8,7 +8,7 @@ import {
   ArrowRight, Bot, MessageSquare, Calendar, Zap, Brain, AlertCircle,
   Pause, Play, RotateCcw, Activity, Radio, RefreshCw, Loader2, Settings,
   CheckCircle, XCircle, Wrench, Clock, TrendingUp, Eye, ChevronDown, ChevronUp,
-  MonitorDot, ShieldAlert,
+  MonitorDot, ShieldAlert, LayoutGrid,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -139,12 +139,8 @@ export default function AgentsPage() {
   }, []);
 
   // ── Client-Driven Autonomous Polling Loop ──
-  // Replaces Vercel Cron. Works on Vercel free plan.
-  // Polls every 30s, triggers thinking cycles for due agents.
   const pollAndTrigger = useCallback(async () => {
-    // Skip if no agents are enabled
     if (autonomyConfigs.filter(c => c.enabled).length === 0) return;
-    // Skip if already triggering
     if (runningAgentsRef.current.size > 0) return;
 
     setPollStatus("polling");
@@ -158,14 +154,12 @@ export default function AgentsPage() {
       setPendingApprovals(data.pendingApprovals || 0);
       setPendingInterAgent(data.pendingInterAgent || 0);
 
-      // Trigger autonomous thinking for each due agent (max 1 at a time)
       if (dueAgents.length > 0) {
-        const agent = dueAgents[0]; // Process one at a time
+        const agent = dueAgents[0];
         setPollStatus("triggering");
         runningAgentsRef.current.add(agent.agentId);
         setRunningAgents(new Set(runningAgentsRef.current));
 
-        // Show initial live step
         setLiveSteps(prev => [...prev, {
           agentId: agent.agentId,
           agentName: agent.agentName,
@@ -179,7 +173,6 @@ export default function AgentsPage() {
         runningAgentsRef.current.delete(agent.agentId);
         setRunningAgents(new Set(runningAgentsRef.current));
 
-        // Refresh autonomy configs after cycle
         fetchAutonomy();
       }
     } catch (err) {
@@ -236,7 +229,6 @@ export default function AgentsPage() {
                   `Cycle complete (${event.usedTools?.length || 0} tools, ${(event.duration / 1000).toFixed(1)}s)`,
                   "done"
                 );
-                // Refresh activity logs
                 fetch("/api/agents/autonomy/poll", { credentials: "include" })
                   .then(r => r.json())
                   .then(d => { if (d.recentActivity) setActivityLogs(d.recentActivity); })
@@ -253,7 +245,6 @@ export default function AgentsPage() {
     }
   };
 
-  // Helper to update live steps
   const updateLiveStep = (agentId: string, step: string, status: "running" | "done" | "error") => {
     setLiveSteps(prev => {
       const updated = [...prev];
@@ -261,20 +252,17 @@ export default function AgentsPage() {
       if (idx >= 0) {
         updated[idx] = { ...updated[idx], step, status };
       }
-      // Keep only last 20 steps
       return updated.slice(-20);
     });
   };
 
-  // Start polling loop when page is mounted
+  // Start polling loop
   useEffect(() => {
     fetchAgents();
     fetchAutonomy();
 
-    // Initial poll after 5s (give time for autonomy configs to load)
     const initialTimeout = setTimeout(() => {
       pollAndTrigger();
-      // Then poll every 30 seconds
       pollingIntervalRef.current = setInterval(pollAndTrigger, 30000);
     }, 5000);
 
@@ -302,7 +290,6 @@ export default function AgentsPage() {
       if (res.ok) {
         toast.success(enabled ? "Agent autonomous mode enabled" : "Agent paused");
         fetchAutonomy();
-        // Immediately poll if enabled
         if (enabled) {
           setTimeout(pollAndTrigger, 2000);
         }
@@ -371,11 +358,11 @@ export default function AgentsPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">AI Agents</h1>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="space-y-4 sm:space-y-6 px-2 sm:px-0">
+        <h1 className="text-xl sm:text-2xl font-bold">AI Agents</h1>
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-56 rounded-lg" />
+            <Skeleton key={i} className="h-52 sm:h-56 rounded-lg" />
           ))}
         </div>
       </div>
@@ -393,12 +380,12 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-4 sm:space-y-5">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl font-bold">AI Agents</h1>
-          <p className="text-muted-foreground text-sm">Manage and interact with your AI-powered agents</p>
+          <h1 className="text-xl sm:text-2xl font-bold">AI Agents</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm">Manage and interact with your AI-powered agents</p>
         </div>
         <Badge variant="outline" className="text-xs">
           {agents.length} agents available
@@ -407,15 +394,15 @@ export default function AgentsPage() {
 
       {/* ── Autonomy Control Panel ── */}
       <Card className="border-orange-200 dark:border-orange-900/50 bg-gradient-to-r from-orange-50/50 to-transparent dark:from-orange-950/20">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                <Radio className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+        <CardHeader className="pb-2 sm:pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
+                <Radio className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 dark:text-orange-400" />
               </div>
-              <div>
-                <CardTitle className="text-base">Autonomous Mode</CardTitle>
-                <CardDescription className="text-xs">
+              <div className="min-w-0">
+                <CardTitle className="text-sm sm:text-base">Autonomous Mode</CardTitle>
+                <CardDescription className="text-[11px] sm:text-xs leading-relaxed">
                   {activeCount > 0
                     ? <>Agents think every {autonomyConfigs.find(c => c.enabled)?.interval || 5} min. Keep this page open for background thinking.</>
                     : <>Click Start All to enable autonomous thinking.</>
@@ -429,49 +416,49 @@ export default function AgentsPage() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleToggleAll(false)}
-                  className="gap-1.5 text-xs"
+                  className="gap-1.5 text-xs h-8 sm:h-9"
                 >
-                  <Pause className="h-3.5 w-3.5" /> Pause All
+                  <Pause className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Pause All</span><span className="xs:hidden">Pause</span>
                 </Button>
               )}
               <Button
                 size="sm"
                 onClick={() => handleToggleAll(true)}
-                className="gap-1.5 text-xs bg-orange-600 hover:bg-orange-700"
+                className="gap-1.5 text-xs h-8 sm:h-9 bg-orange-600 hover:bg-orange-700"
               >
-                <Play className="h-3.5 w-3.5" /> Start All
+                <Play className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Start All</span><span className="xs:hidden">Start</span>
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <Badge variant={activeCount > 0 ? "default" : "secondary"} className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 text-[11px] sm:text-xs">
+            <Badge variant={activeCount > 0 ? "default" : "secondary"} className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-[10px] sm:text-xs">
               {activeCount} running
             </Badge>
             {totalRuns > 0 && (
-              <Badge variant="outline" className="text-xs">
-                <TrendingUp className="h-2.5 w-2.5 mr-0.5" /> {totalRuns} total cycles
+              <Badge variant="outline" className="text-[10px] sm:text-xs">
+                <TrendingUp className="h-2.5 w-2.5 mr-0.5" /> {totalRuns} cycles
               </Badge>
             )}
             {errorCount > 0 && (
-              <Badge variant="destructive" className="text-xs">
+              <Badge variant="destructive" className="text-[10px] sm:text-xs">
                 {errorCount} errors
               </Badge>
             )}
             {pendingApprovals > 0 && (
-              <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
+              <Badge variant="outline" className="text-[10px] sm:text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
                 <ShieldAlert className="h-2.5 w-2.5 mr-0.5" /> {pendingApprovals} approvals
               </Badge>
             )}
             {pendingInterAgent > 0 && (
-              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+              <Badge variant="outline" className="text-[10px] sm:text-xs bg-blue-50 text-blue-700 border-blue-200">
                 <MessageSquare className="h-2.5 w-2.5 mr-0.5" /> {pendingInterAgent} messages
               </Badge>
             )}
-            <span className="text-muted-foreground">{totalCount} agents configured</span>
+            <span className="text-muted-foreground hidden sm:inline">{totalCount} agents configured</span>
             {runningAgents.size > 0 && (
-              <Badge className="text-xs bg-green-100 text-green-700 border-0 animate-pulse">
+              <Badge className="text-[10px] sm:text-xs bg-green-100 text-green-700 border-0 animate-pulse">
                 <MonitorDot className="h-2.5 w-2.5 mr-0.5" /> {runningAgents.size} thinking now
               </Badge>
             )}
@@ -481,342 +468,332 @@ export default function AgentsPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => { fetchAutonomy(); pollAndTrigger(); }}
-                className="gap-1 text-xs"
+                className="gap-1 text-xs h-7"
               >
-                <RefreshCw className="h-3 w-3" /> Refresh
+                <RefreshCw className="h-3 w-3" /> <span className="hidden sm:inline">Refresh</span>
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* ── Agent Cards Grid (2 cols) ── */}
-        <div className="lg:col-span-2 grid gap-4 md:grid-cols-2">
-          {(agents as any[]).length === 0 ? (
-            <div className="col-span-full text-center py-12">
-              <Bot className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No agents found.</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); fetchAgents(); }}>
-                Refresh
+      {/* ── Live Activity Feed (Full Width, below Autonomy) ── */}
+      <Card>
+        <CardHeader className="pb-2 sm:pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-orange-500" />
+              Live Activity
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {/* Compact stats row - visible on all sizes */}
+              <div className="flex items-center gap-1.5 mr-1">
+                <div className="hidden sm:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
+                  <span className="text-xs font-semibold">{totalRuns}</span>
+                  <span className="text-[10px] text-muted-foreground">Cycles</span>
+                </div>
+                <div className="hidden sm:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
+                  <span className="text-xs font-semibold">{activeCount}</span>
+                  <span className="text-[10px] text-muted-foreground">Active</span>
+                </div>
+                <div className="hidden md:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
+                  <span className="text-xs font-semibold">{pendingApprovals}</span>
+                  <span className="text-[10px] text-muted-foreground">Approvals</span>
+                </div>
+                <div className="hidden md:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
+                  <span className="text-xs font-semibold">{pendingInterAgent}</span>
+                  <span className="text-[10px] text-muted-foreground">Msgs</span>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setShowActivity(!showActivity)}
+              >
+                {showActivity ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </Button>
             </div>
-          ) : (agents as any[]).map((agent) => {
-            const Icon = agentIcons[agent.type] || Bot;
-            const agentConfig = AGENT_TYPES[agent.type as AgentType];
-            const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
-            const chatCount = agent._count?.chats || agent._count?.conversations || 0;
-            const autonomy = getAutonomyConfig(agent.id);
-            const isDev = agent.type === "DEV";
-            const isToggling = togglingAgent === agent.id;
-            const isCurrentlyRunning = runningAgents.has(agent.id);
-
-            let features: Record<string, boolean> = {};
-            try {
-              if (agent.roleConfig?.features) {
-                features = typeof agent.roleConfig.features === "string"
-                  ? JSON.parse(agent.roleConfig.features)
-                  : agent.roleConfig.features;
-              }
-            } catch { /* ignore */ }
-
-            let quickActionsCount = 0;
-            try {
-              if (agent.roleConfig?.quickActions) {
-                const actions = typeof agent.roleConfig.quickActions === "string"
-                  ? JSON.parse(agent.roleConfig.quickActions)
-                  : agent.roleConfig.quickActions;
-                quickActionsCount = Array.isArray(actions) ? actions.length : 0;
-              }
-            } catch { /* ignore */ }
-
-            return (
-              <Card
-                key={agent.id}
-                className={`hover:shadow-md transition-all cursor-pointer border hover:border-primary/20 group ${isCurrentlyRunning ? "border-green-300 dark:border-green-700 shadow-green-100 dark:shadow-green-900/20 shadow-sm" : ""}`}
-                onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-11 w-11 rounded-lg ${agentConfig?.bgColor || "bg-muted"} flex items-center justify-center relative`}>
-                        <Icon className={`h-5 w-5 ${agentConfig?.color || "text-muted-foreground"}`} />
-                        {isCurrentlyRunning && (
-                          <div className="absolute -top-1 -right-1 h-3 w-3 bg-green-500 rounded-full animate-pulse border-2 border-white dark:border-gray-900" />
-                        )}
-                      </div>
-                      <div>
-                        <CardTitle className="text-base flex items-center gap-2">
-                          {agent.name}
-                          <div className={`h-2 w-2 rounded-full ${isCurrentlyRunning ? "bg-green-500 animate-pulse" : statusColor}`} />
-                        </CardTitle>
-                        <CardDescription className="text-xs mt-0.5">{agent.model}</CardDescription>
-                      </div>
-                    </div>
-                    <Badge
-                      variant={isCurrentlyRunning ? "default" : agent.status === "IDLE" ? "secondary" : agent.status === "ERROR" ? "destructive" : "outline"}
-                      className="text-xs"
-                    >
-                      {isCurrentlyRunning ? "THINKING" : agent.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {agentConfig?.description || agent.description}
-                  </p>
-
-                  {/* Features Badges */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {autonomy?.enabled && (
-                      <Badge className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400 border-green-200 dark:border-green-800">
-                        <Radio className="h-2.5 w-2.5 mr-0.5" /> Auto
-                      </Badge>
-                    )}
-                    {features.agentic && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 border-purple-200 dark:border-purple-800">
-                        <Brain className="h-2.5 w-2.5 mr-0.5" /> Agentic
-                      </Badge>
-                    )}
-                    {features.webSearch && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        <Zap className="h-2.5 w-2.5 mr-0.5" /> Web Search
-                      </Badge>
-                    )}
-                    {features.crossAgent && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        <MessageSquare className="h-2.5 w-2.5 mr-0.5" /> Cross-Agent
-                      </Badge>
-                    )}
-                    {quickActionsCount > 0 && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        {quickActionsCount} Actions
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Autonomy status bar */}
-                  {autonomy && !isDev && (
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
-                      {autonomy.enabled ? (
-                        <>
-                          <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                          <span>Cycle #{autonomy.totalRuns + 1}</span>
-                          <span className="text-muted-foreground/60">|</span>
-                          <span>{autonomy.totalRuns} completed</span>
-                          {autonomy.lastRunAt && (
-                            <>
-                              <span className="text-muted-foreground/60">|</span>
-                              <span>Last: {new Date(autonomy.lastRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                            </>
-                          )}
-                          {autonomy.lastError && (
-                            <>
-                              <span className="text-muted-foreground/60">|</span>
-                              <span className="text-red-500" title={autonomy.lastError}>Error</span>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-                          <span>Autonomy off</span>
-                          {autonomy.totalRuns > 0 && (
-                            <>
-                              <span className="text-muted-foreground/60">|</span>
-                              <span>{autonomy.totalRuns} cycles done</span>
-                            </>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Bottom bar with toggle + chat button */}
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MessageSquare className="h-3 w-3" />
-                        {chatCount}
-                      </span>
-                      {/* Autonomy toggle button — DEV excluded */}
-                      {!isDev && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1"
-                        >
-                          {autonomy?.status === "ERROR" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                              onClick={() => handleRestart(agent.id)}
-                              disabled={isToggling}
-                              title="Restart agent"
-                            >
-                              {isToggling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className={`h-6 w-6 p-0 ${autonomy?.enabled ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-muted-foreground hover:text-foreground"}`}
-                              onClick={() => handleToggleAgent(agent.id, !autonomy?.enabled)}
-                              disabled={isToggling || isCurrentlyRunning}
-                              title={autonomy?.enabled ? "Pause autonomy" : "Enable autonomy"}
-                            >
-                              {isToggling || isCurrentlyRunning ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : autonomy?.enabled ? (
-                                <Pause className="h-3 w-3" />
-                              ) : (
-                                <Play className="h-3 w-3" />
-                              )}
-                            </Button>
-                          )}
+          </div>
+        </CardHeader>
+        {showActivity && (
+          <CardContent className="pt-0">
+            <ScrollArea className="h-[200px] sm:h-[250px] lg:h-[300px]">
+              <div className="space-y-2">
+                {/* Live steps (currently running) */}
+                {liveSteps.filter(s => s.status === "running").length > 0 && (
+                  <div className="space-y-1.5">
+                    {liveSteps.filter(s => s.status === "running").map((step, i) => {
+                      const StepIcon = step.type === "tool_call" ? Wrench : Brain;
+                      return (
+                        <div key={`live-${step.agentId}-${i}`} className="flex items-start gap-2 p-2 sm:p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-800/30">
+                          <StepIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400 mt-0.5 shrink-0 animate-pulse" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] sm:text-xs font-medium text-green-700 dark:text-green-400 truncate">{step.agentName}</p>
+                            <p className="text-[10px] sm:text-[11px] text-green-600 dark:text-green-500 truncate">{step.step}</p>
+                          </div>
+                          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0 mt-1" />
                         </div>
-                      )}
-                    </div>
-                    <Button size="sm" variant="ghost" className="group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                      Chat <ArrowRight className="h-3 w-3 ml-1" />
-                    </Button>
+                      );
+                    })}
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                )}
 
-        {/* ── Right Panel: Activity Feed ── */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-orange-500" />
-                  Live Activity
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setShowActivity(!showActivity)}
-                >
-                  {showActivity ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </Button>
-              </div>
-            </CardHeader>
-            {showActivity && (
-              <CardContent className="pt-0">
-                <ScrollArea className="h-[400px]">
-                  <div className="space-y-2">
-                    {/* Live steps (currently running) */}
-                    {liveSteps.filter(s => s.status === "running").length > 0 && (
-                      <div className="space-y-1.5">
-                        {liveSteps.filter(s => s.status === "running").map((step, i) => {
-                          const StepIcon = step.type === "tool_call" ? Wrench : Brain;
-                          return (
-                            <div key={`live-${step.agentId}-${i}`} className="flex items-start gap-2 p-2 bg-green-50 dark:bg-green-900/10 rounded-md border border-green-100 dark:border-green-800/30">
-                              <StepIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400 mt-0.5 shrink-0 animate-pulse" />
-                              <div className="min-w-0">
-                                <p className="text-[11px] font-medium text-green-700 dark:text-green-400 truncate">{step.agentName}</p>
-                                <p className="text-[10px] text-green-600 dark:text-green-500 truncate">{step.step}</p>
-                              </div>
-                            </div>
-                          );
-                        })}
+                {/* Completed steps */}
+                {liveSteps.filter(s => s.status !== "running").length > 0 && (
+                  <div className="space-y-1">
+                    {liveSteps.filter(s => s.status !== "running").slice(-5).map((step, i) => (
+                      <div key={`done-${step.agentId}-${i}`} className="flex items-start gap-2 p-1.5 sm:p-2 rounded-md">
+                        <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] sm:text-[11px] text-muted-foreground truncate">{step.agentName}: {step.step}</p>
+                        </div>
                       </div>
-                    )}
+                    ))}
+                  </div>
+                )}
 
-                    {/* Completed steps */}
-                    {liveSteps.filter(s => s.status !== "running").length > 0 && (
-                      <div className="space-y-1">
-                        {liveSteps.filter(s => s.status !== "running").slice(-5).map((step, i) => (
-                          <div key={`done-${step.agentId}-${i}`} className="flex items-start gap-2 p-1.5 rounded-md">
-                            <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-[10px] text-muted-foreground truncate">{step.agentName}: {step.step}</p>
+                {/* Activity logs */}
+                {activityLogs.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mt-1 mb-1 px-1">Recent Activity</p>
+                    {activityLogs.map((log) => {
+                      const Icon = agentIcons[log.agentType] || Bot;
+                      const isSuccess = log.status === "SUCCESS";
+                      return (
+                        <div key={log.id} className="flex items-start gap-2 p-1.5 sm:p-2 rounded-md hover:bg-muted/50 transition-colors">
+                          <div className={`h-6 w-6 sm:h-7 sm:w-7 rounded-md flex items-center justify-center shrink-0 ${isSuccess ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+                            <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-[11px] sm:text-xs font-medium truncate">{log.agentName}</p>
+                              {isSuccess
+                                ? <CheckCircle className="h-2.5 w-2.5 text-green-500 shrink-0" />
+                                : <XCircle className="h-2.5 w-2.5 text-red-500 shrink-0" />
+                              }
+                            </div>
+                            <p className="text-[10px] sm:text-[11px] text-muted-foreground truncate">{log.title}</p>
+                            <div className="flex items-center gap-2 sm:gap-3 text-[9px] sm:text-[10px] text-muted-foreground/60 mt-0.5">
+                              <span className="flex items-center gap-0.5"><Clock className="h-2 w-2" />{(log.duration / 1000).toFixed(1)}s</span>
+                              {log.tokensUsed > 0 && <span>{log.tokensUsed} tokens</span>}
+                              {log.cost > 0 && <span>${log.cost.toFixed(4)}</span>}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                    {/* Activity logs */}
-                    {activityLogs.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mt-2 mb-1">Recent Activity</p>
-                        {activityLogs.map((log) => {
-                          const Icon = agentIcons[log.agentType] || Bot;
-                          const isSuccess = log.status === "SUCCESS";
-                          return (
-                            <div key={log.id} className="flex items-start gap-2 p-1.5 rounded-md hover:bg-muted/50">
-                              <Icon className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0" />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1">
-                                  <p className="text-[10px] font-medium truncate">{log.agentName}</p>
-                                  {isSuccess
-                                    ? <CheckCircle className="h-2.5 w-2.5 text-green-500 shrink-0" />
-                                    : <XCircle className="h-2.5 w-2.5 text-red-500 shrink-0" />
-                                  }
-                                </div>
-                                <p className="text-[10px] text-muted-foreground truncate">{log.title}</p>
-                                <div className="flex items-center gap-2 text-[9px] text-muted-foreground/60">
-                                  <span className="flex items-center gap-0.5"><Clock className="h-2 w-2" />{(log.duration / 1000).toFixed(1)}s</span>
-                                  {log.tokensUsed > 0 && <span>{log.tokensUsed} tokens</span>}
-                                  {log.cost > 0 && <span>${log.cost.toFixed(4)}</span>}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                {/* Empty state */}
+                {liveSteps.length === 0 && activityLogs.length === 0 && (
+                  <div className="text-center py-8 sm:py-12">
+                    <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-xs sm:text-sm text-muted-foreground">No activity yet</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground/60 mt-1">Enable agents to see them think autonomously</p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        )}
+      </Card>
 
-                    {/* Empty state */}
-                    {liveSteps.length === 0 && activityLogs.length === 0 && (
-                      <div className="text-center py-8">
-                        <Bot className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground">No activity yet</p>
-                        <p className="text-[10px] text-muted-foreground/60 mt-1">Enable agents to see them think autonomously</p>
+      {/* ── Agent Cards Grid (Full Width, Responsive) ── */}
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {(agents as any[]).length === 0 ? (
+          <div className="col-span-full text-center py-12">
+            <Bot className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No agents found.</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => { setLoading(true); fetchAgents(); }}>
+              Refresh
+            </Button>
+          </div>
+        ) : (agents as any[]).map((agent) => {
+          const Icon = agentIcons[agent.type] || Bot;
+          const agentConfig = AGENT_TYPES[agent.type as AgentType];
+          const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
+          const chatCount = agent._count?.chats || agent._count?.conversations || 0;
+          const autonomy = getAutonomyConfig(agent.id);
+          const isDev = agent.type === "DEV";
+          const isToggling = togglingAgent === agent.id;
+          const isCurrentlyRunning = runningAgents.has(agent.id);
+
+          let features: Record<string, boolean> = {};
+          try {
+            if (agent.roleConfig?.features) {
+              features = typeof agent.roleConfig.features === "string"
+                ? JSON.parse(agent.roleConfig.features)
+                : agent.roleConfig.features;
+            }
+          } catch { /* ignore */ }
+
+          let quickActionsCount = 0;
+          try {
+            if (agent.roleConfig?.quickActions) {
+              const actions = typeof agent.roleConfig.quickActions === "string"
+                ? JSON.parse(agent.roleConfig.quickActions)
+                : agent.roleConfig.quickActions;
+              quickActionsCount = Array.isArray(actions) ? actions.length : 0;
+            }
+          } catch { /* ignore */ }
+
+          return (
+            <Card
+              key={agent.id}
+              className={`hover:shadow-md transition-all cursor-pointer border hover:border-primary/20 group ${isCurrentlyRunning ? "border-green-300 dark:border-green-700 shadow-green-100 dark:shadow-green-900/20 shadow-sm" : ""}`}
+              onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
+            >
+              <CardHeader className="pb-2 sm:pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div className={`h-10 w-10 sm:h-11 sm:w-11 rounded-lg ${agentConfig?.bgColor || "bg-muted"} flex items-center justify-center relative shrink-0`}>
+                      <Icon className={`h-5 w-5 ${agentConfig?.color || "text-muted-foreground"}`} />
+                      {isCurrentlyRunning && (
+                        <div className="absolute -top-1 -right-1 h-3 w-3 bg-green-500 rounded-full animate-pulse border-2 border-white dark:border-gray-900" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm sm:text-base flex items-center gap-2 truncate">
+                        <span className="truncate">{agent.name}</span>
+                        <div className={`h-2 w-2 rounded-full shrink-0 ${isCurrentlyRunning ? "bg-green-500 animate-pulse" : statusColor}`} />
+                      </CardTitle>
+                      <CardDescription className="text-[11px] sm:text-xs mt-0.5 truncate">{agent.model}</CardDescription>
+                    </div>
+                  </div>
+                  <Badge
+                    variant={isCurrentlyRunning ? "default" : agent.status === "IDLE" ? "secondary" : agent.status === "ERROR" ? "destructive" : "outline"}
+                    className="text-[10px] sm:text-xs shrink-0"
+                  >
+                    {isCurrentlyRunning ? "THINKING" : agent.status}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2.5 sm:space-y-3">
+                <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2">
+                  {agentConfig?.description || agent.description}
+                </p>
+
+                {/* Features Badges */}
+                <div className="flex flex-wrap gap-1 sm:gap-1.5">
+                  {autonomy?.enabled && (
+                    <Badge className="text-[9px] sm:text-[10px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400 border-green-200 dark:border-green-800">
+                      <Radio className="h-2.5 w-2.5 mr-0.5" /> Auto
+                    </Badge>
+                  )}
+                  {features.agentic && (
+                    <Badge variant="outline" className="text-[9px] sm:text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                      <Brain className="h-2.5 w-2.5 mr-0.5" /> Agentic
+                    </Badge>
+                  )}
+                  {features.webSearch && (
+                    <Badge variant="outline" className="text-[9px] sm:text-[10px] px-1.5 py-0">
+                      <Zap className="h-2.5 w-2.5 mr-0.5" /> Web Search
+                    </Badge>
+                  )}
+                  {features.crossAgent && (
+                    <Badge variant="outline" className="text-[9px] sm:text-[10px] px-1.5 py-0">
+                      <MessageSquare className="h-2.5 w-2.5 mr-0.5" /> Cross-Agent
+                    </Badge>
+                  )}
+                  {quickActionsCount > 0 && (
+                    <Badge variant="outline" className="text-[9px] sm:text-[10px] px-1.5 py-0">
+                      {quickActionsCount} Actions
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Autonomy status bar */}
+                {autonomy && !isDev && (
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
+                    {autonomy.enabled ? (
+                      <>
+                        <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />
+                        <span>Cycle #{autonomy.totalRuns + 1}</span>
+                        <span className="text-muted-foreground/60 hidden sm:inline">|</span>
+                        <span className="hidden sm:inline">{autonomy.totalRuns} completed</span>
+                        {autonomy.lastRunAt && (
+                          <>
+                            <span className="text-muted-foreground/60 hidden md:inline">|</span>
+                            <span className="hidden md:inline">Last: {new Date(autonomy.lastRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                          </>
+                        )}
+                        {autonomy.lastError && (
+                          <>
+                            <span className="text-muted-foreground/60">|</span>
+                            <span className="text-red-500" title={autonomy.lastError}>Error</span>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+                        <span>Autonomy off</span>
+                        {autonomy.totalRuns > 0 && (
+                          <>
+                            <span className="text-muted-foreground/60">|</span>
+                            <span>{autonomy.totalRuns} cycles done</span>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Bottom bar with toggle + chat button */}
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" />
+                      {chatCount}
+                    </span>
+                    {/* Autonomy toggle button — DEV excluded */}
+                    {!isDev && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1"
+                      >
+                        {autonomy?.status === "ERROR" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => handleRestart(agent.id)}
+                            disabled={isToggling}
+                            title="Restart agent"
+                          >
+                            {isToggling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={`h-7 w-7 p-0 ${autonomy?.enabled ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-muted-foreground hover:text-foreground"}`}
+                            onClick={() => handleToggleAgent(agent.id, !autonomy?.enabled)}
+                            disabled={isToggling || isCurrentlyRunning}
+                            title={autonomy?.enabled ? "Pause autonomy" : "Enable autonomy"}
+                          >
+                            {isToggling || isCurrentlyRunning ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : autonomy?.enabled ? (
+                              <Pause className="h-3 w-3" />
+                            ) : (
+                              <Play className="h-3 w-3" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
-                </ScrollArea>
+                  <Button size="sm" variant="ghost" className="group-hover:bg-primary group-hover:text-primary-foreground transition-colors text-xs h-7">
+                    Chat <ArrowRight className="h-3 w-3 ml-0.5 sm:ml-1" />
+                  </Button>
+                </div>
               </CardContent>
-            )}
-          </Card>
-
-          {/* Quick Stats */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Eye className="h-4 w-4 text-blue-500" />
-                Overview
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-muted/50 rounded-md p-2.5 text-center">
-                  <p className="text-lg font-bold">{totalRuns}</p>
-                  <p className="text-[10px] text-muted-foreground">Total Cycles</p>
-                </div>
-                <div className="bg-muted/50 rounded-md p-2.5 text-center">
-                  <p className="text-lg font-bold">{activeCount}</p>
-                  <p className="text-[10px] text-muted-foreground">Active Agents</p>
-                </div>
-                <div className="bg-muted/50 rounded-md p-2.5 text-center">
-                  <p className="text-lg font-bold">{pendingApprovals}</p>
-                  <p className="text-[10px] text-muted-foreground">Pending Approvals</p>
-                </div>
-                <div className="bg-muted/50 rounded-md p-2.5 text-center">
-                  <p className="text-lg font-bold">{pendingInterAgent}</p>
-                  <p className="text-[10px] text-muted-foreground">Agent Messages</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
