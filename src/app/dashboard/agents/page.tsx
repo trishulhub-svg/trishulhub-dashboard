@@ -44,6 +44,8 @@ interface AutonomyConfig {
   totalErrors: number;
   lastError: string | null;
   totalActivityLogs: number;
+  startedBy: string | null;
+  startedByRole: string | null;
 }
 
 interface DueAgent {
@@ -356,6 +358,11 @@ export default function AgentsPage() {
   const errorCount = autonomyConfigs.filter(c => c.status === "ERROR").length;
   const totalRuns = autonomyConfigs.reduce((sum, c) => sum + c.totalRuns, 0);
 
+  // Check if agents were started by a different user (e.g. superadmin)
+  const startedByOther = activeCount > 0 && autonomyConfigs.some(c => c.enabled && c.startedBy);
+  const startedByInfo = autonomyConfigs.find(c => c.enabled && c.startedBy);
+  const startedByRoleLabel = startedByInfo?.startedByRole === "SUPER_ADMIN" ? "Super Admin" : startedByInfo?.startedByRole === "ADMIN" ? "Admin" : null;
+
   if (loading) {
     return (
       <div className="space-y-4 sm:space-y-6 px-2 sm:px-0">
@@ -407,6 +414,11 @@ export default function AgentsPage() {
                     ? <>Agents think every {autonomyConfigs.find(c => c.enabled)?.interval || 5} min. Keep this page open for background thinking.</>
                     : <>Click Start All to enable autonomous thinking.</>
                   }
+                  {startedByOther && startedByRoleLabel && (
+                    <span className="block mt-1 text-[10px] sm:text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+                      Started by {startedByRoleLabel} — live activity visible below
+                    </span>
+                  )}
                 </CardDescription>
               </div>
             </div>
@@ -518,7 +530,7 @@ export default function AgentsPage() {
         </CardHeader>
         {showActivity && (
           <CardContent className="pt-0">
-            <ScrollArea className="h-[200px] sm:h-[250px] lg:h-[300px]">
+            <ScrollArea className="h-[220px] sm:h-[260px] lg:h-[300px]">
               <div className="space-y-2">
                 {/* Live steps (currently running) */}
                 {liveSteps.filter(s => s.status === "running").length > 0 && (
@@ -530,7 +542,7 @@ export default function AgentsPage() {
                           <StepIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400 mt-0.5 shrink-0 animate-pulse" />
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] sm:text-xs font-medium text-green-700 dark:text-green-400 truncate">{step.agentName}</p>
-                            <p className="text-[10px] sm:text-[11px] text-green-600 dark:text-green-500 truncate">{step.step}</p>
+                            <p className="text-[10px] sm:text-[11px] text-green-600 dark:text-green-500 break-words line-clamp-2">{step.step}</p>
                           </div>
                           <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0 mt-1" />
                         </div>
@@ -546,7 +558,7 @@ export default function AgentsPage() {
                       <div key={`done-${step.agentId}-${i}`} className="flex items-start gap-2 p-1.5 sm:p-2 rounded-md">
                         <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] sm:text-[11px] text-muted-foreground truncate">{step.agentName}: {step.step}</p>
+                          <p className="text-[10px] sm:text-[11px] text-muted-foreground break-words line-clamp-2">{step.agentName}: {step.step}</p>
                         </div>
                       </div>
                     ))}
@@ -573,7 +585,7 @@ export default function AgentsPage() {
                                 : <XCircle className="h-2.5 w-2.5 text-red-500 shrink-0" />
                               }
                             </div>
-                            <p className="text-[10px] sm:text-[11px] text-muted-foreground truncate">{log.title}</p>
+                            <p className="text-[10px] sm:text-[11px] text-muted-foreground break-words line-clamp-2">{log.title}</p>
                             <div className="flex items-center gap-2 sm:gap-3 text-[9px] sm:text-[10px] text-muted-foreground/60 mt-0.5">
                               <span className="flex items-center gap-0.5"><Clock className="h-2 w-2" />{(log.duration / 1000).toFixed(1)}s</span>
                               {log.tokensUsed > 0 && <span>{log.tokensUsed} tokens</span>}

@@ -3450,10 +3450,21 @@ export default function AgentChatPage() {
       {/* Center: Chat Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Chat Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-card shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-              <Icon className={`h-5 w-5 ${agentConfig?.color || "text-muted-foreground"}`} />
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 border-b bg-card shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* Back button — navigate to agents list */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => router.push("/dashboard/agents")} aria-label="Back to agents">
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Back to Agents</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+              <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${agentConfig?.color || "text-muted-foreground"}`} />
             </div>
             <div className="min-w-0">
               <h1 className="text-base font-semibold flex items-center gap-2">
@@ -5059,23 +5070,23 @@ function RightPanel({
   return (
     <>
       {/* Panel header */}
-      <div className="p-3 border-b">
+      <div className="p-2 sm:p-3 border-b">
         <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent" | "live" | "auto")}>
-          <TabsList className="w-full h-8">
-            <TabsTrigger value="auto" className="text-xs flex-1">
-              <Radio className="h-3 w-3 mr-1" /> Auto
+          <TabsList className="w-full h-8 overflow-x-auto">
+            <TabsTrigger value="auto" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+              <Radio className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Auto</span><span className="sm:hidden">Auto</span>
             </TabsTrigger>
-            <TabsTrigger value="live" className="text-xs flex-1">
-              <Terminal className="h-3 w-3 mr-1" /> Live
+            <TabsTrigger value="live" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+              <Terminal className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Live</span><span className="sm:hidden">Live</span>
             </TabsTrigger>
-            <TabsTrigger value="tasks" className="text-xs flex-1">
-              <ListChecks className="h-3 w-3 mr-1" /> Tasks
+            <TabsTrigger value="tasks" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+              <ListChecks className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Tasks</span><span className="sm:hidden">Task</span>
             </TabsTrigger>
-            <TabsTrigger value="features" className="text-xs flex-1">
-              <Zap className="h-3 w-3 mr-1" /> Info
+            <TabsTrigger value="features" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+              <Zap className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Info</span><span className="sm:hidden">Info</span>
             </TabsTrigger>
-            <TabsTrigger value="crossagent" className="text-xs flex-1">
-              <ArrowRightLeft className="h-3 w-3 mr-1" /> Cross
+            <TabsTrigger value="crossagent" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+              <ArrowRightLeft className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Cross</span><span className="sm:hidden">X-Agent</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>

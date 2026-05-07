@@ -657,6 +657,7 @@ export async function runAgentLoop(
     systemPrompt?: string
     tools?: AgentTool[]
     provider?: string
+    disableThinking?: boolean
   }
 ): Promise<AgentLoopResult> {
   const maxSteps = options?.maxSteps || 15
@@ -712,16 +713,15 @@ export async function runAgentLoop(
       const result = useNvidia
         ? await callNvidiaWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,
-            temperature: 0.3, // Consistent low temp for precise tool calls (match z.ai agentic)
-            // NOTE: Do NOT disable thinking on iteration > 0!
-            // GLM-5.1 agentic REQUIRES thinking mode for autonomous multi-step behavior.
-            // Disabling it after the first iteration was causing empty/broken responses.
-            // Only disable if we explicitly get 500 errors from thinking+tools conflict.
-            disableThinking: false,
+            temperature: 0.3,
+            // Respect caller's disableThinking preference (e.g. autonomous cycles)
+            // On retry after 500 error, the internal retry logic will handle further fallback
+            disableThinking: options?.disableThinking ?? false,
           })
         : await callZaiWithTools(messages, model, apiKey, tools, {
             maxTokens: options?.maxTokens || 16384,
-            temperature: 0.3, // Consistent temperature for reliable tool calling
+            temperature: 0.3,
+            disableThinking: options?.disableThinking ?? false,
           })
 
       totalInputTokens += result.inputTokens

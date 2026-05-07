@@ -127,12 +127,15 @@ export async function POST(req: NextRequest) {
           // 5. Run agent loop with SSE step callbacks
           sendEvent({ type: "step", step: { type: "thinking", content: "Starting autonomous thinking cycle...", stepNumber: 3 } })
 
+          // FIX: Disable thinking mode for autonomous cycles to prevent Z.ai 500 errors.
+          // Thinking + tools causes "内部服务器错误" on most GLM models.
           const result = await runAgentLoop(thinkingPrompt, [], apiKey, context.model, {
             maxSteps: 8,
             agentType: agent.type,
             systemPrompt: autonomousPrompt,
             tools,
             provider: useNvidia ? "NVIDIA" : "ZAI",
+            disableThinking: true, // Prevent 500 errors from thinking+tools conflict
             onStep: (step: AgentStep) => {
               if (step.type === "tool_call") {
                 sendEvent({

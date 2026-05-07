@@ -405,6 +405,11 @@ async function runThinkingCycle(agentId: string): Promise<ThinkingCycleResult> {
     const useNvidia = provider === "NVIDIA" || context.model.startsWith("z-ai/")
 
     // Run the agent loop with retry
+    // FIX: Disable thinking mode by default for autonomous cycles.
+    // Thinking mode + tools causes Z.ai 500 errors ("内部服务器错误") on most models.
+    // Autonomous cycles use simpler prompts and don't need deep reasoning — they just
+    // need to call tools and report results. If the first attempt fails, the agent-loop's
+    // internal retry will already handle further fallbacks.
     const result = await withRetry(async () => {
       return runAgentLoop(thinkingPrompt, [], apiKey, context.model, {
         maxSteps: 8, // Fewer steps for autonomous cycles to save tokens
@@ -412,6 +417,7 @@ async function runThinkingCycle(agentId: string): Promise<ThinkingCycleResult> {
         systemPrompt: autonomousPrompt,
         tools,
         provider: useNvidia ? "NVIDIA" : "ZAI",
+        disableThinking: true, // FIX: Prevent 500 errors from thinking+tools conflict
         onStep: (step: AgentStep) => {
           // Log tool calls in real-time
           if (step.type === "tool_call") {
