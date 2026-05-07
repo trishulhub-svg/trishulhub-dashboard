@@ -152,48 +152,48 @@ export default function MyTrainingPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+              <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">{assignments.length}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
+              <p className="text-lg sm:text-xl font-bold">{assignments.length}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Total</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-              <Play className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
+              <Play className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 dark:text-orange-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">{inProgressCount}</p>
-              <p className="text-xs text-muted-foreground">In Progress</p>
+              <p className="text-lg sm:text-xl font-bold">{inProgressCount}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">In Progress</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">{passedCount}</p>
-              <p className="text-xs text-muted-foreground">Passed</p>
+              <p className="text-lg sm:text-xl font-bold">{passedCount}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Passed</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+              <XCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">{failedCount}</p>
-              <p className="text-xs text-muted-foreground">Failed</p>
+              <p className="text-lg sm:text-xl font-bold">{failedCount}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Failed</p>
             </div>
           </CardContent>
         </Card>
@@ -201,7 +201,7 @@ export default function MyTrainingPage() {
 
       {/* Assignments */}
       {assignments.length === 0 ? (
-        <Card className="p-12 text-center">
+        <Card className="p-8 sm:p-12 text-center">
           <div className="flex flex-col items-center gap-4">
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
               <BookOpen className="h-8 w-8 text-muted-foreground" />
@@ -232,14 +232,14 @@ export default function MyTrainingPage() {
                 onClick={() => handleAction(a)}
               >
                 <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <CardTitle className="text-base font-semibold line-clamp-1">{a.document.topic}</CardTitle>
+                      <CardTitle className="text-sm sm:text-base font-semibold line-clamp-2">{a.document.topic}</CardTitle>
                       <CardDescription className="text-xs mt-1">
-                        Assigned by {a.assigner.name} • {safeDateStr(new Date(a.createdAt))}
+                        Assigned by {a.assigner.name} {"\u2022"} {safeDateStr(new Date(a.createdAt))}
                       </CardDescription>
                     </div>
-                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <Badge className={cn("text-xs", levelCfg.className)}>{levelCfg.label}</Badge>
                       <Badge className={cn("text-xs", statusCfg.className)}>
                         <statusCfg.icon className="h-3 w-3 mr-1" />
@@ -249,10 +249,10 @@ export default function MyTrainingPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground flex-wrap">
                       {a.dueDate && (
-                        <span className={cn("flex items-center gap-1", isOverdue && "text-red-600 dark:text-red-400 font-medium")}>
+                        <span className={cn("flex items-center gap-1 text-[10px] sm:text-xs", isOverdue && "text-red-600 dark:text-red-400 font-medium")}>
                           <Calendar className="h-3 w-3" />
                           {isOverdue ? "Overdue" : `Due ${safeDateStr(new Date(a.dueDate))}`}
                         </span>

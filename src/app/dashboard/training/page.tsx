@@ -209,13 +209,13 @@ export default function TrainingLibraryPage() {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <GraduationCap className="h-7 w-7 text-primary" />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
+            <GraduationCap className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
             Training Library
           </h1>
-          <p className="text-muted-foreground mt-1">
-            Create and manage AI-generated training materials for your team
+          <p className="text-sm text-muted-foreground mt-1">
+            Create and manage AI-generated training materials
           </p>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -255,37 +255,37 @@ export default function TrainingLibraryPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         <Card>
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
             <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <FileText className="h-6 w-6 text-primary" />
+              <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{totalDocs}</p>
-              <p className="text-sm text-muted-foreground">Total Documents</p>
+              <p className="text-xl sm:text-2xl font-bold">{totalDocs}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Total Documents</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-5 w-5 sm:h-6 sm:w-6 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{readyDocs}</p>
-              <p className="text-sm text-muted-foreground">Ready to Assign</p>
+              <p className="text-xl sm:text-2xl font-bold">{readyDocs}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Ready to Assign</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-              <Users className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3">
+            <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <Users className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600 dark:text-orange-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{totalAssignments}</p>
-              <p className="text-sm text-muted-foreground">Total Assignments</p>
+              <p className="text-xl sm:text-2xl font-bold">{totalAssignments}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Total Assignments</p>
             </div>
           </CardContent>
         </Card>
@@ -318,7 +318,7 @@ export default function TrainingLibraryPage() {
 
       {/* Documents Grid */}
       {documents.length === 0 ? (
-        <Card className="p-12 text-center">
+        <Card className="p-8 sm:p-12 text-center">
           <div className="flex flex-col items-center gap-4">
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
               <BookOpen className="h-8 w-8 text-muted-foreground" />
@@ -338,7 +338,7 @@ export default function TrainingLibraryPage() {
           </div>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {documents.map((doc) => {
             const statusCfg = STATUS_CONFIG[doc.status] || STATUS_CONFIG.DRAFT
             return (
@@ -348,7 +348,7 @@ export default function TrainingLibraryPage() {
                 onClick={() => router.push(`/dashboard/training/${doc.id}`)}
               >
                 {doc.imageUrl && (
-                  <div className="h-36 w-full overflow-hidden rounded-t-xl relative">
+                  <div className="h-32 sm:h-36 w-full overflow-hidden rounded-t-xl relative">
                     <img
                       src={doc.imageUrl}
                       alt={doc.topic}

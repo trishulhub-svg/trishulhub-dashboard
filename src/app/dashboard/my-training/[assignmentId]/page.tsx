@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
-import ReactMarkdown from "react-markdown"
 import {
   ArrowLeft,
   BookOpen,
@@ -19,9 +18,9 @@ import {
   Loader2,
   Trophy,
   Eye,
-  RotateCcw,
   Timer,
 } from "lucide-react"
+import { BrandedDocumentView, DownloadPdfButton } from "@/components/training"
 import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
@@ -62,6 +61,7 @@ interface AssignmentData {
     createdAt: string
   } | null
   attempts: TestAttemptData[]
+  assigner: { id: string; name: string }
 }
 
 interface TestAttemptData {
@@ -358,37 +358,38 @@ export default function TrainingReaderPage() {
           </Button>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{assignment.document.topic}</h1>
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{assignment.document.topic}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Read the training material below, then mark as read to start the test.
             </p>
           </div>
-          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
             {LEVEL_LABELS[assignment.testLevel] || assignment.testLevel} Level
           </Badge>
         </div>
 
-        {/* Images */}
-        {imageUrls.length > 0 && (
-          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {imageUrls.map((url, idx) => (
-              <div key={idx} className="rounded-xl overflow-hidden border">
-                <img src={url} alt={`Illustration ${idx + 1}`} className="w-full h-auto" />
-              </div>
-            ))}
+        {/* Branded Document View */}
+        <BrandedDocumentView
+          topic={assignment.document.topic}
+          content={assignment.document.content}
+          generatedBy={assignment.assigner.name}
+          createdAt={assignment.createdAt}
+          imageUrls={imageUrls}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <DownloadPdfButton
+              topic={assignment.document.topic}
+              content={assignment.document.content}
+              generatedBy={assignment.assigner.name}
+              createdAt={assignment.createdAt}
+              variant="outline"
+              size="sm"
+              className="border-[#E85D04]/30 text-[#C2410C] hover:bg-[#E85D04]/10"
+            />
           </div>
-        )}
-
-        {/* Document content */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown>{assignment.document.content}</ReactMarkdown>
-            </div>
-          </CardContent>
-        </Card>
+        </BrandedDocumentView>
 
         {/* Mark as Read button */}
         <div className="flex justify-center sticky bottom-4">
@@ -411,7 +412,7 @@ export default function TrainingReaderPage() {
           </Button>
         </div>
 
-        <Card className="p-12 text-center max-w-lg mx-auto">
+        <Card className="p-6 sm:p-12 text-center max-w-lg mx-auto">
           <div className="flex flex-col items-center gap-6">
             <div className="h-20 w-20 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
               <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />

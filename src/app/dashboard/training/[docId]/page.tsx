@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
-import ReactMarkdown from "react-markdown"
 import {
   ArrowLeft,
   FileText,
@@ -13,7 +12,6 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  Plus,
   Sparkles,
   Loader2,
   Eye,
@@ -23,6 +21,7 @@ import {
   BadgeCheck,
   XCircle,
 } from "lucide-react"
+import { BrandedDocumentView, DownloadPdfButton } from "@/components/training"
 import { cn, safeDateStr, safeArray } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
@@ -298,15 +297,15 @@ export default function DocumentDetailPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{document.topic}</h1>
-          <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{document.topic}</h1>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2 text-xs sm:text-sm text-muted-foreground">
             <span>Created by {document.generator.name}</span>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <span>{safeDateStr(new Date(document.createdAt))}</span>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <span>{document.tests.length} test(s)</span>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <span>{document.assignments.length} assignment(s)</span>
           </div>
         </div>
@@ -314,39 +313,39 @@ export default function DocumentDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="document" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
-          <TabsTrigger value="document" className="gap-1">
-            <FileText className="h-4 w-4" /> Document
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="document" className="gap-1 text-xs sm:text-sm">
+            <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Document
           </TabsTrigger>
-          <TabsTrigger value="tests" className="gap-1">
-            <BookOpen className="h-4 w-4" /> Tests
+          <TabsTrigger value="tests" className="gap-1 text-xs sm:text-sm">
+            <BookOpen className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Tests
           </TabsTrigger>
-          <TabsTrigger value="assignments" className="gap-1">
-            <Users className="h-4 w-4" /> Assignments ({document.assignments.length})
+          <TabsTrigger value="assignments" className="gap-1 text-xs sm:text-sm">
+            <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden xs:inline">Assignments</span><span className="xs:hidden">Assign</span> ({document.assignments.length})
           </TabsTrigger>
         </TabsList>
 
         {/* Document Tab */}
         <TabsContent value="document">
-          <Card>
-            <CardContent className="p-6">
-              {/* Images */}
-              {imageUrls.length > 0 && (
-                <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mb-6">
-                  {imageUrls.map((url, idx) => (
-                    <div key={idx} className="rounded-xl overflow-hidden border">
-                      <img src={url} alt={`Illustration ${idx + 1}`} className="w-full h-auto" />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Markdown Content */}
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown>{document.content}</ReactMarkdown>
-              </div>
-            </CardContent>
-          </Card>
+          <BrandedDocumentView
+            topic={document.topic}
+            content={document.content}
+            generatedBy={document.generator.name}
+            createdAt={document.createdAt}
+            imageUrls={imageUrls}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <DownloadPdfButton
+                topic={document.topic}
+                content={document.content}
+                generatedBy={document.generator.name}
+                createdAt={document.createdAt}
+                variant="outline"
+                size="sm"
+                className="border-[#E85D04]/30 text-[#C2410C] hover:bg-[#E85D04]/10"
+              />
+            </div>
+          </BrandedDocumentView>
         </TabsContent>
 
         {/* Tests Tab */}
@@ -360,7 +359,7 @@ export default function DocumentDetailPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                   {(["LOW", "MEDIUM", "HIGH"] as const).map((level) => {
                     const cfg = LEVEL_CONFIG[level]
                     const existingTest = document.tests.find((t) => t.level === level)
@@ -435,7 +434,7 @@ export default function DocumentDetailPage() {
                     <Send className="h-4 w-4" /> Assign to Employees
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-lg">
+                <DialogContent className="max-w-lg sm:max-w-lg max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Assign Training</DialogTitle>
                     <DialogDescription>

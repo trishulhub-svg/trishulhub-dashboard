@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "res.cloudinary.com" },
     ],
   },
-  serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client"],
+  serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client", "@react-pdf/renderer"],
+  turbopack: {},
 };
 
 export default nextConfig;
