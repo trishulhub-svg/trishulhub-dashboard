@@ -9,6 +9,7 @@ import { NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureAutonomyTables } from "@/lib/ensure-autonomy-tables"
 import { isAdmin } from "@/lib/rbac"
 import { initAutonomyConfigs } from "@/lib/ai/autonomy-engine"
 
@@ -55,9 +56,8 @@ export async function POST(req: NextRequest) {
     const { agentId } = await req.json()
     if (!agentId) return new Response(JSON.stringify({ error: "agentId required" }), { status: 400 })
 
-    // Ensure tables + configs exist before any DB operations
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
+    // CRITICAL: Ensure tables exist + configs before any DB operations
+    await ensureAutonomyTables()
     await initAutonomyConfigs()
 
     // Get agent

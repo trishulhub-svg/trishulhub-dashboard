@@ -6,38 +6,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureAutonomyTables } from "@/lib/ensure-autonomy-tables"
 import { getAutonomyStatus, toggleAgentAutonomy, toggleAllAutonomy, updateAgentInterval, initAutonomyConfigs } from "@/lib/ai/autonomy-engine"
 import { isAdmin } from "@/lib/rbac"
-
-// ━━ Auto-migration for Turso ━━
-let migrationAttempted = false
-let migrationSucceeded = false
-async function ensureAutonomyTables(): Promise<void> {
-  if (migrationSucceeded) return
-  if (migrationAttempted) {
-    // Previous attempt failed — wait and retry once
-    await new Promise(r => setTimeout(r, 1000))
-    if (migrationSucceeded) return
-  }
-  migrationAttempted = true
-  try {
-    // Always attempt to add missing columns (safe — fails silently if column exists)
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
-
-    await db.$queryRawUnsafe(`SELECT 1 FROM AgentAutonomyConfig LIMIT 0`)
-    migrationSucceeded = true // Mark as successful
-  } catch {
-    // Trigger migration via cron endpoint (which handles full migration)
-    console.log("[autonomy] Tables not yet available, initializing...")
-    const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.NEXT_PUBLIC_APP_URL || ""
-    if (baseUrl) {
-      await fetch(`${baseUrl}/api/agents/autonomy/cron`, { method: "POST" }).catch(() => {})
-    }
-    // Reset flag so next call retries
-    migrationAttempted = false
-  }
-}
 
 // GET /api/agents/autonomy — Get status of all autonomous agents
 export async function GET() {
@@ -46,7 +17,7 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Initialize configs if needed
+    // CRITICAL: Ensure tables exist in Turso before any DB operations
     await ensureAutonomyTables()
     await initAutonomyConfigs()
 
@@ -68,7 +39,7 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json()
     const { action, agentId, enabled, interval } = body
 
-    // CRITICAL: Ensure migration + init BEFORE any DB operations
+    // CRITICAL: Ensure tables exist + init configs BEFORE any DB operations
     await ensureAutonomyTables()
     await initAutonomyConfigs()
 

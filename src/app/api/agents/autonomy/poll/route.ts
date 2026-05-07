@@ -7,6 +7,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureAutonomyTables } from "@/lib/ensure-autonomy-tables"
 import { isAdmin } from "@/lib/rbac"
 import { initAutonomyConfigs } from "@/lib/ai/autonomy-engine"
 
@@ -16,9 +17,8 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    // Ensure tables + configs exist before any DB operations
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
-    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
+    // CRITICAL: Ensure tables exist + configs before any DB operations
+    await ensureAutonomyTables()
     await initAutonomyConfigs()
 
     // Find agents that are due for a thinking cycle

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureAutonomyTables } from "@/lib/ensure-autonomy-tables"
 import { isAdmin } from "@/lib/rbac"
 
 // GET /api/agents/autonomy/activity?agentId=xxx&limit=50
@@ -13,6 +14,9 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+    // Ensure autonomy tables exist
+    await ensureAutonomyTables()
 
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")

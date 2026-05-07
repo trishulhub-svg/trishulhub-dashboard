@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { ensureAutonomyTables } from "@/lib/ensure-autonomy-tables"
 import { isAdmin } from "@/lib/rbac"
 import { seedDefaultAutonomousPrompts } from "@/lib/ai/seed-autonomous-prompts"
 
@@ -24,6 +25,9 @@ export async function GET(req: NextRequest) {
     if (!agentId) {
       return NextResponse.json({ error: "agentId is required" }, { status: 400 })
     }
+
+    // Ensure autonomy tables exist before querying prompts
+    await ensureAutonomyTables()
 
     // Ensure default prompts exist
     await seedDefaultAutonomousPrompts()
