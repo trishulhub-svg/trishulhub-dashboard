@@ -15,6 +15,10 @@ async function ensureAutonomyTables(): Promise<void> {
   if (migrationAttempted) return
   migrationAttempted = true
   try {
+    // Always attempt to add missing columns (safe — fails silently if column exists)
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
+
     await db.$queryRawUnsafe(`SELECT 1 FROM AgentAutonomyConfig LIMIT 0`)
   } catch {
     // Trigger migration via cron endpoint (which handles full migration)

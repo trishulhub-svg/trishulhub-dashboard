@@ -14,6 +14,12 @@ async function ensureAutonomyTables(): Promise<{ ok: boolean; error?: string }> 
   migrationAttempted = true
 
   try {
+    // Always attempt to add missing columns (safe — fails silently if column exists)
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`) } catch { /* column already exists */ }
+    try { await db.$executeRawUnsafe(`ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`) } catch { /* column already exists */ }
+    try { await db.$executeRawUnsafe(`ALTER TABLE "CrossAgentMessage" ADD COLUMN "isAutonomous" BOOLEAN NOT NULL DEFAULT 0`) } catch { /* column already exists */ }
+
+    // Check if table exists
     await db.$queryRawUnsafe(`SELECT 1 FROM AgentAutonomyConfig LIMIT 0`)
     return { ok: true }
   } catch {
@@ -31,6 +37,8 @@ async function ensureAutonomyTables(): Promise<{ ok: boolean; error?: string }> 
           "totalErrors" INTEGER NOT NULL DEFAULT 0,
           "lastError" TEXT,
           "status" TEXT NOT NULL DEFAULT 'PAUSED',
+          "startedBy" TEXT,
+          "startedByRole" TEXT,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "AgentAutonomyConfig_agentId_key" UNIQUE ("agentId"),
@@ -57,10 +65,22 @@ async function ensureAutonomyTables(): Promise<{ ok: boolean; error?: string }> 
       `)
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AgentActivityLog_agentId_createdAt_idx" ON "AgentActivityLog"("agentId", "createdAt")`)
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AgentActivityLog_configId_createdAt_idx" ON "AgentActivityLog"("configId", "createdAt")`)
-      // Add isAutonomous column to CrossAgentMessage if missing
-      try {
-        await db.$executeRawUnsafe(`ALTER TABLE "CrossAgentMessage" ADD COLUMN "isAutonomous" BOOLEAN NOT NULL DEFAULT 0`)
-      } catch { /* column may already exist */ }
+      // Create AgentAutonomousPrompt table if missing
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "AgentAutonomousPrompt" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "agentId" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "content" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL DEFAULT 0,
+          "isDefault" BOOLEAN NOT NULL DEFAULT 0,
+          "createdBy" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `)
+      try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AgentAutonomousPrompt_agentId_isActive_idx" ON "AgentAutonomousPrompt"("agentId", "isActive")`) } catch { /* index may already exist */ }
       console.log("[autonomy] Auto-migration complete")
       return { ok: true }
     } catch (err: any) {
