@@ -20,7 +20,7 @@ import {
   Eye,
   Timer,
 } from "lucide-react"
-import { BrandedDocumentView, DownloadPdfButton } from "@/components/training"
+import { ViewPdfButton } from "@/components/training"
 import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
@@ -362,7 +362,7 @@ export default function TrainingReaderPage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{assignment.document.topic}</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Read the training material below, then mark as read to start the test.
+              View the training document, then mark as read to start the test.
             </p>
           </div>
           <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
@@ -370,26 +370,27 @@ export default function TrainingReaderPage() {
           </Badge>
         </div>
 
-        {/* Branded Document View */}
-        <BrandedDocumentView
-          topic={assignment.document.topic}
-          content={assignment.document.content}
-          generatedBy={assignment.assigner.name}
-          createdAt={assignment.createdAt}
-          imageUrls={imageUrls}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <DownloadPdfButton
+        <Card className="p-8 sm:p-12 text-center">
+          <div className="flex flex-col items-center gap-6">
+            <div className="h-20 w-20 rounded-full bg-[#E85D04]/10 flex items-center justify-center">
+              <BookOpen className="h-10 w-10 text-[#E85D04]" />
+            </div>
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold">{assignment.document.topic}</h2>
+              <p className="text-muted-foreground mt-2">
+                View the training document as a professional PDF. Once you&apos;ve reviewed it, mark as read to proceed to the test.
+              </p>
+            </div>
+            <ViewPdfButton
               topic={assignment.document.topic}
               content={assignment.document.content}
               generatedBy={assignment.assigner.name}
               createdAt={assignment.createdAt}
-              variant="outline"
-              size="sm"
-              className="border-[#E85D04]/30 text-[#C2410C] hover:bg-[#E85D04]/10"
+              size="lg"
+              className="bg-[#E85D04] hover:bg-[#C2410C] text-white"
             />
           </div>
-        </BrandedDocumentView>
+        </Card>
 
         {/* Mark as Read button */}
         <div className="flex justify-center sticky bottom-4">

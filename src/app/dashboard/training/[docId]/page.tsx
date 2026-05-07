@@ -21,7 +21,7 @@ import {
   BadgeCheck,
   XCircle,
 } from "lucide-react"
-import { BrandedDocumentView, DownloadPdfButton } from "@/components/training"
+import { ViewPdfButton } from "@/components/training"
 import { cn, safeDateStr, safeArray } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
@@ -327,25 +327,27 @@ export default function DocumentDetailPage() {
 
         {/* Document Tab */}
         <TabsContent value="document">
-          <BrandedDocumentView
-            topic={document.topic}
-            content={document.content}
-            generatedBy={document.generator.name}
-            createdAt={document.createdAt}
-            imageUrls={imageUrls}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <DownloadPdfButton
+          <Card className="p-8 sm:p-12 text-center">
+            <div className="flex flex-col items-center gap-6">
+              <div className="h-20 w-20 rounded-full bg-[#E85D04]/10 flex items-center justify-center">
+                <FileText className="h-10 w-10 text-[#E85D04]" />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold">{document.topic}</h2>
+                <p className="text-muted-foreground mt-2">
+                  View the branded training document as a professional PDF.
+                </p>
+              </div>
+              <ViewPdfButton
                 topic={document.topic}
                 content={document.content}
                 generatedBy={document.generator.name}
                 createdAt={document.createdAt}
-                variant="outline"
-                size="sm"
-                className="border-[#E85D04]/30 text-[#C2410C] hover:bg-[#E85D04]/10"
+                size="lg"
+                className="bg-[#E85D04] hover:bg-[#C2410C] text-white"
               />
             </div>
-          </BrandedDocumentView>
+          </Card>
         </TabsContent>
 
         {/* Tests Tab */}

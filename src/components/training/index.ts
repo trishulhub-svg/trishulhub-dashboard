@@ -1,2 +1,1 @@
-export { BrandedDocumentView } from "./branded-document-view"
-export { DownloadPdfButton } from "./download-pdf-button"
+export { ViewPdfButton } from "./view-pdf-button"
