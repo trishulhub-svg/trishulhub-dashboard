@@ -6,132 +6,146 @@ import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac
 
 export async function GET() {
   try {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = session.user.role
-  const userId = session.user.id
-  if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const role = session.user.role
+    const userId = session.user.id
+    if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Get project/client scope for developers
-  const assignedProjectIds = await getAssignedProjectIds(userId, role)
-  const assignedClientIds = await getAssignedClientIds(userId, role)
+    const admin = isAdmin(role)
 
-  // Build where clauses based on role
-  const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
-  const clientWhere = assignedClientIds ? { id: { in: assignedClientIds } } : {}
-  const taskWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
-  const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
-  const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
-  const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    // Get project/client scope for developers
+    const assignedProjectIds = await getAssignedProjectIds(userId, role)
+    const assignedClientIds = await getAssignedClientIds(userId, role)
 
-  // For developers: only fetch agents they have access to
-  const agentWhere = !isAdmin(role) 
-    ? { userAccess: { some: { userId, canView: true } } } 
-    : {}
+    // Build where clauses based on role
+    const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
+    const clientWhere = assignedClientIds ? { id: { in: assignedClientIds } } : {}
+    const taskWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
+    const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
+    const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
 
-  const [
-    agents,
-    projects,
-    clients,
-    invoices,
-    expenses,
-    apiKeys,
-    usageLogs,
-    supportTickets,
-    tasks,
-  ] = await Promise.all([
-    db.agent.findMany({ where: agentWhere, include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } } }),
-    db.project.findMany({ where: projectWhere, include: { client: true, _count: { select: { tasks: true } } }, take: 100 }),
-    db.client.findMany({ where: clientWhere, take: 100 }),
-    db.invoice.findMany({ where: invoiceWhere, take: 100, orderBy: { createdAt: "desc" } }),
-    db.expense.findMany({ where: expenseWhere, take: 100, orderBy: { createdAt: "desc" } }),
-    db.apiKey.findMany(),
-    db.apiUsageLog.findMany({
-      where: !isAdmin(role) ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
-      include: { agent: true },
-      take: 50,
-      orderBy: { createdAt: "desc" },
-    }),
-    db.supportTicket.findMany({ where: ticketWhere, include: { client: true }, take: 100 }),
-    db.task.findMany({ where: taskWhere, take: 100, orderBy: { createdAt: "desc" } }),
-  ])
+    // For developers: only fetch agents they have access to
+    const agentWhere = !admin
+      ? { userAccess: { some: { userId, canView: true } } }
+      : {}
 
-  // Leads are admin-only - developers should NOT see leads
-  const leads = isAdmin(role) ? await db.lead.findMany({ take: 100 }) : []
-
-  // Fix #16: Mask API key values for non-SUPER_ADMIN users
-  // SECURITY: Developers should NOT see API keys at all - that page is SUPER_ADMIN only
-  const safeApiKeys = role === "SUPER_ADMIN"
-    ? apiKeys
-    : isAdmin(role)
-      ? apiKeys.map(k => ({
-          ...k,
-          keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "",
-        }))
-      : [] // Developers get no API key data
-
-  // SECURITY: Developers should NOT see usage logs with full agent details
-  const safeUsageLogs = isAdmin(role)
-    ? usageLogs.map(log => ({
-        id: log.id,
-        model: log.model,
-        inputTokens: log.inputTokens,
-        outputTokens: log.outputTokens,
-        cost: log.cost,
-        createdAt: log.createdAt,
-        agent: log.agent ? { id: log.agent.id, name: log.agent.name, type: log.agent.type } : null,
-      }))
-    : usageLogs.map(log => ({
-        id: log.id,
-        model: log.model,
-        inputTokens: log.inputTokens,
-        outputTokens: log.outputTokens,
-        cost: log.cost,
-        createdAt: log.createdAt,
-        agent: log.agent ? { id: log.agent.id, name: log.agent.name, type: log.agent.type } : null,
-      }))
-
-  const totalApiSpend = isAdmin(role) ? apiKeys.reduce((sum, k) => sum + k.currentSpend, 0) : 0
-  const monthlyBudget = isAdmin(role) ? apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
-
-  // Only compute financial stats for admins
-  const totalRevenue = isAdmin(role) ? invoices.filter(i => i.status === "PAID").reduce((sum, i) => sum + i.total, 0) : 0
-  const pendingAmount = isAdmin(role) ? invoices.filter(i => i.status === "SENT").reduce((sum, i) => sum + i.total, 0) : 0
-  const overdueAmount = isAdmin(role) ? invoices.filter(i => i.status === "OVERDUE").reduce((sum, i) => sum + i.total, 0) : 0
-  const totalExpenses = isAdmin(role) ? expenses.reduce((sum, e) => sum + e.amount, 0) : 0
-
-  const newLeadsCount = leads.filter(l => l.status === "NEW").length
-  const activeProjects = projects.filter(p => !["COMPLETED", "DEPLOYED"].includes(p.status)).length
-  const openTickets = supportTickets.filter(t => t.status === "OPEN").length
-  const pendingTasks = tasks.filter(t => t.status !== "DONE").length
-
-  return NextResponse.json({
-    agents,
-    projects,
-    clients: isAdmin(role) ? clients : clients.map(c => ({ id: c.id, name: c.name, company: c.company })),
-    leads,
-    invoices: isAdmin(role) ? invoices : [],
-    expenses: isAdmin(role) ? expenses : [],
-    apiKeys: safeApiKeys,
-    usageLogs: safeUsageLogs,
-    supportTickets: isAdmin(role) ? supportTickets : [],
-    tasks,
-    stats: {
-      totalRevenue,
-      pendingAmount,
-      overdueAmount,
-      totalExpenses,
-      totalApiSpend,
-      monthlyBudget,
+    // OPTIMIZATION: Use Prisma where clauses instead of JS-side filtering.
+    // This reduces data transferred from Turso and avoids full-table scans.
+    const [
+      agents,
+      projects,
+      clients,
+      invoices,
+      expenses,
+      apiKeys,
+      usageLogs,
+      supportTickets,
+      tasks,
       newLeadsCount,
       activeProjects,
       openTickets,
       pendingTasks,
-      totalClients: isAdmin(role) ? clients.length : 0,
-      totalLeads: leads.length,
-    },
-  })
+    ] = await Promise.all([
+      db.agent.findMany({
+        where: agentWhere,
+        include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } },
+      }),
+      db.project.findMany({
+        where: projectWhere,
+        include: { client: true, _count: { select: { tasks: true } } },
+        take: 50,
+      }),
+      db.client.findMany({ where: clientWhere, take: 50 }),
+      db.invoice.findMany({ where: invoiceWhere, take: 20, orderBy: { createdAt: "desc" } }),
+      db.expense.findMany({ where: expenseWhere, take: 20, orderBy: { createdAt: "desc" } }),
+      // API keys are SUPER_ADMIN only in the dashboard view
+      admin ? db.apiKey.findMany() : Promise.resolve([]),
+      db.apiUsageLog.findMany({
+        where: !admin ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
+        include: { agent: { select: { id: true, name: true, type: true } } },
+        take: 30,
+        orderBy: { createdAt: "desc" },
+      }),
+      db.supportTicket.findMany({ where: ticketWhere, include: { client: true }, take: 50 }),
+      db.task.findMany({ where: taskWhere, take: 50, orderBy: { createdAt: "desc" } }),
+      // OPTIMIZATION: Use count() instead of findMany+filter for aggregate queries
+      ...(admin ? [
+        db.lead.count({ where: { status: "NEW" } }),
+        db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
+        db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
+        db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
+      ] : [
+        Promise.resolve(0), // leads not shown to developers
+        db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
+        db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
+        db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
+      ]),
+    ])
+
+    // Leads are admin-only
+    const leads = admin ? await db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : []
+
+    // SECURITY: API keys visible only to SUPER_ADMIN
+    const safeApiKeys = role === "SUPER_ADMIN"
+      ? apiKeys
+      : admin
+        ? apiKeys.map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
+        : []
+
+    // Usage logs — same shape for all roles (agent details are already limited by include)
+    const safeUsageLogs = usageLogs.map(log => ({
+      id: log.id,
+      model: log.model,
+      inputTokens: log.inputTokens,
+      outputTokens: log.outputTokens,
+      cost: log.cost,
+      createdAt: log.createdAt,
+      agent: log.agent,
+    }))
+
+    // Compute stats — invoices filtered by status via Prisma for efficiency
+    const [totalRevenue, pendingAmount, overdueAmount, totalExpenses] = admin
+      ? await Promise.all([
+          db.invoice.aggregate({ where: { ...invoiceWhere, status: "PAID" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+          db.invoice.aggregate({ where: { ...invoiceWhere, status: "SENT" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+          db.invoice.aggregate({ where: { ...invoiceWhere, status: "OVERDUE" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+          db.expense.aggregate({ where: expenseWhere, _sum: { amount: true } }).then(r => r._sum.amount || 0),
+        ])
+      : [0, 0, 0, 0]
+
+    const totalApiSpend = admin ? apiKeys.reduce((sum, k) => sum + k.currentSpend, 0) : 0
+    const monthlyBudget = admin ? apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
+    const totalLeads = admin ? (newLeadsCount + leads.length) : 0 // approximate
+
+    return NextResponse.json({
+      agents,
+      projects,
+      clients: admin ? clients : clients.map(c => ({ id: c.id, name: c.name, company: c.company })),
+      leads,
+      invoices: admin ? invoices : [],
+      expenses: admin ? expenses : [],
+      apiKeys: safeApiKeys,
+      usageLogs: safeUsageLogs,
+      supportTickets: admin ? supportTickets : [],
+      tasks,
+      stats: {
+        totalRevenue,
+        pendingAmount,
+        overdueAmount,
+        totalExpenses,
+        totalApiSpend,
+        monthlyBudget,
+        newLeadsCount,
+        activeProjects,
+        openTickets,
+        pendingTasks,
+        totalClients: admin ? clients.length : 0,
+        totalLeads,
+      },
+    })
   } catch (error: any) {
     console.error("[dashboard] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 })

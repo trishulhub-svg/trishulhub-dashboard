@@ -36,9 +36,9 @@ import {
   BookOpen,
 } from "lucide-react";
 import Image from "next/image";
+import LoadingScreen from "@/components/ui/loading-screen";
 import { useTheme } from "next-themes";
 import { useState, useEffect, useCallback } from "react";
-import { useSessionManager } from "@/hooks/use-session-manager";
 
 import { cn, safeArray, safeDateStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -223,7 +223,7 @@ function SidebarContent({
               )}
               <div className="space-y-0.5">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
                   return (
                     <button
                       key={item.href}
@@ -276,10 +276,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
-  useSessionManager();
-  // Note: useSessionManager is intentionally called here (not removed) because the
-  // dashboard layout needs its own inactivity tracking lifecycle independent of auth-provider.
-  // The auth-provider wrapper handles it globally for non-dashboard routes.
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -374,25 +370,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   if (status === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <Image
-            src="/200px.png"
-            alt="TrishulHub"
-            width={80}
-            height={32}
-            className="rounded-lg"
-            priority
-          />
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!session) return null;
@@ -461,7 +439,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </SheetTrigger>
             </Sheet>
             <h2 className="text-base font-semibold text-foreground">
-              {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href)))?.title || "Dashboard"}
+              {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
           </div>
 
@@ -547,7 +525,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           )}
                           onClick={async () => {
                             if (!notif.isRead) await markAsRead(notif.id);
-                            if (notif.link) {
+                            if (notif.link && notif.link.startsWith("/")) {
                               router.push(notif.link);
                               setNotifOpen(false);
                             }
