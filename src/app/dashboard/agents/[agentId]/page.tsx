@@ -10,10 +10,10 @@ import {
   Pencil, Check, X, ChevronRight, ChevronLeft, ChevronDown, Zap, Command,
   Lightbulb, Calendar, Clock, AlertTriangle, ArrowRightLeft,
   PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose,
-  MoreVertical, Search, SendHorizontal, ShieldAlert,
-  Wrench, Brain, Eye, FileCode, Globe, Terminal,
+  MoreVertical, SendHorizontal, ShieldAlert,
+  Wrench, Brain, FileCode, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Unlink, FileUp, Upload, RotateCw, FolderOpen, User, Lock, Radio,
+  Link2, Upload, RotateCw, User, Lock, Radio,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,233 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 // ─── All Agent Tools (used for auto-TODO generation) ──────────────
+// ─── Generate human-readable title/description/prompt from tool call ──
+// Used by both the main SSE loop and the buffer drain path (deduplicated)
+function generateTodoFromToolCall(toolName: string, args: Record<string, any>): { title: string; description: string; prompt: string } {
+  let title = toolName;
+  let description = '';
+  let prompt = '';
+
+  switch (toolName) {
+    case 'write_file':
+      title = `Write ${args.path || 'file'}`;
+      description = args.description || `Creating ${args.path || 'file'}`;
+      prompt = `Write file ${args.path || 'unknown'} with the specified content`;
+      break;
+    case 'edit_file':
+      title = `Edit ${args.path || 'file'}`;
+      description = args.description || `Editing ${args.path || 'file'}`;
+      prompt = `Edit file ${args.path || 'unknown'}: ${args.description || 'Apply changes'}`;
+      break;
+    case 'read_file':
+      title = `Read ${args.path || 'file'}`;
+      description = args.purpose || `Reading ${args.path || 'file'}`;
+      prompt = `Read file ${args.path || 'unknown'}`;
+      break;
+    case 'list_files':
+      title = `List ${args.path || 'project'}`;
+      description = 'Exploring project structure';
+      prompt = `List files in ${args.path || 'project'}`;
+      break;
+    case 'run_command':
+      title = `Run: ${(args.command || '').substring(0, 40)}`;
+      description = args.purpose || 'Executing command';
+      prompt = `Run command: ${args.command || ''}`;
+      break;
+    case 'git_commit_push':
+      title = `Git push`;
+      description = args.message || 'Committing and pushing changes';
+      prompt = `Git commit and push: ${args.message || ''}`;
+      break;
+    case 'git_status':
+      title = `Git status`;
+      description = 'Checking repository status';
+      prompt = 'Check git status';
+      break;
+    case 'git_diff':
+      title = `Git diff`;
+      description = 'Reviewing changes';
+      prompt = 'View git diff';
+      break;
+    case 'git_create_branch':
+      title = `Branch: ${args.name || 'new'}`;
+      description = 'Creating new branch';
+      prompt = `Create branch: ${args.name || ''}`;
+      break;
+    case 'analyze_code':
+      title = `Analyze ${args.path || 'code'}`;
+      description = `Focus: ${args.focus || 'all'}`;
+      prompt = `Analyze code: ${args.path || ''}`;
+      break;
+    case 'web_search':
+      title = `Search: ${(args.query || '').substring(0, 30)}`;
+      description = args.purpose || 'Searching the web';
+      prompt = `Search web: ${args.query || ''}`;
+      break;
+    // ── Client Hunter tools ──
+    case 'search_leads':
+      title = `Find leads: ${(args.location || args.industry || '').substring(0, 30)}`;
+      description = args.criteria || `Searching for ${args.industry || 'clients'} in ${args.location || 'target area'}`;
+      prompt = `Search for leads in ${args.location || 'area'} — ${args.industry || 'all industries'}`;
+      break;
+    case 'analyze_website':
+      title = `Analyze: ${(args.url || '').substring(0, 30)}`;
+      description = `Reviewing website for ${args.business_name || 'business'}`;
+      prompt = `Analyze website ${args.url || ''}`;
+      break;
+    case 'score_lead':
+      title = `Score: ${(args.business_name || 'lead').substring(0, 25)}`;
+      description = `${args.business_type || 'Business'} — ${args.website_status || 'unknown status'}`;
+      prompt = `Score lead: ${args.business_name || 'unknown'}`;
+      break;
+    case 'draft_email':
+      title = `Draft email: ${(args.recipient_business || '').substring(0, 25)}`;
+      description = `${args.email_type || 'Email'} — ${args.pain_point || 'outreach'}`;
+      prompt = `Draft ${args.email_type || 'email'} for ${args.recipient_business || 'client'}`;
+      break;
+    case 'plan_outreach_campaign':
+      title = `Campaign: ${(args.target_industry || '').substring(0, 25)}`;
+      description = `${args.num_leads || 0} leads, ${args.duration_days || 14} days`;
+      prompt = `Plan outreach campaign for ${args.target_industry || ''}`;
+      break;
+    // ── Finance tools ──
+    case 'calculate_estimate':
+      title = `Estimate: ${(args.project_type || 'project').substring(0, 25)}`;
+      description = `Complexity: ${args.complexity || 'moderate'}`;
+      prompt = `Calculate estimate for ${args.project_type || 'project'}`;
+      break;
+    case 'generate_quotation':
+      title = `Quotation: ${(args.client_name || '').substring(0, 25)}`;
+      description = args.project_title || 'Preparing quotation';
+      prompt = `Generate quotation for ${args.client_name || 'client'}`;
+      break;
+    case 'generate_invoice':
+      title = `Invoice: ${(args.client_name || '').substring(0, 25)}`;
+      description = args.invoice_number || 'Generating invoice';
+      prompt = `Generate invoice for ${args.client_name || 'client'}`;
+      break;
+    case 'research_market_pricing':
+      title = `Pricing: ${(args.service_type || '').substring(0, 25)}`;
+      description = `Region: ${args.region || 'UK'}`;
+      prompt = `Research pricing for ${args.service_type || 'services'}`;
+      break;
+    case 'calculate_roi':
+      title = `ROI: ${args.calculation_type || 'analysis'}`;
+      description = `Revenue: ${args.revenue || 0}, Costs: ${args.costs || 0}`;
+      prompt = `Calculate ${args.calculation_type || 'ROI'}`;
+      break;
+    // ── Project Manager tools ──
+    case 'break_down_project':
+      title = `Break down: ${(args.project_name || '').substring(0, 25)}`;
+      description = args.requirements?.substring(0, 50) || 'Decomposing project';
+      prompt = `Break down project: ${args.project_name || ''}`;
+      break;
+    case 'create_timeline':
+      title = `Timeline: ${(args.project_name || '').substring(0, 25)}`;
+      description = `${(args.phases || []).length} phases planned`;
+      prompt = `Create timeline for ${args.project_name || ''}`;
+      break;
+    case 'assess_risks':
+      title = `Risks: ${(args.project_name || '').substring(0, 25)}`;
+      description = args.known_concerns?.substring(0, 50) || 'Assessing risks';
+      prompt = `Assess risks for ${args.project_name || ''}`;
+      break;
+    case 'plan_sprint':
+      title = `Sprint: ${(args.sprint_goal || '').substring(0, 25)}`;
+      description = `${args.sprint_duration_weeks || 2} weeks, ${args.team_size || 'team'} members`;
+      prompt = `Plan sprint: ${args.sprint_goal || ''}`;
+      break;
+    case 'estimate_effort':
+      title = `Effort: ${(args.tasks || []).length} tasks`;
+      description = `Rate: ${args.hourly_rate ? `£${args.hourly_rate}/hr` : 'standard'}`;
+      prompt = `Estimate effort for tasks`;
+      break;
+    // ── HR tools ──
+    case 'analyze_workload':
+      title = `Workload: ${(args.team_members || []).length} members`;
+      description = 'Analyzing workload distribution';
+      prompt = `Analyze team workload`;
+      break;
+    case 'find_best_fit':
+      title = `Match: ${(args.task_description || '').substring(0, 25)}`;
+      description = `Skills: ${(args.required_skills || []).join(', ')}`;
+      prompt = `Find best fit for: ${args.task_description || ''}`;
+      break;
+    case 'plan_onboarding':
+      title = `Onboard: ${(args.role || '').substring(0, 25)}`;
+      description = args.department || 'Planning onboarding';
+      prompt = `Plan onboarding for ${args.role || 'new member'}`;
+      break;
+    case 'assess_leave_conflicts':
+      title = `Leave: ${(args.leave_requests || []).length} requests`;
+      description = `Projects: ${(args.active_projects || []).join(', ') || 'none'}`;
+      prompt = `Assess leave conflicts`;
+      break;
+    // ── Content tools ──
+    case 'research_trends':
+      title = `Trends: ${(args.topic || '').substring(0, 25)}`;
+      description = `${args.platform || 'all'} — ${args.region || 'global'}`;
+      prompt = `Research trends: ${args.topic || ''}`;
+      break;
+    case 'analyze_seo':
+      title = `SEO: ${(args.topic || '').substring(0, 25)}`;
+      description = `${args.content_type || 'content'} — ${args.target_audience || ''}`;
+      prompt = `Analyze SEO for ${args.topic || ''}`;
+      break;
+    case 'draft_content':
+      title = `Draft: ${(args.title || '').substring(0, 25)}`;
+      description = `${args.content_type || 'content'} for ${args.platform || 'platform'}`;
+      prompt = `Draft ${args.content_type || 'content'}: ${args.title || ''}`;
+      break;
+    case 'create_content_calendar':
+      title = `Calendar: ${args.duration_weeks || 0} weeks`;
+      description = `${(args.content_themes || []).join(', ')}`;
+      prompt = `Create content calendar`;
+      break;
+    case 'research_competitors':
+      title = `Competitors: ${(args.our_niche || '').substring(0, 25)}`;
+      description = `${(args.competitors || []).join(', ') || 'researching'}`;
+      prompt = `Research competitors in ${args.our_niche || ''}`;
+      break;
+    // ── Support tools ──
+    case 'troubleshoot_issue':
+      title = `Fix: ${(args.issue_description || '').substring(0, 25)}`;
+      description = `${args.platform || 'system'} — ${args.severity || 'medium'} severity`;
+      prompt = `Troubleshoot: ${args.issue_description || ''}`;
+      break;
+    case 'search_knowledge_base':
+      title = `KB: ${(args.query || '').substring(0, 25)}`;
+      description = args.category || 'Searching knowledge base';
+      prompt = `Search KB: ${args.query || ''}`;
+      break;
+    case 'draft_client_response':
+      title = `Reply: ${(args.client_name || '').substring(0, 25)}`;
+      description = args.tone || 'helpful response';
+      prompt = `Draft response for ${args.client_name || ''}`;
+      break;
+    case 'create_kb_article':
+      title = `Article: ${(args.title || '').substring(0, 25)}`;
+      description = `${(args.solution_steps || []).length} steps`;
+      prompt = `Create KB article: ${args.title || ''}`;
+      break;
+    case 'assess_escalation':
+      title = `Escalate: ${(args.issue_description || '').substring(0, 25)}`;
+      description = `Impact: ${args.client_impact || 'unknown'}`;
+      prompt = `Assess escalation: ${args.issue_description || ''}`;
+      break;
+    case 'plan_task':
+      title = `Plan: ${(args.task || '').substring(0, 25)}`;
+      description = `${(args.steps || []).length} steps planned`;
+      prompt = `Plan task: ${args.task || ''}`;
+      break;
+    default:
+      prompt = `${toolName}: ${title}`;
+      description = args.content?.substring(0, 60) || '';
+  }
+
+  return { title, description, prompt };
+}
+
 const ALL_AGENT_TOOLS = [
   // Dev Agent tools
   'write_file', 'edit_file', 'read_file', 'list_files', 'run_command',
@@ -285,6 +512,92 @@ function SafeMarkdown({ content }: { content: string }) {
   } catch {
     return <pre className="whitespace-pre-wrap text-sm">{content}</pre>;
   }
+}
+
+// ─── Delete Confirmation Dialog (shared by mobile + desktop layouts) ──
+function DeleteConfirmationDialog({
+  open,
+  chatId,
+  userRole,
+  currentUserId,
+  chats,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  chatId: string | null;
+  userRole: string;
+  currentUserId?: string;
+  chats: Chat[];
+  onConfirm: (id: string) => void;
+  onClose: () => void;
+}) {
+  const chatToDelete = chatId ? chats.find(c => c.id === chatId) : undefined;
+  const isOtherUsersChat = chatToDelete && chatToDelete.userId !== currentUserId;
+  const isDevOrClient = userRole === "DEVELOPER" || userRole === "CLIENT";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {isDevOrClient ? (
+              <><ShieldAlert className="h-5 w-5 text-orange-500" /> Request Chat Deletion</>
+            ) : (
+              <><Trash2 className="h-5 w-5 text-red-500" /> Delete Chat</>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-3">
+          {isDevOrClient ? (
+            <p className="text-sm text-muted-foreground">
+              Your deletion request will be sent to admins for review. 
+              The chat will only be deleted after one of them approves it.
+            </p>
+          ) : isOtherUsersChat ? (
+            <p className="text-sm text-muted-foreground">
+              You are deleting a chat that belongs to another user. This action cannot be undone. 
+              The chat and all its messages will be permanently deleted.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This action cannot be undone. The chat and all its messages will be permanently deleted.
+            </p>
+          )}
+          {chatToDelete && (
+            <div className="mt-3 p-2 rounded-lg bg-muted">
+              <p className="text-sm font-medium">{chatToDelete.title || "Untitled Chat"}</p>
+              <p className="text-xs text-muted-foreground">{chatToDelete._count?.messages || 0} messages</p>
+              {isOtherUsersChat && chatToDelete.user && (
+                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                  Owner: {chatToDelete.user.name} ({chatToDelete.user.role})
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          {isDevOrClient ? (
+            <Button 
+              variant="outline" 
+              className="bg-orange-500 hover:bg-orange-600 text-white hover:text-white"
+              onClick={() => { if (chatId) { onConfirm(chatId); onClose(); } }}
+            >
+              <ShieldAlert className="h-4 w-4 mr-2" /> Send Deletion Request
+            </Button>
+          ) : (
+            <Button 
+              variant="destructive"
+              onClick={() => { if (chatId) { onConfirm(chatId); onClose(); } }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Delete Chat
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Main Component ─────────────────────────────────────────────
@@ -970,55 +1283,24 @@ export default function AgentChatPage() {
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, [activeChatId]); // Re-bind when chat changes
 
-  // Auto-scroll effect: only scroll if user is at bottom (or hasn't scrolled up)
-  // FIX: Use direct viewport.scrollTop manipulation instead of scrollIntoView because
-  // scrollIntoView scrolls ALL scrollable ancestors (including <main> which was a scroll
-  // container), causing the wrong element to scroll. Direct scrollTop targets only the
-  // ScrollArea viewport.
-  // TODO: Consolidate three scroll effects into a single effect with proper conditions to prevent janky scrolling
+  // Consolidated auto-scroll: handles new messages, sending, chat switches, and streaming
   useEffect(() => {
-    if (!isUserAtBottomRef.current && userScrolledUpRef.current) {
-      return; // User scrolled up — don't force them down
-    }
     const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
-    if (viewport) {
+    if (!viewport) return;
+
+    // Force reset when sending or switching chats
+    if (sending || activeChatId) {
+      isUserAtBottomRef.current = true;
+      userScrolledUpRef.current = false;
+    }
+
+    // Only auto-scroll if user hasn't scrolled up
+    if (isUserAtBottomRef.current && !userScrolledUpRef.current) {
       requestAnimationFrame(() => {
         viewport.scrollTop = viewport.scrollHeight;
       });
     }
-  }, [messages, sending, streamingText]);
-
-  // Force scroll to bottom when user sends a new message
-  // FIX: Use direct viewport.scrollTop instead of scrollIntoView
-  useEffect(() => {
-    if (sending) {
-      // User just sent a message — always scroll to bottom
-      isUserAtBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
-      if (viewport) {
-        requestAnimationFrame(() => {
-          viewport.scrollTop = viewport.scrollHeight;
-        });
-      }
-    }
-  }, [sending]);
-
-  // Scroll to bottom when switching chats (initial load)
-  // FIX: Use direct viewport.scrollTop instead of scrollIntoView
-  useEffect(() => {
-    if (activeChatId && messages.length > 0) {
-      isUserAtBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      // Use instant scroll for chat switches (no smooth animation)
-      const viewport = chatScrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
-      if (viewport) {
-        requestAnimationFrame(() => {
-          viewport.scrollTop = viewport.scrollHeight;
-        });
-      }
-    }
-  }, [activeChatId]);
+  }, [messages, sending, streamingText, activeChatId]);
 
   // ── Auto-release lock on unmount / navigation away ──
   useEffect(() => {
@@ -1716,303 +1998,9 @@ export default function AgentChatPage() {
                   if (collectedTodoItems.length === 0) {
                     autoTodoCounterRef.current += 1;
                     const todoStep = autoTodoCounterRef.current;
-                    let title = '';
-                    let description = '';
                     const args = step.toolArgs || {};
-
-                    // Generate human-readable title from tool call
-                    switch (step.toolName) {
-                      case 'write_file':
-                        title = `Write ${args.path || 'file'}`;
-                        description = args.description || `Creating ${args.path || 'file'}`;
-                        break;
-                      case 'edit_file':
-                        title = `Edit ${args.path || 'file'}`;
-                        description = args.description || `Editing ${args.path || 'file'}`;
-                        break;
-                      case 'read_file':
-                        title = `Read ${args.path || 'file'}`;
-                        description = args.purpose || `Reading ${args.path || 'file'}`;
-                        break;
-                      case 'list_files':
-                        title = `List ${args.path || 'project'}`;
-                        description = 'Exploring project structure';
-                        break;
-                      case 'run_command':
-                        title = `Run: ${(args.command || '').substring(0, 40)}`;
-                        description = args.purpose || 'Executing command';
-                        break;
-                      case 'git_commit_push':
-                        title = `Git push`;
-                        description = args.message || 'Committing and pushing changes';
-                        break;
-                      case 'git_status':
-                        title = `Git status`;
-                        description = 'Checking repository status';
-                        break;
-                      case 'git_diff':
-                        title = `Git diff`;
-                        description = 'Reviewing changes';
-                        break;
-                      case 'git_create_branch':
-                        title = `Branch: ${args.name || 'new'}`;
-                        description = 'Creating new branch';
-                        break;
-                      case 'analyze_code':
-                        title = `Analyze ${args.path || 'code'}`;
-                        description = `Focus: ${args.focus || 'all'}`;
-                        break;
-                      case 'web_search':
-                        title = `Search: ${(args.query || '').substring(0, 30)}`;
-                        description = args.purpose || 'Searching the web';
-                        break;
-                      // ── Client Hunter tools ──
-                      case 'search_leads':
-                        title = `Find leads: ${(args.location || args.industry || '').substring(0, 30)}`;
-                        description = args.criteria || `Searching for ${args.industry || 'clients'} in ${args.location || 'target area'}`;
-                        break;
-                      case 'analyze_website':
-                        title = `Analyze: ${(args.url || '').substring(0, 30)}`;
-                        description = `Reviewing website for ${args.business_name || 'business'}`;
-                        break;
-                      case 'score_lead':
-                        title = `Score: ${(args.business_name || 'lead').substring(0, 25)}`;
-                        description = `${args.business_type || 'Business'} — ${args.website_status || 'unknown status'}`;
-                        break;
-                      case 'draft_email':
-                        title = `Draft email: ${(args.recipient_business || '').substring(0, 25)}`;
-                        description = `${args.email_type || 'Email'} — ${args.pain_point || 'outreach'}`;
-                        break;
-                      case 'plan_outreach_campaign':
-                        title = `Campaign: ${(args.target_industry || '').substring(0, 25)}`;
-                        description = `${args.num_leads || 0} leads, ${args.duration_days || 14} days`;
-                        break;
-                      // ── Finance tools ──
-                      case 'calculate_estimate':
-                        title = `Estimate: ${(args.project_type || 'project').substring(0, 25)}`;
-                        description = `Complexity: ${args.complexity || 'moderate'}`;
-                        break;
-                      case 'generate_quotation':
-                        title = `Quotation: ${(args.client_name || '').substring(0, 25)}`;
-                        description = args.project_title || 'Preparing quotation';
-                        break;
-                      case 'generate_invoice':
-                        title = `Invoice: ${(args.client_name || '').substring(0, 25)}`;
-                        description = args.invoice_number || 'Generating invoice';
-                        break;
-                      case 'research_market_pricing':
-                        title = `Pricing: ${(args.service_type || '').substring(0, 25)}`;
-                        description = `Region: ${args.region || 'UK'}`;
-                        break;
-                      case 'calculate_roi':
-                        title = `ROI: ${args.calculation_type || 'analysis'}`;
-                        description = `Revenue: ${args.revenue || 0}, Costs: ${args.costs || 0}`;
-                        break;
-                      // ── Project Manager tools ──
-                      case 'break_down_project':
-                        title = `Break down: ${(args.project_name || '').substring(0, 25)}`;
-                        description = args.requirements?.substring(0, 50) || 'Decomposing project';
-                        break;
-                      case 'create_timeline':
-                        title = `Timeline: ${(args.project_name || '').substring(0, 25)}`;
-                        description = `${(args.phases || []).length} phases planned`;
-                        break;
-                      case 'assess_risks':
-                        title = `Risks: ${(args.project_name || '').substring(0, 25)}`;
-                        description = args.known_concerns?.substring(0, 50) || 'Assessing risks';
-                        break;
-                      case 'plan_sprint':
-                        title = `Sprint: ${(args.sprint_goal || '').substring(0, 25)}`;
-                        description = `${args.sprint_duration_weeks || 2} weeks, ${args.team_size || 'team'} members`;
-                        break;
-                      case 'estimate_effort':
-                        title = `Effort: ${(args.tasks || []).length} tasks`;
-                        description = `Rate: ${args.hourly_rate ? `£${args.hourly_rate}/hr` : 'standard'}`;
-                        break;
-                      // ── HR tools ──
-                      case 'analyze_workload':
-                        title = `Workload: ${(args.team_members || []).length} members`;
-                        description = 'Analyzing workload distribution';
-                        break;
-                      case 'find_best_fit':
-                        title = `Match: ${(args.task_description || '').substring(0, 25)}`;
-                        description = `Skills: ${(args.required_skills || []).join(', ')}`;
-                        break;
-                      case 'plan_onboarding':
-                        title = `Onboard: ${(args.role || '').substring(0, 25)}`;
-                        description = args.department || 'Planning onboarding';
-                        break;
-                      case 'assess_leave_conflicts':
-                        title = `Leave: ${(args.leave_requests || []).length} requests`;
-                        description = `Projects: ${(args.active_projects || []).join(', ') || 'none'}`;
-                        break;
-                      // ── Content tools ──
-                      case 'research_trends':
-                        title = `Trends: ${(args.topic || '').substring(0, 25)}`;
-                        description = `${args.platform || 'all'} — ${args.region || 'global'}`;
-                        break;
-                      case 'analyze_seo':
-                        title = `SEO: ${(args.topic || '').substring(0, 25)}`;
-                        description = `${args.content_type || 'content'} — ${args.target_audience || ''}`;
-                        break;
-                      case 'draft_content':
-                        title = `Draft: ${(args.title || '').substring(0, 25)}`;
-                        description = `${args.content_type || 'content'} for ${args.platform || 'platform'}`;
-                        break;
-                      case 'create_content_calendar':
-                        title = `Calendar: ${args.duration_weeks || 0} weeks`;
-                        description = `${(args.content_themes || []).join(', ')}`;
-                        break;
-                      case 'research_competitors':
-                        title = `Competitors: ${(args.our_niche || '').substring(0, 25)}`;
-                        description = `${(args.competitors || []).join(', ') || 'researching'}`;
-                        break;
-                      // ── Support tools ──
-                      case 'troubleshoot_issue':
-                        title = `Fix: ${(args.issue_description || '').substring(0, 25)}`;
-                        description = `${args.platform || 'system'} — ${args.severity || 'medium'} severity`;
-                        break;
-                      case 'search_knowledge_base':
-                        title = `KB: ${(args.query || '').substring(0, 25)}`;
-                        description = args.category || 'Searching knowledge base';
-                        break;
-                      case 'draft_client_response':
-                        title = `Reply: ${(args.client_name || '').substring(0, 25)}`;
-                        description = args.tone || 'helpful response';
-                        break;
-                      case 'create_kb_article':
-                        title = `Article: ${(args.title || '').substring(0, 25)}`;
-                        description = `${(args.solution_steps || []).length} steps`;
-                        break;
-                      case 'assess_escalation':
-                        title = `Escalate: ${(args.issue_description || '').substring(0, 25)}`;
-                        description = `Impact: ${args.client_impact || 'unknown'}`;
-                        break;
-                      // ── Shared tools ──
-                      case 'plan_task':
-                        title = `Plan: ${(args.task || '').substring(0, 25)}`;
-                        description = `${(args.steps || []).length} steps planned`;
-                        break;
-                      default:
-                        title = step.toolName;
-                        description = step.content || '';
-                    }
-
-                    // BUG FIX: Auto-generated TODO items need a prompt field for re-execution
-                    // Store the tool call details as the prompt
-                    let autoPrompt = '';
-                    switch (step.toolName) {
-                      case 'write_file':
-                        autoPrompt = `Write file ${args.path || 'unknown'} with the specified content`;
-                        break;
-                      case 'edit_file':
-                        autoPrompt = `Edit file ${args.path || 'unknown'}: ${args.description || 'Apply changes'}`;
-                        break;
-                      case 'read_file':
-                        autoPrompt = `Read file ${args.path || 'unknown'}`;
-                        break;
-                      case 'list_files':
-                        autoPrompt = `List files in ${args.path || 'project'}`;
-                        break;
-                      case 'run_command':
-                        autoPrompt = `Run command: ${args.command || ''}`;
-                        break;
-                      case 'git_commit_push':
-                        autoPrompt = `Git commit and push: ${args.message || ''}`;
-                        break;
-                      case 'search_leads':
-                        autoPrompt = `Search for leads in ${args.location || 'area'} — ${args.industry || 'all industries'}`;
-                        break;
-                      case 'analyze_website':
-                        autoPrompt = `Analyze website ${args.url || ''}`;
-                        break;
-                      case 'score_lead':
-                        autoPrompt = `Score lead: ${args.business_name || 'unknown'}`;
-                        break;
-                      case 'draft_email':
-                        autoPrompt = `Draft ${args.email_type || 'email'} for ${args.recipient_business || 'client'}`;
-                        break;
-                      case 'calculate_estimate':
-                        autoPrompt = `Calculate estimate for ${args.project_type || 'project'}`;
-                        break;
-                      case 'generate_quotation':
-                        autoPrompt = `Generate quotation for ${args.client_name || 'client'}`;
-                        break;
-                      case 'generate_invoice':
-                        autoPrompt = `Generate invoice for ${args.client_name || 'client'}`;
-                        break;
-                      case 'research_market_pricing':
-                        autoPrompt = `Research pricing for ${args.service_type || 'services'}`;
-                        break;
-                      case 'calculate_roi':
-                        autoPrompt = `Calculate ${args.calculation_type || 'ROI'}`;
-                        break;
-                      case 'break_down_project':
-                        autoPrompt = `Break down project: ${args.project_name || ''}`;
-                        break;
-                      case 'create_timeline':
-                        autoPrompt = `Create timeline for ${args.project_name || ''}`;
-                        break;
-                      case 'assess_risks':
-                        autoPrompt = `Assess risks for ${args.project_name || ''}`;
-                        break;
-                      case 'plan_sprint':
-                        autoPrompt = `Plan sprint: ${args.sprint_goal || ''}`;
-                        break;
-                      case 'estimate_effort':
-                        autoPrompt = `Estimate effort for tasks`;
-                        break;
-                      case 'analyze_workload':
-                        autoPrompt = `Analyze team workload`;
-                        break;
-                      case 'find_best_fit':
-                        autoPrompt = `Find best fit for: ${args.task_description || ''}`;
-                        break;
-                      case 'plan_onboarding':
-                        autoPrompt = `Plan onboarding for ${args.role || 'new member'}`;
-                        break;
-                      case 'assess_leave_conflicts':
-                        autoPrompt = `Assess leave conflicts`;
-                        break;
-                      case 'research_trends':
-                        autoPrompt = `Research trends: ${args.topic || ''}`;
-                        break;
-                      case 'analyze_seo':
-                        autoPrompt = `Analyze SEO for ${args.topic || ''}`;
-                        break;
-                      case 'draft_content':
-                        autoPrompt = `Draft ${args.content_type || 'content'}: ${args.title || ''}`;
-                        break;
-                      case 'create_content_calendar':
-                        autoPrompt = `Create content calendar`;
-                        break;
-                      case 'research_competitors':
-                        autoPrompt = `Research competitors in ${args.our_niche || ''}`;
-                        break;
-                      case 'troubleshoot_issue':
-                        autoPrompt = `Troubleshoot: ${args.issue_description || ''}`;
-                        break;
-                      case 'search_knowledge_base':
-                        autoPrompt = `Search KB: ${args.query || ''}`;
-                        break;
-                      case 'draft_client_response':
-                        autoPrompt = `Draft response for ${args.client_name || ''}`;
-                        break;
-                      case 'create_kb_article':
-                        autoPrompt = `Create KB article: ${args.title || ''}`;
-                        break;
-                      case 'assess_escalation':
-                        autoPrompt = `Assess escalation: ${args.issue_description || ''}`;
-                        break;
-                      case 'plan_task':
-                        autoPrompt = `Plan task: ${args.task || ''}`;
-                        break;
-                      case 'web_search':
-                        autoPrompt = `Search web: ${args.query || ''}`;
-                        break;
-                      default:
-                        autoPrompt = `${step.toolName}: ${title}`;
-                    }
+                    const { title, description } = generateTodoFromToolCall(step.toolName, args);
+                    const { prompt: autoPrompt } = generateTodoFromToolCall(step.toolName, args);
 
                     const newTodo = {
                       id: `auto-todo-${Date.now()}-${todoStep}`,
@@ -2260,50 +2248,7 @@ export default function AgentChatPage() {
                   autoTodoCounterRef.current += 1;
                   const todoStep = autoTodoCounterRef.current;
                   const args = step.toolArgs || {};
-                  let title = step.toolName;
-                  let description = '';
-                  // Simplified title generation for buffer drain path (full version is in main loop above)
-                  switch (step.toolName) {
-                    case 'write_file': title = `Write ${args.path || 'file'}`; description = args.description || ''; break;
-                    case 'edit_file': title = `Edit ${args.path || 'file'}`; description = args.description || ''; break;
-                    case 'read_file': title = `Read ${args.path || 'file'}`; description = args.purpose || ''; break;
-                    case 'list_files': title = `List ${args.path || 'project'}`; description = 'Exploring project'; break;
-                    case 'run_command': title = `Run: ${(args.command || '').substring(0, 40)}`; description = args.purpose || ''; break;
-                    case 'git_commit_push': title = `Git push`; description = args.message || ''; break;
-                    case 'search_leads': title = `Find leads: ${(args.location || args.industry || '').substring(0, 30)}`; description = `Searching for ${args.industry || 'clients'}`; break;
-                    case 'analyze_website': title = `Analyze: ${(args.url || '').substring(0, 30)}`; description = `Reviewing website`; break;
-                    case 'score_lead': title = `Score: ${(args.business_name || 'lead').substring(0, 25)}`; description = `${args.business_type || 'Business'}`; break;
-                    case 'draft_email': title = `Draft email: ${(args.recipient_business || '').substring(0, 25)}`; description = args.email_type || 'Email'; break;
-                    case 'plan_outreach_campaign': title = `Campaign: ${(args.target_industry || '').substring(0, 25)}`; description = `${args.num_leads || 0} leads`; break;
-                    case 'calculate_estimate': title = `Estimate: ${(args.project_type || 'project').substring(0, 25)}`; description = `Complexity: ${args.complexity || 'moderate'}`; break;
-                    case 'generate_quotation': title = `Quotation: ${(args.client_name || '').substring(0, 25)}`; description = args.project_title || ''; break;
-                    case 'generate_invoice': title = `Invoice: ${(args.client_name || '').substring(0, 25)}`; description = args.invoice_number || ''; break;
-                    case 'research_market_pricing': title = `Pricing: ${(args.service_type || '').substring(0, 25)}`; description = `Region: ${args.region || 'UK'}`; break;
-                    case 'calculate_roi': title = `ROI: ${args.calculation_type || 'analysis'}`; description = ''; break;
-                    case 'break_down_project': title = `Break down: ${(args.project_name || '').substring(0, 25)}`; description = 'Decomposing project'; break;
-                    case 'create_timeline': title = `Timeline: ${(args.project_name || '').substring(0, 25)}`; description = ''; break;
-                    case 'assess_risks': title = `Risks: ${(args.project_name || '').substring(0, 25)}`; description = 'Assessing risks'; break;
-                    case 'plan_sprint': title = `Sprint: ${(args.sprint_goal || '').substring(0, 25)}`; description = ''; break;
-                    case 'estimate_effort': title = `Effort: ${(args.tasks || []).length} tasks`; description = ''; break;
-                    case 'analyze_workload': title = `Workload: ${(args.team_members || []).length} members`; description = 'Analyzing workload'; break;
-                    case 'find_best_fit': title = `Match: ${(args.task_description || '').substring(0, 25)}`; description = ''; break;
-                    case 'plan_onboarding': title = `Onboard: ${(args.role || '').substring(0, 25)}`; description = ''; break;
-                    case 'assess_leave_conflicts': title = `Leave: ${(args.leave_requests || []).length} requests`; description = ''; break;
-                    case 'research_trends': title = `Trends: ${(args.topic || '').substring(0, 25)}`; description = ''; break;
-                    case 'analyze_seo': title = `SEO: ${(args.topic || '').substring(0, 25)}`; description = ''; break;
-                    case 'draft_content': title = `Draft: ${(args.title || '').substring(0, 25)}`; description = `${args.content_type || 'content'}`; break;
-                    case 'create_content_calendar': title = `Calendar: ${args.duration_weeks || 0} weeks`; description = ''; break;
-                    case 'research_competitors': title = `Competitors: ${(args.our_niche || '').substring(0, 25)}`; description = ''; break;
-                    case 'troubleshoot_issue': title = `Fix: ${(args.issue_description || '').substring(0, 25)}`; description = `${args.severity || 'medium'} severity`; break;
-                    case 'search_knowledge_base': title = `KB: ${(args.query || '').substring(0, 25)}`; description = args.category || ''; break;
-                    case 'draft_client_response': title = `Reply: ${(args.client_name || '').substring(0, 25)}`; description = ''; break;
-                    case 'create_kb_article': title = `Article: ${(args.title || '').substring(0, 25)}`; description = ''; break;
-                    case 'assess_escalation': title = `Escalate: ${(args.issue_description || '').substring(0, 25)}`; description = `Impact: ${args.client_impact || 'unknown'}`; break;
-                    case 'plan_task': title = `Plan: ${(args.task || '').substring(0, 25)}`; description = `${(args.steps || []).length} steps`; break;
-                    case 'web_search': title = `Search: ${(args.query || '').substring(0, 30)}`; description = args.purpose || ''; break;
-                    default: description = step.content || '';
-                  }
-                  const bufPrompt = `${step.toolName}: ${title}`;
+                  const { title, description, prompt: bufPrompt } = generateTodoFromToolCall(step.toolName, args);
                   // FIX: Wrap in startTransition to prevent React error #185
                   startTransition(() => {
                     setTodoItems(prev => [...prev, { id: `auto-todo-${Date.now()}-${todoStep}`, step: todoStep, title, description, prompt: bufPrompt, status: 'running' as const }]);
@@ -3285,81 +3230,15 @@ export default function AgentChatPage() {
           onSend={handleCrossAgentSend}
           fromAgentName={agent.name}
         />
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={!!deleteDialogChatId} onOpenChange={(open) => { if (!open) setDeleteDialogChatId(null); }}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-                  <><ShieldAlert className="h-5 w-5 text-orange-500" /> Request Chat Deletion</>
-                ) : (
-                  <><Trash2 className="h-5 w-5 text-red-500" /> Delete Chat</>
-                )}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="py-3">
-              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-                <p className="text-sm text-muted-foreground">
-                  Your deletion request will be sent to admins for review. 
-                  The chat will only be deleted after one of them approves it.
-                </p>
-              ) : deleteDialogChatId && chats.find(c => c.id === deleteDialogChatId)?.userId !== currentUserId ? (
-                <p className="text-sm text-muted-foreground">
-                  You are deleting a chat that belongs to another user. This action cannot be undone. 
-                  The chat and all its messages will be permanently deleted.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  This action cannot be undone. The chat and all its messages will be permanently deleted.
-                </p>
-              )}
-              {deleteDialogChatId && (() => {
-                const chatToDelete = chats.find(c => c.id === deleteDialogChatId);
-                const isOtherUsersChat = chatToDelete && chatToDelete.userId !== currentUserId;
-                return (
-                  <div className="mt-3 p-2 rounded-lg bg-muted">
-                    <p className="text-sm font-medium">
-                      {chatToDelete?.title || "Untitled Chat"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {chatToDelete?._count?.messages || 0} messages
-                    </p>
-                    {isOtherUsersChat && chatToDelete?.user && (
-                      <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                        Owner: {chatToDelete.user.name} ({chatToDelete.user.role})
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
-              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-                <Button 
-                  variant="outline" 
-                  className="bg-orange-500 hover:bg-orange-600 text-white hover:text-white"
-                  onClick={() => {
-                    if (deleteDialogChatId) deleteChat(deleteDialogChatId);
-                    setDeleteDialogChatId(null);
-                  }}
-                >
-                  <ShieldAlert className="h-4 w-4 mr-2" /> Send Deletion Request
-                </Button>
-              ) : (
-                <Button 
-                  variant="destructive"
-                  onClick={() => {
-                    if (deleteDialogChatId) deleteChat(deleteDialogChatId);
-                    setDeleteDialogChatId(null);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" /> Delete Chat
-                </Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DeleteConfirmationDialog
+          open={!!deleteDialogChatId}
+          chatId={deleteDialogChatId}
+          userRole={userRole}
+          currentUserId={currentUserId}
+          chats={chats}
+          onConfirm={deleteChat}
+          onClose={() => setDeleteDialogChatId(null)}
+        />
       </div>
     );
   }
@@ -3635,81 +3514,15 @@ export default function AgentChatPage() {
         onSend={handleCrossAgentSend}
         fromAgentName={agent.name}
       />
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteDialogChatId} onOpenChange={(open) => { if (!open) setDeleteDialogChatId(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-                <><ShieldAlert className="h-5 w-5 text-orange-500" /> Request Chat Deletion</>
-              ) : (
-                <><Trash2 className="h-5 w-5 text-red-500" /> Delete Chat</>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-3">
-            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-              <p className="text-sm text-muted-foreground">
-                Your deletion request will be sent to admins for review. 
-                The chat will only be deleted after one of them approves it.
-              </p>
-            ) : deleteDialogChatId && chats.find(c => c.id === deleteDialogChatId)?.userId !== currentUserId ? (
-              <p className="text-sm text-muted-foreground">
-                You are deleting a chat that belongs to another user. This action cannot be undone. 
-                The chat and all its messages will be permanently deleted.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                This action cannot be undone. The chat and all its messages will be permanently deleted.
-              </p>
-            )}
-            {deleteDialogChatId && (() => {
-              const chatToDelete = chats.find(c => c.id === deleteDialogChatId);
-              const isOtherUsersChat = chatToDelete && chatToDelete.userId !== currentUserId;
-              return (
-                <div className="mt-3 p-2 rounded-lg bg-muted">
-                  <p className="text-sm font-medium">
-                    {chatToDelete?.title || "Untitled Chat"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {chatToDelete?._count?.messages || 0} messages
-                  </p>
-                  {isOtherUsersChat && chatToDelete?.user && (
-                    <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                      Owner: {chatToDelete.user.name} ({chatToDelete.user.role})
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteDialogChatId(null)}>Cancel</Button>
-            {userRole === "DEVELOPER" || userRole === "CLIENT" ? (
-              <Button 
-                variant="outline" 
-                className="bg-orange-500 hover:bg-orange-600 text-white hover:text-white"
-                onClick={() => {
-                  if (deleteDialogChatId) deleteChat(deleteDialogChatId);
-                  setDeleteDialogChatId(null);
-                }}
-              >
-                <ShieldAlert className="h-4 w-4 mr-2" /> Send Deletion Request
-              </Button>
-            ) : (
-              <Button 
-                variant="destructive"
-                onClick={() => {
-                  if (deleteDialogChatId) deleteChat(deleteDialogChatId);
-                  setDeleteDialogChatId(null);
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-2" /> Delete Chat
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmationDialog
+        open={!!deleteDialogChatId}
+        chatId={deleteDialogChatId}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        chats={chats}
+        onConfirm={deleteChat}
+        onClose={() => setDeleteDialogChatId(null)}
+      />
     </div>
   );
 }
@@ -4565,73 +4378,6 @@ function ChatArea({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Copy</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      {/* Retry button - shows when agent hit step limit or errored */}
-                      {(() => {
-                        try {
-                          const meta = JSON.parse(msg.metadata || "{}");
-                          const hitLimit = msg.content?.includes("maximum number of steps");
-                          const hasError = meta.steps?.some((s: any) => s.type === 'error');
-                          if (hitLimit || hasError) {
-                            // Find the user message that preceded this assistant message
-                            const msgIdx = messages.findIndex(m => m.id === msg.id);
-                            const prevUserMsg = msgIdx > 0 ? messages[msgIdx - 1] : null;
-                            const retryPrompt = prevUserMsg?.role === 'user' ? prevUserMsg.content : null;
-                            if (retryPrompt) {
-                              return (
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 text-muted-foreground hover:text-emerald-500"
-                                        onClick={() => onRetry(retryPrompt)}
-                                        aria-label="Retry"
-                                      >
-                                        <RotateCw className="h-3 w-3" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Retry</TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              );
-                            }
-                          }
-                        } catch {}
-                        return null;
-                      })()}
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-emerald-600"
-                              onClick={() => toast.success("Approved!")}
-                              aria-label="Approve"
-                            >
-                              <CheckCircle2 className="h-3 w-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Approve</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                              onClick={() => toast.error("Rejected")}
-                              aria-label="Reject"
-                            >
-                              <XCircle className="h-3 w-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Reject</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
