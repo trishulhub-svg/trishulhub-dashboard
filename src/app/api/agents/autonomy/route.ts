@@ -48,6 +48,10 @@ export async function PATCH(req: NextRequest) {
         // Toggle a specific agent with role-based hierarchy
         if (!agentId) return NextResponse.json({ error: "agentId is required" }, { status: 400 })
 
+        // Verify agent exists before proceeding
+        const agentExists = await db.agent.findUnique({ where: { id: agentId }, select: { id: true } })
+        if (!agentExists) return NextResponse.json({ error: "Agent not found" }, { status: 404 })
+
         const userRole = session.user.role as string
         const userId = session.user.id as string
         const wantEnabled = enabled ?? true
@@ -113,7 +117,10 @@ export async function PATCH(req: NextRequest) {
 
       case "toggleAll": {
         // Toggle all agents (global pause/resume)
-        // Only SUPER_ADMIN or ADMIN can toggle all
+        // Only SUPER_ADMIN can toggle all — prevent ADMIN from overriding SUPER_ADMIN
+        if (session.user.role !== "SUPER_ADMIN") {
+          return NextResponse.json({ error: "Only Super Admin can toggle all agents" }, { status: 403 })
+        }
         const result = await toggleAllAutonomy(enabled ?? false)
 
         // Update startedBy for all configs

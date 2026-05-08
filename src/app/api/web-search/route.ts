@@ -42,7 +42,8 @@ export async function POST(req: NextRequest) {
     // SECURITY FIX: Use environment variables directly instead of writing config to disk.
     // Vercel's filesystem is read-only — writing .z-ai-config fails silently.
     // Also, writing API keys to plain JSON files on disk is a security risk.
-    // Set env vars before importing the SDK so it picks them up.
+    // Note: We read env vars but do NOT mutate process.env to avoid race conditions
+    // in concurrent serverless requests.
     const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
     const apiKey = process.env.ZAI_API_KEY
     if (baseUrl) process.env.ZAI_BASE_URL = baseUrl

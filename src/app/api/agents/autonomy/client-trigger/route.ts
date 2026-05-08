@@ -74,8 +74,14 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "Agent autonomy is not enabled" }), { status: 400 })
     }
 
-    // Mark agent as running to prevent concurrent cycles
-    await db.agent.update({ where: { id: agentId }, data: { status: "RUNNING" } })
+    // Atomically claim the run — prevent concurrent cycles for the same agent
+    const claimed = await db.agent.updateMany({
+      where: { id: agentId, status: { not: "RUNNING" } },
+      data: { status: "RUNNING" },
+    })
+    if (claimed.count === 0) {
+      return new Response(JSON.stringify({ error: "Agent is already running" }), { status: 409 })
+    }
 
     // Create SSE stream
     const encoder = new TextEncoder()

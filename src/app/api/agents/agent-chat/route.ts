@@ -815,7 +815,7 @@ export async function POST(req: NextRequest) {
             }
 
             // If all NVIDIA direct streams failed, try fallback keys with agent loop
-            if (!nvidiaSuccess && otherKeys.length > 0) {
+            if (!clientDisconnected && !nvidiaSuccess && otherKeys.length > 0) {
               console.log(`[agent-chat] NVIDIA direct stream failed, falling back to agent loop with ${otherKeys.length} keys`)
               // Fall through to the agent loop below with non-NVIDIA keys
               for (const key of otherKeys) {
@@ -988,6 +988,7 @@ export async function POST(req: NextRequest) {
           }
 
           for (const key of eligibleKeys) {
+            if (clientDisconnected) { console.log("[agent-chat] Client disconnected — stopping agent loop"); break }
             try {
               const result = await runAgentLoop(enrichedMessage, history, key.keyValue, agent.model, {
                 maxSteps: 15,

@@ -67,12 +67,17 @@ export async function POST(req: NextRequest) {
   
   // SECURITY: Sanitize ticket data — only allow specific fields (prevent mass assignment)
   const { subject, description, priority } = data
+
+  // Validate priority against whitelist
+  const validPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+  const safePriority = validPriorities.includes(priority) ? priority : "MEDIUM"
+
   const ticket = await db.supportTicket.create({
     data: {
       clientId,
       subject: subject || "New Support Ticket",
       description: description || "",
-      priority: priority || "MEDIUM",
+      priority: safePriority,
       status: "OPEN",
     },
   })

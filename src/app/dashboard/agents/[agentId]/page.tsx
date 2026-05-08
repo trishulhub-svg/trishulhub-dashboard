@@ -273,6 +273,7 @@ function SafeMarkdown({ content }: { content: string }) {
                       <Copy className="h-3 w-3" />
                     </button>
                   </div>
+                  <div className="overflow-x-auto">
                   <SyntaxHighlighter
                     style={oneDark}
                     language={match ? match[1] : "typescript"}
@@ -281,10 +282,12 @@ function SafeMarkdown({ content }: { content: string }) {
                       margin: 0,
                       borderRadius: "0 0 0.5rem 0.5rem",
                       fontSize: "12px",
+                      minWidth: "fit-content",
                     }}
                   >
                     {codeStr}
                   </SyntaxHighlighter>
+                  </div>
                 </div>
               );
             } catch {
@@ -872,9 +875,12 @@ export default function AgentChatPage() {
     // After chats are loaded, check if any chat has active processing
     if (chats.length === 0 || !agentId) return;
 
+    let foundProcessing = false;
+
     for (const chat of chats) {
       const info = getProcessingInfo(chat.id);
       if (info) {
+        foundProcessing = true;
         // Found an active processing chat - first fetch messages to see if agent already finished
         startTransition(() => { setActiveChatId(chat.id); });
         fetchMessages(chat.id).then((loadedMsgs) => {
@@ -917,7 +923,21 @@ export default function AgentChatPage() {
         break;
       }
     }
-  }, [chats, agentId, getProcessingInfo, fetchMessages, startPollingForCompletion, markProcessingEnd]);
+
+    // FIX: Auto-select the most recent chat when no processing session is active.
+    // Previously, activeChatId stayed null when opening an agent with existing chats,
+    // causing the chat area to show the empty placeholder instead of saved messages.
+    if (!foundProcessing && !activeChatId) {
+      // chats are ordered by updatedAt desc, so the first one is the most recent
+      const mostRecentChat = chats.find((c) => c.status === "ACTIVE") || chats[0];
+      if (mostRecentChat) {
+        startTransition(() => { setActiveChatId(mostRecentChat.id); });
+        fetchMessages(mostRecentChat.id).catch((err) => {
+          console.error("Failed to fetch messages for auto-selected chat:", err);
+        });
+      }
+    }
+  }, [chats, agentId, activeChatId, getProcessingInfo, fetchMessages, startPollingForCompletion, markProcessingEnd]);
 
   // ── Cleanup polling on unmount ──
   useEffect(() => {
@@ -3058,9 +3078,9 @@ export default function AgentChatPage() {
             <Skeleton className="h-3 w-32" />
           </div>
         </div>
-        <div className="flex gap-4">
-          <Skeleton className="h-96 w-64 rounded-lg" />
-          <Skeleton className="h-96 flex-1 rounded-lg" />
+        <div className="flex flex-col md:flex-row gap-4">
+          <Skeleton className="h-48 md:h-96 w-full md:w-64 rounded-lg" />
+          <Skeleton className="h-64 md:h-96 flex-1 rounded-lg" />
         </div>
       </div>
     );
@@ -3372,7 +3392,7 @@ export default function AgentChatPage() {
       {/* Left Panel: Chat Sidebar */}
       <div
         className={`border-r border-border flex flex-col bg-card transition-all duration-300 shrink-0 ${
-          leftPanelOpen ? "w-64" : "w-10"
+          leftPanelOpen ? "w-56 lg:w-64" : "w-10"
         }`}
       >
         {leftPanelOpen ? (
@@ -3578,7 +3598,7 @@ export default function AgentChatPage() {
 
       {/* Right Panel: Agent Features */}
       {rightPanelOpen && (
-        <div className="w-80 border-l border-border flex flex-col bg-card shrink-0">
+        <div className="w-64 lg:w-80 border-l border-border flex flex-col bg-card shrink-0">
           <RightPanel
             rightTab={rightTab}
             setRightTab={setRightTab}
@@ -3973,7 +3993,7 @@ function ChatSidebar({
 
     return (
       <ScrollArea className="flex-1 min-h-0 h-0">
-        <div className={`space-y-1 p-2 ${isMobile ? "pb-20" : ""}`}>
+        <div className={`space-y-1 p-2 ${isMobile ? "pb-4" : ""}`}>
           {sortedUserIds.map((uid) => {
             const group = userGroups.get(uid)!;
             const isOwnFolder = uid === currentUserId;
@@ -4057,7 +4077,7 @@ function ChatSidebar({
   // ── Non-admin view: Simple flat list (existing behavior) ──
   return (
     <ScrollArea className="flex-1 min-h-0 h-0">
-      <div className={`space-y-0.5 p-2 ${isMobile ? "pb-20" : ""}`}>
+      <div className={`space-y-0.5 p-2 ${isMobile ? "pb-4" : ""}`}>
         {chats.length === 0 ? (
           <div className="text-center py-8">
             <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
@@ -5072,21 +5092,21 @@ function RightPanel({
       {/* Panel header */}
       <div className="p-2 sm:p-3 border-b">
         <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as "features" | "tasks" | "crossagent" | "live" | "auto")}>
-          <TabsList className="w-full h-8 overflow-x-auto">
-            <TabsTrigger value="auto" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
-              <Radio className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Auto</span><span className="sm:hidden">Auto</span>
+          <TabsList className="w-full h-8">
+            <TabsTrigger value="auto" className="text-[10px] sm:text-xs shrink-0 px-1.5 sm:px-2">
+              <Radio className="h-3 w-3 sm:mr-1" /> Auto
             </TabsTrigger>
-            <TabsTrigger value="live" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
-              <Terminal className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Live</span><span className="sm:hidden">Live</span>
+            <TabsTrigger value="live" className="text-[10px] sm:text-xs shrink-0 px-1.5 sm:px-2">
+              <Terminal className="h-3 w-3 sm:mr-1" /> Live
             </TabsTrigger>
-            <TabsTrigger value="tasks" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
+            <TabsTrigger value="tasks" className="text-[10px] sm:text-xs shrink-0 px-1.5 sm:px-2">
               <ListChecks className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Tasks</span><span className="sm:hidden">Task</span>
             </TabsTrigger>
-            <TabsTrigger value="features" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
-              <Zap className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Info</span><span className="sm:hidden">Info</span>
+            <TabsTrigger value="features" className="text-[10px] sm:text-xs shrink-0 px-1.5 sm:px-2">
+              <Zap className="h-3 w-3 sm:mr-1" /> Info
             </TabsTrigger>
-            <TabsTrigger value="crossagent" className="text-[11px] sm:text-xs flex-1 min-w-0 px-1 sm:px-2">
-              <ArrowRightLeft className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Cross</span><span className="sm:hidden">X-Agent</span>
+            <TabsTrigger value="crossagent" className="text-[10px] sm:text-xs shrink-0 px-1.5 sm:px-2">
+              <ArrowRightLeft className="h-3 w-3 sm:mr-1" /> <span className="hidden sm:inline">Cross</span><span className="sm:hidden">X-Agt</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -5221,7 +5241,7 @@ function LiveTab({
       )}
       
       {/* Terminal Content */}
-      <div ref={liveRef} className="flex-1 overflow-y-auto p-3 font-mono text-[11px] space-y-1 max-h-96" style={{ scrollbarWidth: 'thin', scrollbarColor: '#30363d #0d1117' }}>
+      <div ref={liveRef} className="flex-1 overflow-y-auto p-3 font-mono text-[11px] space-y-1 max-h-[40vh] sm:max-h-96" style={{ scrollbarWidth: 'thin', scrollbarColor: '#30363d #0d1117' }}>
         {!sending && allSteps.length === 0 && (
           <div className="text-center py-8">
             <Terminal className="h-8 w-8 mx-auto text-[#30363d] mb-2" />
@@ -6156,9 +6176,9 @@ function NewTaskDialog({
           </div>
           <div className="space-y-2">
             <Label>Due Date & Time *</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="flex-1" aria-label="Due date" />
-              <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-28" aria-label="Due time" />
+              <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-full sm:w-28" aria-label="Due time" />
             </div>
           </div>
           <div className="space-y-2">
