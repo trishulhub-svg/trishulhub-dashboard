@@ -18,7 +18,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     const { id } = await params
-    const body = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
 
     const existing = await db.availabilityOverride.findUnique({ where: { id } })
     if (!existing) {

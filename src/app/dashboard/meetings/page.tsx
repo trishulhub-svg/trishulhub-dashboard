@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
   Phone, Monitor, ChevronDown, ChevronUp, X, Check,
@@ -170,6 +171,7 @@ function getDateLabel(dateStr: string): string {
 
 // ━━ Main Component ━━
 export default function MeetingsPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -200,14 +202,16 @@ export default function MeetingsPage() {
   const userId = session?.user?.id || "";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const fetchMeetings = useCallback(async () => {
+  const fetchMeetings = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/meetings", { credentials: "include" });
+      const res = await fetch("/api/meetings", { credentials: "include", signal });
+      if (res.status === 401) { router.push("/login"); return; }
       if (res.ok) {
         const data = await res.json();
         setMeetings(safeArray<Meeting>(data));
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Failed to fetch meetings");
       toast.error("Failed to load meetings");
     } finally {
@@ -235,8 +239,11 @@ export default function MeetingsPage() {
   }, [userId]);
 
   useEffect(() => {
-    fetchMeetings();
+    const controller = new AbortController();
+    const signal = controller.signal;
+    fetchMeetings(signal);
     fetchTeamAndProjects();
+    return () => controller.abort();
   }, [fetchMeetings, fetchTeamAndProjects]);
 
   // Stats
@@ -362,7 +369,7 @@ export default function MeetingsPage() {
     try {
       const url = editMode ? `/api/meetings/${selectedMeeting?.id}` : "/api/meetings";
       const method = editMode ? "PATCH" : "POST";
-      const body: any = {
+      const body: Record<string, unknown> = {
         title: formTitle,
         description: formDescription || undefined,
         date: formDate,

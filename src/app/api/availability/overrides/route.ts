@@ -59,7 +59,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    const { userId, date, startTime, endTime, isAvailable, reason } = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    const { userId, date, startTime, endTime, isAvailable, reason } = body
 
     if (!userId || !date) {
       return NextResponse.json({ error: "User ID and date are required" }, { status: 400 })

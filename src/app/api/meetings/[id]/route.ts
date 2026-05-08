@@ -81,7 +81,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Only the organizer or admin can update this meeting" }, { status: 403 })
     }
 
-    const body = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const validation = validateRequest(updateMeetingSchema, { ...body, id })
 
     if (!validation.success) {

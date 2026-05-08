@@ -69,7 +69,8 @@ export async function POST(req: NextRequest) {
 
     const sessionUserId = session.user.id
     const userRole = session.user.role
-    const body = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
 
     const { userId, leaveType, startDate, endDate, reason } = body
 

@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = session.user.id
-    const { type, requesterType, agentId, title, description, data } = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    const { type, requesterType, agentId, title, description, data } = body
 
     if (!type || !title) {
       return NextResponse.json({ error: "Type and title are required" }, { status: 400 })
@@ -127,7 +129,9 @@ export async function PATCH(req: NextRequest) {
 
     const userId = session.user.id
     const userRole = session.user.role
-    const { id, status, feedback } = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    const { id, status, feedback } = body
 
     // Only ADMIN and SUPER_ADMIN can approve/reject
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
@@ -190,8 +194,8 @@ export async function PATCH(req: NextRequest) {
     // If this is a CHAT_DELETION approval, handle the actual deletion
     if (approval.type === "CHAT_DELETION" && status === "APPROVED") {
       try {
-        let approvalData: any = {};
-        try { approvalData = JSON.parse(approval.data); } catch {}
+        let approvalData: { chatId?: string; [key: string]: unknown } = {};
+        try { approvalData = JSON.parse(approval.data); } catch (parseErr) { console.warn("[approvals] Failed to parse approval data:", parseErr); }
         const chatId = approvalData.chatId;
         if (chatId) {
           // Delete the chat and its messages

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { safeParseDate } from "@/lib/utils";
+import { useRouter } from "next/navigation";
+import { safeParseDate, safeArray } from "@/lib/utils";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle,
 } from "lucide-react";
@@ -35,7 +36,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface AvailabilityEntry {
@@ -76,6 +76,7 @@ const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const dayNamesShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function AvailabilityPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [availabilities, setAvailabilities] = useState<AvailabilityEntry[]>([]);
   const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
@@ -115,6 +116,9 @@ export default function AvailabilityPage() {
         fetch("/api/availability/overrides", { credentials: "include" }),
         fetch("/api/team?type=users", { credentials: "include" }),
       ]);
+      if (availRes.status === 401 || overrideRes.status === 401 || teamRes.status === 401) {
+        router.push("/login"); return;
+      }
       if (availRes.ok) setAvailabilities(safeArray(await availRes.json()));
       if (overrideRes.ok) setOverrides(safeArray(await overrideRes.json()));
       if (teamRes.ok) setTeamUsers(safeArray(await teamRes.json()));

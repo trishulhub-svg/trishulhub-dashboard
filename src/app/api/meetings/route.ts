@@ -97,7 +97,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Only admins can schedule meetings" }, { status: 403 })
     }
 
-    const body = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const validation = validateRequest(createMeetingSchema, body)
 
     if (!validation.success) {
@@ -138,18 +139,22 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Notify attendees
-    for (const attendeeId of attendeeIds || []) {
-      await db.notification.create({
-        data: {
-          userId: attendeeId,
-          title: "New Meeting Invitation",
-          message: `${session.user.name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
-          type: "TASK",
-          link: "/dashboard/meetings",
-          metadata: JSON.stringify({ meetingId: meeting.id }),
-        },
-      })
+    // Notify attendees (fire-and-forget)
+    try {
+      for (const attendeeId of attendeeIds || []) {
+        await db.notification.create({
+          data: {
+            userId: attendeeId,
+            title: "New Meeting Invitation",
+            message: `${session.user.name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
+            type: "TASK",
+            link: "/dashboard/meetings",
+            metadata: JSON.stringify({ meetingId: meeting.id }),
+          },
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error("[meetings] POST notification error (non-blocking):", notifyErr.message)
     }
 
     return NextResponse.json(meeting, { status: 201 })

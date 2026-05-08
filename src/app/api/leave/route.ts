@@ -48,7 +48,9 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = session.user.id
-    const { leaveType, startDate, endDate, reason } = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    const { leaveType, startDate, endDate, reason } = body
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
@@ -118,10 +120,21 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Only admins can approve/reject leave requests" }, { status: 403 })
     }
 
-    const { id, status, reason: feedback } = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    const { id, status, reason: feedback } = body
 
     if (!id || !["APPROVED", "REJECTED"].includes(status)) {
       return NextResponse.json({ error: "Valid ID and status (APPROVED/REJECTED) required" }, { status: 400 })
+    }
+
+    const existingLeave = await db.leave.findUnique({ where: { id: id as string } })
+    if (!existingLeave) {
+      return NextResponse.json({ error: "Leave not found" }, { status: 404 })
+    }
+
+    if (existingLeave.status !== "PENDING") {
+      return NextResponse.json({ error: "This leave request has already been processed" }, { status: 400 })
     }
 
     const leave = await db.leave.update({
@@ -152,18 +165,22 @@ export async function PATCH(req: NextRequest) {
       console.error("[leave] PATCH notification error (non-blocking):", notifyErr.message)
     }
 
-    // Notify HR agent about leave approval for workload tracking
-    const hrAgent = await db.agent.findFirst({ where: { type: "HR" } })
-    if (hrAgent) {
-      await db.crossAgentMessage.create({
-        data: {
-          fromAgentId: hrAgent.id,
-          toAgentId: hrAgent.id,
-          message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.leaveType} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
-          type: "INFO",
-          status: "PROCESSED",
-        },
-      })
+    // Notify HR agent about leave approval for workload tracking (fire-and-forget)
+    try {
+      const hrAgent = await db.agent.findFirst({ where: { type: "HR" } })
+      if (hrAgent) {
+        await db.crossAgentMessage.create({
+          data: {
+            fromAgentId: hrAgent.id,
+            toAgentId: hrAgent.id,
+            message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.leaveType} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
+            type: "INFO",
+            status: "PROCESSED",
+          },
+        })
+      }
+    } catch (hrErr: any) {
+      console.error("[leave] PATCH HR agent notification error (non-blocking):", hrErr.message)
     }
 
     const response = NextResponse.json(leave)

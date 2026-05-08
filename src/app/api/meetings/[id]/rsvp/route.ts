@@ -17,7 +17,8 @@ export async function POST(
     const userId = session.user.id
     const { id } = await params
 
-    const body = await req.json()
+    let body
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const { rsvpStatus } = body
 
     if (!["ACCEPTED", "DECLINED"].includes(rsvpStatus)) {
@@ -47,17 +48,21 @@ export async function POST(
       },
     })
 
-    // Notify organizer about RSVP
-    await db.notification.create({
-      data: {
-        userId: updated.meeting.organizerId,
-        title: `Meeting RSVP: ${rsvpStatus === "ACCEPTED" ? "Accepted" : "Declined"}`,
-        message: `${session.user.name || "An attendee"} has ${rsvpStatus.toLowerCase()} the meeting "${updated.meeting.title}"`,
-        type: "INFO",
-        link: "/dashboard/meetings",
-        metadata: JSON.stringify({ meetingId: id }),
-      },
-    })
+    // Notify organizer about RSVP (fire-and-forget)
+    try {
+      await db.notification.create({
+        data: {
+          userId: updated.meeting.organizerId,
+          title: `Meeting RSVP: ${rsvpStatus === "ACCEPTED" ? "Accepted" : "Declined"}`,
+          message: `${session.user.name || "An attendee"} has ${rsvpStatus.toLowerCase()} the meeting "${updated.meeting.title}"`,
+          type: "INFO",
+          link: "/dashboard/meetings",
+          metadata: JSON.stringify({ meetingId: id }),
+        },
+      })
+    } catch (notifyErr: any) {
+      console.error("[meetings/rsvp] notification error (non-blocking):", notifyErr.message)
+    }
 
     return NextResponse.json(updated)
   } catch (error: any) {

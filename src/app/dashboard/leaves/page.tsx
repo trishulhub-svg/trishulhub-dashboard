@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { safeParseDate } from "@/lib/utils";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -105,6 +106,7 @@ const calendarBgColors: Record<string, string> = {
 };
 
 export default function LeaveManagementPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
@@ -160,10 +162,12 @@ export default function LeaveManagementPage() {
   const fetchData = useCallback(async () => {
     try {
       const leavesRes = await fetch("/api/leaves", { credentials: "include" });
+      if (leavesRes.status === 401) { router.push("/login"); return; }
       if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
       if (isUserAdmin) {
         const teamRes = await fetch("/api/team?type=users", { credentials: "include" });
+        if (teamRes.status === 401) { router.push("/login"); return; }
         if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
       }
     } catch (err) {
@@ -189,7 +193,7 @@ export default function LeaveManagementPage() {
     }
     setSubmitting(true);
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         leaveType: formLeaveType,
         startDate: formStartDate,
         endDate: formEndDate,

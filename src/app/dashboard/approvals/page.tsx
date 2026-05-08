@@ -69,8 +69,11 @@ export default function ApprovalsPage() {
     try {
       const url = status ? `/api/approvals?status=${status}` : "/api/approvals?status=PENDING";
       const res = await fetch(url, { credentials: 'include' });
+      if (res.status === 401) { router.push("/login"); return; }
       if (res.ok) {
         setApprovals(safeArray<Approval>(await res.json()));
+      } else {
+        setError("Failed to load approvals");
       }
     } catch (err) {
       console.error(err);
