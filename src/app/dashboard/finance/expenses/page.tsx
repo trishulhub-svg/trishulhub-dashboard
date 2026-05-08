@@ -7,17 +7,21 @@ import { Plus, Trash2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+
+function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
+  if (res.status === 401) { router.push("/login"); return true; }
+  return false;
+}
 
 const categoryColors: Record<string, string> = {
   HOSTING: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
@@ -54,8 +58,9 @@ export default function ExpensesPage() {
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/expenses", { credentials: 'include', signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
         setExpenses(Array.isArray(data) ? data : []);
       }
     } catch (err) {
@@ -99,10 +104,14 @@ export default function ExpensesPage() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Expense added");
         setAddOpen(false);
         fetchExpenses();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to add expense");
       }
     } catch {
       toast.error("Failed to add expense");
@@ -113,6 +122,7 @@ export default function ExpensesPage() {
     if (!confirm("Are you sure you want to delete this expense? This action cannot be undone.")) return;
     try {
       const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Expense deleted");
         fetchExpenses();
@@ -168,7 +178,7 @@ export default function ExpensesPage() {
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Expense</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Add Expense</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Add Expense</DialogTitle><DialogDescription>Add a new expense record.</DialogDescription></DialogHeader>
             <form onSubmit={handleAddExpense} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Category *</Label>

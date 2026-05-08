@@ -3,6 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+
+// Shared 401 handler
+function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
+  if (res.status === 401) { router.push("/login"); return true; }
+  return false;
+}
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
@@ -21,7 +27,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -140,7 +146,7 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:
 // ─── Main Component ──────────────────────────────────────────────────
 export default function FinancePage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,8 +180,9 @@ export default function FinancePage() {
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/dashboard", { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
-        setData(await res.json());
+        setData(await res.json().catch(() => null));
       } else {
         setError("Failed to load dashboard data. Please refresh the page.");
       }
@@ -186,13 +193,14 @@ export default function FinancePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   // ─── Fetch subscriptions ────
   const fetchSubscriptions = useCallback(async (signal?: AbortSignal) => {
     try {
       setSubLoading(true);
       const res = await fetch("/api/subscriptions", { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         const json = await res.json();
         setSubscriptions(json.subscriptions || []);
@@ -204,7 +212,7 @@ export default function FinancePage() {
     } finally {
       setSubLoading(false);
     }
-  }, []);
+  }, [router]);
 
   // ─── Fetch expenses with filters ────
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
@@ -216,6 +224,7 @@ export default function FinancePage() {
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         const expData = await res.json();
         setExpenses(Array.isArray(expData) ? expData : []);
@@ -235,6 +244,7 @@ export default function FinancePage() {
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
       const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         const json = await res.json();
         setCategoryStats(json.byCategory || []);
@@ -245,12 +255,13 @@ export default function FinancePage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     }
-  }, [expStartDate, expEndDate]);
+  }, [expStartDate, expEndDate, router]);
 
   // ─── Fetch projects for dropdowns ────
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/projects", { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         const json = await res.json();
         const arr = Array.isArray(json) ? json : (json.projects || json.data || []);
@@ -260,7 +271,7 @@ export default function FinancePage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     }
-  }, []);
+  }, [router]);
 
   // Re-fetch expenses and stats when filters change (separate from initial load)
   useEffect(() => {
@@ -392,8 +403,27 @@ export default function FinancePage() {
     }
   };
 
-  // ─── Role guard ────
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
+  // ─── Role guard (useEffect-based to avoid hydration flash) ────
+  useEffect(() => {
+    if (status === "authenticated" && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      router.push("/dashboard");
+    }
+  }, [status, router, userRole]);
+
+  // ─── Session loading guard (before role guard to avoid flash) ────
+  if (status === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-64 rounded-lg" />
+      </div>
+    );
+  }
+
+  if (status !== "authenticated" || (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN")) return null;
 
   // ─── Loading skeleton ────
   if (loading) {
@@ -1010,6 +1040,7 @@ export default function FinancePage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingSub ? "Edit Subscription" : "Add Subscription"}</DialogTitle>
+            <DialogDescription>{editingSub ? "Update subscription details." : "Add a new recurring subscription."}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSaveSubscription} className="space-y-3">
             <div className="space-y-1">

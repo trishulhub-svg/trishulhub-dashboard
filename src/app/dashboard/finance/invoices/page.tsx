@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Send, CheckCircle2, FileText, Search, AlertCircle, Trash2,
+  Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,17 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+
+function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
+  if (res.status === 401) { router.push("/login"); return true; }
+  return false;
+}
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
@@ -60,16 +64,19 @@ export default function InvoicesPage() {
         fetch("/api/clients", { credentials: 'include', signal }),
         fetch("/api/projects", { credentials: 'include', signal }),
       ]);
+      if (handleFetchError(invRes, router)) return;
       if (invRes.ok) {
-        const invData = await invRes.json();
+        const invData = await invRes.json().catch(() => null);
         setInvoices(Array.isArray(invData) ? invData : invData.data || []);
       }
+      if (handleFetchError(clientRes, router)) return;
       if (clientRes.ok) {
-        const clientData = await clientRes.json();
+        const clientData = await clientRes.json().catch(() => null);
         setClients(Array.isArray(clientData) ? clientData : clientData.data || []);
       }
+      if (handleFetchError(projRes, router)) return;
       if (projRes.ok) {
-        const projData = await projRes.json();
+        const projData = await projRes.json().catch(() => null);
         setProjects(Array.isArray(projData) ? projData : projData.data || []);
       }
     } catch (err) {
@@ -118,6 +125,7 @@ export default function InvoicesPage() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Invoice created");
         setAddOpen(false);
@@ -135,6 +143,7 @@ export default function InvoicesPage() {
     if (!confirm("Are you sure you want to delete this DRAFT invoice? This action cannot be undone.")) return;
     try {
       const res = await fetch(`/api/invoices?id=${id}`, { method: "DELETE", credentials: 'include' });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Invoice deleted");
         fetchData();
@@ -155,6 +164,7 @@ export default function InvoicesPage() {
         credentials: 'include',
         body: JSON.stringify({ id, status }),
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success(`Invoice marked as ${status}`);
         fetchData();
@@ -206,7 +216,7 @@ export default function InvoicesPage() {
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Create Invoice</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>Create Invoice</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Create Invoice</DialogTitle><DialogDescription>Create a new invoice for a client.</DialogDescription></DialogHeader>
             <form onSubmit={handleCreateInvoice} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>
