@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -68,11 +68,19 @@ interface TeamUser {
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const projectId = params.projectId as string;
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  const handle401 = useCallback((res: Response) => {
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return true;
+    }
+    return false;
+  }, []);
 
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);
@@ -83,18 +91,17 @@ export default function ProjectDetailPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [projRes, taskRes, agentRes, memberRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
-        fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
-        fetch("/api/agents", { credentials: 'include' }),
-        fetch(`/api/projects/${projectId}/members`, { credentials: 'include' }),
+        fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include', signal }),
+        fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include', signal }),
+        fetch("/api/agents", { credentials: 'include', signal }),
+        fetch(`/api/projects/${projectId}/members`, { credentials: 'include', signal }),
       ]);
 
       if (projRes.ok) {
         const projData = await projRes.json();
-        // Handle both array, single object, and paginated { data: [...] } responses
         if (Array.isArray(projData)) {
           if (projData.length > 0) setProject(projData[0]);
         } else if (projData?.id) {
@@ -102,38 +109,49 @@ export default function ProjectDetailPage() {
         } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
           setProject(projData.data[0]);
         }
+      } else {
+        if (handle401(projRes)) return;
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
         setTasks(Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []));
+      } else {
+        if (handle401(taskRes)) return;
       }
       if (agentRes.ok) {
         const agentData = await agentRes.json();
         setAgents(Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []));
+      } else {
+        if (handle401(agentRes)) return;
       }
       if (memberRes.ok) {
         const memberData = await memberRes.json();
         setMembers(Array.isArray(memberData) ? memberData : (Array.isArray(memberData?.data) ? memberData.data : []));
+      } else {
+        if (handle401(memberRes)) return;
       }
 
       // Only fetch team users if admin (for member assignment)
       if (session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN") {
-        const userRes = await fetch("/api/team?type=users", { credentials: 'include' });
+        const userRes = await fetch("/api/team?type=users", { credentials: 'include', signal });
         if (userRes.ok) {
           const userData = await userRes.json();
           setTeamUsers(Array.isArray(userData) ? userData : (Array.isArray(userData?.data) ? userData.data : []));
+        } else {
+          if (handle401(userRes)) return;
         }
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error("Failed to load project data");
     } finally {
       setLoading(false);
     }
-  }, [projectId, session?.user?.role]);
+  }, [projectId, session?.user?.role, handle401]);
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData]);
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -162,6 +180,10 @@ export default function ProjectDetailPage() {
         toast.success("Task created");
         setAddOpen(false);
         fetchData();
+      } else {
+        if (handle401(res)) return;
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to create task");
       }
     } catch {
       toast.error("Failed to create task");
@@ -170,14 +192,19 @@ export default function ProjectDetailPage() {
 
   const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
     try {
-      await fetch("/api/tasks", {
+      const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
         body: JSON.stringify({ id: taskId, status: newStatus }),
       });
-      toast.success(`Task moved to ${newStatus.replace("_", " ")}`);
-      fetchData();
+      if (res.ok) {
+        toast.success(`Task moved to ${newStatus.replace("_", " ")}`);
+        fetchData();
+      } else {
+        if (handle401(res)) return;
+        toast.error("Failed to move task");
+      }
     } catch {
       toast.error("Failed to move task");
     }
@@ -185,9 +212,14 @@ export default function ProjectDetailPage() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: 'include' });
-      toast.success("Task deleted");
-      fetchData();
+      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: 'include' });
+      if (res.ok) {
+        toast.success("Task deleted");
+        fetchData();
+      } else {
+        if (handle401(res)) return;
+        toast.error("Failed to delete task");
+      }
     } catch {
       toast.error("Failed to delete task");
     }
@@ -206,6 +238,7 @@ export default function ProjectDetailPage() {
         setAddMemberOpen(false);
         fetchData();
       } else {
+        if (handle401(res)) return;
         const data = await res.json();
         toast.error(data.error || "Failed to add member");
       }
@@ -226,6 +259,7 @@ export default function ProjectDetailPage() {
         toast.success("Project updated");
         fetchData();
       } else {
+        if (handle401(res)) return;
         const data = await res.json();
         toast.error(data.error || "Failed to update project");
       }
@@ -243,11 +277,26 @@ export default function ProjectDetailPage() {
       if (res.ok) {
         toast.success("Member removed");
         fetchData();
+      } else {
+        if (handle401(res)) return;
+        toast.error("Failed to remove member");
       }
     } catch {
       toast.error("Failed to remove member");
     }
   };
+
+  if (sessionStatus === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-32 rounded-lg" />
+        <div className="flex gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -281,7 +330,7 @@ export default function ProjectDetailPage() {
 
   // Filter out users already in the project
   const memberUserIds = members.map(m => m.userId);
-  const availableUsers = teamUsers.filter(u => !memberUserIds.includes(u.id));
+  const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(u.id)), [teamUsers, memberUserIds]);
 
   return (
     <div className="space-y-4">
@@ -382,7 +431,7 @@ export default function ProjectDetailPage() {
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
-                  <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
+                  <DialogHeader><DialogTitle>Add Team Member</DialogTitle><DialogDescription>Assign a team member to this project.</DialogDescription></DialogHeader>
                   {availableUsers.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">
                       All team members are already assigned to this project.
@@ -466,7 +515,7 @@ export default function ProjectDetailPage() {
               <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Add Task</DialogTitle><DialogDescription>Create a new task for this project.</DialogDescription></DialogHeader>
               <form onSubmit={handleAddTask} className="space-y-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Title *</Label>

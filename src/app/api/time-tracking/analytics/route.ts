@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/time-tracking/analytics - Analytics data
 export async function GET(req: NextRequest) {
@@ -10,6 +11,9 @@ export async function GET(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const rl = rateLimit(`time-analytics-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -50,7 +54,7 @@ export async function GET(req: NextRequest) {
       endDate.setDate(endDate.getDate() + 7)
     }
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       date: { gte: startDate, lt: endDate },
       status: "COMPLETED",
     }
@@ -166,8 +170,8 @@ export async function GET(req: NextRequest) {
 
     // This should never be reached due to early validation above
     return NextResponse.json({ error: "Unhandled analytics type" }, { status: 400 })
-  } catch (error: any) {
-    console.error("[time-tracking/analytics] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[time-tracking/analytics] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

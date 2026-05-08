@@ -92,10 +92,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
 
-  const data = await req.json()
+  let data: Record<string, unknown>
+  try {
+    data = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
   // SECURITY: Sanitize project creation data (whitelist allowed fields)
-  const { name, description, status, clientId, budget, deadline } = data
+  const name = typeof data.name === 'string' ? data.name : undefined
+  const description = typeof data.description === 'string' ? data.description : undefined
+  const status = typeof data.status === 'string' ? data.status : undefined
+  const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
+  const budget = typeof data.budget === 'number' ? data.budget : undefined
+  const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
   if (!name) {
     return NextResponse.json({ error: "Project name is required" }, { status: 400 })
   }
@@ -144,27 +154,35 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
   }
 
-  const { id, ...data } = await req.json()
+  let body: Record<string, unknown>
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
-  if (!id) {
+  const { id, ...data } = body as { id?: string; [key: string]: unknown }
+  const projectId = typeof id === 'string' ? id : ''
+
+  if (!projectId) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
   }
 
   // Verify project exists
-  const existing = await db.project.findUnique({ where: { id } })
+  const existing = await db.project.findUnique({ where: { id: projectId } })
   if (!existing) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 })
   }
 
   // SECURITY: Sanitize project update data (whitelist allowed fields)
   const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
-  const sanitizedData: Record<string, any> = {}
+  const sanitizedData: Record<string, unknown> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
       if (key === "deadline") {
-        sanitizedData[key] = data[key] ? new Date(data[key]) : null
+        sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
       } else if (key === "status") {
-        if (!VALID_PROJECT_STATUSES.includes(data[key])) {
+        if (typeof data[key] !== 'string' || !VALID_PROJECT_STATUSES.includes(data[key])) {
           return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
         }
         sanitizedData[key] = data[key]
@@ -180,6 +198,6 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const project = await db.project.update({ where: { id }, data: sanitizedData })
+  const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
   return NextResponse.json(project)
 }

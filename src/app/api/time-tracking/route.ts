@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { startTimeEntrySchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/time-tracking - List time entries with filters
 export async function GET(req: NextRequest) {
@@ -11,6 +12,9 @@ export async function GET(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const rl = rateLimit(`time-tracking-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -25,7 +29,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status")
 
     // Non-admins can only see their own entries
-    const where: any = {}
+    const where: Record<string, unknown> = {}
 
     if (!isAdminUser) {
       where.userId = userId
@@ -98,8 +102,8 @@ export async function GET(req: NextRequest) {
     })
 
     return NextResponse.json(entries)
-  } catch (error: any) {
-    console.error("[time-tracking] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[time-tracking] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -112,8 +116,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const rl = rateLimit(`time-tracking-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+
     const userId = session.user.id
-    const body = await req.json()
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
     const validation = validateRequest(startTimeEntrySchema, body)
     if (!validation.success) {
@@ -175,8 +187,8 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json(entry, { status: 201 })
-  } catch (error: any) {
-    console.error("[time-tracking] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[time-tracking] POST error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateTimeEntrySchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // PATCH /api/time-tracking/[id] - Stop timer (clock out) or update entry
 export async function PATCH(
@@ -15,12 +16,20 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const rl = rateLimit(`time-tracking-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+
     const userId = session.user.id
     const userRole = session.user.role
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
 
     const { id } = await params
-    const body = await req.json()
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
     const validation = validateRequest(updateTimeEntrySchema, { ...body, id })
     if (!validation.success) {
@@ -39,7 +48,7 @@ export async function PATCH(
 
     const { description, projectId, status } = validation.data
 
-    const updateData: any = {}
+    const updateData: Record<string, unknown> = {}
 
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null
@@ -70,8 +79,8 @@ export async function PATCH(
     })
 
     return NextResponse.json(entry)
-  } catch (error: any) {
-    console.error("[time-tracking] PATCH error:", error.message)
+  } catch (error: unknown) {
+    console.error("[time-tracking] PATCH error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -86,6 +95,9 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const rl = rateLimit(`time-tracking-del-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -105,8 +117,8 @@ export async function DELETE(
     await db.timeEntry.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[time-tracking] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[time-tracking] DELETE error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

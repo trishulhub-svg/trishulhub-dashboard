@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/projects/[projectId]/members - List project members
 export async function GET(
@@ -12,6 +13,9 @@ export async function GET(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const rl = rateLimit(`project-members-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const { projectId } = await params
     const userRole = session.user.role
@@ -36,8 +40,8 @@ export async function GET(
     })
 
     return NextResponse.json(members)
-  } catch (error: any) {
-    console.error("[project-members] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[project-members] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -56,8 +60,17 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
+    const rl = rateLimit(`project-members-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+
     const { projectId } = await params
-    const { userId, role: memberRole } = await req.json()
+    let parsedBody: { userId?: string; role?: string }
+    try {
+      parsedBody = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { userId, role: memberRole } = parsedBody
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
@@ -97,13 +110,13 @@ export async function POST(
           metadata: JSON.stringify({ projectId, memberRole: memberRole || "MEMBER" }),
         },
       })
-    } catch (notifyErr: any) {
-      console.error("[project-members] notification error (non-blocking):", notifyErr?.message)
+    } catch (notifyErr: unknown) {
+      console.error("[project-members] notification error (non-blocking)")
     }
 
     return NextResponse.json(membership, { status: 201 })
-  } catch (error: any) {
-    console.error("[project-members] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[project-members] POST error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -116,6 +129,9 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const rl = rateLimit(`project-members-del-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
@@ -135,8 +151,8 @@ export async function DELETE(
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[project-members] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[project-members] DELETE error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

@@ -152,8 +152,8 @@ export default function TimeTrackingPage() {
   const [activeTab, setActiveTab] = useState("my-time");
   const [analyticsTab, setAnalyticsTab] = useState("employee");
   const [dateRange, setDateRange] = useState("week");
-  const [teamLoading, setTeamLoading] = useState(false); // [FIX M6]
-  const [analyticsLoading, setAnalyticsLoading] = useState(false); // [FIX M6]
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // Timer state
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
@@ -196,7 +196,6 @@ export default function TimeTrackingPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch entries");
       setError(err instanceof Error ? err.message : "Failed to load time entries");
     } finally {
       setLoading(false);
@@ -218,7 +217,7 @@ export default function TimeTrackingPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch projects");
+      // silently ignore abort for background fetches
     }
   }, []);
 
@@ -230,15 +229,15 @@ export default function TimeTrackingPage() {
       if (res.ok) {
         const data = await res.json();
         // [FIX C1: safe array fallback before .map()]
-        const arr = safeArray<any>(data);
-        setTeamUsers(arr.map((u: any) => ({ id: u.id, name: u.name })));
+        const arr = safeArray<unknown>(data);
+        setTeamUsers(arr.filter((u): u is { id: string; name: string } => typeof u === 'object' && u !== null && 'id' in u && 'name' in u).map((u) => ({ id: u.id, name: u.name })));
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to load team users");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch team users");
+      // silently ignore abort for background fetches
     }
   }, [isAdminUser]);
 
@@ -327,7 +326,7 @@ export default function TimeTrackingPage() {
   // ── Fetch team logs ── (declared before handleDelete to avoid use-before-declaration)
   const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
     if (!isAdminUser) return;
-    setTeamLoading(true); // [FIX M6]
+    setTeamLoading(true);
     try {
       const params = new URLSearchParams();
       // [FIX H2/H3: Don't send "all" as userId/projectId to API]
@@ -346,16 +345,16 @@ export default function TimeTrackingPage() {
       const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setTeamEntries(safeArray<TimeEntry>(data)); // [FIX C1]
+        setTeamEntries(safeArray<TimeEntry>(data));
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to load team logs");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch team logs");
+      // silently ignore abort for background fetches
     } finally {
-      setTeamLoading(false); // [FIX M6]
+      setTeamLoading(false);
     }
   }, [isAdminUser, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
 
@@ -393,7 +392,7 @@ export default function TimeTrackingPage() {
 
   // ── Fetch analytics ──
   const fetchAnalytics = useCallback(async (signal?: AbortSignal) => {
-    setAnalyticsLoading(true); // [FIX M6]
+    setAnalyticsLoading(true);
     try {
       const params = new URLSearchParams();
       params.set("type", analyticsTab);
@@ -420,9 +419,9 @@ export default function TimeTrackingPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch analytics");
+      // silently ignore abort for background fetches
     } finally {
-      setAnalyticsLoading(false); // [FIX M6]
+      setAnalyticsLoading(false);
     }
   }, [analyticsTab, dateRange]);
 

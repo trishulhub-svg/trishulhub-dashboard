@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Plus, Search, FolderKanban, ArrowRight,
 } from "lucide-react";
@@ -14,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -32,12 +33,21 @@ const statusColors: Record<string, string> = {
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const { status: sessionStatus } = useSession();
   const [projects, setProjects] = useState<unknown[]>([]);
   const [clients, setClients] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+
+  const handle401 = useCallback((res: Response) => {
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return true;
+    }
+    return false;
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -47,25 +57,24 @@ export default function ProjectsPage() {
       ]);
       if (projRes.ok) {
         const projData = await projRes.json();
-        // Handle both array and paginated { data: [...] } responses
         setProjects(Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []));
       } else {
+        if (handle401(projRes)) return;
         toast.error("Failed to load projects");
       }
       if (clientRes.ok) {
         const clientData = await clientRes.json();
-        // Handle both array and paginated { data: [...] } responses
         setClients(Array.isArray(clientData) ? clientData : (Array.isArray(clientData?.data) ? clientData.data : []));
       } else {
+        if (handle401(clientRes)) return;
         toast.error("Failed to load clients");
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error("Failed to load projects");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [handle401]);
 
   useEffect(() => {
     fetchData();
@@ -100,6 +109,10 @@ export default function ProjectsPage() {
         toast.success("Project created");
         setAddOpen(false);
         fetchData();
+      } else {
+        if (handle401(res)) return;
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to create project");
       }
     } catch {
       toast.error("Failed to create project");
@@ -111,6 +124,17 @@ export default function ProjectsPage() {
     const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.client?.name?.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
+
+  if (sessionStatus === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48 rounded-lg" />)}
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -135,7 +159,7 @@ export default function ProjectsPage() {
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> New Project</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Create Project</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
             <form onSubmit={handleCreateProject} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Project Name *</Label>
