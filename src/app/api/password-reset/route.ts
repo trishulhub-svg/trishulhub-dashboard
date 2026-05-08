@@ -219,6 +219,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
+    // Enforce password complexity (same as self-service password change)
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+    }
+
     // Find the reset token
     const resetRecord = await (db as any).passwordReset.findUnique({
       where: { token: hashToken(token) },

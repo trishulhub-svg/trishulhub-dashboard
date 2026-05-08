@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import LoadingScreen from "@/components/ui/loading-screen";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -61,6 +62,11 @@ function ResetPasswordForm() {
       setError("Password must be at least 8 characters");
       return;
     }
+    // Client-side complexity check (mirrors server validation)
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setError("Password must contain at least one letter and one number");
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -88,26 +94,23 @@ function ResetPasswordForm() {
   };
 
   if (validating) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-            <p className="text-sm text-muted-foreground">Validating reset link...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <LoadingScreen message="Validating reset link..." />;
   }
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
+      <div className="relative min-h-screen flex items-center justify-center bg-background p-6 overflow-hidden">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[400px] w-[400px] rounded-full bg-green-500/[0.03] blur-3xl" />
+        </div>
+        <Card className="relative w-full max-w-md animate-[fade-in_0.5s_ease-out]">
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <CheckCircle2 className="h-12 w-12 text-green-600 mb-4" />
+            <div className="relative mb-4">
+              <div className="absolute inset-0 rounded-full bg-green-500/10 blur-xl animate-pulse" />
+              <CheckCircle2 className="relative h-14 w-14 text-green-600" />
+            </div>
             <h2 className="text-xl font-semibold mb-2">Password Reset Successful!</h2>
-            <p className="text-sm text-muted-foreground mb-6">
+            <p className="text-sm text-muted-foreground mb-6 text-center">
               Your password has been reset. You can now log in with your new password.
             </p>
             <Button onClick={() => router.push("/login")}>
@@ -119,14 +122,20 @@ function ResetPasswordForm() {
     );
   }
 
-  if (!valid && !validating) {
+  if (!valid) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
+      <div className="relative min-h-screen flex items-center justify-center bg-background p-6 overflow-hidden">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[400px] w-[400px] rounded-full bg-red-500/[0.03] blur-3xl" />
+        </div>
+        <Card className="relative w-full max-w-md animate-[fade-in_0.5s_ease-out]">
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <XCircle className="h-12 w-12 text-red-500 mb-4" />
+            <div className="relative mb-4">
+              <div className="absolute inset-0 rounded-full bg-red-500/10 blur-xl" />
+              <XCircle className="relative h-14 w-14 text-red-500" />
+            </div>
             <h2 className="text-xl font-semibold mb-2">Invalid Reset Link</h2>
-            <p className="text-sm text-muted-foreground mb-6">{error}</p>
+            <p className="text-sm text-muted-foreground mb-6 text-center">{error}</p>
             <Button variant="outline" onClick={() => router.push("/login")}>
               Go to Login
             </Button>
@@ -137,12 +146,19 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center bg-background p-6 overflow-hidden">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[400px] w-[400px] rounded-full bg-primary/[0.03] blur-3xl" />
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+      </div>
+
+      <Card className="relative w-full max-w-md animate-[fade-in_0.5s_ease-out]">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-2">
-            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Shield className="h-6 w-6 text-primary" />
+            <div className="relative h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-primary/5 blur-xl" />
+              <Shield className="relative h-6 w-6 text-primary" />
             </div>
           </div>
           <CardTitle className="text-xl">Reset Your Password</CardTitle>
@@ -158,7 +174,7 @@ function ResetPasswordForm() {
                 type={showPassword ? "text" : "password"}
                 value={newPassword}
                 onChange={(e) => { setNewPassword(e.target.value); setError(""); }}
-                placeholder="Min. 8 characters"
+                placeholder="Min. 8 chars, letters + numbers"
                 className="pr-10"
               />
               <Button
@@ -215,18 +231,7 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-background">
-          <Card className="w-full max-w-md">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-              <p className="text-sm text-muted-foreground">Loading...</p>
-            </CardContent>
-          </Card>
-        </div>
-      }
-    >
+    <Suspense fallback={<LoadingScreen />}>
       <ResetPasswordForm />
     </Suspense>
   );

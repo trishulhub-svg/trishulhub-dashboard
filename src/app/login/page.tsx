@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock, Eye, EyeOff, LogOut, Mail, Shield } from "lucide-react";
 import { toast } from "sonner";
+import LoadingScreen from "@/components/ui/loading-screen";
 
 // Session expiry reason messages
 const sessionReasonMessages: Record<string, { title: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -37,25 +38,7 @@ const sessionReasonMessages: Record<string, { title: string; description: string
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
-          <Image
-            src="/200px.png"
-            alt="TrishulHub"
-            width={120}
-            height={48}
-            className="rounded-lg"
-            priority
-          />
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-            <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<LoadingScreen />}>
       <LoginForm />
     </Suspense>
   );
@@ -73,21 +56,22 @@ function LoginForm() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const sessionReason = searchParams.get("reason");
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+
+  // SECURITY: Validate callbackUrl — must be a relative path to prevent open redirects
+  const rawCallbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const callbackUrl = rawCallbackUrl.startsWith("/") && !rawCallbackUrl.startsWith("//")
+    ? rawCallbackUrl
+    : "/dashboard";
 
   // If already logged in, redirect
   useEffect(() => {
-    if (status === "authenticated" && session) {
-      const role = session.user?.role;
-      if (role === "CLIENT") {
-        if (callbackUrl.startsWith("/portal")) {
-          router.replace(callbackUrl);
-        } else {
-          router.replace("/portal");
-        }
-      } else {
-        router.replace(callbackUrl);
-      }
+    if (status !== "authenticated" || !session) return;
+
+    const role = session.user?.role;
+    if (role === "CLIENT") {
+      router.replace(callbackUrl.startsWith("/portal") ? callbackUrl : "/portal");
+    } else {
+      router.replace(callbackUrl);
     }
   }, [status, session, router, callbackUrl]);
 
@@ -96,61 +80,20 @@ function LoginForm() {
     fetch("/api/setup")
       .then(r => r.json())
       .then(data => {
-        if (data.status === "already_setup" || data.status === "success") {
-          setDbReady(true);
-        } else if (data.status === "needs_setup") {
-          setDbReady(false);
-        } else {
-          // Error or unknown status — still allow login attempt (DB might be fine)
-          setDbReady(true);
-        }
+        setDbReady(
+          data.status === "already_setup" || data.status === "success" || data.status === "error"
+            ? true
+            : data.status === "needs_setup"
+              ? false
+              : true // Unknown status — allow login attempt
+        );
       })
-      .catch(() => {
-        // Network error — don't block login, assume DB is ready
-        setDbReady(true);
-      });
+      .catch(() => setDbReady(true)); // Network error — don't block login
   }, []);
 
-  // Show loading spinner while checking session
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
-        <Image
-          src="/200px.png"
-          alt="TrishulHub"
-          width={120}
-          height={48}
-          className="rounded-lg"
-          priority
-        />
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
-        </div>
-      </div>
-    );
-  }
-
-  // Don't render the login form if already authenticated
-  if (status === "authenticated" && session) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-5">
-        <Image
-          src="/200px.png"
-          alt="TrishulHub"
-          width={120}
-          height={48}
-          className="rounded-lg"
-          priority
-        />
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
-          <div className="h-3 w-3 rounded-full bg-primary animate-bounce" />
-        </div>
-      </div>
-    );
+  // While session is loading or authenticated+redirecting, show shared loading screen
+  if (status === "loading" || (status === "authenticated" && session)) {
+    return <LoadingScreen />;
   }
 
   const handleSetup = async () => {
@@ -160,9 +103,7 @@ function LoginForm() {
       const res = await fetch("/api/setup", { method: "POST", credentials: 'include' });
       const data = await res.json();
 
-      if (data.logs) {
-        setSetupLogs(data.logs);
-      }
+      if (data.logs) setSetupLogs(data.logs);
 
       if (data.status === "success") {
         toast.success("Database set up successfully! You can now sign in.");
@@ -176,8 +117,9 @@ function LoginForm() {
     } catch (err: any) {
       toast.error("Failed to set up database. Please try again.");
       setSetupLogs(prev => [...prev, "Network error: " + (err.message || "Unknown")]);
+    } finally {
+      setSeeding(false);
     }
-    setSeeding(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -196,9 +138,7 @@ function LoginForm() {
         setLoading(false);
       } else {
         toast.success("Login successful!");
-        setTimeout(() => {
-          router.refresh();
-        }, 300);
+        setTimeout(() => router.refresh(), 300);
       }
     } catch {
       toast.error("Something went wrong. Please try again.");
@@ -207,27 +147,34 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md space-y-8">
-        {/* Brand Header - BIGGER and bolder for PWA feel */}
-        <div className="text-center space-y-5">
-          <div className="flex flex-col items-center gap-4">
+    <div className="relative min-h-screen flex items-center justify-center bg-background p-6 overflow-hidden">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[500px] rounded-full bg-primary/[0.03] blur-3xl" />
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+      </div>
+
+      <div className="relative w-full max-w-md space-y-6 animate-[fade-in_0.5s_ease-out]">
+        {/* Brand Header */}
+        <div className="text-center space-y-4">
+          <div className="flex flex-col items-center gap-3">
             <div className="relative h-16 w-40">
+              <div className="absolute -inset-3 rounded-2xl bg-primary/5 blur-2xl animate-pulse" />
               <Image
                 src="/200px.png"
                 alt="TrishulHub"
                 fill
-                className="rounded-xl object-contain"
+                className="relative z-10 rounded-xl object-contain"
                 priority
                 sizes="160px"
               />
             </div>
             <div>
               <h1 className="text-4xl font-black text-primary tracking-tight">TrishulHub</h1>
-              <p className="text-base font-semibold text-foreground mt-1">AI Agent Dashboard</p>
+              <p className="text-sm font-semibold text-muted-foreground mt-1">AI Agent Dashboard</p>
             </div>
           </div>
-          <p className="text-muted-foreground text-sm">Sign in to manage your AI agents and projects</p>
+          <p className="text-muted-foreground text-xs">Sign in to manage your AI agents and projects</p>
         </div>
 
         {/* Show setup button if database is not ready */}
@@ -236,7 +183,7 @@ function LoginForm() {
             <CardHeader>
               <CardTitle className="text-orange-700 dark:text-orange-400">First Time Setup</CardTitle>
               <CardDescription className="text-orange-600 dark:text-orange-300">
-                The database needs to be set up before you can sign in. Click the button below — it will create the database, tables, and default admin user automatically.
+                The database needs to be set up before you can sign in. Click the button below to create the database, tables, and default admin user automatically.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -245,10 +192,10 @@ function LoginForm() {
                 onClick={handleSetup}
                 disabled={seeding}
               >
-                {seeding ? "Setting up database... (please wait)" : "Setup Database & Create Admin User"}
+                {seeding ? "Setting up database..." : "Setup Database & Create Admin User"}
               </Button>
               <p className="text-xs text-orange-500 text-center">
-                This creates: database file, all tables, 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
+                Creates: database, all tables, 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
               </p>
               {setupLogs.length > 0 && (
                 <div className="mt-2 p-2 bg-white/50 dark:bg-black/20 rounded text-xs font-mono max-h-40 overflow-y-auto space-y-1">
@@ -267,8 +214,8 @@ function LoginForm() {
             <CardContent className="pt-4 pb-4">
               <div className="flex items-start gap-3">
                 {(() => {
-                  const IconComp = sessionReasonMessages[sessionReason].icon
-                  return <IconComp className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  const IconComp = sessionReasonMessages[sessionReason].icon;
+                  return <IconComp className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />;
                 })()}
                 <div>
                   <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
