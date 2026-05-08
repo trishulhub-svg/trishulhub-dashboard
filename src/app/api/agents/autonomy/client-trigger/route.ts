@@ -317,6 +317,6 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+    return new Response(JSON.stringify({ error: "Failed to start autonomous cycle" }), { status: 500 })
   }
 }

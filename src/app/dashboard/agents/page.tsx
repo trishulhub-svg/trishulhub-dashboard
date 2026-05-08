@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Bot, MessageSquare, Zap, Brain, AlertCircle,
-  Pause, Play, RotateCcw, Activity, Radio, RefreshCw, Loader2, Settings,
-  CheckCircle, XCircle, Wrench, Clock, TrendingUp, Eye, ChevronDown, ChevronUp,
-  MonitorDot, ShieldAlert, LayoutGrid, ArrowRight,
+  Pause, Play, RotateCcw, Activity, Radio, RefreshCw, Loader2,
+  CheckCircle, XCircle, Wrench, Clock, TrendingUp, ChevronDown, ChevronUp,
+  MonitorDot, ShieldAlert, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -121,13 +121,7 @@ export default function AgentsPage() {
       const res = await fetch("/api/agents", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setAgents(data);
-        } else if (data && typeof data === "object" && data.error) {
-          setAgents([]);
-        } else {
-          setAgents([]);
-        }
+        setAgents(Array.isArray(data) ? data : []);
       } else {
         setError("Failed to fetch agents");
       }
@@ -533,25 +527,6 @@ export default function AgentsPage() {
               Live Activity
             </CardTitle>
             <div className="flex items-center gap-2">
-              {/* Compact stats row - visible on all sizes */}
-              <div className="flex items-center gap-1.5 mr-1">
-                <div className="hidden sm:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
-                  <span className="text-xs font-semibold">{totalRuns}</span>
-                  <span className="text-[10px] text-muted-foreground">Cycles</span>
-                </div>
-                <div className="hidden sm:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
-                  <span className="text-xs font-semibold">{activeCount}</span>
-                  <span className="text-[10px] text-muted-foreground">Active</span>
-                </div>
-                <div className="hidden md:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
-                  <span className="text-xs font-semibold">{pendingApprovals}</span>
-                  <span className="text-[10px] text-muted-foreground">Approvals</span>
-                </div>
-                <div className="hidden md:flex items-center gap-1.5 bg-muted/50 rounded-md px-2 py-1">
-                  <span className="text-xs font-semibold">{pendingInterAgent}</span>
-                  <span className="text-[10px] text-muted-foreground">Msgs</span>
-                </div>
-              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -660,8 +635,8 @@ export default function AgentsPage() {
 
                 {/* Empty state */}
                 {liveSteps.length === 0 && activityLogs.length === 0 && (
-                  <div className="text-center py-8 sm:py-12">
-                    <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <div className="text-center py-8 sm:py-12 animate-[fadeIn_0.5s_ease-out]">
+                    <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3 animate-pulse" />
                     <p className="text-xs sm:text-sm text-muted-foreground">No activity yet</p>
                     <p className="text-[10px] sm:text-xs text-muted-foreground/60 mt-1">Enable agents to see them think autonomously</p>
                   </div>

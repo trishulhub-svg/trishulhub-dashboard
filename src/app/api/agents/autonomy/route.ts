@@ -25,7 +25,7 @@ export async function GET() {
     return NextResponse.json(status)
   } catch (error: any) {
     console.error("[autonomy] GET error:", error.message)
-    return NextResponse.json({ error: error.message || "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch autonomy status" }, { status: 500 })
   }
 }
 
@@ -181,6 +181,6 @@ export async function PATCH(req: NextRequest) {
     }
   } catch (error: any) {
     console.error("[autonomy] PATCH error:", error.message)
-    return NextResponse.json({ error: error.message || "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to update autonomy config" }, { status: 500 })
   }
 }

@@ -117,6 +117,6 @@ export async function GET() {
     })
   } catch (error: any) {
     console.error("[autonomy/poll] Error:", error.message)
-    return NextResponse.json({ error: error.message, dueAgents: [], recentActivity: [] }, { status: 500 })
+    return NextResponse.json({ error: "Failed to poll autonomy status", dueAgents: [], recentActivity: [] }, { status: 500 })
   }
 }
