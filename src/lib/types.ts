@@ -113,6 +113,18 @@ export const STATUS_COLORS: Record<AgentStatus, string> = {
   ERROR: "bg-red-500",
 };
 
+// Icon name mapping for agent types — used with dynamic lucide-react imports
+// Maps agent type to the lucide-react icon component name
+export const AGENT_ICON_NAMES: Record<AgentType, string> = {
+  DEV: "Code2",
+  CLIENT_HUNTER: "Crosshair",
+  FINANCE: "DollarSign",
+  PROJECT_MANAGER: "ClipboardList",
+  HR: "Users",
+  CONTENT: "PenTool",
+  SUPPORT: "HeadphonesIcon",
+};
+
 export const LEAD_COLUMNS: LeadStatus[] = [
   "NEW",
   "CONTACTED",

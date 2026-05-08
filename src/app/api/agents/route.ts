@@ -41,17 +41,10 @@ export async function GET(req: NextRequest) {
       } : {}),
     })
 
-    // Filter agents based on user access
+    // SECURITY: Mask githubToken for non-SUPER_ADMIN users
+    // Developers already filtered by Prisma where clause above
     if (userRole !== "SUPER_ADMIN") {
-      const filtered = agents.filter(agent => {
-        // ADMIN can see all agents
-        if (userRole === "ADMIN") return true
-        // Others only see agents they have access to
-        const access = agent.userAccess?.[0]
-        return access?.canView || false
-      })
-      // SECURITY: Strip githubToken from roleConfig for non-DEV agents and non-admin users
-      const sanitized = filtered.map(agent => {
+      const sanitized = agents.map(agent => {
         if (agent.roleConfig && agent.type !== "DEV" && userRole !== "SUPER_ADMIN") {
           return {
             ...agent,

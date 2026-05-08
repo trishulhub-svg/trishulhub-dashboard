@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { STATUS_COLORS, AGENT_TYPES } from "@/lib/types";
+import { safeJsonParse } from "@/lib/utils";
 import type { AgentStatus, AgentType } from "@/lib/types";
 
 const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -260,13 +261,29 @@ export default function AgentsPage() {
     });
   };
 
-  // Start polling loop
+  // Start polling loop — pauses when tab is hidden to save resources
   useEffect(() => {
     fetchAgents();
     fetchAutonomy();
 
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        // Resume: immediately poll once, then restart interval
+        pollAndTrigger();
+        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = setInterval(pollAndTrigger, 10000);
+      } else {
+        // Pause: clear interval when tab is hidden
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
     const initialTimeout = setTimeout(() => {
-      pollAndTrigger();
       pollingIntervalRef.current = setInterval(pollAndTrigger, 10000);
     }, 5000);
 
@@ -276,6 +293,7 @@ export default function AgentsPage() {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [fetchAgents, fetchAutonomy, pollAndTrigger]);
 
@@ -658,24 +676,9 @@ export default function AgentsPage() {
           const isToggling = togglingAgent === agent.id;
           const isCurrentlyRunning = runningAgents.has(agent.id);
 
-          let features: Record<string, boolean> = {};
-          try {
-            if (agent.roleConfig?.features) {
-              features = typeof agent.roleConfig.features === "string"
-                ? JSON.parse(agent.roleConfig.features)
-                : agent.roleConfig.features;
-            }
-          } catch { /* ignore */ }
-
-          let quickActionsCount = 0;
-          try {
-            if (agent.roleConfig?.quickActions) {
-              const actions = typeof agent.roleConfig.quickActions === "string"
-                ? JSON.parse(agent.roleConfig.quickActions)
-                : agent.roleConfig.quickActions;
-              quickActionsCount = Array.isArray(actions) ? actions.length : 0;
-            }
-          } catch { /* ignore */ }
+          const features = safeJsonParse<Record<string, boolean>>(agent.roleConfig?.features, {});
+          const quickActions = safeJsonParse<unknown[]>(agent.roleConfig?.quickActions, []);
+          const quickActionsCount = quickActions.length;
 
           return (
             <Card

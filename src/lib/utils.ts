@@ -51,3 +51,17 @@ export function safeParseDate(val: unknown): Date {
     return new Date()
   }
 }
+
+/**
+ * Safely parse a JSON string. Returns fallback if parsing fails.
+ * Use this instead of raw JSON.parse to prevent silent crashes.
+ */
+export function safeJsonParse<T = unknown>(val: unknown, fallback: T): T {
+  if (val === undefined || val === null) return fallback
+  if (typeof val !== "string") return val as T
+  try {
+    return JSON.parse(val) as T
+  } catch {
+    return fallback
+  }
+}
