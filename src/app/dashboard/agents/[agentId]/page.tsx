@@ -51,6 +51,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { STATUS_COLORS, AGENT_TYPES, MODEL_OPTIONS } from "@/lib/types";
+import { AGENT_ICON_COMPONENTS, AgentIconFallback } from "@/lib/agent-icons";
 import type { AgentStatus, AgentType } from "@/lib/types";
 import { safeJsonParse } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -78,17 +79,6 @@ const ALL_AGENT_TOOLS = [
   // Shared tools
   'web_search', 'plan_task',
 ];
-
-// ─── Icon Map ───────────────────────────────────────────────────
-const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  DEV: Code2,
-  CLIENT_HUNTER: Crosshair,
-  FINANCE: DollarSign,
-  PROJECT_MANAGER: ClipboardList,
-  HR: Users,
-  CONTENT: PenTool,
-  SUPPORT: HeadphonesIcon,
-};
 
 // ─── Types ──────────────────────────────────────────────────────
 interface ChatMessage {
@@ -472,7 +462,7 @@ export default function AgentChatPage() {
     [agent?.roleConfig?.suggestedPrompts]
   );
 
-  const Icon = agent ? (agentIcons[agent.type] || Bot) : Bot;
+  const Icon = agent ? (AGENT_ICON_COMPONENTS[agent.type as AgentType] || AgentIconFallback) : AgentIconFallback;
   const agentConfig = agent ? (AGENT_TYPES[agent.type as AgentType] ?? null) : null;
   const statusColor = agent ? (STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400") : "bg-gray-400";
 

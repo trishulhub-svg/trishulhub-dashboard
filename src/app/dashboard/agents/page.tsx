@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Code2, Crosshair, DollarSign, ClipboardList, Users, PenTool, HeadphonesIcon,
-  ArrowRight, Bot, MessageSquare, Calendar, Zap, Brain, AlertCircle,
+  Bot, MessageSquare, Zap, Brain, AlertCircle,
   Pause, Play, RotateCcw, Activity, Radio, RefreshCw, Loader2, Settings,
   CheckCircle, XCircle, Wrench, Clock, TrendingUp, Eye, ChevronDown, ChevronUp,
-  MonitorDot, ShieldAlert, LayoutGrid,
+  MonitorDot, ShieldAlert, LayoutGrid, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,17 +16,29 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { STATUS_COLORS, AGENT_TYPES } from "@/lib/types";
 import { safeJsonParse } from "@/lib/utils";
+import { AGENT_ICON_COMPONENTS, AgentIconFallback } from "@/lib/agent-icons";
 import type { AgentStatus, AgentType } from "@/lib/types";
 
-const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  DEV: Code2,
-  CLIENT_HUNTER: Crosshair,
-  FINANCE: DollarSign,
-  PROJECT_MANAGER: ClipboardList,
-  HR: Users,
-  CONTENT: PenTool,
-  SUPPORT: HeadphonesIcon,
-};
+interface AgentListItem {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  model: string;
+  status: string;
+  roleConfig?: {
+    features?: string;
+    quickActions?: string;
+    githubToken?: string;
+    githubRepo?: string;
+    [key: string]: any;
+  } | null;
+  _count?: {
+    chats?: number;
+    conversations?: number;
+  };
+  [key: string]: any;
+}
 
 interface AutonomyConfig {
   id: string;
@@ -86,7 +97,7 @@ interface LiveStep {
 
 export default function AgentsPage() {
   const router = useRouter();
-  const [agents, setAgents] = useState<unknown[]>([]);
+  const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autonomyConfigs, setAutonomyConfigs] = useState<AutonomyConfig[]>([]);
@@ -242,7 +253,7 @@ export default function AgentsPage() {
                 updateLiveStep(agent.agentId, `Error: ${event.error || "Unknown"}`, "error");
               }
             }
-          } catch {}
+          } catch (e) { /* ignore non-JSON SSE lines */ }
         }
       }
     } catch (err: any) {
@@ -372,6 +383,10 @@ export default function AgentsPage() {
       setTogglingAgent(null);
     }
   };
+
+  // Memoize repeated filter computations
+  const runningLiveSteps = useMemo(() => liveSteps.filter(s => s.status === "running"), [liveSteps]);
+  const completedLiveSteps = useMemo(() => liveSteps.filter(s => s.status !== "running").slice(-5), [liveSteps]);
 
   const activeCount = autonomyConfigs.filter(c => c.enabled).length;
   const totalCount = autonomyConfigs.length;
@@ -553,18 +568,19 @@ export default function AgentsPage() {
             <ScrollArea className="h-[220px] sm:h-[260px] lg:h-[300px]">
               <div className="space-y-2">
                 {/* Live steps (currently running) */}
-                {liveSteps.filter(s => s.status === "running").length > 0 && (
+                {runningLiveSteps.length > 0 && (
                   <div className="space-y-1.5">
-                    {liveSteps.filter(s => s.status === "running").map((step, i) => {
+                    {runningLiveSteps.map((step, i) => {
                       const StepIcon = step.type === "tool_call" ? Wrench : Brain;
                       return (
-                        <div key={`live-${step.agentId}-${i}`} className="flex items-start gap-2 p-2 sm:p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-800/30">
-                          <StepIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400 mt-0.5 shrink-0 animate-pulse" />
-                          <div className="min-w-0 flex-1">
+                        <div key={`live-${step.agentId}-${i}`} className="relative flex items-start gap-2 p-2 sm:p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-800/30 overflow-hidden">
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-green-400/20 to-transparent animate-[shimmer_2s_infinite] rounded-lg" />
+                          <StepIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400 mt-0.5 shrink-0 animate-pulse relative" />
+                          <div className="min-w-0 flex-1 relative">
                             <p className="text-[11px] sm:text-xs font-medium text-green-700 dark:text-green-400 truncate">{step.agentName}</p>
                             <p className="text-[10px] sm:text-[11px] text-green-600 dark:text-green-500 break-words line-clamp-2">{step.step}</p>
                           </div>
-                          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0 mt-1" />
+                          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0 mt-1 relative" />
                         </div>
                       );
                     })}
@@ -572,11 +588,11 @@ export default function AgentsPage() {
                 )}
 
                 {/* Agents running by another admin session */}
-                {currentlyRunningAgents.length > 0 && liveSteps.filter(s => s.status === "running").length === 0 && (
+                {currentlyRunningAgents.length > 0 && runningLiveSteps.length === 0 && (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider mt-1 mb-1 px-1">Running by another admin</p>
                     {currentlyRunningAgents.map((agent) => {
-                      const Icon = agentIcons[agent.agentType] || Bot;
+                      const Icon = AGENT_ICON_COMPONENTS[agent.agentType as AgentType] || AgentIconFallback;
                       return (
                         <div key={agent.agentId} className="flex items-center gap-2 p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
                           <div className="h-6 w-6 sm:h-7 sm:w-7 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
@@ -596,9 +612,9 @@ export default function AgentsPage() {
                 )}
 
                 {/* Completed steps */}
-                {liveSteps.filter(s => s.status !== "running").length > 0 && (
+                {completedLiveSteps.length > 0 && (
                   <div className="space-y-1">
-                    {liveSteps.filter(s => s.status !== "running").slice(-5).map((step, i) => (
+                    {completedLiveSteps.map((step, i) => (
                       <div key={`done-${step.agentId}-${i}`} className="flex items-start gap-2 p-1.5 sm:p-2 rounded-md">
                         <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
                         <div className="min-w-0 flex-1">
@@ -614,7 +630,7 @@ export default function AgentsPage() {
                   <div className="space-y-1">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mt-1 mb-1 px-1">Recent Activity</p>
                     {activityLogs.map((log) => {
-                      const Icon = agentIcons[log.agentType] || Bot;
+                      const Icon = AGENT_ICON_COMPONENTS[log.agentType as AgentType] || AgentIconFallback;
                       const isSuccess = log.status === "SUCCESS";
                       return (
                         <div key={log.id} className="flex items-start gap-2 p-1.5 sm:p-2 rounded-md hover:bg-muted/50 transition-colors">
@@ -658,7 +674,7 @@ export default function AgentsPage() {
 
       {/* ── Agent Cards Grid (Full Width, Responsive) ── */}
       <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {(agents as any[]).length === 0 ? (
+        {agents.length === 0 ? (
           <div className="col-span-full text-center py-12">
             <Bot className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">No agents found.</p>
@@ -666,8 +682,8 @@ export default function AgentsPage() {
               Refresh
             </Button>
           </div>
-        ) : (agents as any[]).map((agent) => {
-          const Icon = agentIcons[agent.type] || Bot;
+        ) : agents.map((agent, index) => {
+          const Icon = AGENT_ICON_COMPONENTS[agent.type as AgentType] || AgentIconFallback;
           const agentConfig = AGENT_TYPES[agent.type as AgentType];
           const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
           const chatCount = agent._count?.chats || agent._count?.conversations || 0;
@@ -683,7 +699,8 @@ export default function AgentsPage() {
           return (
             <Card
               key={agent.id}
-              className={`hover:shadow-md transition-all cursor-pointer border hover:border-primary/20 group ${isCurrentlyRunning ? "border-green-300 dark:border-green-700 shadow-green-100 dark:shadow-green-900/20 shadow-sm" : ""}`}
+              className={`hover:shadow-md transition-all cursor-pointer border hover:border-primary/20 group animate-[card-enter_0.4s_ease-out_both] ${isCurrentlyRunning ? "border-green-300 dark:border-green-700 shadow-green-100 dark:shadow-green-900/20 shadow-sm" : ""}`}
+              style={{ animationDelay: `${index * 60}ms` }}
               onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
             >
               <CardHeader className="pb-2 sm:pb-3">
