@@ -52,6 +52,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { toast } from "sonner";
 import { STATUS_COLORS, AGENT_TYPES, MODEL_OPTIONS } from "@/lib/types";
 import type { AgentStatus, AgentType } from "@/lib/types";
+import { safeJsonParse } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -193,15 +194,7 @@ interface AgentData {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
-function parseJSONSafe<T>(val: string | null | undefined, fallback: T): T {
-  if (!val) return fallback;
-  try {
-    return JSON.parse(val) as T;
-  } catch {
-    return fallback;
-  }
-}
-
+// NOTE: parseJSONSafe replaced by shared safeJsonParse from @/lib/utils
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -463,19 +456,19 @@ export default function AgentChatPage() {
 
   // ── Parsed role config ──
   const quickActions = useMemo<QuickAction[]>(
-    () => parseJSONSafe(agent?.roleConfig?.quickActions, []),
+    () => safeJsonParse(agent?.roleConfig?.quickActions, []),
     [agent?.roleConfig?.quickActions]
   );
   const specialCommands = useMemo<SpecialCommand[]>(
-    () => parseJSONSafe(agent?.roleConfig?.specialCommands, []),
+    () => safeJsonParse(agent?.roleConfig?.specialCommands, []),
     [agent?.roleConfig?.specialCommands]
   );
   const features = useMemo<Record<string, boolean>>(
-    () => parseJSONSafe(agent?.roleConfig?.features, {}),
+    () => safeJsonParse(agent?.roleConfig?.features, {}),
     [agent?.roleConfig?.features]
   );
   const suggestedPrompts = useMemo<SuggestedPrompt[]>(
-    () => parseJSONSafe(agent?.roleConfig?.suggestedPrompts, []),
+    () => safeJsonParse(agent?.roleConfig?.suggestedPrompts, []),
     [agent?.roleConfig?.suggestedPrompts]
   );
 
@@ -484,38 +477,24 @@ export default function AgentChatPage() {
   const statusColor = agent ? (STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400") : "bg-gray-400";
 
   // ── Fetch Agent ──
-  // NOTE: fetchAgent fetches ALL agents via /api/agents because the API doesn't support
-  // single-agent fetch. This is a known issue but low-priority since there are only 7 agents.
-  // TODO: Add GET /api/agents/:id endpoint for single-agent fetch.
+  // Uses optimized single-agent endpoint: /api/agents?id=xxx
   const fetchAgent = useCallback(async () => {
     if (!agentId) {
       setLoading(false);
       return;
     }
     try {
-      const res = await fetch("/api/agents", { credentials: "include" });
+      const res = await fetch(`/api/agents?id=${agentId}`, { credentials: "include" });
       if (res.ok) {
-        const data = await res.json();
-        // Handle API error responses that return objects instead of arrays
-        // Also handle cases where data is null/undefined
-        const agents = Array.isArray(data) ? data : [];
-        const found = agents.find((a) => a && a.id === agentId);
-        if (found) {
-          // Ensure roleConfig fields are properly initialized to prevent null access errors
-          if (!found.roleConfig) {
-            found.roleConfig = null;
-          }
+        const found = await res.json();
+        if (found && !found.error) {
+          if (!found.roleConfig) found.roleConfig = null;
           setAgent(found);
-          setAllAgents(agents);
         } else {
-          console.warn("[AgentChat] Agent not found in API response. agentId:", agentId);
+          console.warn("[AgentChat] Agent not found:", agentId);
         }
       } else {
-        console.error("[AgentChat] Failed to fetch agents, status:", res.status);
-        try {
-          const errData = await res.json();
-          console.error("[AgentChat] API error:", errData.error || errData.message);
-        } catch {}
+        console.error("[AgentChat] Failed to fetch agent, status:", res.status);
       }
     } catch (err: any) {
       console.error("[AgentChat] Failed to fetch agent:", err?.message || err);
@@ -523,6 +502,18 @@ export default function AgentChatPage() {
       setLoading(false);
     }
   }, [agentId]);
+
+  // ── Fetch all agents (for cross-agent dialog) ──
+  // Separate from fetchAgent — only fetched on demand, not on every page load
+  const fetchAllAgents = useCallback(async () => {
+    try {
+      const res = await fetch("/api/agents", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setAllAgents(Array.isArray(data) ? data : []);
+      }
+    } catch {}
+  }, []);
 
   // ── Fetch Chats ──
   const fetchChats = useCallback(async () => {
@@ -864,8 +855,9 @@ export default function AgentChatPage() {
       fetchTasks();
       fetchCrossAgent();
       fetchAutoActivity();
+      fetchAllAgents(); // Lazy fetch all agents for cross-agent dialog
     }
-  }, [agent, fetchChats, fetchTasks, fetchCrossAgent, fetchAutoActivity]);
+  }, [agent, fetchChats, fetchTasks, fetchCrossAgent, fetchAutoActivity, fetchAllAgents]);
 
   // ── Check for active processing on mount (navigation resume) ──
   // FIX: Wrap cascading setState calls inside startTransition to prevent React error #185.

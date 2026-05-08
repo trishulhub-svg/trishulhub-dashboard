@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 // GET /api/agents - List agents (filtered by user access)
+// GET /api/agents?id=xxx - Single agent fetch (optimized, no full list query)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -13,6 +14,42 @@ export async function GET(req: NextRequest) {
     }
     const userRole = session.user.role
     const userId = session.user.id
+
+    // ── Single agent fetch (optimized) ──
+    const { searchParams } = new URL(req.url)
+    const singleId = searchParams.get("id")
+    if (singleId) {
+      const agent = await db.agent.findFirst({
+        where: {
+          id: singleId,
+          // Only return if user has view access (or is admin)
+          ...(!["SUPER_ADMIN", "ADMIN"].includes(userRole) ? { userAccess: { some: { userId, canView: true } } } : {}),
+        },
+        include: {
+          apiKey: { select: { id: true, keyName: true, provider: true, status: true } },
+          roleConfig: true,
+          _count: {
+            select: { conversations: true, chats: { where: { status: "ACTIVE" } } }
+          },
+          userAccess: { where: { userId }, select: { canChat: true, canView: true, canApprove: true } },
+        },
+      })
+      if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 })
+      // Apply githubToken masking for non-SUPER_ADMIN
+      if (userRole !== "SUPER_ADMIN" && agent.roleConfig) {
+        if (agent.type !== "DEV") {
+          agent.roleConfig.githubToken = ""
+          agent.roleConfig.githubRepo = ""
+        } else {
+          agent.roleConfig.githubToken = agent.roleConfig.githubToken
+            ? `${agent.roleConfig.githubToken.substring(0, 4)}...${agent.roleConfig.githubToken.slice(-4)}`
+            : ""
+        }
+      }
+      return NextResponse.json(agent)
+    }
+
+    // ── Full agent list (original behavior) ──
 
     const agents = await db.agent.findMany({
       include: {
