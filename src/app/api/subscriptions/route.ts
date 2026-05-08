@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // Currency conversion rates to INR (approximate)
 const CURRENCY_TO_INR: Record<string, number> = {
@@ -29,6 +30,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // Rate limit
+  const rl = rateLimit(`subs-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
+  }
+
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status")
 
@@ -53,8 +60,8 @@ export async function GET(req: NextRequest) {
     .reduce((sum, s) => sum + s.monthlyINR, 0)
 
   return NextResponse.json({ subscriptions: enriched, totalMonthlyCost })
-  } catch (error: any) {
-    console.error("[subscriptions] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[subscriptions] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -70,7 +77,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const body = await req.json()
+  // Rate limit
+  const rl = rateLimit(`subs-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
+  }
+
+  // Wrap req.json() in try/catch for malformed JSON
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
   const validation = validateRequest(createSubscriptionSchema, body)
 
   if (!validation.success) {
@@ -104,8 +123,8 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json(subscription)
-  } catch (error: any) {
-    console.error("[subscriptions] POST error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[subscriptions] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

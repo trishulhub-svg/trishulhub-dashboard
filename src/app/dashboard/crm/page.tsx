@@ -36,6 +36,15 @@ import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
 
+// CRM-028: 401 handling helper
+function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
+  if (res.status === 401) {
+    router.push("/login");
+    return true;
+  }
+  return false;
+}
+
 interface Lead {
   id: string;
   name: string;
@@ -189,19 +198,23 @@ export default function CRMPage() {
   const fetchLeads = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/leads?limit=200", { credentials: 'include', signal });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         const result = await res.json();
         // Handle paginated response format { data, total, page, limit, totalPages }
         setLeads(Array.isArray(result) ? result : (result.data || []));
+      } else {
+        // CRM-028: Handle non-ok fetchLeads response
+        const data = await res.json().catch(() => ({}));
+        setError((data as Record<string, string>).error || "Failed to load leads");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load leads");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   // CRM-002: Role guard with useEffect
   useEffect(() => {
@@ -288,6 +301,12 @@ export default function CRMPage() {
         credentials: 'include',
         body: JSON.stringify({ id: leadId, status: newStatus }),
       });
+      if (handleFetchError(res, router)) {
+        // Rollback on 401 redirect
+        setLeads(prevLeads);
+        setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
+        return;
+      }
       if (!res.ok) {
         // CRM-007: Rollback on failure
         setLeads(prevLeads);
@@ -340,6 +359,8 @@ export default function CRMPage() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      // CRM-028: 401 handling
+      if (handleFetchError(res, router)) return;
       // CRM-014: Handle non-ok response
       if (res.ok) {
         toast.success("Lead added");
@@ -367,6 +388,7 @@ export default function CRMPage() {
         credentials: 'include',
         body: JSON.stringify({ id: selectedLead.id, ...data }),
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead updated");
         fetchLeads();
@@ -399,6 +421,7 @@ export default function CRMPage() {
           body: emailBody.trim(),
         }),
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Email saved as draft for approval");
         setEmailSubject("");
@@ -425,6 +448,7 @@ export default function CRMPage() {
         method: "DELETE",
         credentials: "include",
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead deleted");
         fetchLeads();
@@ -451,6 +475,7 @@ export default function CRMPage() {
         method: "POST",
         credentials: "include",
       });
+      if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead converted to client!");
         fetchLeads();

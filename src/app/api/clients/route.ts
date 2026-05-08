@@ -142,7 +142,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
   }
 
-  const body = await req.json()
+  // Wrap req.json() in try/catch for malformed JSON
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
   const validation = validateRequest(createClientSchema, body)
 
   if (!validation.success) {

@@ -97,29 +97,33 @@ export async function POST(
     })
   }
 
-  // Create a new client from the lead data
+  // Create a new client from the lead data (transactional)
   try {
-    const newClient = await db.client.create({
-      data: {
-        name: lead.name,
-        email: lead.email,
-        phone: lead.phone || null,
-        company: lead.company || null,
-        website: lead.website || null,
-        status: "ACTIVE",
-        notes: lead.notes ? `Converted from lead. Original notes: ${lead.notes}` : "Converted from lead",
-      },
-    })
+    const result = await db.$transaction(async (tx) => {
+      const newClient = await tx.client.create({
+        data: {
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone || null,
+          company: lead.company || null,
+          website: lead.website || null,
+          status: "ACTIVE",
+          notes: lead.notes ? `Converted from lead. Original notes: ${lead.notes}` : "Converted from lead",
+        },
+      })
 
-    // Update lead to link to new client and set status to WON
-    await db.lead.update({
-      where: { id },
-      data: { clientId: newClient.id, status: "WON" },
+      // Update lead to link to new client and set status to WON
+      await tx.lead.update({
+        where: { id },
+        data: { clientId: newClient.id, status: "WON" },
+      })
+
+      return newClient
     })
 
     return NextResponse.json({
       message: "Lead converted to client successfully",
-      client: newClient,
+      client: result,
       linked: false,
     }, { status: 201 })
   } catch (error: unknown) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -16,7 +16,6 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -24,6 +23,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { AGENT_TYPES as AGENT_TYPE_CONFIG, type AgentType } from "@/lib/types";
 
@@ -85,6 +88,8 @@ export default function ApiKeysPage() {
   const [formBudget, setFormBudget] = useState("18");
   const [formPriority, setFormPriority] = useState("1");
   const [formAssignedAgents, setFormAssignedAgents] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const resetForm = () => {
     setFormProvider("ZAI");
@@ -134,6 +139,7 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     fetchKeys();
+    return () => { fetchAbortRef.current?.abort(); };
   }, [fetchKeys]);
 
   const handleAddKey = async (e: React.FormEvent) => {
@@ -179,7 +185,7 @@ export default function ApiKeysPage() {
     if (!editingKey) return;
     setSaving(true);
     try {
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, unknown> = {
         id: editingKey.id,
         keyName: formKeyName.trim(),
         monthlyBudget: parseFloat(formBudget) || 18,
@@ -213,10 +219,10 @@ export default function ApiKeysPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this API key? Agents using this key will need to be reassigned.")) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/api-keys?id=${id}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch(`/api/api-keys?id=${deleteTarget}`, { method: "DELETE", credentials: 'include' });
       if (res.ok) {
         toast.success("API key deleted");
         fetchKeys();
@@ -226,6 +232,8 @@ export default function ApiKeysPage() {
       }
     } catch {
       toast.error("Failed to delete");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -234,6 +242,12 @@ export default function ApiKeysPage() {
     setTestResult(prev => ({ ...prev, [id]: undefined }));
     try {
       const res = await fetch(`/api/api-keys/test?id=${id}`, { credentials: 'include' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Test request failed" }));
+        toast.error(errData.error || "API key test failed");
+        setTestResult(prev => ({ ...prev, [id]: { valid: false, error: errData.error || "Test request failed" } }));
+        return;
+      }
       const data = await res.json();
       setTestResult(prev => ({ ...prev, [id]: data }));
       if (data.valid) {
@@ -261,6 +275,9 @@ export default function ApiKeysPage() {
       if (res.ok) {
         toast.success("API key reactivated (budget reset)");
         fetchKeys();
+      } else {
+        const errData = await res.json().catch(() => ({ error: "Failed to reactivate" }));
+        toast.error(errData.error || "Failed to reactivate key");
       }
     } catch {
       toast.error("Failed to reactivate key");
@@ -510,8 +527,12 @@ export default function ApiKeysPage() {
                           size="icon"
                           className="h-5 w-5"
                           onClick={() => {
-                            navigator.clipboard.writeText(key.keyValue);
-                            toast.success("Key copied to clipboard");
+                            try {
+                              navigator.clipboard.writeText(key.keyValue);
+                              toast.success("Key copied to clipboard");
+                            } catch {
+                              toast.error("Failed to copy to clipboard");
+                            }
                           }}
                           aria-label="Copy API key"
                         >
@@ -628,7 +649,7 @@ export default function ApiKeysPage() {
                           <RefreshCw className="h-3 w-3" />
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" className="h-7 text-xs text-red-500 hover:text-red-600" onClick={() => handleDelete(key.id)}>
+                      <Button variant="outline" size="sm" className="h-7 text-xs text-red-500 hover:text-red-600" onClick={() => setDeleteTarget(key.id)}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
@@ -692,6 +713,24 @@ export default function ApiKeysPage() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete API Key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this API key? Agents using this key will need to be reassigned. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

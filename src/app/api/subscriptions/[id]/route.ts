@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // PATCH /api/subscriptions/[id] - Update subscription
 export async function PATCH(
@@ -19,8 +20,21 @@ export async function PATCH(
   }
 
   const { id } = await params
-  const body = await req.json()
-  const validation = validateRequest(updateSubscriptionSchema, { ...body, id })
+
+  // Rate limit
+  const rl = rateLimit(`subs-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
+  }
+
+  // Wrap req.json() in try/catch for malformed JSON
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+  const validation = validateRequest(updateSubscriptionSchema, { ...(body as Record<string, unknown>), id })
 
   if (!validation.success) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
@@ -29,7 +43,7 @@ export async function PATCH(
   const data = validation.data
   const { id: _id, ...updateFields } = data
 
-  const sanitizedData: Record<string, any> = {}
+  const sanitizedData: Record<string, unknown> = {}
   const allowedFields = ["service", "rate", "currency", "frequency", "status", "category", "projectId", "endDate", "notes"]
 
   for (const key of allowedFields) {
@@ -60,8 +74,8 @@ export async function PATCH(
     include: { project: { select: { id: true, name: true } } },
   })
   return NextResponse.json(subscription)
-  } catch (error: any) {
-    console.error("[subscriptions] PATCH error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[subscriptions] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -80,6 +94,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // Rate limit
+  const rl = rateLimit(`subs-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
+  }
+
   const { id } = await params
 
   const existing = await db.subscription.findUnique({ where: { id } })
@@ -89,8 +109,8 @@ export async function DELETE(
 
   await db.subscription.delete({ where: { id } })
   return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[subscriptions] DELETE error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[subscriptions] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

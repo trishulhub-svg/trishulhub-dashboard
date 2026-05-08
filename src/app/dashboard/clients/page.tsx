@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
+import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -142,6 +142,12 @@ interface FormErrors {
   [key: string]: string | undefined;
 }
 
+// CLI-023: SortIcon extracted outside component to avoid re-creation on every render
+function SortIcon({ field, sortBy, sortOrder }: { field: "name" | "createdAt" | "revenue"; sortBy: string; sortOrder: string }) {
+  if (sortBy !== field) return <ArrowUpDown className="h-3 w-3" />;
+  return sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+}
+
 // ━━ Main Component ━━
 export default function ClientsPage() {
   const { data: session, status } = useSession();
@@ -226,7 +232,7 @@ export default function ClientsPage() {
         const data: ClientRow[] = Array.isArray(result) ? result : (result.data || []);
         // CLI-001: Client-side revenue sort (API now supports it, but keep fallback)
         if (sortBy === "revenue") {
-          data.sort((a: ClientRow, b: ClientRow) => {
+          data.toSorted((a: ClientRow, b: ClientRow) => {
             const diff = (a.revenue || 0) - (b.revenue || 0);
             return sortOrder === "asc" ? diff : -diff;
           });
@@ -252,12 +258,13 @@ export default function ClientsPage() {
     return () => controller.abort();
   }, [fetchClients]);
 
-  // ━━ Stats ━━
-  const totalClients = clients.length;
-  const activeClients = clients.filter((c) => c.status === "ACTIVE").length;
-  const totalRevenue = clients.reduce((sum, c) => sum + (c.revenue || 0), 0);
-  // CLI-010: renamed from pendingInvoices to totalInvoices, label to "Total Invoices"
-  const totalInvoices = clients.reduce((sum, c) => sum + (c._count?.invoices || 0), 0);
+  // ━━ Stats (useMemo to avoid recomputing on every render) ━━
+  const { total: totalClients, active: activeClients, revenue: totalRevenue, invoices: totalInvoices } = useMemo(() => ({
+    total: clients.length,
+    active: clients.filter((c) => c.status === "ACTIVE").length,
+    revenue: clients.reduce((sum, c) => sum + (c.revenue || 0), 0),
+    invoices: clients.reduce((sum, c) => sum + (c._count?.invoices || 0), 0),
+  }), [clients]);
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -430,6 +437,7 @@ export default function ClientsPage() {
     setDetailLoading(true);
     try {
       const res = await fetch(`/api/clients/${id}`, { credentials: "include", signal: controller.signal });
+      if (handleFetchError(res)) return;
       if (res.ok) {
         const data = await res.json();
         setDetailClient(data);
@@ -490,14 +498,25 @@ export default function ClientsPage() {
     }
   };
 
-  // CLI-023: sort direction indicator helper
-  const SortIcon = ({ field }: { field: "name" | "createdAt" | "revenue" }) => {
-    if (sortBy !== field) return <ArrowUpDown className="h-3 w-3" />;
-    return sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
-  };
-
   // ━━ Early return for non-authenticated / non-admin ━━
   // NOTE: All hooks must be called before any early returns (react-hooks/rules-of-hooks)
+  if (status === "loading") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-96 rounded-lg" />
+      </div>
+    );
+  }
+
   if (status !== "authenticated" || !isAdminUser) return null;
 
   // ━━ Loading state ━━
@@ -655,7 +674,7 @@ export default function ClientsPage() {
                     >
                       <div className="flex items-center gap-1">
                         Company / Name
-                        <SortIcon field="name" />
+                        <SortIcon field="name" sortBy={sortBy} sortOrder={sortOrder} />
                       </div>
                     </TableHead>
                     <TableHead>Email</TableHead>
@@ -668,7 +687,7 @@ export default function ClientsPage() {
                     >
                       <div className="flex items-center justify-end gap-1">
                         Revenue
-                        <SortIcon field="revenue" />
+                        <SortIcon field="revenue" sortBy={sortBy} sortOrder={sortOrder} />
                       </div>
                     </TableHead>
                     <TableHead className="text-center">Status</TableHead>
@@ -679,7 +698,7 @@ export default function ClientsPage() {
                     >
                       <div className="flex items-center gap-1">
                         Created
-                        <SortIcon field="createdAt" />
+                        <SortIcon field="createdAt" sortBy={sortBy} sortOrder={sortOrder} />
                       </div>
                     </TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -769,6 +788,7 @@ export default function ClientsPage() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
+            <DialogDescription>{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
