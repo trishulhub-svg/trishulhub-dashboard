@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get("agentId")
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 200)
+    const rawLimit = parseInt(searchParams.get("limit") || "50")
+    const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200)
 
     const where: any = {}
     if (agentId) where.agentId = agentId
@@ -41,21 +42,27 @@ export async function GET(req: NextRequest) {
     })
 
     return NextResponse.json({
-      logs: logs.map(log => ({
-        id: log.id,
-        agentId: log.agentId,
-        agentName: log.agent.name,
-        agentType: log.agent.type,
-        action: log.action,
-        title: log.title,
-        description: log.description,
-        result: log.result ? JSON.parse(log.result) : null,
-        status: log.status,
-        tokensUsed: log.tokensUsed,
-        cost: log.cost,
-        duration: log.duration,
-        createdAt: log.createdAt,
-      })),
+      logs: logs.map(log => {
+        let parsedResult: any = null
+        if (log.result) {
+          try { parsedResult = JSON.parse(log.result) } catch { parsedResult = null }
+        }
+        return {
+          id: log.id,
+          agentId: log.agentId,
+          agentName: log.agent.name,
+          agentType: log.agent.type,
+          action: log.action,
+          title: log.title,
+          description: log.description,
+          result: parsedResult,
+          status: log.status,
+          tokensUsed: log.tokensUsed,
+          cost: log.cost,
+          duration: log.duration,
+          createdAt: log.createdAt,
+        }
+      }),
       stats,
     })
   } catch (error: any) {

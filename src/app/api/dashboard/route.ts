@@ -42,21 +42,23 @@ export async function GET() {
     tasks,
   ] = await Promise.all([
     db.agent.findMany({ where: agentWhere, include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } } }),
-    db.project.findMany({ where: projectWhere, include: { client: true, tasks: true } }),
-    db.client.findMany({ where: clientWhere }),
-    db.invoice.findMany({ where: invoiceWhere }),
-    db.expense.findMany({ where: expenseWhere }),
+    db.project.findMany({ where: projectWhere, include: { client: true, _count: { select: { tasks: true } } }, take: 100 }),
+    db.client.findMany({ where: clientWhere, take: 100 }),
+    db.invoice.findMany({ where: invoiceWhere, take: 100, orderBy: { createdAt: "desc" } }),
+    db.expense.findMany({ where: expenseWhere, take: 100, orderBy: { createdAt: "desc" } }),
     db.apiKey.findMany(),
-    db.apiUsageLog.findMany({ 
+    db.apiUsageLog.findMany({
       where: !isAdmin(role) ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
-      include: { agent: true } 
+      include: { agent: true },
+      take: 50,
+      orderBy: { createdAt: "desc" },
     }),
-    db.supportTicket.findMany({ where: ticketWhere, include: { client: true } }),
-    db.task.findMany({ where: taskWhere }),
+    db.supportTicket.findMany({ where: ticketWhere, include: { client: true }, take: 100 }),
+    db.task.findMany({ where: taskWhere, take: 100, orderBy: { createdAt: "desc" } }),
   ])
 
   // Leads are admin-only - developers should NOT see leads
-  const leads = isAdmin(role) ? await db.lead.findMany() : []
+  const leads = isAdmin(role) ? await db.lead.findMany({ take: 100 }) : []
 
   // Fix #16: Mask API key values for non-SUPER_ADMIN users
   // SECURITY: Developers should NOT see API keys at all - that page is SUPER_ADMIN only
@@ -71,7 +73,15 @@ export async function GET() {
 
   // SECURITY: Developers should NOT see usage logs with full agent details
   const safeUsageLogs = isAdmin(role)
-    ? usageLogs
+    ? usageLogs.map(log => ({
+        id: log.id,
+        model: log.model,
+        inputTokens: log.inputTokens,
+        outputTokens: log.outputTokens,
+        cost: log.cost,
+        createdAt: log.createdAt,
+        agent: log.agent ? { id: log.agent.id, name: log.agent.name, type: log.agent.type } : null,
+      }))
     : usageLogs.map(log => ({
         id: log.id,
         model: log.model,

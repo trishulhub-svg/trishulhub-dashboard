@@ -304,16 +304,16 @@ export async function POST(req: NextRequest) {
       })
 
       try {
-        for (const access of usersWithAccess) {
-          await db.notification.create({
-            data: {
+        if (usersWithAccess.length > 0) {
+          await db.notification.createMany({
+            data: usersWithAccess.map(access => ({
               userId: access.userId,
               title: `Cross-Agent: ${fromAgent.name} → ${toAgent.name}`,
               message: `${fromAgent.name} sent a message to ${toAgent.name}: ${message.substring(0, 100)}...`,
               type: "AGENT",
               link: `/dashboard/agents/${toAgentId}`,
               metadata: JSON.stringify({ crossAgentMessageId: crossMsg.id }),
-            }
+            })),
           })
         }
       } catch (notifyErr: any) {

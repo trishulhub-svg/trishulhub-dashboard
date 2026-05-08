@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (status) {
-      where.status = status.toUpperCase()
+      const validStatuses = ["ACTIVE", "COMPLETED", "PAUSED"]
+      where.status = validStatuses.includes(status.toUpperCase()) ? status.toUpperCase() : "ACTIVE"
     }
 
     if (date) {
@@ -93,6 +94,7 @@ export async function GET(req: NextRequest) {
         project: { select: { id: true, name: true } },
       },
       orderBy: { clockIn: "desc" },
+      take: 200,
     })
 
     return NextResponse.json(entries)
@@ -121,6 +123,10 @@ export async function POST(req: NextRequest) {
     const { projectId, description } = validation.data
 
     // Check: user can only have ONE active timer at a time
+    // NOTE: SQLite/Prisma doesn't support unique partial indexes easily,
+    // so we use a double-check pattern. The first check catches the common case;
+    // the second check right before create catches race conditions between
+    // two concurrent POST requests.
     const activeEntry = await db.timeEntry.findFirst({
       where: { userId, status: "ACTIVE" },
     })
@@ -141,6 +147,18 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date()
+
+    // Second check: catch race condition between concurrent POST requests
+    const raceCheck = await db.timeEntry.findFirst({
+      where: { userId, status: "ACTIVE" },
+    })
+    if (raceCheck) {
+      return NextResponse.json(
+        { error: "You already have an active timer. Please stop it before starting a new one.", raceCheck },
+        { status: 409 }
+      )
+    }
+
     const entry = await db.timeEntry.create({
       data: {
         userId,

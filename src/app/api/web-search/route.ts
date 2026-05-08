@@ -39,6 +39,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Search query too long (max 500 characters)" }, { status: 400 })
     }
 
+    // FIX: Sanitize query — strip control characters and trim whitespace
+    const sanitizedQuery = query.replace(/[\x00-\x1F\x7F]/g, "").trim()
+    if (!sanitizedQuery) {
+      return NextResponse.json({ error: "Search query cannot be empty" }, { status: 400 })
+    }
+
     // SECURITY FIX: Use environment variables directly instead of writing config to disk.
     // Vercel's filesystem is read-only — writing .z-ai-config fails silently.
     // Also, writing API keys to plain JSON files on disk is a security risk.
@@ -54,12 +60,12 @@ export async function POST(req: NextRequest) {
     const zai = await ZAI.create()
 
     const searchResult = await zai.functions.invoke("web_search", {
-      query,
+      query: sanitizedQuery,
       num: numResults || 10,
     })
 
     return NextResponse.json({
-      query,
+      query: sanitizedQuery,
       results: searchResult,
       count: Array.isArray(searchResult) ? searchResult.length : 0,
     })

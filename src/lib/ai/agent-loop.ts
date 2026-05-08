@@ -828,8 +828,22 @@ export async function runAgentLoop(
           steps.push(callStep)
           options?.onStep?.(callStep)
 
-          // Execute the tool with agent type context
-          const toolResult = await executeToolCall(toolName, toolArgs, { agentType })
+          // Execute the tool with agent type context (with 60s timeout to prevent hangs)
+          const toolResultPromise = executeToolCall(toolName, toolArgs, { agentType })
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 60 seconds`)), 60000)
+          )
+          let toolResult: Awaited<ReturnType<typeof executeToolCall>>
+          try {
+            toolResult = await Promise.race([toolResultPromise, timeoutPromise])
+          } catch (toolErr: any) {
+            toolResult = {
+              toolCallId: `timeout-${Date.now()}`,
+              name: toolName,
+              success: false,
+              result: `Tool execution failed: ${toolErr.message}`,
+            }
+          }
 
           // Record tool result step
           const resultStep: AgentStep = {

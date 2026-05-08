@@ -94,6 +94,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "chatId is required" }, { status: 400 })
     }
 
+    // SECURITY: Verify the user has access to this chat's agent before locking
+    const chat = await db.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true, userId: true, agentId: true },
+    })
+    if (!chat) {
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+    }
+    // Non-admin users can only lock chats they own or have access to
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && chat.userId !== userId) {
+      const hasAccess = await db.userAgentAccess.findFirst({
+        where: { userId, agentId: chat.agentId, canChat: true },
+      })
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      }
+    }
+
     // CRITICAL FIX: Atomic lock acquisition — use updateMany with condition
     // instead of findUnique + update (TOCTOU race condition). The old pattern
     // allowed two concurrent requests to both see lockedBy=null and both acquire the lock.
