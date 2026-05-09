@@ -1467,16 +1467,16 @@ export default function TimetablePage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+              {completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "LEAVE"
                 ? "Cancel Leave"
-                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                : completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "APPROVAL"
                   ? "Approve Request"
                   : "Complete Task"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+              {completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "LEAVE"
                 ? `Are you sure you want to cancel "${completeTarget?.task.title}"?`
-                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                : completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "APPROVAL"
                   ? `Are you sure you want to approve "${completeTarget?.task.title}"?`
                   : `Are you sure you have completed "${completeTarget?.task.title}"? This will mark it as done.`}
             </AlertDialogDescription>
@@ -1485,13 +1485,13 @@ export default function TimetablePage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleComplete}
-              className={completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+              className={completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "LEAVE"
                 ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 : "bg-emerald-600 text-white hover:bg-emerald-700"}
             >
-              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+              {completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "LEAVE"
                 ? "Yes, Cancel Leave"
-                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                : completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "APPROVAL"
                   ? "Yes, Approve"
                   : "Yes, Complete"}
             </AlertDialogAction>
