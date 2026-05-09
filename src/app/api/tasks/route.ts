@@ -44,9 +44,11 @@ export async function GET(req: NextRequest) {
     where.projectId = projectId
   }
 
+  // ZAI FIX #310: Removed include:{project:true} — caused circular nested
+  // object graph (task→project→tasks→project→...) that React cannot serialize.
+  // The detail page fetches project data separately from /api/projects.
   const tasks = await db.task.findMany({
     where,
-    include: { project: true },
     orderBy: { createdAt: "desc" }
   })
   return NextResponse.json(tasks)

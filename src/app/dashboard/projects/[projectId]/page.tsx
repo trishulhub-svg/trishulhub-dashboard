@@ -340,19 +340,37 @@ export default function ProjectDetailPage() {
     deadline?: string | null;
   }[];
 
-  // Sanitize all task fields to prevent object-as-React-child errors
+  // ── ZAI Protocol Fix #310: Comprehensive sanitization ──
+  // Strip ALL nested objects from task data — only keep scalar/primitive fields.
+  // The previous ...t spread copied the massive project object (circular ref)
+  // which caused React #310 when reconciliation encountered it.
   const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
   const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 
-  const safeTasks = typedTasks.map(t => ({
-    ...t,
-    title: typeof t.title === 'string' ? t.title : String(t.title ?? 'Untitled'),
-    description: typeof t.description === 'string' ? t.description : null,
-    status: (typeof t.status === 'string' && (VALID_STATUSES as readonly string[]).includes(t.status)) ? t.status : 'TODO',
-    priority: (typeof t.priority === 'string' && (VALID_PRIORITIES as readonly string[]).includes(t.priority)) ? t.priority : 'MEDIUM',
-    assigneeType: t.assigneeType === 'AI' ? 'AI' : 'HUMAN',
-    deadline: t.deadline ? String(t.deadline) : null,
-  }));
+  const safeTasks = typedTasks.map(t => {
+    // Resolve assignee name from members or agents list
+    let assigneeName = "Unassigned";
+    if (t.assignedTo) {
+      if (t.assigneeType === "AI") {
+        const agent = (agents as { id?: string; name?: string }[]).find(a => a.id === t.assignedTo);
+        if (agent && typeof agent.name === 'string') assigneeName = agent.name;
+      } else {
+        const member = members.find(m => m.userId === t.assignedTo);
+        if (member && member.user && typeof member.user.name === 'string') assigneeName = member.user.name;
+      }
+    }
+    return {
+      id: String(t.id),
+      title: typeof t.title === 'string' ? t.title : String(t.title ?? 'Untitled'),
+      description: typeof t.description === 'string' ? t.description : null,
+      status: (typeof t.status === 'string' && (VALID_STATUSES as readonly string[]).includes(t.status)) ? t.status : 'TODO',
+      priority: (typeof t.priority === 'string' && (VALID_PRIORITIES as readonly string[]).includes(t.priority)) ? t.priority : 'MEDIUM',
+      assigneeType: t.assigneeType === 'AI' ? 'AI' : 'HUMAN',
+      assigneeName,
+      deadline: t.deadline ? String(t.deadline) : null,
+      // NO nested objects copied — only primitive values
+    };
+  });
 
   // Safely extract project fields with proper type coercion
   const projectName = typeof project.name === 'string' ? project.name : String(project.name ?? 'Unnamed Project');
@@ -590,10 +608,10 @@ export default function ProjectDetailPage() {
                     <SelectContent>
                       <SelectItem value="">Unassigned</SelectItem>
                       {members.map((m) => (
-                        <SelectItem key={m.userId} value={m.userId}>{m.user.name}</SelectItem>
+                        <SelectItem key={String(m.userId)} value={String(m.userId)}>{typeof m.user?.name === 'string' ? m.user.name : 'Team Member'}</SelectItem>
                       ))}
-                      {(agents as { id: string; name: string }[]).map((a) => (
-                        <SelectItem key={a.id} value={a.id}>{a.name} (AI)</SelectItem>
+                      {(agents as { id?: string; name?: string }[]).map((a) => (
+                        <SelectItem key={String(a.id)} value={String(a.id)}>{typeof a.name === 'string' ? a.name : 'AI Agent'} (AI)</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -636,7 +654,7 @@ export default function ProjectDetailPage() {
                           ) : (
                             <User className="h-3 w-3" />
                           )}
-                          <span>{task.assignee?.name || task.agent?.name || "Unassigned"}</span>
+                          <span>{task.assigneeName}</span>
                         </div>
                         {task.deadline && (
                           <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
