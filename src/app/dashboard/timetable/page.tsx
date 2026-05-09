@@ -91,7 +91,7 @@ interface PersonalTask {
   date: string;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-  category: "PERSONAL" | "HEALTH" | "FINANCE" | "STUDY" | "SOCIAL" | "OTHER";
+  category: "PERSONAL" | "HEALTH" | "FINANCE" | "STUDY" | "SOCIAL" | "OTHER" | "WORK_LOCAL";
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -99,7 +99,7 @@ interface PersonalTask {
 
 interface WorkTask {
   id: string;
-  sourceType: "AGENT_TASK" | "PROJECT_TASK" | "TRAINING" | "MEETING" | "LEAVE" | "APPROVAL";
+  sourceType: "AGENT_TASK" | "PROJECT_TASK" | "TRAINING" | "MEETING" | "LEAVE" | "APPROVAL" | "WORK_LOCAL";
   sourceLabel: string;
   title: string;
   description: string | null;
@@ -157,6 +157,28 @@ const categoryConfig: Record<string, { icon: React.ComponentType<{ className?: s
   STUDY: { icon: BookOpen, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/40", badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300" },
   SOCIAL: { icon: Users, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-100 dark:bg-pink-900/40", badge: "bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300" },
   OTHER: { icon: PencilLine, color: "text-gray-600 dark:text-gray-400", bg: "bg-gray-100 dark:bg-gray-800/50", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
+  WORK_LOCAL: { icon: Briefcase, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-100 dark:bg-cyan-900/40", badge: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300" },
+};
+
+// Left border colors for task cards
+const categoryBorderColors: Record<string, string> = {
+  PERSONAL: "border-l-slate-400",
+  HEALTH: "border-l-green-500",
+  FINANCE: "border-l-amber-500",
+  STUDY: "border-l-blue-500",
+  SOCIAL: "border-l-pink-500",
+  OTHER: "border-l-gray-400",
+  WORK_LOCAL: "border-l-cyan-500",
+};
+
+const sourceBorderColors: Record<string, string> = {
+  AGENT_TASK: "border-l-purple-500",
+  PROJECT_TASK: "border-l-cyan-500",
+  TRAINING: "border-l-emerald-500",
+  MEETING: "border-l-amber-500",
+  APPROVAL: "border-l-rose-500",
+  LEAVE: "border-l-violet-500",
+  WORK_LOCAL: "border-l-cyan-500",
 };
 
 function formatTimeStr(isoStr: string): string {
@@ -233,6 +255,18 @@ export default function TimetablePage() {
 
   // Active mobile tab
   const [mobileTab, setMobileTab] = useState<"work" | "personal">("work");
+
+  // Work task dialog state
+  const [workTaskDialogOpen, setWorkTaskDialogOpen] = useState(false);
+  const [workFormTitle, setWorkFormTitle] = useState("");
+  const [workFormDescription, setWorkFormDescription] = useState("");
+  const [workFormStartTime, setWorkFormStartTime] = useState("09:00");
+  const [workFormEndTime, setWorkFormEndTime] = useState("10:00");
+  const [workFormPriority, setWorkFormPriority] = useState("MEDIUM");
+  const [workFormSubmitting, setWorkFormSubmitting] = useState(false);
+
+  // Overlap warning state
+  const [overlapWarning, setOverlapWarning] = useState<PersonalTask | null>(null);
 
   // ── Computed date ranges ──
 
@@ -383,7 +417,17 @@ export default function TimetablePage() {
     setFormEndTime("10:00");
     setFormPriority("MEDIUM");
     setFormCategory("PERSONAL");
+    setOverlapWarning(null);
     setTaskDialogOpen(true);
+  };
+
+  const openWorkTaskDialog = () => {
+    setWorkFormTitle("");
+    setWorkFormDescription("");
+    setWorkFormStartTime("09:00");
+    setWorkFormEndTime("10:00");
+    setWorkFormPriority("MEDIUM");
+    setWorkTaskDialogOpen(true);
   };
 
   const openEditDialog = (task: PersonalTask) => {
@@ -397,18 +441,49 @@ export default function TimetablePage() {
     setTaskDialogOpen(true);
   };
 
-  const handleSubmitTask = async () => {
+  const createPersonalTask = async (descriptionSuffix?: string) => {
+    const dateStr = getDateStr(selectedDate);
+    const startDateTime = `${dateStr}T${formStartTime}:00`;
+    const endDateTime = `${dateStr}T${formEndTime}:00`;
+    const finalDescription = descriptionSuffix
+      ? (formDescription || "") + " " + descriptionSuffix
+      : (formDescription || null);
+
+    const res = await fetch("/api/timetable/personal-tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        title: formTitle,
+        description: finalDescription || null,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        date: dateStr,
+        priority: formPriority,
+        category: formCategory,
+      }),
+    });
+    if (res.ok) {
+      toast.success("Task created");
+      setTaskDialogOpen(false);
+      fetchPersonalTasks();
+    } else {
+      const err = await res.json();
+      toast.error(err.error || "Failed to create task");
+    }
+  };
+
+  const handleSubmitTask = async (mergeWithOverlap?: boolean) => {
     if (!formTitle.trim()) {
       toast.error("Title is required");
       return;
     }
     setFormSubmitting(true);
     try {
-      const dateStr = viewMode === "day" ? getDateStr(selectedDate) : getDateStr(selectedDate);
-      const startDateTime = `${dateStr}T${formStartTime}:00`;
-      const endDateTime = `${dateStr}T${formEndTime}:00`;
-
       if (editingTask) {
+        const dateStr = getDateStr(selectedDate);
+        const startDateTime = `${dateStr}T${formStartTime}:00`;
+        const endDateTime = `${dateStr}T${formEndTime}:00`;
         const res = await fetch(`/api/timetable/personal-tasks/${editingTask.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -431,33 +506,89 @@ export default function TimetablePage() {
           toast.error(err.error || "Failed to update task");
         }
       } else {
-        const res = await fetch("/api/timetable/personal-tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            title: formTitle,
-            description: formDescription || null,
-            startTime: startDateTime,
-            endTime: endDateTime,
-            date: dateStr,
-            priority: formPriority,
-            category: formCategory,
-          }),
-        });
-        if (res.ok) {
-          toast.success("Task created");
-          setTaskDialogOpen(false);
-          fetchPersonalTasks();
+        // Check for time overlaps (only for new tasks)
+        if (!mergeWithOverlap) {
+          const dateStr = getDateStr(selectedDate);
+          const newStart = new Date(`${dateStr}T${formStartTime}:00`).getTime();
+          const newEnd = new Date(`${dateStr}T${formEndTime}:00`).getTime();
+          const overlapTasks = personalTasks.filter((t) => {
+            if (t.status === "COMPLETED" || t.status === "CANCELLED") return false;
+            const existingStart = new Date(t.startTime).getTime();
+            const existingEnd = new Date(t.endTime).getTime();
+            return newStart < existingEnd && newEnd > existingStart;
+          });
+          if (overlapTasks.length > 0) {
+            setFormSubmitting(false);
+            setOverlapWarning(overlapTasks[0]);
+            return;
+          }
+        }
+        if (mergeWithOverlap && overlapWarning) {
+          const suffix = `[Merged with ${overlapWarning.title}]`;
+          await createPersonalTask(suffix);
+          setOverlapWarning(null);
         } else {
-          const err = await res.json();
-          toast.error(err.error || "Failed to create task");
+          await createPersonalTask();
         }
       }
     } catch {
       toast.error("Something went wrong");
     } finally {
       setFormSubmitting(false);
+    }
+  };
+
+  const handleSubmitWorkTask = async () => {
+    if (!workFormTitle.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    setWorkFormSubmitting(true);
+    try {
+      const dateStr = getDateStr(selectedDate);
+      const startDateTime = `${dateStr}T${workFormStartTime}:00`;
+      const endDateTime = `${dateStr}T${workFormEndTime}:00`;
+
+      // Check for overlap
+      const newStart = new Date(startDateTime).getTime();
+      const newEnd = new Date(endDateTime).getTime();
+      const overlapTasks = personalTasks.filter((t) => {
+        if (t.status === "COMPLETED" || t.status === "CANCELLED") return false;
+        const existingStart = new Date(t.startTime).getTime();
+        const existingEnd = new Date(t.endTime).getTime();
+        return newStart < existingEnd && newEnd > existingStart;
+      });
+
+      const finalDescription = overlapTasks.length > 0
+        ? (workFormDescription || "") + ` [Merged with ${overlapTasks[0].title}]`
+        : (workFormDescription || null);
+
+      const res = await fetch("/api/timetable/personal-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: workFormTitle,
+          description: finalDescription || null,
+          startTime: startDateTime,
+          endTime: endDateTime,
+          date: dateStr,
+          priority: workFormPriority,
+          category: "WORK_LOCAL",
+        }),
+      });
+      if (res.ok) {
+        toast.success("Work task added");
+        setWorkTaskDialogOpen(false);
+        fetchPersonalTasks();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to create work task");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setWorkFormSubmitting(false);
     }
   };
 
@@ -1032,9 +1163,15 @@ export default function TimetablePage() {
                   <Briefcase className="h-4 w-4" />
                   Work Timetable
                 </CardTitle>
-                <Badge variant="secondary" className="text-xs">
-                  {workTasks.length} tasks
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button onClick={openWorkTaskDialog} size="sm" variant="outline" className="gap-1 h-7 text-xs">
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </Button>
+                  <Badge variant="secondary" className="text-xs">
+                    {workTasks.length + personalTasks.filter((t) => t.category === "WORK_LOCAL").length} tasks
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1043,92 +1180,175 @@ export default function TimetablePage() {
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span className="text-sm">Loading work tasks...</span>
                 </div>
-              ) : workTasks.length === 0 ? (
-                <div className="text-center py-8">
-                  <Briefcase className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
-                  <p className="text-sm text-muted-foreground">No work tasks for this day</p>
-                  <p className="text-xs text-muted-foreground mt-1">Tasks from agents, projects, training, and meetings will appear here</p>
-                </div>
-              ) : (
-                <ScrollArea className="max-h-[500px] pr-2">
-                  <div className="space-y-3">
-                    {workTasks.map((task) => {
-                      const sc = sourceConfig[task.sourceType];
-                      const pc = priorityConfig[task.priority] || priorityConfig.MEDIUM;
-                      const SourceIcon = sc?.icon || Briefcase;
-                      const timeLabel = task.startTime && task.endTime
-                        ? `${task.startTime} – ${task.endTime}`
-                        : task.dueDate
-                          ? `Due: ${formatTimeStr(task.dueDate)}`
-                          : task.startDate
-                            ? `${format(new Date(task.startDate), "MMM d")} – ${format(new Date(task.endDate || task.startDate), "MMM d")}`
-                            : "";
+              ) : (() => {
+                // Combine work tasks with WORK_LOCAL personal tasks
+                const workLocalTasks = personalTasks
+                  .filter((t) => t.category === "WORK_LOCAL")
+                  .map((t): WorkTask => ({
+                    id: t.id,
+                    sourceType: "WORK_LOCAL" as const,
+                    sourceLabel: "Local Task",
+                    title: t.title,
+                    description: t.description,
+                    priority: t.priority,
+                    status: t.status,
+                    startTime: formatTimeStr(t.startTime),
+                    endTime: formatTimeStr(t.endTime),
+                    date: t.date,
+                    createdAt: t.createdAt,
+                  }));
+                const allWorkItems = [...workTasks, ...workLocalTasks];
+                // Sort by time ascending
+                const sortedWorkItems = [...allWorkItems].sort((a, b) => {
+                  const aTime = a.startTime ? new Date(`2000-01-01T${a.startTime}`).getTime() : (a.dueDate ? new Date(a.dueDate).getTime() : Infinity);
+                  const bTime = b.startTime ? new Date(`2000-01-01T${b.startTime}`).getTime() : (b.dueDate ? new Date(b.dueDate).getTime() : Infinity);
+                  return aTime - bTime;
+                });
+                // Find first non-completed index for "current task" highlighting
+                const firstPendingIdx = sortedWorkItems.findIndex((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED" && t.status !== "DONE");
 
-                      return (
-                        <div
-                          key={task.id}
-                          className={cn(
-                            "group relative rounded-xl border p-4 transition-all duration-300",
-                            "hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30",
-                            "bg-card",
-                            pc.border
-                          )}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0", sc?.bg)}>
-                              <SourceIcon className={cn("h-4 w-4", sc?.color)} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="text-sm font-semibold truncate">{task.title}</h3>
-                                <Badge className={cn("text-[10px] px-1.5 py-0", sc?.bg, sc?.color)}>
-                                  {task.sourceLabel}
-                                </Badge>
+                if (sortedWorkItems.length === 0) {
+                  return (
+                    <div className="text-center py-8">
+                      <Briefcase className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
+                      <p className="text-sm text-muted-foreground">No work tasks for this day</p>
+                      <p className="text-xs text-muted-foreground mt-1">Tasks from agents, projects, training, and meetings will appear here</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <ScrollArea className="max-h-[500px] pr-2">
+                    <div className="space-y-3">
+                      {sortedWorkItems.map((task, idx) => {
+                        const sc = sourceConfig[task.sourceType];
+                        const pc = priorityConfig[task.priority] || priorityConfig.MEDIUM;
+                        const SourceIcon = sc?.icon || Briefcase;
+                        const borderColor = sourceBorderColors[task.sourceType] || "border-l-gray-400";
+                        const isCompleted = task.status === "COMPLETED" || task.status === "DONE";
+                        const isCancelled = task.status === "CANCELLED";
+                        const isCurrentOrNext = idx === firstPendingIdx;
+                        const timeLabel = task.startTime && task.endTime
+                          ? `${task.startTime} – ${task.endTime}`
+                          : task.dueDate
+                            ? `Due: ${formatTimeStr(task.dueDate)}`
+                            : task.startDate
+                              ? `${format(new Date(task.startDate), "MMM d")} – ${format(new Date(task.endDate || task.startDate), "MMM d")}`
+                              : "";
+
+                        return (
+                          <div
+                            key={task.id}
+                            className={cn(
+                              "group relative rounded-xl border-l-[3px] border transition-all duration-300",
+                              borderColor,
+                              isCompleted || isCancelled
+                                ? "p-2 opacity-50 border-t border-r border-b"
+                                : isCurrentOrNext
+                                  ? "p-5 border-t border-r border-b shadow-md ring-1 ring-primary/20 bg-primary/[0.03]"
+                                  : "p-4 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 bg-card"
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={cn(
+                                isCompleted || isCancelled ? "h-7 w-7" : isCurrentOrNext ? "h-10 w-10" : "h-9 w-9",
+                                "rounded-lg flex items-center justify-center shrink-0",
+                                sc?.bg
+                              )}>
+                                <SourceIcon className={cn(
+                                  isCompleted || isCancelled ? "h-3 w-3" : isCurrentOrNext ? "h-5 w-5" : "h-4 w-4",
+                                  sc?.color
+                                )} />
                               </div>
-                              {task.description && (
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
-                              )}
-                              {timeLabel && (
-                                <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {timeLabel}
-                                </p>
-                              )}
-                              <div className="flex items-center gap-2 mt-2">
-                                <Badge className={cn("text-[10px] px-1.5 py-0", pc.badge)}>
-                                  {task.priority}
-                                </Badge>
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                  {task.status}
-                                </Badge>
-                                {task.agentName && (
-                                  <span className="text-[10px] text-muted-foreground">Agent: {task.agentName}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {isCurrentOrNext && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border border-primary/20 shrink-0">
+                                      ⬅ Current
+                                    </Badge>
+                                  )}
+                                  <h3 className={cn(
+                                    "font-semibold truncate",
+                                    isCompleted || isCancelled
+                                      ? "text-xs line-through text-muted-foreground"
+                                      : isCurrentOrNext
+                                        ? "text-base"
+                                        : "text-sm"
+                                  )}>
+                                    {task.title}
+                                  </h3>
+                                  <Badge className={cn("text-[10px] px-1.5 py-0", sc?.bg, sc?.color)}>
+                                    {task.sourceLabel}
+                                  </Badge>
+                                </div>
+                                {task.description && !isCompleted && !isCancelled && (
+                                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
                                 )}
-                                {task.projectName && (
-                                  <span className="text-[10px] text-muted-foreground">Project: {task.projectName}</span>
+                                {task.description && (isCompleted || isCancelled) && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
                                 )}
+                                {timeLabel && (
+                                  <p className={cn("flex items-center gap-1", isCompleted || isCancelled ? "text-[11px] text-muted-foreground mt-0.5" : "text-xs text-muted-foreground mt-1.5")}>
+                                    <Clock className={isCompleted || isCancelled ? "h-2.5 w-2.5" : "h-3 w-3"} />
+                                    {timeLabel}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                  <Badge className={cn("text-[10px] px-1.5 py-0", pc.badge)}>
+                                    {task.priority}
+                                  </Badge>
+                                  {!isCompleted && !isCancelled && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                      {task.status}
+                                    </Badge>
+                                  )}
+                                  {isCompleted && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                      ✓ Done
+                                    </Badge>
+                                  )}
+                                  {isCancelled && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                                      Cancelled
+                                    </Badge>
+                                  )}
+                                  {task.agentName && (
+                                    <span className="text-[10px] text-muted-foreground">Agent: {task.agentName}</span>
+                                  )}
+                                  {task.projectName && (
+                                    <span className="text-[10px] text-muted-foreground">Project: {task.projectName}</span>
+                                  )}
+                                </div>
                               </div>
+                              {!isCompleted && !isCancelled && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCompleteTarget({ type: "work", task });
+                                    setCompleteDialogOpen(true);
+                                  }}
+                                >
+                                  <Check className="h-3.5 w-3.5 mr-1" />
+                                  {task.sourceType === "WORK_LOCAL"
+                                    ? "Done"
+                                    : task.sourceType === "LEAVE"
+                                      ? "Cancel"
+                                      : task.sourceType === "APPROVAL"
+                                        ? "Approve"
+                                        : "Done"}
+                                </Button>
+                              )}
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCompleteTarget({ type: "work", task });
-                                setCompleteDialogOpen(true);
-                              }}
-                            >
-                              <Check className="h-3.5 w-3.5 mr-1" />
-                              {task.sourceType === "LEAVE" ? "Cancel" : task.sourceType === "APPROVAL" ? "Approve" : "Done"}
-                            </Button>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              )}
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1143,7 +1363,7 @@ export default function TimetablePage() {
                   Personal Timetable
                 </CardTitle>
                 <Badge variant="secondary" className="text-xs">
-                  {personalTasks.length} tasks
+                  {personalTasks.filter((t) => t.category !== "WORK_LOCAL").length} tasks
                 </Badge>
               </div>
             </CardHeader>
@@ -1154,113 +1374,159 @@ export default function TimetablePage() {
                   Add Personal Task
                 </Button>
               </div>
-              {personalTasks.length === 0 ? (
-                <div className="text-center py-8">
-                  <Sparkles className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
-                  <p className="text-sm text-muted-foreground">No personal tasks for this day</p>
-                  <p className="text-xs text-muted-foreground mt-1">Click &quot;Add Personal Task&quot; to plan your day</p>
-                </div>
-              ) : (
-                <ScrollArea className="max-h-[460px] pr-2">
-                  <div className="space-y-3">
-                    {personalTasks.map((task) => {
-                      const pc = priorityConfig[task.priority] || priorityConfig.MEDIUM;
-                      const cc = categoryConfig[task.category] || categoryConfig.OTHER;
-                      const CatIcon = cc.icon;
-                      const isCompleted = task.status === "COMPLETED";
+              {(() => {
+                const nonWorkLocalTasks = personalTasks.filter((t) => t.category !== "WORK_LOCAL");
+                if (nonWorkLocalTasks.length === 0) {
+                  return (
+                    <div className="text-center py-8">
+                      <Sparkles className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
+                      <p className="text-sm text-muted-foreground">No personal tasks for this day</p>
+                      <p className="text-xs text-muted-foreground mt-1">Click &quot;Add Personal Task&quot; to plan your day</p>
+                    </div>
+                  );
+                }
+                // Sort by startTime ascending
+                const sortedPersonalTasks = [...nonWorkLocalTasks].sort((a, b) => {
+                  return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+                });
+                // Find first non-completed index for "current task" highlighting
+                const firstPendingIdx = sortedPersonalTasks.findIndex((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED");
 
-                      return (
-                        <div
-                          key={task.id}
-                          className={cn(
-                            "group relative rounded-xl border p-4 transition-all duration-300",
-                            "hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30",
-                            isCompleted && "opacity-60",
-                            pc.border
-                          )}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0", cc.bg)}>
-                              <CatIcon className={cn("h-4 w-4", cc.color)} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className={cn("text-sm font-semibold truncate", isCompleted && "line-through")}>
-                                  {task.title}
-                                </h3>
-                              </div>
-                              {task.description && (
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
-                              )}
-                              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {formatTimeStr(task.startTime)} – {formatTimeStr(task.endTime)}
-                              </p>
-                              <div className="flex items-center gap-2 mt-2">
-                                <Badge className={cn("text-[10px] px-1.5 py-0", pc.badge)}>
-                                  {task.priority}
-                                </Badge>
-                                <Badge className={cn("text-[10px] px-1.5 py-0", cc.badge)}>
-                                  {task.category}
-                                </Badge>
-                                {!isCompleted && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                    {task.status}
-                                  </Badge>
-                                )}
-                                {isCompleted && (
-                                  <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-                                    ✓ Completed
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            {!isCompleted && (
-                              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCompleteTarget({ type: "personal", task });
-                                    setCompleteDialogOpen(true);
-                                  }}
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/30"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openEditDialog(task);
-                                  }}
-                                >
-                                  <Edit3 className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50 dark:hover:bg-red-950/30"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeleteId(task.id);
-                                    setDeleteDialogOpen(true);
-                                  }}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
+                return (
+                  <ScrollArea className="max-h-[460px] pr-2">
+                    <div className="space-y-3">
+                      {sortedPersonalTasks.map((task, idx) => {
+                        const pc = priorityConfig[task.priority] || priorityConfig.MEDIUM;
+                        const cc = categoryConfig[task.category] || categoryConfig.OTHER;
+                        const CatIcon = cc.icon;
+                        const isCompleted = task.status === "COMPLETED";
+                        const isCancelled = task.status === "CANCELLED";
+                        const isCurrentOrNext = idx === firstPendingIdx;
+                        const borderColor = categoryBorderColors[task.category] || "border-l-gray-400";
+
+                        return (
+                          <div
+                            key={task.id}
+                            className={cn(
+                              "group relative rounded-xl border-l-[3px] border transition-all duration-300",
+                              borderColor,
+                              isCompleted || isCancelled
+                                ? "p-2 opacity-50 border-t border-r border-b"
+                                : isCurrentOrNext
+                                  ? "p-5 border-t border-r border-b shadow-md ring-1 ring-primary/20 bg-primary/[0.03]"
+                                  : "p-4 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 bg-card"
                             )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={cn(
+                                isCompleted || isCancelled ? "h-7 w-7" : isCurrentOrNext ? "h-10 w-10" : "h-9 w-9",
+                                "rounded-lg flex items-center justify-center shrink-0",
+                                cc.bg
+                              )}>
+                                <CatIcon className={cn(
+                                  isCompleted || isCancelled ? "h-3 w-3" : isCurrentOrNext ? "h-5 w-5" : "h-4 w-4",
+                                  cc.color
+                                )} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {isCurrentOrNext && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border border-primary/20 shrink-0">
+                                      ↑ Next
+                                    </Badge>
+                                  )}
+                                  <h3 className={cn(
+                                    "font-semibold truncate",
+                                    isCompleted || isCancelled
+                                      ? "text-xs line-through text-muted-foreground"
+                                      : isCurrentOrNext
+                                        ? "text-base"
+                                        : "text-sm"
+                                  )}>
+                                    {task.title}
+                                  </h3>
+                                </div>
+                                {task.description && !isCompleted && !isCancelled && (
+                                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
+                                )}
+                                {task.description && (isCompleted || isCancelled) && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
+                                )}
+                                <p className={cn("flex items-center gap-1", isCompleted || isCancelled ? "text-[11px] text-muted-foreground mt-0.5" : "text-xs text-muted-foreground mt-1.5")}>
+                                  <Clock className={isCompleted || isCancelled ? "h-2.5 w-2.5" : "h-3 w-3"} />
+                                  {formatTimeStr(task.startTime)} – {formatTimeStr(task.endTime)}
+                                </p>
+                                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                  <Badge className={cn("text-[10px] px-1.5 py-0", pc.badge)}>
+                                    {task.priority}
+                                  </Badge>
+                                  <Badge className={cn("text-[10px] px-1.5 py-0", cc.badge)}>
+                                    {task.category}
+                                  </Badge>
+                                  {isCompleted && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                      ✓ Completed
+                                    </Badge>
+                                  )}
+                                  {isCancelled && (
+                                    <Badge className="text-[10px] px-1.5 py-0 bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                                      Cancelled
+                                    </Badge>
+                                  )}
+                                  {!isCompleted && !isCancelled && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                      {task.status}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              {!isCompleted && !isCancelled && (
+                                <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCompleteTarget({ type: "personal", task });
+                                      setCompleteDialogOpen(true);
+                                    }}
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/30"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditDialog(task);
+                                    }}
+                                  >
+                                    <Edit3 className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50 dark:hover:bg-red-950/30"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteId(task.id);
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              )}
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1349,6 +1615,9 @@ export default function TimetablePage() {
                     <SelectItem value="STUDY">Study</SelectItem>
                     <SelectItem value="SOCIAL">Social</SelectItem>
                     <SelectItem value="OTHER">Other</SelectItem>
+                    {editingTask && editingTask.category === "WORK_LOCAL" && (
+                      <SelectItem value="WORK_LOCAL">Work (Local)</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1356,7 +1625,7 @@ export default function TimetablePage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmitTask} disabled={formSubmitting}>
+            <Button onClick={() => handleSubmitTask()} disabled={formSubmitting}>
               {formSubmitting ? (
                 <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Saving...</>
               ) : editingTask ? (
@@ -1494,6 +1763,107 @@ export default function TimetablePage() {
                 : completeTarget?.type === "work" && (completeTarget.task as WorkTask).sourceType === "APPROVAL"
                   ? "Yes, Approve"
                   : "Yes, Complete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Work Task Dialog ── */}
+      <Dialog open={workTaskDialogOpen} onOpenChange={setWorkTaskDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Work Task</DialogTitle>
+            <DialogDescription>
+              Create a work-related task for your timetable. It will appear in both the Work and Personal panels.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-sm">Title *</Label>
+              <Input
+                value={workFormTitle}
+                onChange={(e) => setWorkFormTitle(e.target.value)}
+                placeholder="What work task needs to be done?"
+                className="mt-1.5"
+              />
+            </div>
+            <div>
+              <Label className="text-sm">Description</Label>
+              <Textarea
+                value={workFormDescription}
+                onChange={(e) => setWorkFormDescription(e.target.value)}
+                placeholder="Add any notes..."
+                rows={2}
+                className="mt-1.5"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm">Start Time *</Label>
+                <Input
+                  type="time"
+                  value={workFormStartTime}
+                  onChange={(e) => setWorkFormStartTime(e.target.value)}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label className="text-sm">End Time *</Label>
+                <Input
+                  type="time"
+                  value={workFormEndTime}
+                  onChange={(e) => setWorkFormEndTime(e.target.value)}
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm">Priority</Label>
+              <Select value={workFormPriority} onValueChange={setWorkFormPriority}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">Low</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWorkTaskDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmitWorkTask} disabled={workFormSubmitting}>
+              {workFormSubmitting ? (
+                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Creating...</>
+              ) : (
+                "Create Work Task"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Overlap Merge Warning Dialog ── */}
+      <AlertDialog open={!!overlapWarning} onOpenChange={(open) => { if (!open) setOverlapWarning(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Time Overlap Detected
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This time overlaps with your task &quot;{overlapWarning?.title}&quot; ({overlapWarning ? `${formatTimeStr(overlapWarning.startTime)} – ${formatTimeStr(overlapWarning.endTime)}` : ""}). Do you want to merge?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setOverlapWarning(null)}>No, Change Time</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleSubmitTask(true)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Yes, Merge
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

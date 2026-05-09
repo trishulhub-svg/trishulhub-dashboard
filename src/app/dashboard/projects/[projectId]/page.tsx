@@ -71,6 +71,15 @@ export default function ProjectDetailPage() {
   const { data: session, status: sessionStatus } = useSession();
   const projectId = params.projectId as string;
 
+  // FIX Error #310: Client-only mount guard prevents hydration mismatch.
+  // During SSR, session is unavailable → skeleton renders.
+  // During hydration, NextAuth JWT may resolve synchronously from cookie,
+  // causing session to be immediately available → different JSX → mismatch.
+  // This mounted flag ensures the FIRST render (server + hydration) always
+  // matches (both show skeleton), and actual content only appears after mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
@@ -289,7 +298,7 @@ export default function ProjectDetailPage() {
     }
   };
 
-  if (sessionStatus === "loading") {
+  if (!mounted || sessionStatus === "loading") {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -330,6 +339,20 @@ export default function ProjectDetailPage() {
     assignee?: { name: string }; agent?: { name: string };
     deadline?: string | null;
   }[];
+
+  // Sanitize all task fields to prevent object-as-React-child errors
+  const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
+  const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+
+  const safeTasks = typedTasks.map(t => ({
+    ...t,
+    title: typeof t.title === 'string' ? t.title : String(t.title ?? 'Untitled'),
+    description: typeof t.description === 'string' ? t.description : null,
+    status: (typeof t.status === 'string' && (VALID_STATUSES as readonly string[]).includes(t.status)) ? t.status : 'TODO',
+    priority: (typeof t.priority === 'string' && (VALID_PRIORITIES as readonly string[]).includes(t.priority)) ? t.priority : 'MEDIUM',
+    assigneeType: t.assigneeType === 'AI' ? 'AI' : 'HUMAN',
+    deadline: t.deadline ? String(t.deadline) : null,
+  }));
 
   // Safely extract project fields with proper type coercion
   const projectName = typeof project.name === 'string' ? project.name : String(project.name ?? 'Unnamed Project');
@@ -584,7 +607,7 @@ export default function ProjectDetailPage() {
 
       <div className="flex gap-3 overflow-x-auto pb-4">
         {TASK_COLUMNS.map((status) => {
-          const columnTasks = typedTasks.filter((t) => t.status === status);
+          const columnTasks = safeTasks.filter((t) => t.status === status);
           return (
             <div key={status} className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
               <div className={`rounded-t-lg px-3 py-2 ${taskStatusColors[status]}`}>

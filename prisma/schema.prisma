@@ -939,7 +939,7 @@ model PersonalTimetableTask {
   date        DateTime // The date this task belongs to (for filtering)
   priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
   status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
-  category    String   @default("PERSONAL") // PERSONAL, HEALTH, FINANCE, STUDY, SOCIAL, OTHER
+  category    String   @default("PERSONAL") // PERSONAL, HEALTH, FINANCE, STUDY, SOCIAL, OTHER, WORK_LOCAL
   completedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
