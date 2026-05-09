@@ -47,6 +47,8 @@ model User {
   trainingTests        TrainingTest[]     @relation("TrainingTestGenerator")
   trainingAssigned     TrainingAssignment[] @relation("TrainingEmployee")
   trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
+  personalTimetableTasks PersonalTimetableTask[]
+  timetableSettings      TimetableSettings?
 }
 
 // ━━ API Keys ━━
@@ -924,4 +926,39 @@ model TestAttempt {
   createdAt     DateTime @default(now())
 
   assignment    TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Personalized Time Table ━━
+model PersonalTimetableTask {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  startTime   DateTime // When the task starts
+  endTime     DateTime // When the task ends
+  date        DateTime // The date this task belongs to (for filtering)
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  category    String   @default("PERSONAL") // PERSONAL, HEALTH, FINANCE, STUDY, SOCIAL, OTHER
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, status])
+  @@index([date])
+}
+
+model TimetableSettings {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  sleepHours      Float   @default(8)
+  workSplitPercent Float  @default(60) // % of available time for work (rest for personal)
+  weekStartsOn    String  @default("MONDAY") // MONDAY or SUNDAY
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

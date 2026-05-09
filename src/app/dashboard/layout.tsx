@@ -34,6 +34,7 @@ import {
   Video,
   GraduationCap,
   BookOpen,
+  CalendarRange,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -95,6 +96,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Time Table", href: "/dashboard/timetable", icon: CalendarRange, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
