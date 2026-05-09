@@ -830,7 +830,7 @@ export default function AgentChatPage() {
     try {
       // Fetch both ACTIVE and ENDED chats so ended chats remain visible in sidebar
       // ADMIN/SUPER_ADMIN: include all users' chats for folder view
-      const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+      const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
       const allUsersParam = isAdmin ? "&includeAllUsers=true" : "";
       const res = await fetch(`/api/chats?agentId=${agentId}&status=ACTIVE,ENDED${allUsersParam}`, { credentials: "include" });
       if (res.ok) {
@@ -842,7 +842,7 @@ export default function AgentChatPage() {
     } finally {
       setChatsLoading(false);
     }
-  }, [agentId, session]);
+  }, [agentId, userRole]);
 
   // ── Fetch Messages ──
   const fetchMessages = useCallback(async (chatId: string): Promise<ChatMessage[]> => {
@@ -1424,9 +1424,7 @@ export default function AgentChatPage() {
         setChatLockInfo({ lockedBy: lockData.lockedBy, lockedByName: lockData.lockedByName, lockedAt: lockData.lockedAt });
         
         // If locked by another user and not admin, show locked state
-        const currentUserId = session?.user?.id;
-        const currentUserRole = session?.user?.role;
-        if (lockData.locked && lockData.lockedBy !== currentUserId && currentUserRole !== "SUPER_ADMIN" && currentUserRole !== "ADMIN") {
+        if (lockData.locked && lockData.lockedBy !== currentUserId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
           setActiveChatId(chatId);
           fetchMessages(chatId);
           if (isMobile) setMobileTab("messages");
@@ -1527,7 +1525,7 @@ export default function AgentChatPage() {
       console.error("Failed to fetch messages for chat switch:", err);
     });
     if (isMobile) setMobileTab("messages");
-  }, [fetchMessages, isMobile, activeChatId, session, getProcessingInfo, startPollingForCompletion]);
+  }, [fetchMessages, isMobile, activeChatId, currentUserId, userRole, getProcessingInfo, startPollingForCompletion]);
 
   // ── Release chat lock ──
   const releaseChatLock = useCallback(async () => {
