@@ -66,6 +66,52 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, task: updated });
       }
 
+      // BUG #2 FIX: Handle MEETING completion
+      case "MEETING": {
+        const meeting = await db.meeting.findUnique({ where: { id: taskId as string } });
+        if (!meeting) {
+          return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+        }
+        // Only organizer can mark meeting as completed
+        if (meeting.organizerId !== userId) {
+          return NextResponse.json({ error: "Only the organizer can mark a meeting as completed" }, { status: 403 });
+        }
+        const updated = await db.meeting.update({
+          where: { id: taskId as string },
+          data: { status: "COMPLETED" },
+        });
+        return NextResponse.json({ success: true, task: updated });
+      }
+
+      // BUG #2 FIX: Handle LEAVE — mark as CANCELLED (user cancels their own leave)
+      case "LEAVE": {
+        const leave = await db.leave.findUnique({ where: { id: taskId as string } });
+        if (!leave || leave.userId !== userId) {
+          return NextResponse.json({ error: "Leave not found or unauthorized" }, { status: 404 });
+        }
+        const updated = await db.leave.update({
+          where: { id: taskId as string },
+          data: { status: "CANCELLED" },
+        });
+        return NextResponse.json({ success: true, task: updated });
+      }
+
+      // BUG #2 FIX: Handle APPROVAL — mark as APPROVED if user is the approver
+      case "APPROVAL": {
+        const approval = await db.approval.findUnique({ where: { id: taskId as string } });
+        if (!approval) {
+          return NextResponse.json({ error: "Approval not found" }, { status: 404 });
+        }
+        if (approval.approvedById !== userId) {
+          return NextResponse.json({ error: "Only the assigned approver can complete this" }, { status: 403 });
+        }
+        const updated = await db.approval.update({
+          where: { id: taskId as string },
+          data: { status: "APPROVED", approvedById: userId, updatedAt: new Date() },
+        });
+        return NextResponse.json({ success: true, task: updated });
+      }
+
       default:
         return NextResponse.json(
           { error: `Unknown sourceType: ${sourceType}` },

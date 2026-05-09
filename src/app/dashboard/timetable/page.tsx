@@ -167,6 +167,18 @@ function formatTimeStr(isoStr: string): string {
   }
 }
 
+// Extract HH:mm from ISO string for <input type="time"> — BUG #1 FIX
+function extractTimeForInput(isoStr: string): string {
+  try {
+    const d = new Date(isoStr);
+    const h = String(d.getHours()).padStart(2, "0");
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return `${h}:${m}`;
+  } catch {
+    return "09:00";
+  }
+}
+
 function safeArray<T>(data: unknown): T[] {
   return Array.isArray(data) ? data : [];
 }
@@ -279,10 +291,11 @@ export default function TimetablePage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      toast.error("Failed to load personal tasks");
     } finally {
       setLoading(false);
     }
-  }, [viewMode, selectedDate, dateRange]);
+  }, [viewMode, selectedDate, dateRange.start, dateRange.end]);
 
   const fetchWorkTasks = useCallback(async (signal?: AbortSignal) => {
     setWorkLoading(true);
@@ -304,10 +317,11 @@ export default function TimetablePage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      toast.error("Failed to load work tasks");
     } finally {
       setWorkLoading(false);
     }
-  }, [viewMode, selectedDate, dateRange]);
+  }, [viewMode, selectedDate, dateRange.start, dateRange.end]);
 
   const fetchSettings = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -324,6 +338,7 @@ export default function TimetablePage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      toast.error("Failed to load timetable settings");
     } finally {
       setSettingsLoading(false);
     }
@@ -375,8 +390,8 @@ export default function TimetablePage() {
     setEditingTask(task);
     setFormTitle(task.title);
     setFormDescription(task.description || "");
-    setFormStartTime(formatTimeStr(task.startTime));
-    setFormEndTime(formatTimeStr(task.endTime));
+    setFormStartTime(extractTimeForInput(task.startTime));
+    setFormEndTime(extractTimeForInput(task.endTime));
     setFormPriority(task.priority);
     setFormCategory(task.category);
     setTaskDialogOpen(true);
@@ -493,7 +508,12 @@ export default function TimetablePage() {
           body: JSON.stringify({ sourceType: task.sourceType, taskId: task.id }),
         });
         if (res.ok) {
-          toast.success("Work task completed!");
+          const actionLabels: Record<string, string> = {
+            MEETING: "Meeting marked as completed",
+            LEAVE: "Leave cancelled",
+            APPROVAL: "Request approved",
+          };
+          toast.success(actionLabels[task.sourceType] || "Work task completed!");
           fetchWorkTasks();
         } else {
           toast.error("Failed to complete work task");
@@ -520,6 +540,11 @@ export default function TimetablePage() {
         setSettings(settingsForm);
         toast.success("Settings saved");
         setSettingsDialogOpen(false);
+        // BUG #6 FIX: Refresh data when settings change (weekStartsOn affects week view)
+        setTimeout(() => {
+          fetchPersonalTasks();
+          fetchWorkTasks();
+        }, 100);
       } else {
         toast.error("Failed to save settings");
       }
@@ -608,9 +633,14 @@ export default function TimetablePage() {
               Plan and manage your daily schedule
             </p>
           </div>
-          <Button variant="outline" size="icon" onClick={() => setSettingsDialogOpen(true)}>
-            <Settings className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={openAddDialog}>
+              <Plus className="h-4 w-4 mr-1.5" /> Add Task
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => setSettingsDialogOpen(true)}>
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Date Navigation */}
@@ -697,6 +727,12 @@ export default function TimetablePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* BUG #7 FIX: Productivity Insight for month view */}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+          <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-200">{insight}</p>
+        </div>
       </div>
     );
   }
@@ -843,9 +879,14 @@ export default function TimetablePage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="icon" onClick={() => setSettingsDialogOpen(true)}>
-          <Settings className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openAddDialog}>
+            <Plus className="h-4 w-4 mr-1.5" /> Add Task
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => setSettingsDialogOpen(true)}>
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Date Navigation */}
@@ -1056,7 +1097,7 @@ export default function TimetablePage() {
                               }}
                             >
                               <Check className="h-3.5 w-3.5 mr-1" />
-                              Done
+                              {task.sourceType === "LEAVE" ? "Cancel" : task.sourceType === "APPROVAL" ? "Approve" : "Done"}
                             </Button>
                           </div>
                         </div>
@@ -1402,15 +1443,34 @@ export default function TimetablePage() {
       <AlertDialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Complete Task</AlertDialogTitle>
+            <AlertDialogTitle>
+              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+                ? "Cancel Leave"
+                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                  ? "Approve Request"
+                  : "Complete Task"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you have completed &quot;{completeTarget?.task.title}&quot;? This will mark it as done.
+              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+                ? `Are you sure you want to cancel "${completeTarget?.task.title}"?`
+                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                  ? `Are you sure you want to approve "${completeTarget?.task.title}"?`
+                  : `Are you sure you have completed "${completeTarget?.task.title}"? This will mark it as done.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleComplete} className="bg-emerald-600 text-white hover:bg-emerald-700">
-              Yes, Complete
+            <AlertDialogAction
+              onClick={handleComplete}
+              className={completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                : "bg-emerald-600 text-white hover:bg-emerald-700"}
+            >
+              {completeTarget?.type === "work" && completeTarget.task.sourceType === "LEAVE"
+                ? "Yes, Cancel Leave"
+                : completeTarget?.type === "work" && completeTarget.task.sourceType === "APPROVAL"
+                  ? "Yes, Approve"
+                  : "Yes, Complete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

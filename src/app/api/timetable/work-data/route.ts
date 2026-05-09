@@ -195,6 +195,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 6. Approvals (where user is requester or approver)
+    // BUG #5 FIX: Show ALL pending approvals, not just ones created on selected date
     const approvals = await db.approval.findMany({
       where: {
         AND: [
@@ -207,12 +208,10 @@ export async function GET(req: NextRequest) {
           {
             status: "PENDING",
           },
-          {
-            createdAt: { gte: start, lt: end },
-          },
         ],
       },
       orderBy: { createdAt: "desc" },
+      take: 20, // Limit to prevent overwhelming the timetable
     });
 
     for (const a of approvals) {
