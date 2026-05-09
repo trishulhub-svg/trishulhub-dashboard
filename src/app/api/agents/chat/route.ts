@@ -94,7 +94,9 @@ export async function POST(req: NextRequest) {
           }
         }
       })
-      if (!chat || chat.userId !== userId) {
+      // FIX: Admin/SuperAdmin can access other users' chats
+      const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+      if (!chat || (!isAdminUser && chat.userId !== userId)) {
         return NextResponse.json({ error: "Chat not found" }, { status: 404 })
       }
 

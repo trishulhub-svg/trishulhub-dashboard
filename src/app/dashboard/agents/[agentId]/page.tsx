@@ -13,7 +13,7 @@ import {
   MoreVertical, SendHorizontal, ShieldAlert,
   Wrench, Brain, FileCode, Terminal,
   Sparkles, ListChecks, CircleDot, CircleCheck, CircleX, Circle,
-  Link2, Upload, RotateCw, User, Lock, Radio,
+  Link2, Upload, RotateCw, User, Lock, Radio, Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -608,6 +608,11 @@ export default function AgentChatPage() {
   const isMobile = useIsMobile();
   const agentId = (params?.agentId as string) || "";
 
+  // Extract stable references to prevent session object identity from causing
+  // infinite re-fetch loops (useSession returns new object ref on every render)
+  const userRole = session?.user?.role || "";
+  const currentUserId = session?.user?.id;
+
   // Helper: Handle session expiration (401) by redirecting to login
   const handleSessionExpired = useCallback(() => {
     toast.error("Session expired. Please log in again.");
@@ -633,8 +638,8 @@ export default function AgentChatPage() {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
-  // Mobile tab
-  const [mobileTab, setMobileTab] = useState<"chats" | "messages" | "features">("messages");
+  // Mobile tab — default to "chats" so users see their conversation list first
+  const [mobileTab, setMobileTab] = useState<"chats" | "messages" | "features">("chats");
 
   // Right panel tab
   const [rightTab, setRightTab] = useState<"features" | "tasks" | "crossagent" | "live" | "auto">("auto");
@@ -2817,9 +2822,6 @@ export default function AgentChatPage() {
     }
   }, [activeChatId, fetchChats]);
 
-  const userRole = session?.user?.role || "DEVELOPER";
-  const currentUserId = session?.user?.id;
-
   // Is the current chat locked by someone else?
   const isChatLockedByOther = !!(activeChatId && chatLockInfo.lockedBy && chatLockInfo.lockedBy !== currentUserId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN");
 
@@ -3110,7 +3112,7 @@ export default function AgentChatPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="chats" className="flex-1 min-h-0 mt-0">
+          <TabsContent value="chats" className="flex-1 flex flex-col min-h-0 mt-0">
             <ChatSidebar
               chats={chats}
               activeChatId={activeChatId}
@@ -3175,7 +3177,7 @@ export default function AgentChatPage() {
             />
           </TabsContent>
 
-          <TabsContent value="features" className="flex-1 min-h-0 mt-0 overflow-auto">
+          <TabsContent value="features" className="flex-1 flex flex-col min-h-0 mt-0 overflow-hidden">
             <RightPanel
               rightTab={rightTab}
               setRightTab={setRightTab}
@@ -3570,6 +3572,7 @@ function ChatSidebar({
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   // Track which user folders are expanded (for admin view)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([currentUserId || ""]));
+  const [searchQuery, setSearchQuery] = useState("");
   const toggleFolder = (userId: string) => {
     setExpandedFolders(prev => {
       const next = new Set(prev);
@@ -3590,8 +3593,13 @@ function ChatSidebar({
   }
 
   // Separate active and ended chats for sidebar display
-  const activeChats = chats.filter(c => c.status === "ACTIVE");
-  const endedChats = chats.filter(c => c.status === "ENDED");
+  const filteredChats = searchQuery.trim()
+    ? chats.filter(c =>
+        c.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : chats;
+  const activeChats = filteredChats.filter(c => c.status === "ACTIVE");
+  const endedChats = filteredChats.filter(c => c.status === "ENDED");
 
   // ── Helper: Render a single chat item ──
   const renderChatItem = (chat: Chat, isEnded = false) => {
@@ -3763,12 +3771,41 @@ function ChatSidebar({
     );
   };
 
+  // ── Search bar + New Chat button ──
+  const searchBar = (
+    <div className="px-2 pt-2 pb-1 shrink-0">
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search chats..."
+            className="w-full h-7 pl-7 pr-2 text-xs bg-muted/40 border border-border/40 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/30 placeholder:text-muted-foreground/40 transition-colors"
+            aria-label="Search chats"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 shrink-0 text-xs gap-1 border-primary/30 hover:bg-primary/10 hover:text-primary"
+          onClick={onNewChat}
+        >
+          <Plus className="h-3 w-3" />
+          <span className="hidden sm:inline">New Chat</span>
+          <span className="sm:hidden">New</span>
+        </Button>
+      </div>
+    </div>
+  );
+
   // ── Admin view: Group chats by user with collapsible folders ──
   if (isAdmin && chats.length > 0) {
     // Group chats by user
     const userGroups = new Map<string, { user: { id: string; name: string; role: string; avatar?: string | null }; chats: Chat[] }>();
     
-    for (const chat of chats) {
+    for (const chat of filteredChats) {
       const uid = chat.userId;
       if (!userGroups.has(uid)) {
         userGroups.set(uid, {
@@ -3787,8 +3824,10 @@ function ChatSidebar({
     });
 
     return (
-      <ScrollArea className="flex-1 min-h-0 h-0">
-        <div className={`space-y-1 p-2 ${isMobile ? "pb-4" : ""}`}>
+      <>
+        {searchBar}
+        <ScrollArea className="flex-1 min-h-0 h-0">
+          <div className={`space-y-1 p-2 ${isMobile ? "pb-4" : ""}`}>
           {sortedUserIds.map((uid) => {
             const group = userGroups.get(uid)!;
             const isOwnFolder = uid === currentUserId;
@@ -3866,20 +3905,28 @@ function ChatSidebar({
           })}
         </div>
       </ScrollArea>
+      </>
     );
   }
 
   // ── Non-admin view: Simple flat list (existing behavior) ──
   return (
-    <ScrollArea className="flex-1 min-h-0 h-0">
-      <div className={`space-y-0.5 p-2 ${isMobile ? "pb-4" : ""}`}>
-        {chats.length === 0 ? (
-          <div className="text-center py-8">
-            <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
-            <p className="text-xs text-muted-foreground">No chats yet</p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={onNewChat}>
-              <Plus className="h-3 w-3 mr-1" /> New Chat
-            </Button>
+    <>
+      {searchBar}
+      <ScrollArea className="flex-1 min-h-0 h-0">
+        <div className={`space-y-0.5 px-2 pb-2 ${isMobile ? "pb-4" : ""}`}>
+          {filteredChats.length === 0 && searchQuery ? (
+            <div className="text-center py-8">
+              <Search className="h-6 w-6 mx-auto text-muted-foreground/40 mb-2" />
+              <p className="text-xs text-muted-foreground">No chats match "{searchQuery}"</p>
+            </div>
+          ) : chats.length === 0 ? (
+            <div className="text-center py-8">
+              <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
+              <p className="text-xs text-muted-foreground">No chats yet</p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={onNewChat}>
+                <Plus className="h-3 w-3 mr-1" /> New Chat
+              </Button>
           </div>
         ) : (
           <>
@@ -3914,6 +3961,7 @@ function ChatSidebar({
         )}
       </div>
     </ScrollArea>
+    </>
   );
 }
 
