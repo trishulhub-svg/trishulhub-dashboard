@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, ensureTimetableTables } from "@/lib/db";
 
 // GET /api/timetable/settings — Get timetable settings for the logged-in user
 export async function GET() {
@@ -10,6 +10,8 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     const settings = await db.timetableSettings.findUnique({
       where: { userId: session.user.id },
@@ -39,6 +41,8 @@ export async function POST(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     let body: Record<string, unknown>;
     try {
@@ -73,6 +77,8 @@ export async function PUT(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     let body: Record<string, unknown>;
     try {

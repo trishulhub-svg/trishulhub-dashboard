@@ -105,12 +105,19 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 3. Training Assignments
+    // 3. Training Assignments — show on ALL days from assignment to due date (or today if ongoing)
+    // FIX Error 4: Changed from matching only dueDate to overlapping date range
     const trainingAssignments = await db.trainingAssignment.findMany({
       where: {
         assignedTo: userId,
-        dueDate: { gte: start, lt: end },
         status: { notIn: ["COMPLETED", "PASSED", "FAILED"] },
+        // Show if: assignment was created before the end of the view AND
+        // (due date is after the start of the view OR due date is null)
+        createdAt: { lte: end },
+        OR: [
+          { dueDate: { gte: start } },
+          { dueDate: null },
+        ],
       },
       include: {
         document: { select: { id: true, topic: true } },
@@ -128,6 +135,7 @@ export async function GET(req: NextRequest) {
         priority: t.dueDate ? "MEDIUM" : "LOW",
         status: t.status,
         dueDate: t.dueDate?.toISOString(),
+        startDate: t.createdAt.toISOString(),
       });
     }
 

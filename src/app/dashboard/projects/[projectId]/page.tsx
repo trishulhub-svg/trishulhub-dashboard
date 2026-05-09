@@ -74,6 +74,9 @@ export default function ProjectDetailPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
+  // Stable role string to prevent infinite re-fetching from session object changes
+  const stableRole = sessionStatus === "authenticated" ? (session?.user?.role || "DEVELOPER") : "DEVELOPER";
+
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
       window.location.href = "/login";
@@ -132,7 +135,7 @@ export default function ProjectDetailPage() {
       }
 
       // Only fetch team users if admin (for member assignment)
-      if (session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN") {
+      if (stableRole === "SUPER_ADMIN" || stableRole === "ADMIN") {
         const userRes = await fetch("/api/team?type=users", { credentials: 'include', signal });
         if (userRes.ok) {
           const userData = await userRes.json();
@@ -146,7 +149,7 @@ export default function ProjectDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, session?.user?.role, handle401]);
+  }, [projectId, stableRole, handle401]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -328,6 +331,14 @@ export default function ProjectDetailPage() {
     deadline?: string | null;
   }[];
 
+  // Safely extract project fields with proper type coercion
+  const projectName = typeof project.name === 'string' ? project.name : String(project.name ?? 'Unnamed Project');
+  const projectDesc = typeof project.description === 'string' ? project.description : (project.description ? String(project.description) : '');
+  const projectStatus = typeof project.status === 'string' ? project.status : 'PLANNING';
+  const projectProgress = typeof project.progress === 'number' ? project.progress : Number(project.progress) || 0;
+  const projectBudget = typeof project.budget === 'number' ? project.budget : Number(project.budget) || 0;
+  const projectDeadline = project.deadline ? new Date(String(project.deadline)) : null;
+
   // Filter out users already in the project
   const memberUserIds = members.map(m => m.userId);
   const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(u.id)), [teamUsers, memberUserIds]);
@@ -339,8 +350,8 @@ export default function ProjectDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">{project.name as string}</h1>
-          <p className="text-muted-foreground text-sm">{project.description as string || "No description"}</p>
+          <h1 className="text-2xl font-bold">{projectName}</h1>
+          <p className="text-muted-foreground text-sm">{projectDesc || "No description"}</p>
         </div>
       </div>
 
@@ -351,7 +362,7 @@ export default function ProjectDetailPage() {
             <p className="text-xs text-muted-foreground">Status</p>
             {isAdminUser ? (
               <Select
-                value={(project.status as string)}
+                value={projectStatus}
                 onValueChange={(val) => handleUpdateProject({ status: val })}
               >
                 <SelectTrigger className="h-7 mt-1 text-xs"><SelectValue /></SelectTrigger>
@@ -362,7 +373,7 @@ export default function ProjectDetailPage() {
                 </SelectContent>
               </Select>
             ) : (
-              <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
+              <Badge className={`mt-1 ${projectStatusColors[projectStatus] || ""}`}>{projectStatus.replace("_", " ")}</Badge>
             )}
           </CardContent>
         </Card>
@@ -370,13 +381,13 @@ export default function ProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Progress</p>
             <div className="flex items-center gap-2 mt-1">
-              <Progress value={project.progress as number} className="h-2 flex-1" />
+              <Progress value={projectProgress} className="h-2 flex-1" />
               {isAdminUser ? (
                 <Input
                   type="number"
                   min={0}
                   max={100}
-                  value={project.progress as number}
+                  value={projectProgress}
                   onChange={(e) => {
                     const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
                     handleUpdateProject({ progress: val });
@@ -384,7 +395,7 @@ export default function ProjectDetailPage() {
                   className="h-7 w-14 text-xs text-center"
                 />
               ) : (
-                <span className="text-sm font-medium">{project.progress as number}%</span>
+                <span className="text-sm font-medium">{projectProgress}%</span>
               )}
             </div>
           </CardContent>
@@ -393,7 +404,7 @@ export default function ProjectDetailPage() {
           <Card>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Budget</p>
-              <p className="text-sm font-medium mt-1">₹{((project.budget as number) || 0).toLocaleString("en-IN")}</p>
+              <p className="text-sm font-medium mt-1">₹{projectBudget.toLocaleString("en-IN")}</p>
             </CardContent>
           </Card>
         )}
@@ -401,7 +412,7 @@ export default function ProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Deadline</p>
             <p className="text-sm font-medium mt-1">
-              {project.deadline ? new Date(project.deadline as string).toLocaleDateString() : "No deadline"}
+              {projectDeadline ? projectDeadline.toLocaleDateString() : "No deadline"}
             </p>
           </CardContent>
         </Card>

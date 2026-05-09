@@ -565,9 +565,32 @@ export default function TimetablePage() {
   const getFilteredWorkTasks = (date: Date) => {
     const dateStr = getDateStr(date);
     return workTasks.filter((t) => {
-      const d = t.dueDate || t.date || t.startDate;
-      if (!d) return false;
-      return getDateStr(new Date(d)) === dateStr;
+      // For tasks with a specific date (meetings, leaves, etc.)
+      const specificDate = t.date || t.dueDate;
+      if (specificDate && !t.startDate && !t.endDate) {
+        return getDateStr(new Date(specificDate)) === dateStr;
+      }
+      // For range-based tasks (leaves, training) — check if the selected date falls within the range
+      const rangeStart = t.startDate || t.dueDate || t.date;
+      const rangeEnd = t.endDate || t.dueDate || t.date;
+      if (rangeStart && rangeEnd) {
+        const d = new Date(dateStr + "T00:00:00");
+        const s = new Date(rangeStart + "T00:00:00");
+        const e = new Date(rangeEnd + "T23:59:59");
+        return d >= s && d <= e;
+      }
+      // For training tasks with startDate + dueDate (no endDate)
+      if (t.startDate && t.dueDate) {
+        const d = new Date(dateStr + "T00:00:00");
+        const s = new Date(t.startDate + "T00:00:00");
+        const e = new Date(t.dueDate + "T23:59:59");
+        return d >= s && d <= e;
+      }
+      // Fallback: match on dueDate
+      if (specificDate) {
+        return getDateStr(new Date(specificDate)) === dateStr;
+      }
+      return false;
     });
   };
 

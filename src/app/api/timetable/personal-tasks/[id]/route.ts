@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, ensureTimetableTables } from "@/lib/db";
 
 // PATCH /api/timetable/personal-tasks/[id] — Update a personal task
 export async function PATCH(
@@ -13,6 +13,8 @@ export async function PATCH(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     const userId = session.user.id;
     const { id } = await params;
@@ -74,6 +76,8 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     const userId = session.user.id;
     const { id } = await params;

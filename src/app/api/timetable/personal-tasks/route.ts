@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, ensureTimetableTables } from "@/lib/db";
 
 // GET /api/timetable/personal-tasks — Fetch personal tasks for the logged-in user
 export async function GET(req: NextRequest) {
@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     const userId = session.user.id;
     const { searchParams } = new URL(req.url);
@@ -62,6 +64,8 @@ export async function POST(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await ensureTimetableTables();
 
     const userId = session.user.id;
     let body: Record<string, unknown>;
