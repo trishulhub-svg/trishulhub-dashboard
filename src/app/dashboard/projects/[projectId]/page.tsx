@@ -94,9 +94,17 @@ export default function ProjectDetailPage() {
     return false;
   }, []);
 
+  // ZAI FIX #310: Strip nested objects at ingestion — never store them in state.
+  // The projects API returns {client, tasks, members} but the detail page only
+  // needs scalar fields. Stripping here prevents ANY accidental render of objects.
+  const sanitizeProject = useCallback((raw: Record<string, unknown>) => {
+    const { client: _c, tasks: _t, members: _m, invoices: _i, timeEntries: _te, meetings: _mt, expenses: _ex, subscriptions: _s, ...safe } = raw;
+    return safe as Record<string, unknown>;
+  }, []);
+
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);
-  const [agents, setAgents] = useState<unknown[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,11 +123,11 @@ export default function ProjectDetailPage() {
       if (projRes.ok) {
         const projData = await projRes.json();
         if (Array.isArray(projData)) {
-          if (projData.length > 0) setProject(projData[0]);
+          if (projData.length > 0) setProject(sanitizeProject(projData[0] as Record<string, unknown>));
         } else if (projData?.id) {
-          setProject(projData);
+          setProject(sanitizeProject(projData as Record<string, unknown>));
         } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
-          setProject(projData.data[0]);
+          setProject(sanitizeProject(projData.data[0] as Record<string, unknown>));
         }
       } else {
         if (handle401(projRes)) return;
@@ -132,7 +140,9 @@ export default function ProjectDetailPage() {
       }
       if (agentRes.ok) {
         const agentData = await agentRes.json();
-        setAgents(Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []));
+        // ZAI FIX #310: Only keep id+name from agents — strip apiKey, roleConfig, etc.
+        const raw = Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []);
+        setAgents(raw.map((a: any) => ({ id: String(a.id ?? ''), name: typeof a.name === 'string' ? a.name : 'AI Agent' })));
       } else {
         if (handle401(agentRes)) return;
       }
@@ -352,7 +362,7 @@ export default function ProjectDetailPage() {
     let assigneeName = "Unassigned";
     if (t.assignedTo) {
       if (t.assigneeType === "AI") {
-        const agent = (agents as { id?: string; name?: string }[]).find(a => a.id === t.assignedTo);
+        const agent = agents.find(a => a.id === t.assignedTo);
         if (agent && typeof agent.name === 'string') assigneeName = agent.name;
       } else {
         const member = members.find(m => m.userId === t.assignedTo);
@@ -610,7 +620,7 @@ export default function ProjectDetailPage() {
                       {members.map((m) => (
                         <SelectItem key={String(m.userId)} value={String(m.userId)}>{typeof m.user?.name === 'string' ? m.user.name : 'Team Member'}</SelectItem>
                       ))}
-                      {(agents as { id?: string; name?: string }[]).map((a) => (
+                      {(agents).map((a) => (
                         <SelectItem key={String(a.id)} value={String(a.id)}>{typeof a.name === 'string' ? a.name : 'AI Agent'} (AI)</SelectItem>
                       ))}
                     </SelectContent>

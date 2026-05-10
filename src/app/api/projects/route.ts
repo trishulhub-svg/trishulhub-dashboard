@@ -210,3 +210,65 @@ export async function PUT(req: NextRequest) {
   const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
   return NextResponse.json(project)
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // Rate limit
+    const rl = rateLimit(`projects-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    const userRole = session.user.role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+
+    if (!id) return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+
+    // Verify project exists
+    const existing = await db.project.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
+    // Delete related records in correct order (respect FK constraints)
+    // 1. Delete task-dependent records first
+    const tasks = await db.task.findMany({ where: { projectId: id }, select: { id: true } })
+
+    // 2. Delete project members
+    await db.projectMember.deleteMany({ where: { projectId: id } })
+
+    // 3. Delete tasks
+    await db.task.deleteMany({ where: { projectId: id } })
+
+    // 4. Delete time entries
+    await db.timeEntry.deleteMany({ where: { projectId: id } })
+
+    // 5. Delete meetings linked to project
+    const meetings = await db.meeting.findMany({ where: { projectId: id }, select: { id: true } })
+    for (const meeting of meetings) {
+      await db.meetingAttendee.deleteMany({ where: { meetingId: meeting.id } })
+    }
+    await db.meeting.deleteMany({ where: { projectId: id } })
+
+    // 6. Delete expenses and subscriptions
+    await db.expense.deleteMany({ where: { projectId: id } })
+    await db.subscription.deleteMany({ where: { projectId: id } })
+
+    // 7. Delete invoices linked to project
+    await db.invoice.deleteMany({ where: { projectId: id } })
+
+    // 8. Delete the project itself
+    await db.project.delete({ where: { id } })
+
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error("[projects] DELETE error:", error?.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
+}
