@@ -533,11 +533,11 @@ export default function ProjectDetailPage() {
                 <div key={member.id} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="text-xs">
-                      {member.user.name.split(" ").map(n => n[0]).join("")}
+                      {typeof member.user?.name === 'string' ? member.user.name.split(" ").map(n => n[0]).join("") : "?"}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="text-xs font-medium">{member.user.name}</p>
+                    <p className="text-xs font-medium">{typeof member.user?.name === 'string' ? member.user.name : 'Unknown'}</p>
                     <p className="text-[10px] text-muted-foreground">{member.role}</p>
                   </div>
                   {isAdminUser && (

@@ -20,6 +20,7 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
+  RefreshCw,
 } from "lucide-react"
 import { cn, safeDateStr, safeArray } from "@/lib/utils"
 
@@ -60,7 +61,9 @@ interface TrainingTest {
 
 const STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ComponentType<{ className?: string }> }> = {
   DRAFT: { label: "Draft", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", icon: AlertCircle },
+  GENERATING: { label: "Generating", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: Loader2 },
   READY: { label: "Ready", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: CheckCircle2 },
+  GENERATION_FAILED: { label: "Failed", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", icon: XCircle },
   ARCHIVED: { label: "Archived", className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400", icon: XCircle },
 }
 
@@ -109,11 +112,23 @@ export default function TrainingLibraryPage() {
     fetchDocuments()
   }, [session, status, router, fetchDocuments])
 
+  // ZAI FIX: Auto-poll when there are documents being generated.
+  // Stops polling once all documents reach a terminal status (READY/FAILED/ARCHIVED).
+  useEffect(() => {
+    const hasPending = documents.some(d => d.status === "GENERATING" || d.status === "DRAFT")
+    if (!hasPending) return
+    const interval = setInterval(() => {
+      fetchDocuments()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [documents, fetchDocuments])
+
+  // ZAI FIX: handleCreate now returns immediately with GENERATING status.
+  // AI generation runs in background on the server.
   const handleCreate = async () => {
     if (!newTopic.trim()) return
     setGenerating(true)
     setCreateOpen(false)
-    toast.info("Generating training document with AI...", { description: "This may take a moment" })
     try {
       const res = await fetch("/api/training/documents", {
         method: "POST",
@@ -122,13 +137,40 @@ export default function TrainingLibraryPage() {
         body: JSON.stringify({ topic: newTopic.trim() }),
       })
       if (res.ok) {
-        toast.success("Training document generated successfully!")
+        toast.success("Document creation started — AI is generating content in the background.", { description: "It will appear as 'Ready' when done." })
         setNewTopic("")
         fetchDocuments()
       } else {
         const data = await res.json()
-        const errMsg = data.error || "Failed to generate document"
+        const errMsg = data.error || "Failed to create document"
         toast.error(errMsg, { duration: 8000, description: `Status: ${res.status}` })
+      }
+    } catch (_e) {
+      toast.error("Network error — check your connection", { duration: 8000 })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  // Retry generation for failed documents
+  const handleRetry = async (doc: TrainingDocument) => {
+    setGenerating(true)
+    toast.info(`Retrying generation for "${doc.topic}"...`)
+    try {
+      const res = await fetch("/api/training/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ topic: doc.topic }),
+      })
+      if (res.ok) {
+        // Delete the old failed document
+        await fetch(`/api/training/documents/${doc.id}`, { method: "DELETE", credentials: "include" })
+        toast.success("Retry started — AI is generating content.")
+        fetchDocuments()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Retry failed", { duration: 8000 })
       }
     } catch (_e) {
       toast.error("Network error — check your connection", { duration: 8000 })
@@ -403,6 +445,16 @@ export default function TrainingLibraryPage() {
                     >
                       <Eye className="h-3 w-3" /> View
                     </Button>
+                    {doc.status === "GENERATION_FAILED" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 gap-1"
+                        onClick={() => handleRetry(doc)}
+                      >
+                        <RefreshCw className="h-3 w-3" /> Retry
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"

@@ -27,12 +27,14 @@ export async function GET(req: NextRequest) {
   if (userRole === "CLIENT") {
     const client = await db.client.findFirst({ where: { userId } })
     if (!client) return NextResponse.json([])
+    // ZAI FIX #310: Only include tasks for list view (no projectId filter).
+    // Detail page fetches tasks separately from /api/tasks.
     const projects = await db.project.findMany({
       where: {
         clientId: client.id,
         ...(projectId ? { id: projectId } : {}),
       },
-      include: { client: true, tasks: true },
+      include: { client: true, ...(projectId ? {} : { tasks: true }) },
       orderBy: { createdAt: "desc" }
     })
     return NextResponse.json(projects)
@@ -57,15 +59,22 @@ export async function GET(req: NextRequest) {
   // For developers: don't expose budget info
   const includeBudget = isAdmin(userRole)
 
-  const projects = await db.project.findMany({
+  // ZAI FIX #310: Only include tasks+members for list view.
+    // When projectId is specified (detail page), skip nested includes —
+    // the detail page fetches tasks and members separately.
+    const projects = await db.project.findMany({
     where,
-    include: { client: true, tasks: true, members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } },
+    include: {
+      client: true,
+      ...(projectId ? {} : { tasks: true }),
+      ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
+    },
     orderBy: { createdAt: "desc" }
   })
 
   // For developers: hide budget and client financial details
   if (!includeBudget) {
-    const filtered = projects.map(({ budget, client, ...rest }) => ({
+    const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
       ...rest,
       budget: undefined,
       client: { id: client.id, name: client.name, company: client.company },

@@ -4,10 +4,11 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
+import { after } from "next/server"
 import { callAIWithFailover } from "@/lib/ai/openrouter"
 
-// Vercel serverless function timeout (seconds) — AI generation needs more time
-export const maxDuration = 60
+// Vercel serverless function timeout (seconds) — increased for background AI generation via after()
+export const maxDuration = 300
 
 // ━━ Auto-migration: Ensure training tables exist on Turso ━━
 let migrationAttempted = false
@@ -156,42 +157,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Topic must be at least 3 characters" }, { status: 400 })
     }
 
-    // Create DRAFT document first
+    // ZAI FIX: Create document as GENERATING and return immediately.
+    // AI generation runs in background via after() to avoid serverless timeout.
+    // Frontend polls for status changes (GENERATING → READY or GENERATION_FAILED).
     const document = await db.trainingDocument.create({
       data: {
         topic: topic.trim(),
         content: "",
-        status: "DRAFT",
+        status: "GENERATING",
         generatedBy: userId,
       },
     })
 
-    // Generate document content with AI (using the existing multi-provider AI system)
-    let content = ""
-    let summary = ""
-    try {
-      // Get available API keys from database
-      const apiKeys = await db.apiKey.findMany({
-        where: { status: { in: ["ACTIVE"] } },
-        orderBy: { priority: "asc" },
-      })
+    // ── Background AI generation (runs after response is sent) ──
+    // Uses Next.js after() which maps to waitUntil on Vercel.
+    // On self-hosted Node.js, it runs as a microtask after response flush.
+    after(async () => {
+      try {
+        const apiKeys = await db.apiKey.findMany({
+          where: { status: { in: ["ACTIVE"] } },
+          orderBy: { priority: "asc" },
+        })
 
-      if (!apiKeys || apiKeys.length === 0) {
-        try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
-        return NextResponse.json({
-          error: "No AI API keys configured. Go to Dashboard > API Keys and add at least one API key (OpenRouter, Z.ai, Google AI, or NVIDIA).",
-        }, { status: 500 })
-      }
+        if (!apiKeys || apiKeys.length === 0) {
+          await db.trainingDocument.update({
+            where: { id: document.id },
+            data: { status: "GENERATION_FAILED" },
+          })
+          console.error("[training/documents] No active API keys configured for background generation")
+          return
+        }
 
-      const result = await callAIWithFailover(
-        [
-          {
-            role: "system",
-            content: `You are an expert corporate trainer. Create comprehensive, easy-to-understand training materials. Write in VERY SIMPLE English that anyone can understand. Use short sentences, simple words, and clear examples.`,
-          },
-          {
-            role: "user",
-            content: `Create a comprehensive training document about "${topic.trim()}".
+        const result = await callAIWithFailover(
+          [
+            {
+              role: "system",
+              content: `You are an expert corporate trainer. Create comprehensive, easy-to-understand training materials. Write in VERY SIMPLE English that anyone can understand. Use short sentences, simple words, and clear examples.`,
+            },
+            {
+              role: "user",
+              content: `Create a comprehensive training document about "${topic.trim()}".
 
 Format it as markdown with these sections:
 # ${topic.trim()} - Complete Training Guide
@@ -230,72 +235,82 @@ IMPORTANT RULES:
 - Use code blocks for any code examples
 - Use tables for comparisons
 - Make it engaging and practical`,
-          },
-        ],
-        "glm-4.7-flash", // Use free model by default
-        apiKeys,
-        { maxTokens: 8000, temperature: 0.7 }
-      )
+            },
+          ],
+          "glm-4.7-flash", // Default: Z.ai free model with multi-provider failover
+          apiKeys,
+          { maxTokens: 8000, temperature: 0.7 }
+        )
 
-      content = result.content
+        if (!result.content) {
+          await db.trainingDocument.update({
+            where: { id: document.id },
+            data: { status: "GENERATION_FAILED" },
+          })
+          console.error("[training/documents] AI returned empty content for document", document.id)
+          return
+        }
 
-      // Update API key usage tracking
-      if (result.apiKeyId && result.cost > 0) {
-        await db.apiKey.update({
-          where: { id: result.apiKeyId },
-          data: { currentSpend: { increment: result.cost } },
-        })
-        await db.apiUsageLog.create({
+        // Update API key usage tracking
+        if (result.apiKeyId && result.cost > 0) {
+          await db.apiKey.update({
+            where: { id: result.apiKeyId },
+            data: { currentSpend: { increment: result.cost } },
+          })
+          await db.apiUsageLog.create({
+            data: {
+              apiKeyId: result.apiKeyId,
+              model: result.model,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+              cost: result.cost,
+            },
+          })
+        }
+
+        // Generate summary from content
+        const summary = result.content
+          .replace(/^#+\s.*/gm, "")
+          .replace(/\[CHART:.*?\]/g, "")
+          .replace(/\[IMAGE:.*?\]/g, "")
+          .replace(/[\*\#`>\-\|]/g, "")
+          .split("\n")
+          .filter((l) => l.trim().length > 20)
+          .slice(0, 3)
+          .join(" ")
+          .trim()
+          .slice(0, 300)
+
+        // Update document to READY
+        await db.trainingDocument.update({
+          where: { id: document.id },
           data: {
-            apiKeyId: result.apiKeyId,
-            model: result.model,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            cost: result.cost,
+            content: result.content,
+            summary,
+            status: "READY",
           },
         })
+
+        console.log(`[training/documents] Document ${document.id} generated successfully (${result.model}, ${result.outputTokens} tokens)`)
+      } catch (bgError: any) {
+        console.error("[training/documents] Background generation error:", bgError.message, bgError.stack)
+        try {
+          await db.trainingDocument.update({
+            where: { id: document.id },
+            data: { status: "GENERATION_FAILED" },
+          })
+        } catch (updateErr: any) {
+          console.error("[training/documents] Failed to update status to FAILED:", updateErr.message)
+        }
       }
-    } catch (aiError: any) {
-      console.error("[training/documents] AI generation error:", aiError.message, aiError.stack)
-      try { await db.trainingDocument.delete({ where: { id: document.id } }) } catch {}
-      return NextResponse.json({
-        error: `AI generation failed: ${aiError.message}. Make sure you have active API keys configured in Dashboard > API Keys.`,
-      }, { status: 500 })
-    }
-
-    if (!content) {
-      await db.trainingDocument.delete({ where: { id: document.id } })
-      return NextResponse.json({ error: "AI generated empty content. Please try again." }, { status: 500 })
-    }
-
-    // Generate summary
-    summary = content
-      .replace(/^#+\s.*/gm, "")
-      .replace(/\[CHART:.*?\]/g, "")
-      .replace(/\[IMAGE:.*?\]/g, "")
-      .replace(/[\*\#`>\-\|]/g, "")
-      .split("\n")
-      .filter((l) => l.trim().length > 20)
-      .slice(0, 3)
-      .join(" ")
-      .trim()
-      .slice(0, 300)
-
-    // Save document with content
-    const updated = await db.trainingDocument.update({
-      where: { id: document.id },
-      data: {
-        content,
-        summary,
-        status: "READY",
-      },
-      include: {
-        generator: { select: { id: true, name: true } },
-        _count: { select: { tests: true, assignments: true } },
-      },
     })
 
-    return NextResponse.json(updated, { status: 201 })
+    // Return immediately — frontend will poll for status changes
+    return NextResponse.json({
+      ...document,
+      generator: { id: userId, name: session.user.name || "Admin" },
+      _count: { tests: 0, assignments: 0 },
+    }, { status: 201 })
   } catch (error: any) {
     console.error("[training/documents] POST error:", error.message, error.stack)
     return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
