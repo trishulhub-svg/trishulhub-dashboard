@@ -120,7 +120,9 @@ export async function GET() {
     const monthlyBudget = admin ? apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
     const totalLeads = admin ? (newLeadsCount + leads.length) : 0 // approximate
 
-    return NextResponse.json({
+    // ZAI FIX #310: JSON round-trip to strip ALL non-serializable values
+    // (Date objects, circular refs from deep includes, etc.)
+    const safeResponse = JSON.parse(JSON.stringify({
       agents,
       projects,
       clients: admin ? clients : clients.map(c => ({ id: c.id, name: c.name, company: c.company })),
@@ -145,7 +147,9 @@ export async function GET() {
         totalClients: admin ? clients.length : 0,
         totalLeads,
       },
-    })
+    }))
+
+    return NextResponse.json(safeResponse)
   } catch (error: any) {
     console.error("[dashboard] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 })

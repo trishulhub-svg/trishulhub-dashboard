@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, safeArray, safeJsonParse } from "@/lib/utils";
+import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 import { AGENT_TYPES, STATUS_COLORS } from "@/lib/types";
 import type { AgentStatus, AgentType } from "@/lib/types";
 
@@ -50,7 +50,8 @@ export default function DashboardPage() {
       const res = await fetch("/api/dashboard", { credentials: 'include' });
       if (res.ok) {
         const json = await res.json();
-        setData(json);
+        // ZAI FIX #310: Deep sanitize dashboard data to strip any non-serializable values
+        setData(deepSanitize<Record<string, unknown>>(json));
       } else {
         setError(true);
       }
@@ -295,8 +296,8 @@ export default function DashboardPage() {
                     <div className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background", statusColor)} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{agent.name}</p>
-                    <p className="text-xs text-muted-foreground">{AGENT_TYPES[agent.type as AgentType]?.label || agent.type}</p>
+                    <p className="text-sm font-medium truncate">{safeText(agent.name, "Agent")}</p>
+                    <p className="text-xs text-muted-foreground">{AGENT_TYPES[agent.type as AgentType]?.label || safeText(agent.type, "")}</p>
                   </div>
                   <ArrowRight className="h-3 w-3 text-muted-foreground" />
                 </button>
@@ -322,24 +323,27 @@ export default function DashboardPage() {
                   {isAdminUser ? "No active projects" : "No projects assigned yet. Contact your admin to get assigned to a project."}
                 </p>
               ) : (
-                projects.map((project) => (
+                projects.map((project) => {
+                  const pClient = project.client as Record<string, unknown> | undefined;
+                  return (
                   <button
-                    key={project.id}
-                    onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+                    key={safeText(project.id, "")}
+                    onClick={() => router.push(`/dashboard/projects/${safeText(project.id, "")}`)}
                     className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
                     type="button"
                   >
                     <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{project.name}</p>
-                      <p className="text-xs text-muted-foreground">{project.client?.name || "Client"}</p>
+                      <p className="text-sm font-medium truncate">{safeText(project.name, "Untitled")}</p>
+                      <p className="text-xs text-muted-foreground">{pClient ? safeText(pClient.name, "Client") : "Client"}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs font-medium">{project.progress}%</p>
-                      <Progress value={project.progress} className="h-1.5 w-16 mt-1" />
+                      <p className="text-xs font-medium">{safeNumber(project.progress)}%</p>
+                      <Progress value={safeNumber(project.progress)} className="h-1.5 w-16 mt-1" />
                     </div>
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           </CardContent>

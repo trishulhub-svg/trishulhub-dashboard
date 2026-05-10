@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
     })
 
-    return NextResponse.json(meetings)
+    return NextResponse.json(JSON.parse(JSON.stringify(meetings)))
   } catch (error: any) {
     console.error("[meetings] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { name: "asc" },
       })
-      return NextResponse.json(users)
+      return NextResponse.json(JSON.parse(JSON.stringify(users)))
     }
 
     if (type === "attendance") {
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
         orderBy: { date: "desc" },
         take: 60,
       })
-      return NextResponse.json(records)
+      return NextResponse.json(JSON.parse(JSON.stringify(records)))
     }
 
     if (type === "leaves") {
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { createdAt: "desc" },
         })
-        return NextResponse.json(leaves)
+        return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
       }
       const leaves = await db.leaveRequest.findMany({
         include: {
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { createdAt: "desc" },
       })
-      return NextResponse.json(leaves)
+      return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
     }
 
     if (type === "agent-access") {
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { userId: "asc" },
       })
-      return NextResponse.json(access)
+      return NextResponse.json(JSON.parse(JSON.stringify(access)))
     }
 
     // Default: return team members with their agent access (admin-only)
@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { name: "asc" },
     })
-    return NextResponse.json(users)
+    return NextResponse.json(JSON.parse(JSON.stringify(users)))
   } catch (error: any) {
     console.error("[team] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

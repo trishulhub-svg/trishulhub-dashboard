@@ -27,6 +27,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
   PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
@@ -70,7 +71,9 @@ export default function ProjectsPage() {
       ]);
       if (projRes.ok) {
         const projData = await projRes.json();
-        setProjects(Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []));
+        // ZAI FIX #310: Deep sanitize all project data to strip any non-serializable values
+        const raw = Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []);
+        setProjects(deepSanitize(raw));
       } else {
         if (handle401(projRes)) return;
         toast.error("Failed to load projects");
@@ -202,9 +205,13 @@ export default function ProjectsPage() {
     setDeleteId(projectId);
   };
 
-  const filtered = (projects as { id: string; name: string; status: string; progress: number; client: { name: string }; deadline: string | null }[]).filter((p) => {
-    const matchesFilter = filter === "ALL" || p.status === filter;
-    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.client?.name?.toLowerCase().includes(search.toLowerCase());
+  const filtered = (projects as Record<string, unknown>[]).filter((p) => {
+    const pName = safeText(p.name, "");
+    const pStatus = safeText(p.status, "");
+    const pClient = p.client as Record<string, unknown> | undefined;
+    const pClientName = pClient ? safeText(pClient.name, "") : "";
+    const matchesFilter = filter === "ALL" || pStatus === filter;
+    const matchesSearch = !search || pName.toLowerCase().includes(search.toLowerCase()) || pClientName.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
@@ -313,19 +320,19 @@ export default function ProjectsPage() {
         ) : null}
         {filtered.map((project) => (
           <Card
-            key={project.id}
+            key={safeText(project.id, "")}
             className="hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+            onClick={() => router.push(`/dashboard/projects/${safeText(project.id, "")}`)}
           >
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
-                  <CardTitle className="text-base truncate">{project.name}</CardTitle>
+                  <CardTitle className="text-base truncate">{safeText(project.name, "Untitled")}</CardTitle>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 ml-2">
-                  <Badge className={`text-[10px] ${statusColors[project.status] || ""}`}>
-                    {project.status.replace("_", " ")}
+                  <Badge className={`text-[10px] ${statusColors[safeText(project.status, "")] || ""}`}>
+                    {safeText(project.status, "UNKNOWN").replace("_", " ")}
                   </Badge>
                   {isAdminUser && (
                     <DropdownMenu>
@@ -335,10 +342,10 @@ export default function ProjectsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={(e) => openEditDialog(project as Record<string, unknown>, e)} className="gap-2 cursor-pointer">
+                        <DropdownMenuItem onClick={(e) => openEditDialog(project, e)} className="gap-2 cursor-pointer">
                           <Pencil className="h-3.5 w-3.5" /> Edit Project
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => openDeleteDialog(project.id, e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
+                        <DropdownMenuItem onClick={(e) => openDeleteDialog(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
                           <Trash2 className="h-3.5 w-3.5" /> Delete Project
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -348,19 +355,22 @@ export default function ProjectsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">{project.client?.name || "Client"}</p>
+              {(() => {
+                const client = project.client as Record<string, unknown> | undefined;
+                return <p className="text-sm text-muted-foreground mb-3">{client ? safeText(client.name, "Client") : "Client"}</p>;
+              })()}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs">
                   <span>Progress</span>
-                  <span>{project.progress}%</span>
+                  <span>{safeNumber(project.progress)}%</span>
                 </div>
-                <Progress value={project.progress} className="h-2" />
+                <Progress value={safeNumber(project.progress)} className="h-2" />
               </div>
-              {project.deadline && (
+              {project.deadline ? (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Deadline: {new Date(project.deadline).toLocaleDateString()}
+                  Deadline: {safeDate(project.deadline, "No date")}
                 </p>
-              )}
+              ) : null}
               <div className="flex justify-end mt-3">
                 <Button variant="ghost" size="sm">
                   View <ArrowRight className="h-3 w-3 ml-1" />

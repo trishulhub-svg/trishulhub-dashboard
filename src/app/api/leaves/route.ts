@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     })
 
-    return NextResponse.json(leaves)
+    return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
   } catch (error: any) {
     console.error("[leaves] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

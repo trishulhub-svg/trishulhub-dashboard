@@ -88,13 +88,13 @@ export async function GET(req: NextRequest) {
       db.deal.count({ where }),
     ])
 
-    return NextResponse.json({
+    return NextResponse.json(JSON.parse(JSON.stringify({
       data: deals,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    })
+    })))
   } catch (error: unknown) {
     console.error("Error fetching deals:", error)
     return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 })

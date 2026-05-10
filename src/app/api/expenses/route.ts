@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    return NextResponse.json(filtered)
+    return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

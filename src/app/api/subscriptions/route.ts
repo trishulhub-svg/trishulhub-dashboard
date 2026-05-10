@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
     .filter((s) => s.status === "ACTIVE")
     .reduce((sum, s) => sum + s.monthlyINR, 0)
 
-  return NextResponse.json({ subscriptions: enriched, totalMonthlyCost })
+  return NextResponse.json(JSON.parse(JSON.stringify({ subscriptions: enriched, totalMonthlyCost })))
   } catch (error: unknown) {
     console.error("[subscriptions] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -28,10 +28,10 @@ export async function GET() {
       ...t,
       client: { id: t.client.id, name: t.client.name, company: t.client.company },
     }))
-    return NextResponse.json(sanitized)
+    return NextResponse.json(JSON.parse(JSON.stringify(sanitized)))
   }
   
-  return NextResponse.json(tickets)
+  return NextResponse.json(JSON.parse(JSON.stringify(tickets)))
   } catch (error: any) {
     console.error("[support] GET error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

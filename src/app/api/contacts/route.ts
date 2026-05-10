@@ -84,13 +84,13 @@ export async function GET(req: NextRequest) {
       db.contact.count({ where }),
     ])
 
-    return NextResponse.json({
+    return NextResponse.json(JSON.parse(JSON.stringify({
       data: contacts,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    })
+    })))
   } catch (error: unknown) {
     console.error("Error fetching contacts:", error)
     return NextResponse.json({ error: "Failed to fetch contacts" }, { status: 500 })

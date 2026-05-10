@@ -28,7 +28,7 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
         })
       : []
-    return NextResponse.json(invoices)
+    return NextResponse.json(JSON.parse(JSON.stringify(invoices)))
   }
 
   // DEVELOPER users only see invoices from their assigned projects' clients
@@ -40,7 +40,7 @@ export async function GET() {
     include: { client: true, project: true },
     orderBy: { createdAt: "desc" },
   })
-  return NextResponse.json(invoices)
+  return NextResponse.json(JSON.parse(JSON.stringify(invoices)))
 }
 
 // POST /api/invoices - Create invoice (ADMIN/SUPER_ADMIN only)

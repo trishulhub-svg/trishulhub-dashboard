@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
 const taskStatusColors: Record<string, string> = {
   TODO: "bg-gray-200 text-gray-800",
@@ -42,18 +43,17 @@ export default function PortalProjectDetailPage() {
       ]);
       if (projRes.ok) {
         const projData = await projRes.json();
-        // Handle both array, single object, and paginated { data: [...] } responses
-        if (Array.isArray(projData)) {
-          if (projData.length > 0) setProject(projData[0]);
-        } else if (projData?.id) {
-          setProject(projData);
-        } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
-          setProject(projData.data[0]);
-        }
+        // ZAI FIX #310: Deep sanitize before storing in state
+        let raw: unknown = null;
+        if (Array.isArray(projData) && projData.length > 0) raw = projData[0];
+        else if (projData?.id) raw = projData;
+        else if (Array.isArray(projData?.data) && projData.data.length > 0) raw = projData.data[0];
+        if (raw) setProject(deepSanitize<Record<string, unknown>>(raw));
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
-        setTasks(Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []));
+        const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
+        setTasks(deepSanitize<Record<string, unknown>[]>(raw));
       }
     } catch (err) {
       console.error(err);
@@ -86,8 +86,8 @@ export default function PortalProjectDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{project.name as string}</h1>
-          <p className="text-muted-foreground text-sm">{project.description as string || "No description"}</p>
+          <h1 className="text-2xl font-bold">{safeText(project.name, "Untitled")}</h1>
+          <p className="text-muted-foreground text-sm">{safeText(project.description) || "No description"}</p>
         </div>
       </div>
 
@@ -95,15 +95,17 @@ export default function PortalProjectDetailPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Status</p>
-            <Badge className={`mt-1 ${projectStatusColors[project.status as string] || ""}`}>{(project.status as string).replace("_", " ")}</Badge>
+            <Badge className={`mt-1 ${projectStatusColors[safeText(project.status, "")] || ""}`}>
+              {safeText(project.status, "UNKNOWN").replace("_", " ")}
+            </Badge>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Progress</p>
             <div className="flex items-center gap-2 mt-1">
-              <Progress value={project.progress as number} className="h-2 flex-1" />
-              <span className="text-sm font-medium">{project.progress as number}%</span>
+              <Progress value={safeNumber(project.progress)} className="h-2 flex-1" />
+              <span className="text-sm font-medium">{safeNumber(project.progress)}%</span>
             </div>
           </CardContent>
         </Card>
@@ -111,7 +113,7 @@ export default function PortalProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Deadline</p>
             <p className="text-sm font-medium mt-1">
-              {project.deadline ? new Date(project.deadline as string).toLocaleDateString() : "No deadline"}
+              {safeDate(project.deadline, "No deadline")}
             </p>
           </CardContent>
         </Card>
@@ -119,18 +121,18 @@ export default function PortalProjectDetailPage() {
 
       <h2 className="text-lg font-semibold mt-4">Tasks</h2>
       <div className="space-y-2">
-        {(tasks as { id: string; title: string; status: string; assigneeType: string; assignee?: { name: string }; agent?: { name: string } }[]).map((task) => (
-          <Card key={task.id}>
+        {(tasks as Record<string, unknown>[]).map((task) => (
+          <Card key={safeText(task.id, "")}>
             <CardContent className="p-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Badge className={`text-[10px] ${taskStatusColors[task.status] || ""}`}>
-                  {task.status.replace("_", " ")}
+                <Badge className={`text-[10px] ${taskStatusColors[safeText(task.status, "")] || ""}`}>
+                  {safeText(task.status, "UNKNOWN").replace("_", " ")}
                 </Badge>
-                <span className="text-sm">{task.title}</span>
+                <span className="text-sm">{safeText(task.title, "Untitled")}</span>
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                {task.assigneeType === "AI" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                <span>{task.assignee?.name || task.agent?.name || "Unassigned"}</span>
+                {safeText(task.assigneeType, "HUMAN") === "AI" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                <span>Unassigned</span>
               </div>
             </CardContent>
           </Card>

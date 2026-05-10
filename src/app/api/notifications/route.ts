@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       take: 50,
     })
 
-    return NextResponse.json(notifications)
+    return NextResponse.json(JSON.parse(JSON.stringify(notifications)))
   } catch (error: any) {
     console.error("[notifications] error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

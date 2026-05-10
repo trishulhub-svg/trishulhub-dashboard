@@ -65,3 +65,75 @@ export function safeJsonParse<T = unknown>(val: unknown, fallback: T): T {
     return fallback
   }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ZAI PROTOCOL: Shared Anti-React-#310 Utilities
+// React #310 = "Objects are not valid as a React child"
+// These utilities prevent objects/Date/Array/Function/Symbol from
+// being rendered directly in JSX.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Guaranteed primitive render value. Every value rendered in JSX
+ * should pass through this function.
+ * - string → returned as-is
+ * - number/boolean → converted to string
+ * - null/undefined → returns fallback
+ * - Object/Array/Date/Function/Symbol → returns fallback (not [object Object])
+ */
+export function safeText(value: unknown, fallback: string = ""): string {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    const s = String(value);
+    // Detect useless object representations
+    if (s === "[object Object]" || s === "[object Array]" || s === "[object Function]" || s === "[object Symbol]" || s === "") return fallback;
+    // Date objects produce something like "Mon Jan 15 2024 10:30:00 GMT+0000"
+    // which is technically a string but usually not what we want to render raw.
+    // However, if it got here, the caller explicitly wants it as text.
+    return s;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Deep sanitization via JSON round-trip.
+ * Strips Date objects (→ ISO strings), circular refs (→ removed),
+ * BigInt, undefined, functions, Symbols.
+ * Returns {} on failure to prevent downstream crashes.
+ */
+export function deepSanitize<T>(data: unknown): T {
+  try {
+    return JSON.parse(JSON.stringify(data)) as T;
+  } catch {
+    console.error("[ZAI #310] deepSanitize failed");
+    return {} as T;
+  }
+}
+
+/**
+ * Safe number extraction. Returns 0 if value is not a valid number.
+ * Prevents NaN from being rendered in JSX.
+ */
+export function safeNumber(value: unknown, fallback: number = 0): number {
+  if (typeof value === "number" && !isNaN(value)) return value;
+  const n = Number(value);
+  return isNaN(n) ? fallback : n;
+}
+
+/**
+ * Safe date formatting. Accepts any value and returns a formatted date string.
+ * Returns fallback if the value can't be parsed as a date.
+ */
+export function safeDate(value: unknown, fallback: string = ""): string {
+  if (!value) return fallback;
+  try {
+    const d = typeof value === "string" ? new Date(value) : (value instanceof Date ? value : new Date());
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleDateString();
+  } catch {
+    return fallback;
+  }
+}

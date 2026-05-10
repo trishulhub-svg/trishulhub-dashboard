@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       orderBy: { dueDate: "asc" },
     })
 
-    return NextResponse.json(tasks)
+    return NextResponse.json(JSON.parse(JSON.stringify(tasks)))
   } catch (error: any) {
     console.error("[scheduled-tasks] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

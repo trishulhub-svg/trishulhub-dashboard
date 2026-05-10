@@ -117,13 +117,13 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  return NextResponse.json({
+  return NextResponse.json(JSON.parse(JSON.stringify({
     data: enriched,
     total,
     page,
     limit,
     totalPages: Math.ceil(total / limit),
-  })
+  })))
 }
 
 // POST /api/clients - Create client with validation

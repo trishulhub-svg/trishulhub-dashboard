@@ -31,7 +31,7 @@ export async function GET() {
       keyValue: key.keyValue ? `****${key.keyValue.slice(-4)}` : "",
     }))
 
-    return NextResponse.json(maskedKeys)
+    return NextResponse.json(JSON.parse(JSON.stringify(maskedKeys)))
   } catch (error: any) {
     console.error("[api-keys] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

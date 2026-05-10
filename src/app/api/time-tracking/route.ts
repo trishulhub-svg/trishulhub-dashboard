@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
         orderBy: { clockIn: "desc" },
       })
 
-      return NextResponse.json(entries)
+      return NextResponse.json(JSON.parse(JSON.stringify(entries)))
     }
 
     const entries = await db.timeEntry.findMany({
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
       take: 200,
     })
 
-    return NextResponse.json(entries)
+    return NextResponse.json(JSON.parse(JSON.stringify(entries)))
   } catch (error: unknown) {
     console.error("[time-tracking] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
