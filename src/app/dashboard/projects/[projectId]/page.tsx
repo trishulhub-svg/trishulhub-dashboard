@@ -1,210 +1,627 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import {
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { toast } from "sonner";
+import { TASK_COLUMNS } from "@/lib/types";
+import type { TaskStatus, TaskPriority } from "@/lib/types";
+import { safeText, safeNumber, safeDate, deepSanitize } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// DIAGNOSTIC v6: COMPLETELY MINIMAL PAGE
-// This version removes ALL UI library components to isolate the issue.
-// Using ONLY plain HTML elements — no Radix, no shadcn, no Lucide icons.
-// If this works, the bug is in one of the UI components.
-// If this STILL fails, the bug is in Next.js/React/data itself.
+// BULLETPROOF v7: Complete rebuild with safeText() on EVERY rendered value.
+// ALL Radix Select replaced with native <select> (React 19 compatibility).
+// Every JSX child is guaranteed to be string | number | null | undefined | boolean.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function str(v: unknown, fallback = ""): string {
-  if (v == null) return fallback;
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
+const taskStatusColors: Record<string, string> = {
+  TODO: "bg-gray-100 dark:bg-gray-800/50",
+  IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
+  REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
+  DONE: "bg-green-50 dark:bg-green-900/20",
+};
+
+const projectStatusColors: Record<string, string> = {
+  PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  REVIEW: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  DEPLOYED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+};
+
+const priorityColors: Record<string, string> = {
+  LOW: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+  MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+
+// ── Safe extractors: guarantee primitive return type ──
+function extractStr(obj: unknown, key: string, fallback = ""): string {
+  if (!obj || typeof obj !== "object") return fallback;
+  const val = (obj as Record<string, unknown>)[key];
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
   return fallback;
 }
 
-function num(v: unknown, fallback = 0): number {
-  if (typeof v === "number" && !isNaN(v)) return v;
-  const n = Number(v);
+function extractNum(obj: unknown, key: string, fallback = 0): number {
+  if (!obj || typeof obj !== "object") return fallback;
+  const val = (obj as Record<string, unknown>)[key];
+  if (typeof val === "number" && !isNaN(val)) return val;
+  const n = Number(val);
   return isNaN(n) ? fallback : n;
+}
+
+function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
+  let current: unknown = obj;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return fallback;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" ? current : (typeof current === "number" || typeof current === "boolean" ? String(current) : fallback);
 }
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
 
-  // Guard useParams()
+  // Safe projectId extraction
   const rawProjectId = params?.projectId;
-  const projectId = typeof rawProjectId === 'string'
+  const projectId = typeof rawProjectId === "string"
     ? rawProjectId
     : Array.isArray(rawProjectId)
-      ? String(rawProjectId[0] ?? '')
-      : '';
+      ? String(rawProjectId[0] ?? "")
+      : "";
 
-  if (!projectId) {
-    return <div style={{ padding: 24, textAlign: "center" }}><p>Invalid project ID</p>
-      <button onClick={() => router.push("/dashboard/projects")}>Back</button></div>;
-  }
+  const userRole = session?.user?.role || "DEVELOPER";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const [mounted, setMounted] = useState(false);
+  const handle401 = useCallback((res: Response) => {
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return true;
+    }
+    return false;
+  }, []);
+
+  // ── State: ALL typed as unknown[] or Record<string,unknown> for safety ──
+  const [project, setProject] = useState<Record<string, unknown> | null>(null);
+  const [tasks, setTasks] = useState<unknown[]>([]);
+  const [agents, setAgents] = useState<unknown[]>([]);
+  const [members, setMembers] = useState<unknown[]>([]);
+  const [teamUsers, setTeamUsers] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
-  const [projectFound, setProjectFound] = useState(false);
-  const [debugInfo, setDebugInfo] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
 
-  // ── Minimal state: only primitives ──
-  const [projectName, setProjectName] = useState("");
-  const [projectDesc, setProjectDesc] = useState("");
-  const [projectStatus, setProjectStatus] = useState("PLANNING");
-  const [projectProgress, setProjectProgress] = useState(0);
-  const [rawDataKeys, setRawDataKeys] = useState("");
-  const [rawDataTypes, setRawDataTypes] = useState("");
-
-  useEffect(() => { setMounted(true); }, []);
-
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
+    if (!projectId) { setLoading(false); return; }
     try {
-      // ONLY fetch project — nothing else
-      const projRes = await fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' });
+      const [projRes, taskRes, agentRes, memberRes] = await Promise.all([
+        fetch(`/api/projects?projectId=${projectId}`, { credentials: "include", signal }),
+        fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include", signal }),
+        fetch("/api/agents", { credentials: "include", signal }),
+        fetch(`/api/projects/${projectId}/members`, { credentials: "include", signal }),
+      ]);
 
       if (projRes.ok) {
-        const projData = await projRes.json();
-        console.log('[DIAG] Raw project response type:', typeof projData);
-        console.log('[DIAG] Is array:', Array.isArray(projData));
-
-        let raw: Record<string, unknown> | null = null;
-        if (Array.isArray(projData) && projData.length > 0) {
-          raw = projData[0];
-        } else if (projData && typeof projData === "object" && projData.id) {
-          raw = projData as Record<string, unknown>;
+        const raw = deepSanitize(await projRes.json());
+        if (Array.isArray(raw) && raw.length > 0) {
+          setProject(raw[0] as Record<string, unknown>);
+        } else if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) {
+          setProject(raw as Record<string, unknown>);
+        } else if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
+          setProject(((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>);
         }
+      } else { handle401(projRes); }
 
-        if (raw) {
-          // LOG EVERYTHING about this object
-          const keys = Object.keys(raw);
-          const types = keys.map(k => `${k}=${typeof raw[k]}`).join(', ');
-          console.log('[DIAG] Project keys:', keys);
-          console.log('[DIAG] Project types:', types);
-          setRawDataKeys(keys.join(', '));
-          setRawDataTypes(types);
+      if (taskRes.ok) {
+        const td = deepSanitize(await taskRes.json());
+        setTasks(Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []));
+      } else { handle401(taskRes); }
 
-          // Check EVERY value for objects
-          for (const key of keys) {
-            const val = raw[key];
-            if (val !== null && typeof val === 'object') {
-              console.error('[DIAG] FOUND OBJECT IN PROJECT DATA:', key, val);
-              console.error('[DIAG] Object keys:', Object.keys(val));
-            }
-          }
+      if (agentRes.ok) {
+        const ad = deepSanitize(await agentRes.json());
+        setAgents(Array.isArray(ad) ? ad : (Array.isArray((ad as Record<string, unknown>)?.data) ? (ad as Record<string, unknown>).data as unknown[] : []));
+      } else { handle401(agentRes); }
 
-          setProjectFound(true);
-          setProjectName(str(raw.name, "Unnamed"));
-          setProjectDesc(str(raw.description));
-          setProjectStatus(str(raw.status, "PLANNING"));
-          setProjectProgress(num(raw.progress));
-        } else {
-          console.log('[DIAG] No project data found in response');
-          setProjectFound(false);
-        }
-      } else {
-        console.log('[DIAG] Project API returned status:', projRes.status);
-        setProjectFound(false);
+      if (memberRes.ok) {
+        const md = deepSanitize(await memberRes.json());
+        setMembers(Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []));
+      } else { handle401(memberRes); }
+
+      if (isAdminUser) {
+        const userRes = await fetch("/api/team?type=users", { credentials: "include", signal });
+        if (userRes.ok) {
+          const ud = deepSanitize(await userRes.json());
+          setTeamUsers(Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []));
+        } else { handle401(userRes); }
       }
-    } catch (err) {
-      console.error('[DIAG] Fetch error:', err);
-      setDebugInfo(String(err));
+    } catch {
+      toast.error("Failed to load project data");
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, isAdminUser, handle401]);
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData]);
 
-  // ── Loading state: plain HTML only ──
-  if (!mounted || loading) {
+  const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const data = {
+      title: String(form.get("title") || ""),
+      description: String(form.get("description") || ""),
+      projectId,
+      assigneeType: String(form.get("assigneeType") || "HUMAN"),
+      assignedTo: String(form.get("assignedTo") || "") || null,
+      priority: String(form.get("priority") || "MEDIUM"),
+    };
+    try {
+      const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(data) });
+      if (res.ok) { toast.success("Task created"); setAddOpen(false); fetchData(); }
+      else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
+    } catch { toast.error("Failed to create task"); }
+  };
+
+  const handleMoveTask = async (taskId: string, newStatus: string) => {
+    try {
+      const res = await fetch("/api/tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: taskId, status: newStatus }) });
+      if (res.ok) { toast.success(`Task moved to ${newStatus.replace("_", " ")}`); fetchData(); }
+      else { if (handle401(res)) return; toast.error("Failed to move task"); }
+    } catch { toast.error("Failed to move task"); }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
+      if (res.ok) { toast.success("Task deleted"); fetchData(); }
+      else { if (handle401(res)) return; toast.error("Failed to delete task"); }
+    } catch { toast.error("Failed to delete task"); }
+  };
+
+  const handleAddMember = async (userId: string, role: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
+      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); fetchData(); }
+      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
+    } catch { toast.error("Failed to add member"); }
+  };
+
+  const handleUpdateProject = async (updates: Record<string, unknown>) => {
+    try {
+      const res = await fetch("/api/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: projectId, ...updates }) });
+      if (res.ok) { toast.success("Project updated"); fetchData(); }
+      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update project"); }
+    } catch { toast.error("Failed to update project"); }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
+      if (res.ok) { toast.success("Member removed"); fetchData(); }
+      else { if (handle401(res)) return; toast.error("Failed to remove member"); }
+    } catch { toast.error("Failed to remove member"); }
+  };
+
+  // ── Derived values (ALL guaranteed primitives via safe extractors) ──
+  const projectName = project ? extractStr(project, "name", "Untitled") : "";
+  const projectDesc = project ? extractStr(project, "description", "") : "";
+  const projectStatus = project ? extractStr(project, "status", "PLANNING") : "PLANNING";
+  const projectProgress = project ? extractNum(project, "progress", 0) : 0;
+  const projectBudget = project ? extractNum(project, "budget", 0) : 0;
+  const projectDeadline = project ? extractStr(project, "deadline", "") : "";
+
+  const memberUserIds = useMemo(() => members.map((m) => extractStr(m, "userId", "")), [members]);
+  const availableUsers = useMemo(() => {
+    const ids = memberUserIds;
+    return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
+  }, [teamUsers, memberUserIds]);
+
+  // ── Loading state ──
+  if (sessionStatus === "loading" || loading) {
     return (
-      <div style={{ padding: 24 }}>
-        <div style={{ width: 200, height: 20, background: '#e5e7eb', borderRadius: 4 }} />
-        <div style={{ width: '100%', height: 80, background: '#e5e7eb', borderRadius: 8, marginTop: 16 }} />
-        <div style={{ width: '100%', height: 200, background: '#e5e7eb', borderRadius: 8, marginTop: 16 }} />
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-32 rounded-lg" />
+        <div className="flex gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
+        </div>
       </div>
     );
   }
 
-  if (!projectFound) {
+  if (!projectId) {
     return (
-      <div style={{ padding: 24, textAlign: "center" }}>
-        <p>Project not found</p>
-        <button onClick={() => router.push("/dashboard/projects")} style={{ marginTop: 12, padding: '8px 16px', border: '1px solid #ccc', borderRadius: 6, cursor: 'pointer' }}>
-          Back to Projects
-        </button>
+      <div className="text-center py-12">
+        <p className="text-muted-foreground mb-4">Invalid project ID</p>
+        <Button variant="outline" onClick={() => router.push("/dashboard/projects")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+        </Button>
       </div>
     );
   }
 
-  // ── RENDER: 100% plain HTML — NO UI components at all ──
+  if (!project) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground mb-4">Project not found</p>
+        <Button variant="outline" onClick={() => router.push("/dashboard/projects")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: 16 }}>
-      {/* Diagnostic info */}
-      <details style={{ marginBottom: 16, border: '1px solid #fca5a5', borderRadius: 8, padding: 12, background: '#fef2f2' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 'bold', fontSize: 14, color: '#dc2626' }}>
-          [v6 DIAGNOSTIC] Minimal page — no UI components
-        </summary>
-        <div style={{ marginTop: 8, fontSize: 12, fontFamily: 'monospace' }}>
-          <p>Project ID: {String(projectId)}</p>
-          <p>Found: {String(projectFound)}</p>
-          <p>Data keys: {rawDataKeys}</p>
-          <p>Data types: {rawDataTypes}</p>
-          <p>Name: {String(projectName)}</p>
-          <p>Status: {String(projectStatus)}</p>
-          <p>Progress: {String(projectProgress)}</p>
-          {debugInfo && <p>Error: {debugInfo}</p>}
-        </div>
-      </details>
-
-      {/* Back button */}
-      <button
-        onClick={() => router.push("/dashboard/projects")}
-        style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: 6, cursor: 'pointer', marginBottom: 16 }}
-      >
-        ← Back to Projects
-      </button>
-
-      {/* Project header — plain HTML */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: '0 0 4px 0' }}>
-          {String(projectName)}
-        </h1>
-        <p style={{ fontSize: 14, color: '#6b7280' }}>
-          {projectDesc || "No description"}
-        </p>
-      </div>
-
-      {/* Project info — plain HTML */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }}>
-          <p style={{ fontSize: 12, color: '#6b7280' }}>Status</p>
-          <p style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>
-            {String(projectStatus).replace("_", " ")}
-          </p>
-        </div>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }}>
-          <p style={{ fontSize: 12, color: '#6b7280' }}>Progress</p>
-          <p style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>
-            {String(projectProgress)}%
-          </p>
-        </div>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }}>
-          <p style={{ fontSize: 12, color: '#6b7280' }}>Budget</p>
-          <p style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>N/A</p>
-        </div>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }}>
-          <p style={{ fontSize: 12, color: '#6b7280' }}>Deadline</p>
-          <p style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>No deadline</p>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold">{safeText(projectName, "Untitled")}</h1>
+          <p className="text-muted-foreground text-sm">{safeText(projectDesc) || "No description"}</p>
         </div>
       </div>
 
-      {/* Placeholder for tasks — no task board, just a message */}
-      <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', border: '1px dashed #d1d5db', borderRadius: 8 }}>
-        Task board will appear here. This is the minimal diagnostic page.
-        <br />
-        If you see this without error, the bug is in one of the UI components.
+      {/* Project Info Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        {/* Status */}
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Status</p>
+            {isAdminUser ? (
+              <select
+                className="mt-1 h-7 text-xs border rounded px-2 bg-background w-full"
+                value={safeText(projectStatus, "PLANNING")}
+                onChange={(e) => handleUpdateProject({ status: e.target.value })}
+              >
+                {VALID_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s.replace("_", " ")}</option>
+                ))}
+              </select>
+            ) : (
+              <Badge className={`mt-1 ${projectStatusColors[safeText(projectStatus, "")] || ""}`}>
+                {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
+              </Badge>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Progress */}
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Progress</p>
+            <div className="flex items-center gap-2 mt-1">
+              <Progress value={safeNumber(projectProgress)} className="h-2 flex-1" />
+              {isAdminUser ? (
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={safeNumber(projectProgress)}
+                  onChange={(e) => {
+                    const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                    handleUpdateProject({ progress: val });
+                  }}
+                  className="h-7 w-14 text-xs text-center"
+                />
+              ) : (
+                <span className="text-sm font-medium">{safeNumber(projectProgress)}%</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Budget (admin only) */}
+        {isAdminUser && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Budget</p>
+              <p className="text-sm font-medium mt-1">
+                {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Deadline */}
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Deadline</p>
+            <p className="text-sm font-medium mt-1">
+              {projectDeadline ? safeDate(projectDeadline, "No deadline") : "No deadline"}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Team Size (non-admin) */}
+        {!isAdminUser && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Team Size</p>
+              <p className="text-sm font-medium mt-1">{String(members.length)} members</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Project Members */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Project Team</CardTitle>
+              <CardDescription>
+                {String(members.length)} member{members.length !== 1 ? "s" : ""} assigned to this project
+              </CardDescription>
+            </div>
+            {isAdminUser && (
+              <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <UserPlus className="h-4 w-4 mr-1" /> Add Member
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Team Member</DialogTitle>
+                    <DialogDescription>Assign a team member to this project.</DialogDescription>
+                  </DialogHeader>
+                  {availableUsers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      All team members are already assigned to this project.
+                    </p>
+                  ) : (
+                    <ScrollArea className="max-h-80">
+                      <div className="space-y-2">
+                        {availableUsers.map((user) => {
+                          const uName = extractStr(user, "name", "Unknown");
+                          const uRole = extractStr(user, "role", "");
+                          const uDept = extractStr(user, "department", "");
+                          const uId = extractStr(user, "id", "");
+                          const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+                          return (
+                            <div key={uId} className="flex items-center justify-between p-3 rounded-lg border">
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback className="text-xs">{initials || "?"}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="text-sm font-medium">{uName}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {safeText(uRole)}{uDept ? ` · ${safeText(uDept)}` : ""}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => handleAddMember(uId, "MEMBER")}>Member</Button>
+                                <Button size="sm" onClick={() => handleAddMember(uId, "LEAD")}>Lead</Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {members.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No team members assigned yet</p>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {members.map((member) => {
+                const mId = extractStr(member, "id", "");
+                const mUserId = extractStr(member, "userId", "");
+                const mRole = extractStr(member, "role", "");
+                const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+                const initials = mUserName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+                return (
+                  <div key={mId} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
+                    <Avatar className="h-7 w-7">
+                      <AvatarFallback className="text-xs">{initials || "?"}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-xs font-medium">{mUserName}</p>
+                      <p className="text-[10px] text-muted-foreground">{safeText(mRole)}</p>
+                    </div>
+                    {isAdminUser && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-red-500"
+                        onClick={() => handleRemoveMember(mUserId)}
+                        aria-label="Remove member"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Task Board */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Task Board</h2>
+        {(isAdminUser || members.length > 0) && (
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Task</DialogTitle>
+                <DialogDescription>Create a new task for this project.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleAddTask} className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Title *</Label>
+                  <Input name="title" required />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Description</Label>
+                  <Textarea name="description" rows={2} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Priority</Label>
+                    <select name="priority" defaultValue="MEDIUM" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                      <option value="LOW">Low</option>
+                      <option value="MEDIUM">Medium</option>
+                      <option value="HIGH">High</option>
+                      <option value="URGENT">Urgent</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Assign To</Label>
+                    <select name="assigneeType" defaultValue="HUMAN" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                      <option value="HUMAN">Team Member</option>
+                      <option value="AI">AI Agent</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Assignee</Label>
+                  <select name="assignedTo" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    <option value="">Unassigned</option>
+                    {members.map((m) => {
+                      const mUserId = extractStr(m, "userId", "");
+                      const mUserName = extractNestedStr(m, ["user", "name"], "Unknown");
+                      return <option key={mUserId} value={mUserId}>{mUserName}</option>;
+                    })}
+                    {agents.map((a) => {
+                      const aId = extractStr(a, "id", "");
+                      const aName = extractStr(a, "name", "Unknown Agent");
+                      return <option key={aId} value={aId}>{aName} (AI)</option>;
+                    })}
+                  </select>
+                </div>
+                <Button type="submit" className="w-full">Create Task</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+
+      {/* Task Columns */}
+      <div className="flex gap-3 overflow-x-auto pb-4">
+        {TASK_COLUMNS.map((status) => {
+          const statusStr = String(status);
+          const columnTasks = (tasks as Record<string, unknown>[]).filter(
+            (t) => extractStr(t, "status", "") === statusStr
+          );
+          return (
+            <div key={statusStr} className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
+              <div className={`rounded-t-lg px-3 py-2 ${taskStatusColors[statusStr] || ""}`}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm">{statusStr.replace("_", " ")}</h3>
+                  <Badge variant="secondary" className="text-xs">{String(columnTasks.length)}</Badge>
+                </div>
+              </div>
+              <div className="flex-1 space-y-2 p-2 bg-muted/30 rounded-b-lg min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
+                {columnTasks.map((task) => {
+                  const tId = extractStr(task, "id", "");
+                  const tTitle = extractStr(task, "title", "Untitled");
+                  const tDesc = extractStr(task, "description", "");
+                  const tPriority = extractStr(task, "priority", "MEDIUM");
+                  const tAssigneeType = extractStr(task, "assigneeType", "HUMAN");
+                  const tDeadline = extractStr(task, "deadline", "");
+                  // Task no longer has include relations, so just show "Unassigned"
+                  const tAssignedTo = extractStr(task, "assignedTo", "");
+                  const tAssignedName = tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned";
+
+                  return (
+                    <Card key={tId} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <p className="text-sm font-medium">{safeText(tTitle, "Untitled")}</p>
+                          <Badge className={`text-[10px] shrink-0 ${priorityColors[tPriority] || ""}`}>
+                            {safeText(tPriority, "MEDIUM")}
+                          </Badge>
+                        </div>
+                        {tDesc && (
+                          <p className="text-xs text-muted-foreground line-clamp-2">{safeText(tDesc)}</p>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {tAssigneeType === "AI" ? (
+                              <Bot className="h-3 w-3" />
+                            ) : (
+                              <User className="h-3 w-3" />
+                            )}
+                            <span>{safeText(tAssignedName)}</span>
+                          </div>
+                          {tDeadline && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <Clock className="h-2.5 w-2.5" />
+                              {safeDate(tDeadline, "")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          {TASK_COLUMNS.filter((s) => String(s) !== statusStr).map((s) => (
+                            <Button
+                              key={String(s)}
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[10px] px-2"
+                              onClick={() => handleMoveTask(tId, String(s))}
+                            >
+                              {String(s).replace("_", " ").slice(0, 3)}
+                            </Button>
+                          ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-red-500 px-2"
+                            onClick={() => handleDeleteTask(tId)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
