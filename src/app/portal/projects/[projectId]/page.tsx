@@ -29,7 +29,13 @@ const projectStatusColors: Record<string, string> = {
 export default function PortalProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.projectId as string;
+  // FIX #1: Guard useParams() — Next.js 16 may return Promise or undefined
+  const rawProjectId = params?.projectId;
+  const projectId = typeof rawProjectId === 'string'
+    ? rawProjectId
+    : Array.isArray(rawProjectId)
+      ? String(rawProjectId[0] ?? '')
+      : '';
 
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);

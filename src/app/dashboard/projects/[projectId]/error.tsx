@@ -13,8 +13,10 @@ export default function ProjectDetailError({
 }) {
   const [expanded, setExpanded] = useState(true);
 
+  // FIX v4: Capture ALL error info including type-specific details
+  const [errorDetails, setErrorDetails] = useState<string>("");
+
   useEffect(() => {
-    // Log FULL error details to console for debugging
     console.group("[ProjectDetailError] Full Error Details");
     console.error("Error name:", error?.name);
     console.error("Error message:", error?.message);
@@ -24,11 +26,37 @@ export default function ProjectDetailError({
     if (error) {
       try {
         Object.keys(error).forEach((key) => {
-          console.error(`Error.${key}:`, (error as unknown as Record<string, unknown>)[key]);
+          const val = (error as unknown as Record<string, unknown>)[key];
+          console.error(`Error.${key}:`, val);
+          console.error(`Error.${key} type:`, typeof val);
+          if (val !== null && typeof val === 'object') {
+            console.error(`Error.${key} keys:`, Object.keys(val));
+          }
         });
       } catch { /* ignore */ }
     }
     console.groupEnd();
+
+    // Build a detailed error summary for display
+    const details: string[] = [];
+    if (error) {
+      details.push("Name: " + String(error.name ?? "unknown"));
+      details.push("Message: " + String(error.message ?? "no message"));
+      // Try to extract info from error object properties
+      try {
+        const errObj = error as unknown as Record<string, unknown>;
+        for (const key of Object.keys(errObj)) {
+          const val = errObj[key];
+          if (key === 'name' || key === 'message' || key === 'stack' || key === 'digest') continue;
+          if (val !== null && typeof val === 'object') {
+            details.push(key + ": [object with keys: " + Object.keys(val).join(', ') + "]");
+          } else {
+            details.push(key + ": " + String(val));
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    setErrorDetails(details.join("\n"));
   }, [error]);
 
   // Safely extract error info — NEVER render raw objects
@@ -91,6 +119,16 @@ export default function ProjectDetailError({
                 <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Message</p>
                 <p className="text-sm font-mono text-red-700 dark:text-red-300 break-all">{errorMessage}</p>
               </div>
+
+              {/* Additional error details (v4 diagnostic) */}
+              {errorDetails && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 font-semibold mb-1">Diagnostic Details</p>
+                  <pre className="text-xs font-mono text-blue-700 dark:text-blue-300 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+                    {errorDetails}
+                  </pre>
+                </div>
+              )}
 
               {/* If React #310, show the object keys prominently */}
               {objectKeys && (

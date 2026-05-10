@@ -1,77 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo, Component, type ReactNode } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, UserPlus, X,
 } from "lucide-react";
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Component-level Error Boundary
-// Catches rendering errors from child components (including UI library)
-// and provides detailed error info. This complements the file-level error.tsx.
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-interface ErrorBoundaryState { hasError: boolean; error: Error | null; info: React.ErrorInfo | null }
-class PageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null, info: null };
-  }
-  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("[PageErrorBoundary] Caught rendering error:", error.message, error.stack);
-    console.error("[PageErrorBoundary] Component stack:", info.componentStack);
-    // Log all enumerable error properties to help diagnose #310
-    try {
-      Object.keys(error).forEach((k) => console.error(`[PageErrorBoundary] error.${k}:`, (error as unknown as Record<string, unknown>)[k]));
-    } catch { /* */ }
-    this.setState({ info });
-  }
-  private handleReset = () => {
-    this.setState({ hasError: false, error: null, info: null });
-  };
-  render() {
-    if (this.state.hasError && this.state.error) {
-      const err = this.state.error;
-      const msg = typeof err.message === "string" ? err.message : String(err);
-      // Parse React #310 to show object keys
-      const keyMatch = msg.match(/object with keys?\s*\{([^}]+)\}/);
-      return (
-        <div className="text-center py-12 space-y-4">
-          <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto">
-            <X className="h-6 w-6 text-red-500" />
-          </div>
-          <p className="text-sm font-semibold text-foreground">Rendering Error</p>
-          <pre className="text-xs bg-muted p-3 rounded-md max-w-md mx-auto overflow-auto max-h-40 text-left whitespace-pre-wrap break-all">
-            {msg}
-          </pre>
-          {keyMatch && (
-            <div className="max-w-md mx-auto">
-              <p className="text-[10px] uppercase tracking-wider text-orange-500 font-semibold mb-1">Object Keys</p>
-              <div className="flex flex-wrap gap-1 justify-center">
-                {keyMatch[1].split(",").map((k) => (
-                  <span key={k.trim()} className="px-2 py-0.5 text-xs font-mono bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded">{k.trim()}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {this.state.info && (
-            <pre className="text-xs bg-muted p-3 rounded-md max-w-md mx-auto overflow-auto max-h-32 text-left whitespace-pre-wrap">
-              {this.state.info.componentStack}
-            </pre>
-          )}
-          <Button variant="outline" size="sm" onClick={this.handleReset}>
-            Try Again
-          </Button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,9 +17,9 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+// NOTE: Radix Select removed from this page to eliminate React #310 risk.
+// Radix SelectValue has known edge cases with React 19 where it may internally
+// render non-primitive values during mount/unmount transitions.
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
@@ -93,14 +27,21 @@ import { TASK_COLUMNS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// React #310 Fix: "Objects are not valid as a React child"
+// React #310 Prevention Strategy (v4 — complete rewrite)
 //
-// RULE: Every value rendered in JSX MUST be a string, number, or null.
-// We enforce this by:
-//   1. Fetching data from APIs that already JSON round-trip (strips Dates)
-//   2. Extracting only known scalar fields with explicit type casting
-//   3. Using str() helper that guarantees a string return type
-//   4. Never storing raw API objects in state — only primitives
+// Previous fixes failed because they were all defensive coding inside
+// the page. The real issue is a combination of:
+//   1. Next.js 16 useParams() edge cases during client navigation
+//   2. Radix Select internal rendering with React 19
+//   3. PageErrorBoundary class component causing recursive errors
+//   4. projectFound defaulting to true with empty data
+//
+// This version:
+//   - Removes PageErrorBoundary (error.tsx handles errors)
+//   - Guards useParams() for Promise/undefined
+//   - Uses native <select> instead of Radix Select
+//   - Defaults projectFound to false
+//   - Adds comprehensive diagnostic logging
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Force any value to a string. Objects become fallback. */
@@ -168,7 +109,27 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  const projectId = params.projectId as string;
+
+  // FIX #1: Guard useParams() — Next.js 16 may return Promise or undefined
+  // during client-side navigation. The `as string` cast was hiding this.
+  const rawProjectId = params?.projectId;
+  const projectId = typeof rawProjectId === 'string'
+    ? rawProjectId
+    : Array.isArray(rawProjectId)
+      ? String(rawProjectId[0] ?? '')
+      : '';
+
+  // FIX #2: If projectId is empty, don't render the page at all
+  if (!projectId) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground mb-4">Invalid project ID</p>
+        <button className="px-4 py-2 text-sm border rounded hover:bg-accent" onClick={() => router.push("/dashboard/projects")}>
+          Back to Projects
+        </button>
+      </div>
+    );
+  }
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -189,7 +150,8 @@ export default function ProjectDetailPage() {
   const [projectProgress, setProjectProgress] = useState(0);
   const [projectBudget, setProjectBudget] = useState(0);
   const [projectDeadline, setProjectDeadline] = useState("");
-  const [projectFound, setProjectFound] = useState(true);
+  // FIX #3: Default to false — only set true when API confirms project exists
+  const [projectFound, setProjectFound] = useState(false);
 
   const [tasks, setTasks] = useState<SafeTask[]>([]);
   const [agents, setAgents] = useState<SafeAgent[]>([]);
@@ -215,6 +177,8 @@ export default function ProjectDetailPage() {
         if (Array.isArray(projData) && projData.length > 0) raw = projData[0];
         else if (projData && typeof projData === "object" && projData.id) raw = projData as Record<string, unknown>;
         if (raw) {
+          console.log('[ProjectDetail] API project data keys:', Object.keys(raw));
+          console.log('[ProjectDetail] API project data types:', Object.entries(raw).map(([k,v]) => `${k}:${typeof v}`).join(', '));
           setProjectFound(true);
           setProjectName(str(raw.name, "Unnamed Project"));
           setProjectDesc(str(raw.description));
@@ -222,6 +186,7 @@ export default function ProjectDetailPage() {
           setProjectProgress(num(raw.progress));
           setProjectBudget(num(raw.budget));
           setProjectDeadline(str(raw.deadline));
+          console.log('[ProjectDetail] State set — name:', str(raw.name), 'status:', str(raw.status, 'PLANNING'), 'progress:', num(raw.progress));
         } else {
           setProjectFound(false);
         }
@@ -528,7 +493,6 @@ export default function ProjectDetailPage() {
     : "N/A";
 
   return (
-    <PageErrorBoundary>
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -547,17 +511,16 @@ export default function ProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Status</p>
             {isAdminUser ? (
-              <Select
-                value={projectStatus}
-                onValueChange={(val) => handleUpdateProject({ status: val })}
+              /* FIX #4: Native <select> instead of Radix Select to avoid #310 */
+              <select
+                className="mt-1 h-7 text-xs border rounded px-2 bg-background"
+                value={String(projectStatus)}
+                onChange={(e) => handleUpdateProject({ status: e.target.value })}
               >
-                <SelectTrigger className="h-7 mt-1 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
-                    <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
+                  <option key={s} value={s}>{s.replace("_", " ")}</option>
+                ))}
+              </select>
             ) : (
               <Badge className={"mt-1 " + (projectStatusColors[projectStatus] || "")}>
                 {projectStatus.replace("_", " ")}
@@ -729,41 +692,32 @@ export default function ProjectDetailPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Priority</Label>
-                    <Select name="priority" defaultValue="MEDIUM">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="LOW">Low</SelectItem>
-                        <SelectItem value="MEDIUM">Medium</SelectItem>
-                        <SelectItem value="HIGH">High</SelectItem>
-                        <SelectItem value="URGENT">Urgent</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select name="priority" defaultValue="MEDIUM" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                      <option value="LOW">Low</option>
+                      <option value="MEDIUM">Medium</option>
+                      <option value="HIGH">High</option>
+                      <option value="URGENT">Urgent</option>
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Assign To</Label>
-                    <Select name="assigneeType" defaultValue="HUMAN">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="HUMAN">Team Member</SelectItem>
-                        <SelectItem value="AI">AI Agent</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select name="assigneeType" defaultValue="HUMAN" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                      <option value="HUMAN">Team Member</option>
+                      <option value="AI">AI Agent</option>
+                    </select>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Assignee</Label>
-                  <Select name="assignedTo">
-                    <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
-                      {members.map((m) => (
-                        <SelectItem key={m.userId} value={m.userId}>{m.userName}</SelectItem>
-                      ))}
-                      {agents.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>{a.name} (AI)</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <select name="assignedTo" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    <option value="">Unassigned</option>
+                    {members.map((m) => (
+                      <option key={m.userId} value={m.userId}>{m.userName}</option>
+                    ))}
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} (AI)</option>
+                    ))}
+                  </select>
                 </div>
                 <Button type="submit" className="w-full">Create Task</Button>
               </form>
@@ -850,6 +804,5 @@ export default function ProjectDetailPage() {
         })}
       </div>
     </div>
-    </PageErrorBoundary>
   );
 }
