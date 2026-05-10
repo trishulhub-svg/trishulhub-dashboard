@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
   }
 
   const task = await db.task.create({ data })
-  return NextResponse.json(task, { status: 201 })
+  return NextResponse.json(JSON.parse(JSON.stringify(task)), { status: 201 })
   } catch (error: any) {
     console.error("[tasks] POST error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -258,7 +258,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const task = await db.task.update({ where: { id }, data })
-  return NextResponse.json(task)
+  return NextResponse.json(JSON.parse(JSON.stringify(task)))
   } catch (error: any) {
     console.error("[tasks] PATCH error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -115,7 +115,7 @@ export async function POST(
       console.error("[project-members] notification error (non-blocking)")
     }
 
-    return NextResponse.json(membership, { status: 201 })
+    return NextResponse.json(JSON.parse(JSON.stringify(membership)), { status: 201 })
   } catch (error: unknown) {
     console.error("[project-members] POST error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

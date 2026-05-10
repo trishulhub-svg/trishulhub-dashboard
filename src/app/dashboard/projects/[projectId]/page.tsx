@@ -147,6 +147,23 @@ function whitelistProject(raw: unknown): Record<string, unknown> | null {
   return Object.keys(safe).length > 0 ? safe : null;
 }
 
+// Layer 5: Recursive object scanner — logs any non-primitive values
+// that could cause React #310 if rendered in JSX.
+function scanForObjects(label: string, data: unknown, depth: number = 0): void {
+  if (depth > 3 || !data || typeof data !== "object") return;
+  if (Array.isArray(data)) {
+    data.forEach((item, i) => scanForObjects(`${label}[${i}]`, item, depth + 1));
+    return;
+  }
+  for (const [key, val] of Object.entries(data)) {
+    if (val !== null && typeof val === "object") {
+      console.warn(`[ZAI #310 SCAN] ${label}.${key} is ${Array.isArray(val) ? "Array" : typeof val}:`, 
+        Array.isArray(val) ? `length=${val.length}` : Object.keys(val).join(","));
+      scanForObjects(`${label}.${key}`, val, depth + 1);
+    }
+  }
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -199,7 +216,9 @@ export default function ProjectDetailPage() {
           rawProject = projData.data[0];
         }
         if (rawProject) {
-          setProject(whitelistProject(rawProject));
+          const safe = whitelistProject(rawProject);
+          if (safe) scanForObjects("project[whitelisted]", safe);
+          setProject(safe);
         }
       } else {
         if (handle401(projRes)) return;
@@ -209,7 +228,10 @@ export default function ProjectDetailPage() {
       if (taskRes.ok) {
         const taskData = await taskRes.json();
         const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
-        setTasks(deepSanitize<Record<string, unknown>[]>(raw));
+        const cleaned = deepSanitize<Record<string, unknown>[]>(raw);
+        // Scan first few tasks for non-scalar fields
+        cleaned.slice(0, 3).forEach((t, i) => scanForObjects(`tasks[${i}]`, t));
+        setTasks(cleaned);
       } else {
         if (handle401(taskRes)) return;
       }

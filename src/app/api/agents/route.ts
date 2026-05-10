@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
             : ""
         }
       }
-      return NextResponse.json(agent)
+      return NextResponse.json(JSON.parse(JSON.stringify(agent)))
     }
 
     // ── Full agent list (original behavior) ──
@@ -196,7 +196,7 @@ export async function PATCH(req: NextRequest) {
       include: { roleConfig: true },
     })
 
-    return NextResponse.json(updated)
+    return NextResponse.json(JSON.parse(JSON.stringify(updated)))
   } catch (error: any) {
     console.error("[agents] PATCH error:", error.message, error.stack)
     return NextResponse.json({ error: "Failed to update agent" }, { status: 500 })

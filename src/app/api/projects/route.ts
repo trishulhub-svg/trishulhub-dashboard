@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
       deadline: deadline ? new Date(deadline) : null,
     },
   })
-  return NextResponse.json(project, { status: 201 })
+  return NextResponse.json(JSON.parse(JSON.stringify(project)), { status: 201 })
 }
 
 export async function PUT(req: NextRequest) {
@@ -212,7 +212,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
-  return NextResponse.json(project)
+  return NextResponse.json(JSON.parse(JSON.stringify(project)))
 }
 
 export async function DELETE(req: NextRequest) {
