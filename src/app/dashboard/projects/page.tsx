@@ -17,9 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+// NOTE: Radix Select removed — replaced with native <select> to prevent React #310
+// Radix SelectValue + React 19 has rendering edge cases that produce #310 errors
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -262,18 +261,12 @@ export default function ProjectsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Client *</Label>
-                  <Select name="clientId" required>
-                    <SelectTrigger><SelectValue placeholder={clients.length === 0 ? "No clients available" : "Select client"} /></SelectTrigger>
-                    <SelectContent>
-                      {clients.length === 0 ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No clients found. Create a client first.</div>
-                      ) : (
-                        (clients as { id: string; name: string }[]).map((c) => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <select name="clientId" required className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    <option value="">{clients.length === 0 ? "No clients available" : "Select client"}</option>
+                    {(clients as { id: string; name: string }[]).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -398,14 +391,11 @@ export default function ProjectsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Status</Label>
-                  <Select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {VALID_STATUSES.map((s) => (
-                        <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    {VALID_STATUSES.map((s) => (
+                      <option key={s} value={s}>{s.replace("_", " ")}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Progress (%)</Label>

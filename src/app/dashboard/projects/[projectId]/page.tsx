@@ -492,8 +492,13 @@ export default function ProjectDetailPage() {
     ? projectBudget.toLocaleString("en-IN")
     : "N/A";
 
+  // FIX #5: Force React to fully remount when projectId changes.
+  // This prevents stale state from a previous project's render from leaking.
+  // Also wrap in ErrorBoundary-safe key to avoid hydration issues.
+  const renderKey = `project-${projectId}-v4`;
+
   return (
-    <div className="space-y-4">
+    <div key={renderKey} className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects">
