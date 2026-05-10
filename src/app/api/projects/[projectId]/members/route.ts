@@ -39,7 +39,8 @@ export async function GET(
       orderBy: { createdAt: "asc" },
     })
 
-    return NextResponse.json(members)
+    // ZAI FIX #310: JSON round-trip to strip Date objects → ISO strings
+    return NextResponse.json(JSON.parse(JSON.stringify(members)))
   } catch (error: unknown) {
     console.error("[project-members] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

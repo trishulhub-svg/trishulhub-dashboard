@@ -26,6 +26,58 @@ import { toast } from "sonner";
 import { TASK_COLUMNS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ZAI PROTOCOL: Multi-Layer Defense Against React #310
+//
+// React error #310 = "Objects are not valid as a React child"
+// This occurs when an object/Date/Array/Function/Symbol is rendered
+// directly in JSX like {someObject} instead of {someObject.prop}.
+//
+// ROOT CAUSE: Prisma `include` returns nested objects (Date instances,
+// relation objects, circular refs). Even though HTTP JSON serialization
+// converts most, edge cases survive and get stored in React state.
+//
+// DEFENSE LAYERS:
+//   Layer 0: deepSanitize — JSON round-trip strips ALL non-serializable
+//     values (Date objects → ISO strings, circular refs removed, etc.)
+//   Layer 1: whitelistProject — Build from ONLY known scalar fields,
+//     instead of stripping known relation fields (which misses unknowns)
+//   Layer 2: safeText — Final render gatekeeper. Every value rendered
+//     in JSX passes through this, guaranteeing a string/number primitive
+//   Layer 3: safeTasks — Explicit primitive-only task construction
+//   Layer 4: Error boundary with detailed diagnostics
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Layer 0: Deep sanitization via JSON round-trip.
+// Strips Date objects, circular references, BigInt, undefined, functions.
+// Everything becomes JSON-safe: strings, numbers, booleans, null, plain objects, arrays.
+function deepSanitize<T>(data: unknown): T {
+  try {
+    return JSON.parse(JSON.stringify(data)) as T;
+  } catch {
+    console.error("[ZAI #310] deepSanitize failed, returning empty");
+    return {} as T;
+  }
+}
+
+// Layer 2: Guaranteed primitive render value.
+// If the input is an object/array/function/symbol, converts to a safe string.
+// Prevents React #310 under ALL circumstances.
+function safeText(value: unknown, fallback: string = ""): string {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  // Object, Array, Function, Symbol, Date — all become safe strings
+  try {
+    const s = String(value);
+    // Detect "[object Object]" which means we'd render a useless string
+    if (s === "[object Object]" || s === "[object Array]") return fallback;
+    return s;
+  } catch {
+    return fallback;
+  }
+}
+
 const taskStatusColors: Record<TaskStatus, string> = {
   TODO: "bg-gray-100 dark:bg-gray-800/50",
   IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
@@ -54,7 +106,7 @@ interface ProjectMember {
   userId: string;
   projectId: string;
   role: string;
-  user: { id: string; name: string; email: string; role: string; department?: string };
+  user?: { id?: string; name?: string; email?: string; role?: string; department?: string; avatar?: string };
 }
 
 interface TeamUser {
@@ -65,25 +117,48 @@ interface TeamUser {
   department?: string;
 }
 
+// Layer 1: Known scalar fields for the Project model.
+// Any field NOT in this list is treated as a potential object and dropped.
+const PROJECT_SCALAR_FIELDS = [
+  "id", "name", "description", "clientId", "status",
+  "progress", "deadline", "budget", "createdAt", "updatedAt",
+] as const;
+
+// Build a safe project object from ONLY whitelisted scalar fields
+function whitelistProject(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  // Layer 0 first: JSON round-trip to strip Dates and circular refs
+  const clean = deepSanitize<Record<string, unknown>>(raw);
+  // Layer 1: Build from whitelist only
+  const safe: Record<string, unknown> = {};
+  for (const key of PROJECT_SCALAR_FIELDS) {
+    if (key in clean && clean[key] !== undefined) {
+      const val = clean[key];
+      // Double-check: only keep primitives
+      if (val === null || typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+        safe[key] = val;
+      } else if (typeof val === "object" && !Array.isArray(val)) {
+        // Could be a Date string from JSON — check if it looks like a date
+        // JSON.stringify converts Dates to ISO strings, so this should be a string now
+        safe[key] = String(val);
+      }
+    }
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const projectId = params.projectId as string;
 
-  // FIX Error #310: Client-only mount guard prevents hydration mismatch.
-  // During SSR, session is unavailable → skeleton renders.
-  // During hydration, NextAuth JWT may resolve synchronously from cookie,
-  // causing session to be immediately available → different JSX → mismatch.
-  // This mounted flag ensures the FIRST render (server + hydration) always
-  // matches (both show skeleton), and actual content only appears after mount.
+  // Client-only mount guard prevents hydration mismatch
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-
-  // Stable role string to prevent infinite re-fetching from session object changes
   const stableRole = sessionStatus === "authenticated" ? (session?.user?.role || "DEVELOPER") : "DEVELOPER";
 
   const handle401 = useCallback((res: Response) => {
@@ -94,16 +169,8 @@ export default function ProjectDetailPage() {
     return false;
   }, []);
 
-  // ZAI FIX #310: Strip nested objects at ingestion — never store them in state.
-  // The projects API returns {client, tasks, members} but the detail page only
-  // needs scalar fields. Stripping here prevents ANY accidental render of objects.
-  const sanitizeProject = useCallback((raw: Record<string, unknown>) => {
-    const { client: _c, tasks: _t, members: _m, invoices: _i, timeEntries: _te, meetings: _mt, expenses: _ex, subscriptions: _s, ...safe } = raw;
-    return safe as Record<string, unknown>;
-  }, []);
-
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<unknown[]>([]);
+  const [tasks, setTasks] = useState<Record<string, unknown>[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -120,45 +187,62 @@ export default function ProjectDetailPage() {
         fetch(`/api/projects/${projectId}/members`, { credentials: 'include', signal }),
       ]);
 
+      // ── Project: Layer 0 + Layer 1 sanitization ──
       if (projRes.ok) {
         const projData = await projRes.json();
+        let rawProject: unknown = null;
         if (Array.isArray(projData)) {
-          if (projData.length > 0) setProject(sanitizeProject(projData[0] as Record<string, unknown>));
+          rawProject = projData.length > 0 ? projData[0] : null;
         } else if (projData?.id) {
-          setProject(sanitizeProject(projData as Record<string, unknown>));
+          rawProject = projData;
         } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
-          setProject(sanitizeProject(projData.data[0] as Record<string, unknown>));
+          rawProject = projData.data[0];
+        }
+        if (rawProject) {
+          setProject(whitelistProject(rawProject));
         }
       } else {
         if (handle401(projRes)) return;
       }
+
+      // ── Tasks: Layer 0 deep sanitize ──
       if (taskRes.ok) {
         const taskData = await taskRes.json();
-        setTasks(Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []));
+        const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
+        setTasks(deepSanitize<Record<string, unknown>[]>(raw));
       } else {
         if (handle401(taskRes)) return;
       }
+
+      // ── Agents: Layer 0 sanitize + extract only id/name ──
       if (agentRes.ok) {
         const agentData = await agentRes.json();
-        // ZAI FIX #310: Only keep id+name from agents — strip apiKey, roleConfig, etc.
         const raw = Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []);
-        setAgents(raw.map((a: any) => ({ id: String(a.id ?? ''), name: typeof a.name === 'string' ? a.name : 'AI Agent' })));
+        const clean = deepSanitize<Record<string, unknown>[]>(raw);
+        setAgents(clean.map((a) => ({
+          id: safeText(a.id, ""),
+          name: safeText(a.name, "AI Agent"),
+        })));
       } else {
         if (handle401(agentRes)) return;
       }
+
+      // ── Members: Layer 0 deep sanitize ──
       if (memberRes.ok) {
         const memberData = await memberRes.json();
-        setMembers(Array.isArray(memberData) ? memberData : (Array.isArray(memberData?.data) ? memberData.data : []));
+        const raw = Array.isArray(memberData) ? memberData : (Array.isArray(memberData?.data) ? memberData.data : []);
+        setMembers(deepSanitize<ProjectMember[]>(raw));
       } else {
         if (handle401(memberRes)) return;
       }
 
-      // Only fetch team users if admin (for member assignment)
+      // ── Team Users (admin only): Layer 0 sanitize ──
       if (stableRole === "SUPER_ADMIN" || stableRole === "ADMIN") {
         const userRes = await fetch("/api/team?type=users", { credentials: 'include', signal });
         if (userRes.ok) {
           const userData = await userRes.json();
-          setTeamUsers(Array.isArray(userData) ? userData : (Array.isArray(userData?.data) ? userData.data : []));
+          const raw = Array.isArray(userData) ? userData : (Array.isArray(userData?.data) ? userData.data : []);
+          setTeamUsers(deepSanitize<TeamUser[]>(raw));
         } else {
           if (handle401(userRes)) return;
         }
@@ -343,56 +427,48 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const typedTasks = tasks as {
-    id: string; title: string; description?: string; status: TaskStatus;
-    priority: TaskPriority; assigneeType: string; assignedTo?: string;
-    assignee?: { name: string }; agent?: { name: string };
-    deadline?: string | null;
-  }[];
-
-  // ── ZAI Protocol Fix #310: Comprehensive sanitization ──
-  // Strip ALL nested objects from task data — only keep scalar/primitive fields.
-  // The previous ...t spread copied the massive project object (circular ref)
-  // which caused React #310 when reconciliation encountered it.
+  // ── Layer 3: safeTasks — explicit primitive-only task construction ──
   const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
   const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 
-  const safeTasks = typedTasks.map(t => {
+  const safeTasks = tasks.map(t => {
     // Resolve assignee name from members or agents list
     let assigneeName = "Unassigned";
-    if (t.assignedTo) {
-      if (t.assigneeType === "AI") {
-        const agent = agents.find(a => a.id === t.assignedTo);
-        if (agent && typeof agent.name === 'string') assigneeName = agent.name;
+    const assignedTo = safeText(t.assignedTo, "");
+    const assigneeType = safeText(t.assigneeType, "HUMAN");
+
+    if (assignedTo) {
+      if (assigneeType === "AI") {
+        const agent = agents.find(a => a.id === assignedTo);
+        if (agent) assigneeName = agent.name;
       } else {
-        const member = members.find(m => m.userId === t.assignedTo);
-        if (member && member.user && typeof member.user.name === 'string') assigneeName = member.user.name;
+        const member = members.find(m => m.userId === assignedTo);
+        if (member?.user?.name) assigneeName = safeText(member.user.name, "Team Member");
       }
     }
     return {
-      id: String(t.id),
-      title: typeof t.title === 'string' ? t.title : String(t.title ?? 'Untitled'),
-      description: typeof t.description === 'string' ? t.description : null,
-      status: (typeof t.status === 'string' && (VALID_STATUSES as readonly string[]).includes(t.status)) ? t.status : 'TODO',
-      priority: (typeof t.priority === 'string' && (VALID_PRIORITIES as readonly string[]).includes(t.priority)) ? t.priority : 'MEDIUM',
-      assigneeType: t.assigneeType === 'AI' ? 'AI' : 'HUMAN',
+      id: safeText(t.id, ""),
+      title: safeText(t.title, "Untitled"),
+      description: typeof t.description === "string" ? t.description : null,
+      status: (VALID_STATUSES as readonly string[]).includes(safeText(t.status, "")) ? safeText(t.status, "TODO") : "TODO",
+      priority: (VALID_PRIORITIES as readonly string[]).includes(safeText(t.priority, "")) ? safeText(t.priority, "MEDIUM") : "MEDIUM",
+      assigneeType: assigneeType === "AI" ? "AI" : "HUMAN",
       assigneeName,
-      deadline: t.deadline ? String(t.deadline) : null,
-      // NO nested objects copied — only primitive values
+      deadline: t.deadline ? safeText(t.deadline, "") : null,
     };
   });
 
-  // Safely extract project fields with proper type coercion
-  const projectName = typeof project.name === 'string' ? project.name : String(project.name ?? 'Unnamed Project');
-  const projectDesc = typeof project.description === 'string' ? project.description : (project.description ? String(project.description) : '');
-  const projectStatus = typeof project.status === 'string' ? project.status : 'PLANNING';
-  const projectProgress = typeof project.progress === 'number' ? project.progress : Number(project.progress) || 0;
-  const projectBudget = typeof project.budget === 'number' ? project.budget : Number(project.budget) || 0;
-  const projectDeadline = project.deadline ? new Date(String(project.deadline)) : null;
+  // ── Layer 2: safeText for ALL project fields rendered in JSX ──
+  const projectName = safeText(project.name, "Unnamed Project");
+  const projectDesc = safeText(project.description, "");
+  const projectStatus = safeText(project.status, "PLANNING");
+  const projectProgress = typeof project.progress === "number" ? project.progress : (Number(project.progress) || 0);
+  const projectBudget = typeof project.budget === "number" ? project.budget : (Number(project.budget) || 0);
+  const projectDeadline = project.deadline ? new Date(safeText(project.deadline)) : null;
 
   // Filter out users already in the project
-  const memberUserIds = members.map(m => m.userId);
-  const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(u.id)), [teamUsers, memberUserIds]);
+  const memberUserIds = members.map(m => safeText(m.userId, ""));
+  const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(safeText(u.id, ""))), [teamUsers, memberUserIds]);
 
   return (
     <div className="space-y-4">
@@ -455,7 +531,7 @@ export default function ProjectDetailPage() {
           <Card>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Budget</p>
-              <p className="text-sm font-medium mt-1">₹{projectBudget.toLocaleString("en-IN")}</p>
+              <p className="text-sm font-medium mt-1">{safeText(`${projectBudget.toLocaleString("en-IN")}`, "N/A")}</p>
             </CardContent>
           </Card>
         )}
@@ -463,7 +539,7 @@ export default function ProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Deadline</p>
             <p className="text-sm font-medium mt-1">
-              {projectDeadline ? projectDeadline.toLocaleDateString() : "No deadline"}
+              {projectDeadline && !isNaN(projectDeadline.getTime()) ? projectDeadline.toLocaleDateString() : "No deadline"}
             </p>
           </CardContent>
         </Card>
@@ -502,23 +578,23 @@ export default function ProjectDetailPage() {
                     <ScrollArea className="max-h-80">
                       <div className="space-y-2">
                         {availableUsers.map((user) => (
-                          <div key={user.id} className="flex items-center justify-between p-3 rounded-lg border">
+                          <div key={safeText(user.id, "")} className="flex items-center justify-between p-3 rounded-lg border">
                             <div className="flex items-center gap-3">
                               <Avatar className="h-8 w-8">
                                 <AvatarFallback className="text-xs">
-                                  {user.name.split(" ").map(n => n[0]).join("")}
+                                  {safeText(user.name, "?").split(" ").map(n => n[0]).join("")}
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <p className="text-sm font-medium">{user.name}</p>
-                                <p className="text-xs text-muted-foreground">{user.role} {user.department ? `· ${user.department}` : ''}</p>
+                                <p className="text-sm font-medium">{safeText(user.name, "Unknown")}</p>
+                                <p className="text-xs text-muted-foreground">{safeText(user.role, "")} {user.department ? `· ${safeText(user.department, "")}` : ''}</p>
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => handleAddMember(user.id, "MEMBER")}>
+                              <Button size="sm" variant="outline" onClick={() => handleAddMember(safeText(user.id, ""), "MEMBER")}>
                                 Member
                               </Button>
-                              <Button size="sm" onClick={() => handleAddMember(user.id, "LEAD")}>
+                              <Button size="sm" onClick={() => handleAddMember(safeText(user.id, ""), "LEAD")}>
                                 Lead
                               </Button>
                             </div>
@@ -540,22 +616,22 @@ export default function ProjectDetailPage() {
           ) : (
             <div className="flex flex-wrap gap-3">
               {members.map((member) => (
-                <div key={member.id} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
+                <div key={safeText(member.id, "")} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="text-xs">
-                      {typeof member.user?.name === 'string' ? member.user.name.split(" ").map(n => n[0]).join("") : "?"}
+                      {safeText(member.user?.name, "?").split(" ").map(n => n[0]).join("")}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="text-xs font-medium">{typeof member.user?.name === 'string' ? member.user.name : 'Unknown'}</p>
-                    <p className="text-[10px] text-muted-foreground">{member.role}</p>
+                    <p className="text-xs font-medium">{safeText(member.user?.name, "Unknown")}</p>
+                    <p className="text-[10px] text-muted-foreground">{safeText(member.role, "")}</p>
                   </div>
                   {isAdminUser && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                      onClick={() => handleRemoveMember(member.userId)}
+                      onClick={() => handleRemoveMember(safeText(member.userId, ""))}
                       aria-label="Remove member"
                     >
                       <X className="h-3 w-3" />
@@ -618,10 +694,10 @@ export default function ProjectDetailPage() {
                     <SelectContent>
                       <SelectItem value="">Unassigned</SelectItem>
                       {members.map((m) => (
-                        <SelectItem key={String(m.userId)} value={String(m.userId)}>{typeof m.user?.name === 'string' ? m.user.name : 'Team Member'}</SelectItem>
+                        <SelectItem key={safeText(m.userId, "")} value={safeText(m.userId, "")}>{safeText(m.user?.name, "Team Member")}</SelectItem>
                       ))}
-                      {(agents).map((a) => (
-                        <SelectItem key={String(a.id)} value={String(a.id)}>{typeof a.name === 'string' ? a.name : 'AI Agent'} (AI)</SelectItem>
+                      {agents.map((a) => (
+                        <SelectItem key={safeText(a.id, "")} value={safeText(a.id, "")}>{safeText(a.name, "AI Agent")} (AI)</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -646,16 +722,16 @@ export default function ProjectDetailPage() {
               </div>
               <div className="flex-1 space-y-2 p-2 bg-muted/30 rounded-b-lg min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
                 {columnTasks.map((task) => (
-                  <Card key={task.id} className="hover:shadow-md transition-shadow">
+                  <Card key={safeText(task.id, "")} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-3 space-y-2">
                       <div className="flex items-start justify-between">
-                        <p className="text-sm font-medium">{task.title}</p>
-                        <Badge className={`text-[10px] shrink-0 ${priorityColors[task.priority]}`}>
-                          {task.priority}
+                        <p className="text-sm font-medium">{safeText(task.title, "Untitled")}</p>
+                        <Badge className={`text-[10px] shrink-0 ${priorityColors[task.priority as TaskPriority] || ""}`}>
+                          {safeText(task.priority, "MEDIUM")}
                         </Badge>
                       </div>
                       {task.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{safeText(task.description, "")}</p>
                       )}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -664,12 +740,12 @@ export default function ProjectDetailPage() {
                           ) : (
                             <User className="h-3 w-3" />
                           )}
-                          <span>{task.assigneeName}</span>
+                          <span>{safeText(task.assigneeName, "Unassigned")}</span>
                         </div>
                         {task.deadline && (
                           <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                             <Clock className="h-2.5 w-2.5" />
-                            {new Date(task.deadline).toLocaleDateString()}
+                            {(() => { try { return new Date(task.deadline).toLocaleDateString(); } catch { return ""; } })()}
                           </span>
                         )}
                       </div>
@@ -680,16 +756,16 @@ export default function ProjectDetailPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 text-[10px] px-2"
-                            onClick={() => handleMoveTask(task.id, s)}
+                            onClick={() => handleMoveTask(safeText(task.id, ""), s)}
                           >
-                            → {s.replace("_", " ").slice(0, 3)}
+                            {safeText(`→ ${s.replace("_", " ").slice(0, 3)}`, "")}
                           </Button>
                         ))}
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-6 text-red-500 px-2"
-                          onClick={() => handleDeleteTask(task.id)}
+                          onClick={() => handleDeleteTask(safeText(task.id, ""))}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>

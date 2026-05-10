@@ -27,17 +27,18 @@ export async function GET(req: NextRequest) {
   if (userRole === "CLIENT") {
     const client = await db.client.findFirst({ where: { userId } })
     if (!client) return NextResponse.json([])
-    // ZAI FIX #310: Only include tasks for list view (no projectId filter).
-    // Detail page fetches tasks separately from /api/tasks.
+    // ZAI FIX #310: When projectId specified (detail page), return scalar-only data.
+    // Detail page fetches tasks and members separately — no includes needed.
     const projects = await db.project.findMany({
       where: {
         clientId: client.id,
         ...(projectId ? { id: projectId } : {}),
       },
-      include: { client: true, ...(projectId ? {} : { tasks: true }) },
+      include: { ...(projectId ? {} : { client: true, tasks: true }) },
       orderBy: { createdAt: "desc" }
     })
-    return NextResponse.json(projects)
+    // Layer 0: JSON round-trip to ensure Date objects are ISO strings
+    return NextResponse.json(JSON.parse(JSON.stringify(projects)))
   }
 
   // DEVELOPER users only see projects they're assigned to
@@ -59,13 +60,14 @@ export async function GET(req: NextRequest) {
   // For developers: don't expose budget info
   const includeBudget = isAdmin(userRole)
 
-  // ZAI FIX #310: Only include tasks+members for list view.
-    // When projectId is specified (detail page), skip nested includes —
-    // the detail page fetches tasks and members separately.
-    const projects = await db.project.findMany({
+  // ZAI FIX #310: When projectId is specified (detail page), return ONLY
+  // scalar fields — no includes at all. The detail page fetches tasks,
+  // members, and client data from their own dedicated endpoints.
+  // This eliminates the possibility of circular refs or nested objects.
+  const projects = await db.project.findMany({
     where,
     include: {
-      client: true,
+      ...(projectId ? {} : { client: true }),
       ...(projectId ? {} : { tasks: true }),
       ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
     },
@@ -77,12 +79,14 @@ export async function GET(req: NextRequest) {
     const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
       ...rest,
       budget: undefined,
-      client: { id: client.id, name: client.name, company: client.company },
+      client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
     }))
-    return NextResponse.json(filtered)
+    // Layer 0: JSON round-trip to strip Date objects → ISO strings
+    return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
   }
 
-  return NextResponse.json(projects)
+  // Layer 0: JSON round-trip to strip Date objects → ISO strings
+  return NextResponse.json(JSON.parse(JSON.stringify(projects)))
 }
 
 export async function POST(req: NextRequest) {

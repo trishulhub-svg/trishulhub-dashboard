@@ -106,10 +106,12 @@ export async function GET(req: NextRequest) {
         }
         return agent
       })
-      return NextResponse.json(sanitized)
+      // ZAI FIX #310: JSON round-trip to strip any non-serializable values
+      return NextResponse.json(JSON.parse(JSON.stringify(sanitized)))
     }
 
-    return NextResponse.json(agents)
+    // ZAI FIX #310: JSON round-trip to strip any non-serializable values
+    return NextResponse.json(JSON.parse(JSON.stringify(agents)))
   } catch (error: any) {
     console.error("[agents] GET error:", error.message); return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
   }
