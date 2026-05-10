@@ -12,24 +12,12 @@ export default function ProjectDetailError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Layer 4: Detailed error diagnostics for React #310
-    console.error("[ProjectDetailError] Full error info:", {
-      message: error.message,
-      digest: error.digest,
-      name: error.name,
-      stack: error.stack,
-    });
-
-    // Try to detect the specific cause
-    if (error.message.includes("310") || error.message.includes("Objects are not valid")) {
-      console.error("[ZAI #310] React rendering error detected. Common causes:");
-      console.error("  1. A Prisma Date object was rendered directly in JSX");
-      console.error("  2. A nested object (from include) was rendered instead of a scalar");
-      console.error("  3. A JSON-parsed value that's still an object/array was passed to JSX");
-      console.error("  4. A function, Symbol, or other non-serializable was in React state");
-      console.error("  Check the component stack above for the exact JSX expression.");
-    }
+    console.error("[ProjectDetailError]", error.message, error.stack);
   }, [error]);
+
+  // Safely extract error message as string — never render raw error objects
+  const errorMessage = typeof error?.message === "string" ? error.message : "An unexpected error occurred";
+  const errorDigest = typeof error?.digest === "string" ? error.digest : "";
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-6">
@@ -44,23 +32,21 @@ export default function ProjectDetailError({
           <p className="text-muted-foreground text-sm">
             Something went wrong loading this project. Try refreshing or go back to projects.
           </p>
-          {error.message && (
-            <details className="text-left mt-3">
-              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                Error details
-              </summary>
-              <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-48 text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
-                {error.message}
-                {error.digest && `\n\nDigest: ${error.digest}`}
-              </pre>
-            </details>
-          )}
+          <details className="text-left mt-3">
+            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+              Error details
+            </summary>
+            <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-48 text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
+              {errorMessage}
+              {errorDigest ? "\n\nDigest: " + errorDigest : ""}
+            </pre>
+          </details>
         </div>
         <div className="flex gap-3 justify-center">
           <Button onClick={reset} className="gap-2">
             <RefreshCw className="h-4 w-4" /> Try Again
           </Button>
-          <Button variant="outline" onClick={() => (window.location.href = "/dashboard/projects")} className="gap-2">
+          <Button variant="outline" onClick={() => { window.location.href = "/dashboard/projects"; }} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Back to Projects
           </Button>
         </div>

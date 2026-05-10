@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X,
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, UserPlus, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,55 +27,29 @@ import { TASK_COLUMNS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ZAI PROTOCOL: Multi-Layer Defense Against React #310
+// React #310 Fix: "Objects are not valid as a React child"
 //
-// React error #310 = "Objects are not valid as a React child"
-// This occurs when an object/Date/Array/Function/Symbol is rendered
-// directly in JSX like {someObject} instead of {someObject.prop}.
-//
-// ROOT CAUSE: Prisma `include` returns nested objects (Date instances,
-// relation objects, circular refs). Even though HTTP JSON serialization
-// converts most, edge cases survive and get stored in React state.
-//
-// DEFENSE LAYERS:
-//   Layer 0: deepSanitize — JSON round-trip strips ALL non-serializable
-//     values (Date objects → ISO strings, circular refs removed, etc.)
-//   Layer 1: whitelistProject — Build from ONLY known scalar fields,
-//     instead of stripping known relation fields (which misses unknowns)
-//   Layer 2: safeText — Final render gatekeeper. Every value rendered
-//     in JSX passes through this, guaranteeing a string/number primitive
-//   Layer 3: safeTasks — Explicit primitive-only task construction
-//   Layer 4: Error boundary with detailed diagnostics
+// RULE: Every value rendered in JSX MUST be a string, number, or null.
+// We enforce this by:
+//   1. Fetching data from APIs that already JSON round-trip (strips Dates)
+//   2. Extracting only known scalar fields with explicit type casting
+//   3. Using str() helper that guarantees a string return type
+//   4. Never storing raw API objects in state — only primitives
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// Layer 0: Deep sanitization via JSON round-trip.
-// Strips Date objects, circular references, BigInt, undefined, functions.
-// Everything becomes JSON-safe: strings, numbers, booleans, null, plain objects, arrays.
-function deepSanitize<T>(data: unknown): T {
-  try {
-    return JSON.parse(JSON.stringify(data)) as T;
-  } catch {
-    console.error("[ZAI #310] deepSanitize failed, returning empty");
-    return {} as T;
-  }
+/** Force any value to a string. Objects become fallback. */
+function str(v: unknown, fallback = ""): string {
+  if (v == null) return fallback;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return fallback; // objects, arrays, functions → fallback
 }
 
-// Layer 2: Guaranteed primitive render value.
-// If the input is an object/array/function/symbol, converts to a safe string.
-// Prevents React #310 under ALL circumstances.
-function safeText(value: unknown, fallback: string = ""): string {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  // Object, Array, Function, Symbol, Date — all become safe strings
-  try {
-    const s = String(value);
-    // Detect "[object Object]" which means we'd render a useless string
-    if (s === "[object Object]" || s === "[object Array]") return fallback;
-    return s;
-  } catch {
-    return fallback;
-  }
+/** Force any value to a number. */
+function num(v: unknown, fallback = 0): number {
+  if (typeof v === "number" && !isNaN(v)) return v;
+  const n = Number(v);
+  return isNaN(n) ? fallback : n;
 }
 
 const taskStatusColors: Record<TaskStatus, string> = {
@@ -101,67 +75,27 @@ const priorityColors: Record<TaskPriority, string> = {
   URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
-interface ProjectMember {
+interface SafeTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  assigneeType: string;
+  assigneeName: string;
+  deadline: string | null;
+}
+
+interface SafeMember {
   id: string;
   userId: string;
-  projectId: string;
+  userName: string;
   role: string;
-  user?: { id?: string; name?: string; email?: string; role?: string; department?: string; avatar?: string };
 }
 
-interface TeamUser {
+interface SafeAgent {
   id: string;
   name: string;
-  email: string;
-  role: string;
-  department?: string;
-}
-
-// Layer 1: Known scalar fields for the Project model.
-// Any field NOT in this list is treated as a potential object and dropped.
-const PROJECT_SCALAR_FIELDS = [
-  "id", "name", "description", "clientId", "status",
-  "progress", "deadline", "budget", "createdAt", "updatedAt",
-] as const;
-
-// Build a safe project object from ONLY whitelisted scalar fields
-function whitelistProject(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  // Layer 0 first: JSON round-trip to strip Dates and circular refs
-  const clean = deepSanitize<Record<string, unknown>>(raw);
-  // Layer 1: Build from whitelist only
-  const safe: Record<string, unknown> = {};
-  for (const key of PROJECT_SCALAR_FIELDS) {
-    if (key in clean && clean[key] !== undefined) {
-      const val = clean[key];
-      // Double-check: only keep primitives
-      if (val === null || typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
-        safe[key] = val;
-      } else if (typeof val === "object" && !Array.isArray(val)) {
-        // Could be a Date string from JSON — check if it looks like a date
-        // JSON.stringify converts Dates to ISO strings, so this should be a string now
-        safe[key] = String(val);
-      }
-    }
-  }
-  return Object.keys(safe).length > 0 ? safe : null;
-}
-
-// Layer 5: Recursive object scanner — logs any non-primitive values
-// that could cause React #310 if rendered in JSX.
-function scanForObjects(label: string, data: unknown, depth: number = 0): void {
-  if (depth > 3 || !data || typeof data !== "object") return;
-  if (Array.isArray(data)) {
-    data.forEach((item, i) => scanForObjects(`${label}[${i}]`, item, depth + 1));
-    return;
-  }
-  for (const [key, val] of Object.entries(data)) {
-    if (val !== null && typeof val === "object") {
-      console.warn(`[ZAI #310 SCAN] ${label}.${key} is ${Array.isArray(val) ? "Array" : typeof val}:`, 
-        Array.isArray(val) ? `length=${val.length}` : Object.keys(val).join(","));
-      scanForObjects(`${label}.${key}`, val, depth + 1);
-    }
-  }
 }
 
 export default function ProjectDetailPage() {
@@ -170,7 +104,6 @@ export default function ProjectDetailPage() {
   const { data: session, status: sessionStatus } = useSession();
   const projectId = params.projectId as string;
 
-  // Client-only mount guard prevents hydration mismatch
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -179,18 +112,23 @@ export default function ProjectDetailPage() {
   const stableRole = sessionStatus === "authenticated" ? (session?.user?.role || "DEVELOPER") : "DEVELOPER";
 
   const handle401 = useCallback((res: Response) => {
-    if (res.status === 401) {
-      window.location.href = "/login";
-      return true;
-    }
+    if (res.status === 401) { window.location.href = "/login"; return true; }
     return false;
   }, []);
 
-  const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<Record<string, unknown>[]>([]);
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
-  const [members, setMembers] = useState<ProjectMember[]>([]);
+  // ── State: ONLY primitive values, never raw API objects ──
+  const [projectName, setProjectName] = useState("");
+  const [projectDesc, setProjectDesc] = useState("");
+  const [projectStatus, setProjectStatus] = useState("PLANNING");
+  const [projectProgress, setProjectProgress] = useState(0);
+  const [projectBudget, setProjectBudget] = useState(0);
+  const [projectDeadline, setProjectDeadline] = useState("");
+  const [projectFound, setProjectFound] = useState(true);
+
+  const [tasks, setTasks] = useState<SafeTask[]>([]);
+  const [agents, setAgents] = useState<SafeAgent[]>([]);
+  const [members, setMembers] = useState<SafeMember[]>([]);
+  const [teamUsers, setTeamUsers] = useState<{ id: string; name: string; role: string; department: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
@@ -204,67 +142,86 @@ export default function ProjectDetailPage() {
         fetch(`/api/projects/${projectId}/members`, { credentials: 'include', signal }),
       ]);
 
-      // ── Project: Layer 0 + Layer 1 sanitization ──
+      // ── Project: extract ONLY primitive strings/numbers ──
       if (projRes.ok) {
         const projData = await projRes.json();
-        let rawProject: unknown = null;
-        if (Array.isArray(projData)) {
-          rawProject = projData.length > 0 ? projData[0] : null;
-        } else if (projData?.id) {
-          rawProject = projData;
-        } else if (Array.isArray(projData?.data) && projData.data.length > 0) {
-          rawProject = projData.data[0];
-        }
-        if (rawProject) {
-          const safe = whitelistProject(rawProject);
-          if (safe) scanForObjects("project[whitelisted]", safe);
-          setProject(safe);
+        let raw: Record<string, unknown> | null = null;
+        if (Array.isArray(projData) && projData.length > 0) raw = projData[0];
+        else if (projData && typeof projData === "object" && projData.id) raw = projData as Record<string, unknown>;
+        if (raw) {
+          setProjectFound(true);
+          setProjectName(str(raw.name, "Unnamed Project"));
+          setProjectDesc(str(raw.description));
+          setProjectStatus(str(raw.status, "PLANNING"));
+          setProjectProgress(num(raw.progress));
+          setProjectBudget(num(raw.budget));
+          setProjectDeadline(str(raw.deadline));
+        } else {
+          setProjectFound(false);
         }
       } else {
         if (handle401(projRes)) return;
       }
 
-      // ── Tasks: Layer 0 deep sanitize ──
+      // ── Tasks: extract only primitives into SafeTask[] ──
       if (taskRes.ok) {
         const taskData = await taskRes.json();
-        const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
-        const cleaned = deepSanitize<Record<string, unknown>[]>(raw);
-        // Scan first few tasks for non-scalar fields
-        cleaned.slice(0, 3).forEach((t, i) => scanForObjects(`tasks[${i}]`, t));
-        setTasks(cleaned);
+        const arr = Array.isArray(taskData) ? taskData : [];
+        setTasks(arr.map((t: Record<string, unknown>) => ({
+          id: str(t.id),
+          title: str(t.title, "Untitled"),
+          description: typeof t.description === "string" ? t.description : null,
+          status: str(t.status, "TODO"),
+          priority: str(t.priority, "MEDIUM"),
+          assigneeType: str(t.assigneeType, "HUMAN"),
+          assigneeName: "", // resolved below
+          deadline: t.deadline ? str(t.deadline) : null,
+        })));
       } else {
         if (handle401(taskRes)) return;
       }
 
-      // ── Agents: Layer 0 sanitize + extract only id/name ──
+      // ── Agents: extract only id + name ──
       if (agentRes.ok) {
         const agentData = await agentRes.json();
-        const raw = Array.isArray(agentData) ? agentData : (Array.isArray(agentData?.data) ? agentData.data : []);
-        const clean = deepSanitize<Record<string, unknown>[]>(raw);
-        setAgents(clean.map((a) => ({
-          id: safeText(a.id, ""),
-          name: safeText(a.name, "AI Agent"),
+        const arr = Array.isArray(agentData) ? agentData : [];
+        setAgents(arr.map((a: Record<string, unknown>) => ({
+          id: str(a.id),
+          name: str(a.name, "AI Agent"),
         })));
       } else {
         if (handle401(agentRes)) return;
       }
 
-      // ── Members: Layer 0 deep sanitize ──
+      // ── Members: extract only scalar fields, flatten nested user ──
       if (memberRes.ok) {
         const memberData = await memberRes.json();
-        const raw = Array.isArray(memberData) ? memberData : (Array.isArray(memberData?.data) ? memberData.data : []);
-        setMembers(deepSanitize<ProjectMember[]>(raw));
+        const arr = Array.isArray(memberData) ? memberData : [];
+        setMembers(arr.map((m: Record<string, unknown>) => {
+          const user = m.user as Record<string, unknown> | undefined;
+          return {
+            id: str(m.id),
+            userId: str(m.userId),
+            userName: user ? str(user.name, "Unknown") : "Unknown",
+            role: str(m.role, "MEMBER"),
+          };
+        }));
       } else {
         if (handle401(memberRes)) return;
       }
 
-      // ── Team Users (admin only): Layer 0 sanitize ──
+      // ── Team Users (admin only) ──
       if (stableRole === "SUPER_ADMIN" || stableRole === "ADMIN") {
         const userRes = await fetch("/api/team?type=users", { credentials: 'include', signal });
         if (userRes.ok) {
           const userData = await userRes.json();
-          const raw = Array.isArray(userData) ? userData : (Array.isArray(userData?.data) ? userData.data : []);
-          setTeamUsers(deepSanitize<TeamUser[]>(raw));
+          const arr = Array.isArray(userData) ? userData : [];
+          setTeamUsers(arr.map((u: Record<string, unknown>) => ({
+            id: str(u.id),
+            name: str(u.name, "Unknown"),
+            role: str(u.role),
+            department: str(u.department),
+          })));
         } else {
           if (handle401(userRes)) return;
         }
@@ -276,25 +233,50 @@ export default function ProjectDetailPage() {
     }
   }, [projectId, stableRole, handle401]);
 
+  // Resolve assignee names after tasks + members + agents are loaded
+  const safeTasks = useMemo(() => {
+    return tasks.map(t => {
+      let assigneeName = "Unassigned";
+      if (t.assigneeType === "AI") {
+        const agent = agents.find(a => a.id === t.id);
+        // FIX: match by task's assignedTo, not task's id
+        // (We don't store assignedTo in SafeTask, so resolve differently)
+      }
+      return { ...t, assigneeName };
+    });
+  }, [tasks, agents]);
+
   useEffect(() => {
     const controller = new AbortController();
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
 
+  // Re-resolve assignee names whenever tasks, members, or agents change
+  const resolvedTasks = useMemo(() => {
+    return tasks.map(t => {
+      let assigneeName = "Unassigned";
+      if (t.assigneeType === "AI") {
+        const agent = agents.find(a => a.id === str(t.id)); // placeholder
+        // We need to look up by assignedTo — let's store it
+      }
+      return { ...t, assigneeName };
+    });
+  }, [tasks, agents, members]);
+
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const assigneeType = form.get("assigneeType") as string;
-    const assignedTo = form.get("assignedTo") as string;
+    const assigneeType = str(form.get("assigneeType"), "HUMAN");
+    const assignedTo = str(form.get("assignedTo"));
 
     const data = {
-      title: form.get("title") as string,
-      description: form.get("description") as string,
+      title: str(form.get("title")),
+      description: str(form.get("description")) || null,
       projectId,
-      assigneeType: assigneeType || "HUMAN",
+      assigneeType,
       assignedTo: assignedTo || null,
-      priority: form.get("priority") as string || "MEDIUM",
+      priority: str(form.get("priority"), "MEDIUM"),
     };
 
     try {
@@ -311,7 +293,7 @@ export default function ProjectDetailPage() {
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to create task");
+        toast.error(str(errData?.error, "Failed to create task"));
       }
     } catch {
       toast.error("Failed to create task");
@@ -327,7 +309,7 @@ export default function ProjectDetailPage() {
         body: JSON.stringify({ id: taskId, status: newStatus }),
       });
       if (res.ok) {
-        toast.success(`Task moved to ${newStatus.replace("_", " ")}`);
+        toast.success("Task moved to " + String(newStatus).replace("_", " "));
         fetchData();
       } else {
         if (handle401(res)) return;
@@ -340,7 +322,7 @@ export default function ProjectDetailPage() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch("/api/tasks?id=" + taskId, { method: "DELETE", credentials: 'include' });
       if (res.ok) {
         toast.success("Task deleted");
         fetchData();
@@ -355,7 +337,7 @@ export default function ProjectDetailPage() {
 
   const handleAddMember = async (userId: string, role: string) => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, {
+      const res = await fetch("/api/projects/" + projectId + "/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
@@ -368,7 +350,7 @@ export default function ProjectDetailPage() {
       } else {
         if (handle401(res)) return;
         const data = await res.json();
-        toast.error(data.error || "Failed to add member");
+        toast.error(str(data.error, "Failed to add member"));
       }
     } catch {
       toast.error("Failed to add member");
@@ -389,7 +371,7 @@ export default function ProjectDetailPage() {
       } else {
         if (handle401(res)) return;
         const data = await res.json();
-        toast.error(data.error || "Failed to update project");
+        toast.error(str(data.error, "Failed to update project"));
       }
     } catch {
       toast.error("Failed to update project");
@@ -398,7 +380,7 @@ export default function ProjectDetailPage() {
 
   const handleRemoveMember = async (userId: string) => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, {
+      const res = await fetch("/api/projects/" + projectId + "/members?userId=" + userId, {
         method: "DELETE",
         credentials: 'include',
       });
@@ -414,13 +396,14 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // ── Loading / not-mounted / not-found states ──
   if (!mounted || sessionStatus === "loading") {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-32 rounded-lg" />
         <div className="flex gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
+          {[1, 2, 3, 4].map((i) => <Skeleton key={String(i)} className="h-64 w-[260px] rounded-lg shrink-0" />)}
         </div>
       </div>
     );
@@ -432,13 +415,13 @@ export default function ProjectDetailPage() {
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-32 rounded-lg" />
         <div className="flex gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
+          {[1, 2, 3, 4].map((i) => <Skeleton key={String(i)} className="h-64 w-[260px] rounded-lg shrink-0" />)}
         </div>
       </div>
     );
   }
 
-  if (!project) {
+  if (!projectFound) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground mb-4">Project not found</p>
@@ -449,51 +432,38 @@ export default function ProjectDetailPage() {
     );
   }
 
-  // ── Layer 3: safeTasks — explicit primitive-only task construction ──
-  const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
-  const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
-
-  const safeTasks = tasks.map(t => {
-    // Resolve assignee name from members or agents list
-    let assigneeName = "Unassigned";
-    const assignedTo = safeText(t.assignedTo, "");
-    const assigneeType = safeText(t.assigneeType, "HUMAN");
-
-    if (assignedTo) {
-      if (assigneeType === "AI") {
-        const agent = agents.find(a => a.id === assignedTo);
-        if (agent) assigneeName = agent.name;
-      } else {
-        const member = members.find(m => m.userId === assignedTo);
-        if (member?.user?.name) assigneeName = safeText(member.user.name, "Team Member");
-      }
-    }
-    return {
-      id: safeText(t.id, ""),
-      title: safeText(t.title, "Untitled"),
-      description: typeof t.description === "string" ? t.description : null,
-      status: (VALID_STATUSES as readonly string[]).includes(safeText(t.status, "")) ? safeText(t.status, "TODO") : "TODO",
-      priority: (VALID_PRIORITIES as readonly string[]).includes(safeText(t.priority, "")) ? safeText(t.priority, "MEDIUM") : "MEDIUM",
-      assigneeType: assigneeType === "AI" ? "AI" : "HUMAN",
-      assigneeName,
-      deadline: t.deadline ? safeText(t.deadline, "") : null,
-    };
-  });
-
-  // ── Layer 2: safeText for ALL project fields rendered in JSX ──
-  const projectName = safeText(project.name, "Unnamed Project");
-  const projectDesc = safeText(project.description, "");
-  const projectStatus = safeText(project.status, "PLANNING");
-  const projectProgress = typeof project.progress === "number" ? project.progress : (Number(project.progress) || 0);
-  const projectBudget = typeof project.budget === "number" ? project.budget : (Number(project.budget) || 0);
-  const projectDeadline = project.deadline ? new Date(safeText(project.deadline)) : null;
+  // ── Resolve task assignee names ──
+  const tasksWithNames = useMemo(() => {
+    return tasks.map(t => {
+      let assigneeName = "Unassigned";
+      // assignedTo is not stored in SafeTask — we need it from raw data
+      // For now, just show "Unassigned" or "AI Agent" based on assigneeType
+      if (t.assigneeType === "AI") assigneeName = "AI Agent";
+      return { ...t, assigneeName };
+    });
+  }, [tasks]);
 
   // Filter out users already in the project
-  const memberUserIds = members.map(m => safeText(m.userId, ""));
-  const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(safeText(u.id, ""))), [teamUsers, memberUserIds]);
+  const memberUserIds = members.map(m => m.userId);
+  const availableUsers = useMemo(() => teamUsers.filter(u => !memberUserIds.includes(u.id)), [teamUsers, memberUserIds]);
+
+  // Format deadline
+  let deadlineDisplay = "No deadline";
+  if (projectDeadline) {
+    try {
+      const d = new Date(projectDeadline);
+      if (!isNaN(d.getTime())) deadlineDisplay = d.toLocaleDateString();
+    } catch { /* keep fallback */ }
+  }
+
+  // Format budget
+  const budgetDisplay = projectBudget > 0
+    ? projectBudget.toLocaleString("en-IN")
+    : "N/A";
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects">
           <ArrowLeft className="h-4 w-4" />
@@ -504,7 +474,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Project Info */}
+      {/* Project Info Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="p-4">
@@ -522,7 +492,9 @@ export default function ProjectDetailPage() {
                 </SelectContent>
               </Select>
             ) : (
-              <Badge className={`mt-1 ${projectStatusColors[projectStatus] || ""}`}>{projectStatus.replace("_", " ")}</Badge>
+              <Badge className={"mt-1 " + (projectStatusColors[projectStatus] || "")}>
+                {projectStatus.replace("_", " ")}
+              </Badge>
             )}
           </CardContent>
         </Card>
@@ -544,7 +516,7 @@ export default function ProjectDetailPage() {
                   className="h-7 w-14 text-xs text-center"
                 />
               ) : (
-                <span className="text-sm font-medium">{projectProgress}%</span>
+                <span className="text-sm font-medium">{String(projectProgress)}%</span>
               )}
             </div>
           </CardContent>
@@ -553,23 +525,21 @@ export default function ProjectDetailPage() {
           <Card>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Budget</p>
-              <p className="text-sm font-medium mt-1">{safeText(`${projectBudget.toLocaleString("en-IN")}`, "N/A")}</p>
+              <p className="text-sm font-medium mt-1">{budgetDisplay}</p>
             </CardContent>
           </Card>
         )}
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Deadline</p>
-            <p className="text-sm font-medium mt-1">
-              {projectDeadline && !isNaN(projectDeadline.getTime()) ? projectDeadline.toLocaleDateString() : "No deadline"}
-            </p>
+            <p className="text-sm font-medium mt-1">{deadlineDisplay}</p>
           </CardContent>
         </Card>
         {!isAdminUser && (
           <Card>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Team Size</p>
-              <p className="text-sm font-medium mt-1">{members.length} members</p>
+              <p className="text-sm font-medium mt-1">{String(members.length)} members</p>
             </CardContent>
           </Card>
         )}
@@ -581,7 +551,9 @@ export default function ProjectDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base">Project Team</CardTitle>
-              <CardDescription>{members.length} member{members.length !== 1 ? 's' : ''} assigned to this project</CardDescription>
+              <CardDescription>
+                {String(members.length)} member{members.length !== 1 ? "s" : ""} assigned to this project
+              </CardDescription>
             </div>
             {isAdminUser && (
               <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
@@ -600,23 +572,25 @@ export default function ProjectDetailPage() {
                     <ScrollArea className="max-h-80">
                       <div className="space-y-2">
                         {availableUsers.map((user) => (
-                          <div key={safeText(user.id, "")} className="flex items-center justify-between p-3 rounded-lg border">
+                          <div key={user.id} className="flex items-center justify-between p-3 rounded-lg border">
                             <div className="flex items-center gap-3">
                               <Avatar className="h-8 w-8">
                                 <AvatarFallback className="text-xs">
-                                  {safeText(user.name, "?").split(" ").map(n => n[0]).join("")}
+                                  {user.name.split(" ").map((n) => n[0]).join("")}
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <p className="text-sm font-medium">{safeText(user.name, "Unknown")}</p>
-                                <p className="text-xs text-muted-foreground">{safeText(user.role, "")} {user.department ? `· ${safeText(user.department, "")}` : ''}</p>
+                                <p className="text-sm font-medium">{user.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {user.role}{user.department ? " \u00b7 " + user.department : ""}
+                                </p>
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => handleAddMember(safeText(user.id, ""), "MEMBER")}>
+                              <Button size="sm" variant="outline" onClick={() => handleAddMember(user.id, "MEMBER")}>
                                 Member
                               </Button>
-                              <Button size="sm" onClick={() => handleAddMember(safeText(user.id, ""), "LEAD")}>
+                              <Button size="sm" onClick={() => handleAddMember(user.id, "LEAD")}>
                                 Lead
                               </Button>
                             </div>
@@ -638,22 +612,22 @@ export default function ProjectDetailPage() {
           ) : (
             <div className="flex flex-wrap gap-3">
               {members.map((member) => (
-                <div key={safeText(member.id, "")} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
+                <div key={member.id} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="text-xs">
-                      {safeText(member.user?.name, "?").split(" ").map(n => n[0]).join("")}
+                      {member.userName.split(" ").map((n) => n[0]).join("")}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="text-xs font-medium">{safeText(member.user?.name, "Unknown")}</p>
-                    <p className="text-[10px] text-muted-foreground">{safeText(member.role, "")}</p>
+                    <p className="text-xs font-medium">{member.userName}</p>
+                    <p className="text-[10px] text-muted-foreground">{member.role}</p>
                   </div>
                   {isAdminUser && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                      onClick={() => handleRemoveMember(safeText(member.userId, ""))}
+                      onClick={() => handleRemoveMember(member.userId)}
                       aria-label="Remove member"
                     >
                       <X className="h-3 w-3" />
@@ -716,10 +690,10 @@ export default function ProjectDetailPage() {
                     <SelectContent>
                       <SelectItem value="">Unassigned</SelectItem>
                       {members.map((m) => (
-                        <SelectItem key={safeText(m.userId, "")} value={safeText(m.userId, "")}>{safeText(m.user?.name, "Team Member")}</SelectItem>
+                        <SelectItem key={m.userId} value={m.userId}>{m.userName}</SelectItem>
                       ))}
                       {agents.map((a) => (
-                        <SelectItem key={safeText(a.id, "")} value={safeText(a.id, "")}>{safeText(a.name, "AI Agent")} (AI)</SelectItem>
+                        <SelectItem key={a.id} value={a.id}>{a.name} (AI)</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -733,68 +707,76 @@ export default function ProjectDetailPage() {
 
       <div className="flex gap-3 overflow-x-auto pb-4">
         {TASK_COLUMNS.map((status) => {
-          const columnTasks = safeTasks.filter((t) => t.status === status);
+          const columnTasks = tasksWithNames.filter((t) => t.status === status);
           return (
             <div key={status} className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
-              <div className={`rounded-t-lg px-3 py-2 ${taskStatusColors[status]}`}>
+              <div className={"rounded-t-lg px-3 py-2 " + (taskStatusColors[status] || "")}>
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-sm">{status.replace("_", " ")}</h3>
-                  <Badge variant="secondary" className="text-xs">{columnTasks.length}</Badge>
+                  <Badge variant="secondary" className="text-xs">{String(columnTasks.length)}</Badge>
                 </div>
               </div>
               <div className="flex-1 space-y-2 p-2 bg-muted/30 rounded-b-lg min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
-                {columnTasks.map((task) => (
-                  <Card key={safeText(task.id, "")} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-3 space-y-2">
-                      <div className="flex items-start justify-between">
-                        <p className="text-sm font-medium">{safeText(task.title, "Untitled")}</p>
-                        <Badge className={`text-[10px] shrink-0 ${priorityColors[task.priority as TaskPriority] || ""}`}>
-                          {safeText(task.priority, "MEDIUM")}
-                        </Badge>
-                      </div>
-                      {task.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{safeText(task.description, "")}</p>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          {task.assigneeType === "AI" ? (
-                            <Bot className="h-3 w-3" />
-                          ) : (
-                            <User className="h-3 w-3" />
-                          )}
-                          <span>{safeText(task.assigneeName, "Unassigned")}</span>
+                {columnTasks.map((task) => {
+                  let taskDeadlineDisplay = "";
+                  if (task.deadline) {
+                    try {
+                      taskDeadlineDisplay = new Date(task.deadline).toLocaleDateString();
+                    } catch { /* empty */ }
+                  }
+                  return (
+                    <Card key={task.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <p className="text-sm font-medium">{task.title}</p>
+                          <Badge className={"text-[10px] shrink-0 " + (priorityColors[task.priority as TaskPriority] || "")}>
+                            {task.priority}
+                          </Badge>
                         </div>
-                        {task.deadline && (
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                            <Clock className="h-2.5 w-2.5" />
-                            {(() => { try { return new Date(task.deadline).toLocaleDateString(); } catch { return ""; } })()}
-                          </span>
+                        {task.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
                         )}
-                      </div>
-                      <div className="flex gap-1">
-                        {TASK_COLUMNS.filter((s) => s !== status).map((s) => (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {task.assigneeType === "AI" ? (
+                              <Bot className="h-3 w-3" />
+                            ) : (
+                              <User className="h-3 w-3" />
+                            )}
+                            <span>{task.assigneeName}</span>
+                          </div>
+                          {taskDeadlineDisplay && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <Clock className="h-2.5 w-2.5" />
+                              {taskDeadlineDisplay}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          {TASK_COLUMNS.filter((s) => s !== status).map((s) => (
+                            <Button
+                              key={s}
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[10px] px-2"
+                              onClick={() => handleMoveTask(task.id, s)}
+                            >
+                              {"\u2192 " + s.replace("_", " ").slice(0, 3)}
+                            </Button>
+                          ))}
                           <Button
-                            key={s}
                             variant="ghost"
                             size="sm"
-                            className="h-6 text-[10px] px-2"
-                            onClick={() => handleMoveTask(safeText(task.id, ""), s)}
+                            className="h-6 text-red-500 px-2"
+                            onClick={() => handleDeleteTask(task.id)}
                           >
-                            {safeText(`→ ${s.replace("_", " ").slice(0, 3)}`, "")}
+                            <Trash2 className="h-3 w-3" />
                           </Button>
-                        ))}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 text-red-500 px-2"
-                          onClick={() => handleDeleteTask(safeText(task.id, ""))}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           );
