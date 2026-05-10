@@ -1,11 +1,77 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, Component, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, UserPlus, X,
 } from "lucide-react";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Component-level Error Boundary
+// Catches rendering errors from child components (including UI library)
+// and provides detailed error info. This complements the file-level error.tsx.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+interface ErrorBoundaryState { hasError: boolean; error: Error | null; info: React.ErrorInfo | null }
+class PageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("[PageErrorBoundary] Caught rendering error:", error.message, error.stack);
+    console.error("[PageErrorBoundary] Component stack:", info.componentStack);
+    // Log all enumerable error properties to help diagnose #310
+    try {
+      Object.keys(error).forEach((k) => console.error(`[PageErrorBoundary] error.${k}:`, (error as unknown as Record<string, unknown>)[k]));
+    } catch { /* */ }
+    this.setState({ info });
+  }
+  private handleReset = () => {
+    this.setState({ hasError: false, error: null, info: null });
+  };
+  render() {
+    if (this.state.hasError && this.state.error) {
+      const err = this.state.error;
+      const msg = typeof err.message === "string" ? err.message : String(err);
+      // Parse React #310 to show object keys
+      const keyMatch = msg.match(/object with keys?\s*\{([^}]+)\}/);
+      return (
+        <div className="text-center py-12 space-y-4">
+          <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto">
+            <X className="h-6 w-6 text-red-500" />
+          </div>
+          <p className="text-sm font-semibold text-foreground">Rendering Error</p>
+          <pre className="text-xs bg-muted p-3 rounded-md max-w-md mx-auto overflow-auto max-h-40 text-left whitespace-pre-wrap break-all">
+            {msg}
+          </pre>
+          {keyMatch && (
+            <div className="max-w-md mx-auto">
+              <p className="text-[10px] uppercase tracking-wider text-orange-500 font-semibold mb-1">Object Keys</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {keyMatch[1].split(",").map((k) => (
+                  <span key={k.trim()} className="px-2 py-0.5 text-xs font-mono bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded">{k.trim()}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {this.state.info && (
+            <pre className="text-xs bg-muted p-3 rounded-md max-w-md mx-auto overflow-auto max-h-32 text-left whitespace-pre-wrap">
+              {this.state.info.componentStack}
+            </pre>
+          )}
+          <Button variant="outline" size="sm" onClick={this.handleReset}>
+            Try Again
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -462,6 +528,7 @@ export default function ProjectDetailPage() {
     : "N/A";
 
   return (
+    <PageErrorBoundary>
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -783,5 +850,6 @@ export default function ProjectDetailPage() {
         })}
       </div>
     </div>
+    </PageErrorBoundary>
   );
 }
