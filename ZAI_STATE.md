@@ -1,18 +1,22 @@
 # ZAI STATE LOG
 **Project:** TrishulHub Dashboard
 **Status:** IN_PROGRESS
-**Last Stage:** Stage 6: CHRONICLER ZAI — React #310 fix deployed
-**Last Action:** Bulletproof v7 rebuild of project detail page — safeText() on every rendered value, all Radix Select replaced with native <select>. Commit fa4fff0 pushed.
-**Next Step:** User has requested improvements and feature changes. Awaiting task list from user. Will begin Stage 1 (TOTAL ZAI audit) once tasks are specified.
-**Pending Batches:**
-  - User mentioned "lots of issues, some improvements, and some feature changes" — specific tasks TBD
+**Last Stage:** Stage 3: HEY ZAI — All batches code complete
+**Last Action:** Fixed all 8 dashboard bugs (DASH-001 through DASH-008)
+**Next Step:** Stage 4: verify build and validate all fixes
+**Pending Batches:** None (all batches executed)
 **Active Bug List:**
-  - React #310 on project detail page — FIXED (v7 bulletproof, commit fa4fff0)
-  - All previous audit bugs (Pages 1-7, timetable, training, etc.) — Previously fixed in prior sessions
+  - DASH-001 [HIGH]: Stats cards not clickable — FIXED (onClick + cursor-pointer + hover)
+  - DASH-002 [HIGH]: Invoice items not clickable — FIXED (div → button with onClick)
+  - DASH-003 [MEDIUM]: Stats values not wrapped in safeNumber() — FIXED (all values protected)
+  - DASH-004 [MEDIUM]: Stats object uses unsafe `as` cast — FIXED (safe default object)
+  - DASH-005 [MEDIUM]: Developer "My Tasks" shows placeholder — FIXED (real task data)
+  - DASH-006 [LOW]: API Usage Tracker has no "View All" — FIXED (button added)
+  - DASH-007 [LOW]: safeNumber called twice on project.progress — FIXED (cached variable)
+  - DASH-008 [LOW]: formatCurrency hardcodes ₹ symbol — NOTE ONLY (future i18n concern)
 **Recent Commits:**
+  - 7dd41be: feat: add ZAI Protocol v2.1 — standardized development pipeline with persistent state
   - fa4fff0: fix: bulletproof v7 — complete rebuild with safeText() on EVERY rendered value
-  - 4478a58: diag v6: minimal page with ZERO UI components to isolate #310
-  - 776ab33: fix: remove ALL Radix Select from projects pages + add loading.tsx (v5)
 **Tech Stack:**
   - Next.js 16 + React 19
   - Prisma ORM + Turso DB (SQLite)
