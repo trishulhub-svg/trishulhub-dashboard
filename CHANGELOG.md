@@ -35,6 +35,20 @@ All notable changes to the TrishulHub Dashboard will be documented in this file.
 
 ---
 
+## [2025-05-12] — CRM Smart Search + Lead Editing (ZAI Protocol)
+
+### Added
+- **Smart Search with Date Filtering**: Search box now supports smart queries — type `today`, `yesterday`, `this week`, `this month`, `last month`, any year (`2025`), month name (`january`, `feb`), or score filters (`score:80+`, `score:50-80`, `score:<30`). Phone number is now included in text search.
+- **Date Quick-Filter Buttons**: One-click date filters (Today, Yesterday, This Week, This Month, Last Month) below the search bar
+- **Full Lead Detail Editing**: "Edit" button in lead detail panel toggles edit mode — edit name, email, company, phone, website, source, and notes inline with validation
+- **Source & Status Filter Dropdowns**: Filter leads by source (Manual, AI Found, Referral, Social Media) and status directly from the header
+- **Clear All Filters**: Button appears when any filter is active to reset everything at once
+
+### Commit
+- `b70dcf6`: feat: [CRM] Smart search with date filters, full lead editing, source/status filter bar
+
+---
+
 ## [Prior Sessions] — Previous Fixes
 
 - `fa4fff0`: fix: bulletproof v7 — complete rebuild with safeText() on EVERY rendered value (React #310 fix)
