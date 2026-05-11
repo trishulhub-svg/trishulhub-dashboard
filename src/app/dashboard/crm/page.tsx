@@ -92,6 +92,91 @@ const sourceColors: Record<string, string> = {
   MANUAL: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+// CRM-S01: Smart filter parser
+function parseSmartFilter(query: string, dateFilterStr: string) {
+  const textParts: string[] = [];
+  let minScore: number | null = null;
+  let maxScore: number | null = null;
+  let dateFrom: Date | null = null;
+  let dateTo: Date | null = null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Process date filter buttons
+  if (dateFilterStr === "today") {
+    dateFrom = today;
+    dateTo = new Date(today.getTime() + 86400000);
+  } else if (dateFilterStr === "yesterday") {
+    dateFrom = new Date(today.getTime() - 86400000);
+    dateTo = today;
+  } else if (dateFilterStr === "this week") {
+    dateFrom = new Date(today.getTime() - today.getDay() * 86400000);
+    dateTo = new Date(today.getTime() + (7 - today.getDay()) * 86400000);
+  } else if (dateFilterStr === "this month") {
+    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else if (dateFilterStr === "last month") {
+    dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    dateTo = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  // Process query text for smart keywords
+  const lower = query.toLowerCase().trim();
+  const tokens = lower.split(/\s+/);
+
+  const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  const monthShort = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  for (const token of tokens) {
+    // Score filters: score:80+, score:>80, score:<30, score:50-80, score:50
+    const scoreMatch = token.match(/^score:([<>=]?)(\d+)(?:-(\d+))?$/);
+    if (scoreMatch) {
+      const op = scoreMatch[1];
+      const val = parseInt(scoreMatch[2]);
+      const val2 = scoreMatch[3] ? parseInt(scoreMatch[3]) : null;
+      if (val2 !== null) { minScore = val; maxScore = val2; }
+      else if (op === ">" || op === "") { minScore = val; }
+      else if (op === "<") { maxScore = val; }
+      else if (op === "=") { minScore = val; maxScore = val; }
+      continue;
+    }
+
+    // Date keywords (only if no dateFilter button is active)
+    if (!dateFilterStr) {
+      if (token === "today") { dateFrom = today; dateTo = new Date(today.getTime() + 86400000); continue; }
+      if (token === "yesterday") { dateFrom = new Date(today.getTime() - 86400000); dateTo = today; continue; }
+      if (token === "this" && tokens.includes("week")) { dateFrom = new Date(today.getTime() - today.getDay() * 86400000); dateTo = new Date(today.getTime() + (7 - today.getDay()) * 86400000); continue; }
+      if (token === "this" && tokens.includes("month")) { dateFrom = new Date(now.getFullYear(), now.getMonth(), 1); dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 1); continue; }
+
+      // Year: 4 digits
+      const yearMatch = token.match(/^(\d{4})$/);
+      if (yearMatch) { const y = parseInt(yearMatch[1]); dateFrom = new Date(y, 0, 1); dateTo = new Date(y + 1, 0, 1); continue; }
+
+      // Month name
+      const mIdx = months.indexOf(token);
+      const msIdx = monthShort.indexOf(token);
+      if (mIdx >= 0 || msIdx >= 0) {
+        const mi = mIdx >= 0 ? mIdx : msIdx;
+        dateFrom = new Date(now.getFullYear(), mi, 1);
+        dateTo = new Date(now.getFullYear(), mi + 1, 1);
+        continue;
+      }
+    }
+
+    textParts.push(token);
+  }
+
+  return { textSearch: textParts.join(" "), minScore, maxScore, dateFrom, dateTo };
+}
+
+const dateQuickFilters = [
+  { label: "Today", value: "today" },
+  { label: "Yesterday", value: "yesterday" },
+  { label: "This Week", value: "this week" },
+  { label: "This Month", value: "this month" },
+  { label: "Last Month", value: "last month" },
+];
+
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const scoreColors = getScoreColors(lead.score);
   return (
@@ -206,6 +291,14 @@ export default function CRMPage() {
   // CRM-002: Inline score editing state
   const [editingScore, setEditingScore] = useState(false);
   const [scoreInput, setScoreInput] = useState(0);
+  // CRM-S03: Date quick filter state
+  const [dateFilter, setDateFilter] = useState("");
+  // CRM-S05: Edit mode states
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  // CRM-S04: Source and status filter states
+  const [filterSource, setFilterSource] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -251,16 +344,47 @@ export default function CRMPage() {
     setEmailBody("");
   }, [selectedLead?.id]);
 
-  // CRM-003 + CRM-006: useMemo for grouped leads, sorted by sortBy state
+  // CRM-S05: Reset edit mode when selectedLead changes
+  useEffect(() => {
+    setEditMode(false);
+    setEditForm({});
+    setEditingScore(false);
+  }, [selectedLead?.id]);
+
+  // CRM-S01/S02/S03 + CRM-003 + CRM-006: useMemo for grouped leads with smart filter
   const groupedLeads = useMemo(() => {
-    const filtered = search
-      ? leads.filter(
-          (l) =>
-            l.name.toLowerCase().includes(search.toLowerCase()) ||
-            l.email.toLowerCase().includes(search.toLowerCase()) ||
-            (l.company || "").toLowerCase().includes(search.toLowerCase())
-        )
-      : leads;
+    const { textSearch, minScore, maxScore, dateFrom, dateTo } = parseSmartFilter(search, dateFilter);
+
+    const filtered = leads.filter((l) => {
+      // Text search (name, email, company, phone)
+      if (textSearch) {
+        const q = textSearch.toLowerCase();
+        const matches =
+          l.name.toLowerCase().includes(q) ||
+          l.email.toLowerCase().includes(q) ||
+          (l.company || "").toLowerCase().includes(q) ||
+          (l.phone || "").toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      // Score filters
+      if (minScore !== null && l.score < minScore) return false;
+      if (maxScore !== null && l.score > maxScore) return false;
+      // Date filters
+      if (dateFrom) {
+        const created = new Date(l.createdAt);
+        if (created < dateFrom) return false;
+      }
+      if (dateTo) {
+        const created = new Date(l.createdAt);
+        if (created >= dateTo) return false;
+      }
+      // Source filter
+      if (filterSource !== "all" && l.source !== filterSource) return false;
+      // Status filter
+      if (filterStatus !== "all" && l.status !== filterStatus) return false;
+      return true;
+    });
+
     const groups: Record<LeadStatus, Lead[]> = {} as Record<LeadStatus, Lead[]>;
     for (const s of LEAD_COLUMNS) groups[s] = [];
     for (const l of filtered) {
@@ -276,7 +400,7 @@ export default function CRMPage() {
       // createdAt is default order (no sort needed)
     }
     return groups;
-  }, [leads, search, sortBy]);
+  }, [leads, search, sortBy, dateFilter, filterSource, filterStatus]);
 
   // CRM-007: Count total filtered leads for empty search state
   const totalFiltered = Object.values(groupedLeads).reduce((sum, arr) => sum + arr.length, 0);
@@ -292,6 +416,45 @@ export default function CRMPage() {
     const avgScore = total > 0 ? Math.round(leads.reduce((sum, l) => sum + l.score, 0) / total) : 0;
     return { total, newThisWeek, conversionRate, avgScore };
   }, [leads]);
+
+  // CRM-S05: Toggle edit mode
+  const toggleEditMode = () => {
+    if (!editMode && selectedLead) {
+      setEditForm({
+        name: selectedLead.name,
+        email: selectedLead.email,
+        company: selectedLead.company || "",
+        phone: selectedLead.phone || "",
+        website: selectedLead.website || "",
+        notes: selectedLead.notes || "",
+        source: selectedLead.source,
+      });
+    }
+    setEditMode(!editMode);
+  };
+
+  // CRM-S05: Save edit handler
+  const handleSaveEdit = async () => {
+    if (!selectedLead) return;
+    if (!editForm.name?.trim() || !editForm.email?.trim()) {
+      toast.error("Name and email are required");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) {
+      toast.error("Valid email is required");
+      return;
+    }
+    await handleUpdateLead({
+      name: editForm.name.trim(),
+      email: editForm.email.trim(),
+      company: editForm.company.trim() || null,
+      phone: editForm.phone.trim() || null,
+      website: editForm.website.trim() || null,
+      notes: editForm.notes.trim() || null,
+      source: editForm.source,
+    });
+    setEditMode(false);
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     // CRM-006: Prevent drag when updating
@@ -521,6 +684,9 @@ export default function CRMPage() {
     }
   };
 
+  // Check if any filter is active
+  const hasActiveFilters = search || dateFilter || filterSource !== "all" || filterStatus !== "all";
+
   // CRM-002: Show loading skeleton while session is loading
   if (status === "loading") {
     return (
@@ -575,13 +741,38 @@ export default function CRMPage() {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search leads..."
+              placeholder="Search name, email, phone... try 'today' or 'score:80+'"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 w-48"
+              className="pl-8 w-64"
               aria-label="Search leads"
             />
           </div>
+          {/* CRM-S04: Source filter dropdown */}
+          <Select value={filterSource} onValueChange={setFilterSource}>
+            <SelectTrigger className="w-32 h-9 text-xs">
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sources</SelectItem>
+              <SelectItem value="MANUAL">Manual</SelectItem>
+              <SelectItem value="AI_FOUND">AI Found</SelectItem>
+              <SelectItem value="REFERRAL">Referral</SelectItem>
+              <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* CRM-S04: Status filter dropdown */}
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-32 h-9 text-xs">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              {LEAD_COLUMNS.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {/* CRM-006: Sort dropdown */}
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
             <SelectTrigger className="w-36 h-9 text-xs">
@@ -662,6 +853,38 @@ export default function CRMPage() {
         </div>
       </div>
 
+      {/* CRM-S03: Date quick filter buttons + Clear All */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap">
+          {dateQuickFilters.map((f) => (
+            <Button
+              key={f.value}
+              variant={dateFilter === f.value ? "default" : "outline"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setDateFilter(dateFilter === f.value ? "" : f.value)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </div>
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground"
+            onClick={() => {
+              setSearch("");
+              setDateFilter("");
+              setFilterSource("all");
+              setFilterStatus("all");
+            }}
+          >
+            Clear All
+          </Button>
+        )}
+      </div>
+
       {/* CRM-023 + CRM-001: Summary stats cards — clickable */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSearch("")}>
@@ -726,8 +949,10 @@ export default function CRMPage() {
         /* CRM-007: Empty search results state */
         <div className="flex flex-col items-center justify-center min-h-[200px] gap-3">
           <Search className="h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No leads match &quot;{search}&quot;</p>
-          <Button variant="outline" size="sm" onClick={() => setSearch("")}>Clear Search</Button>
+          <p className="text-sm text-muted-foreground">No leads match your filters</p>
+          <Button variant="outline" size="sm" onClick={() => { setSearch(""); setDateFilter(""); setFilterSource("all"); setFilterStatus("all"); }}>
+            Clear All Filters
+          </Button>
         </div>
       ) : (
         /* Kanban Board */
@@ -757,102 +982,201 @@ export default function CRMPage() {
         </DndContext>
       )}
 
-      {/* CRM-005: Replace custom overlay with Sheet component */}
-      <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) setSelectedLead(null); }}>
+      {/* CRM-005 + CRM-S05: Sheet with edit mode */}
+      <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) { setSelectedLead(null); setEditMode(false); } }}>
         <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>{safeText(selectedLead?.name, "Lead")}</SheetTitle>
+            <div className="flex items-center justify-between">
+              <SheetTitle>{safeText(selectedLead?.name, "Lead")}</SheetTitle>
+              <Button
+                size="sm"
+                variant={editMode ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={toggleEditMode}
+              >
+                {editMode ? "View Mode" : "Edit"}
+              </Button>
+            </div>
           </SheetHeader>
           {selectedLead && (
             <div className="space-y-4">
-              <div className="space-y-3">
-                {/* CRM-027: Email as mailto: link */}
-                <div className="flex items-center gap-2 text-sm">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <a href={`mailto:${safeText(selectedLead.email, "")}`} className="hover:underline">{safeText(selectedLead.email, "")}</a>
-                </div>
-                {/* CRM-026: Phone as tel: link */}
-                {selectedLead.phone && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <a href={`tel:${safeText(selectedLead.phone, "")}`} className="hover:underline">{safeText(selectedLead.phone, "")}</a>
+              {editMode ? (
+                /* CRM-S05: Edit mode form */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Name *</Label>
+                      <Input
+                        value={editForm.name || ""}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Email *</Label>
+                      <Input
+                        value={editForm.email || ""}
+                        onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Company</Label>
+                      <Input
+                        value={editForm.company || ""}
+                        onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Phone</Label>
+                      <Input
+                        value={editForm.phone || ""}
+                        onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">Website</Label>
+                      <Input
+                        value={editForm.website || ""}
+                        onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">Source</Label>
+                      <Select
+                        value={editForm.source || "MANUAL"}
+                        onValueChange={(v) => setEditForm({ ...editForm, source: v })}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MANUAL">Manual</SelectItem>
+                          <SelectItem value="AI_FOUND">AI Found</SelectItem>
+                          <SelectItem value="REFERRAL">Referral</SelectItem>
+                          <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">Notes</Label>
+                      <Textarea
+                        value={editForm.notes || ""}
+                        onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                        rows={3}
+                        className="text-sm"
+                      />
+                    </div>
                   </div>
-                )}
-                {selectedLead.company && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span>{safeText(selectedLead.company, "")}</span>
-                  </div>
-                )}
-                {/* CRM-008: Website as clickable link */}
-                {selectedLead.website && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Globe className="h-4 w-4 text-muted-foreground" />
-                    <a
-                      href={selectedLead.website.startsWith('http') ? selectedLead.website : `https://${selectedLead.website}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      {safeText(selectedLead.website, "")}
-                    </a>
-                  </div>
-                )}
-                {/* CRM-024: Display createdAt */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
-                  <span>Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
-                </div>
-              </div>
-              {/* CRM-002: Inline score editing */}
-              <div className="flex items-center gap-2">
-                {editingScore ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={scoreInput}
-                      onChange={(e) => setScoreInput(parseInt(e.target.value) || 0)}
-                      className="w-20 h-8 text-sm"
-                      autoFocus
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      onClick={() => {
-                        handleUpdateLead({ score: scoreInput });
-                        setEditingScore(false);
-                      }}
-                      disabled={updating}
-                    >
-                      Save
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={handleSaveEdit} disabled={updating}>
+                      {updating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                      {updating ? "Saving..." : "Save Changes"}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8"
-                      onClick={() => setEditingScore(false)}
-                    >
+                    <Button size="sm" variant="outline" onClick={() => setEditMode(false)}>
                       Cancel
                     </Button>
                   </div>
-                ) : (
-                  <>
-                    <Badge
-                      variant="outline"
-                      className={cn("cursor-pointer hover:opacity-80 transition-opacity", getScoreBadgeClass(selectedLead.score))}
-                      onClick={() => { setEditingScore(true); setScoreInput(selectedLead.score); }}
-                    >
-                      Score: {safeNumber(selectedLead.score)}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground">Click to edit</span>
-                  </>
-                )}
-                <Badge variant="secondary">{safeText(selectedLead.source, "")}</Badge>
-              </div>
-              {selectedLead.notes && (
+                </div>
+              ) : (
+                /* View mode: existing static display */
+                <div className="space-y-3">
+                  {/* CRM-027: Email as mailto: link */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <a href={`mailto:${safeText(selectedLead.email, "")}`} className="hover:underline">{safeText(selectedLead.email, "")}</a>
+                  </div>
+                  {/* CRM-026: Phone as tel: link */}
+                  {selectedLead.phone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <a href={`tel:${safeText(selectedLead.phone, "")}`} className="hover:underline">{safeText(selectedLead.phone, "")}</a>
+                    </div>
+                  )}
+                  {selectedLead.company && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <span>{safeText(selectedLead.company, "")}</span>
+                    </div>
+                  )}
+                  {/* CRM-008: Website as clickable link */}
+                  {selectedLead.website && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                      <a
+                        href={selectedLead.website.startsWith('http') ? selectedLead.website : `https://${selectedLead.website}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {safeText(selectedLead.website, "")}
+                      </a>
+                    </div>
+                  )}
+                  {/* CRM-024: Display createdAt */}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* CRM-002: Inline score editing (visible in view mode only) */}
+              {!editMode && (
+                <div className="flex items-center gap-2">
+                  {editingScore ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={scoreInput}
+                        onChange={(e) => setScoreInput(parseInt(e.target.value) || 0)}
+                        className="w-20 h-8 text-sm"
+                        autoFocus
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={() => {
+                          handleUpdateLead({ score: scoreInput });
+                          setEditingScore(false);
+                        }}
+                        disabled={updating}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8"
+                        onClick={() => setEditingScore(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Badge
+                        variant="outline"
+                        className={cn("cursor-pointer hover:opacity-80 transition-opacity", getScoreBadgeClass(selectedLead.score))}
+                        onClick={() => { setEditingScore(true); setScoreInput(selectedLead.score); }}
+                      >
+                        Score: {safeNumber(selectedLead.score)}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">Click to edit</span>
+                    </>
+                  )}
+                  <Badge variant="secondary">{safeText(selectedLead.source, "")}</Badge>
+                </div>
+              )}
+
+              {/* Notes display (view mode only) */}
+              {!editMode && selectedLead.notes && (
                 <Card>
                   <CardContent className="p-3">
                     <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
@@ -860,84 +1184,96 @@ export default function CRMPage() {
                   </CardContent>
                 </Card>
               )}
-              <div className="space-y-2">
-                <Label className="text-xs">Move to Stage</Label>
-                <Select
-                  value={selectedLead.status}
-                  onValueChange={(value) => handleUpdateLead({ status: value })}
-                  disabled={updating}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {LEAD_COLUMNS.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Separator />
-              {/* CRM-004: Functional Quick Email with state */}
-              <div className="space-y-2">
-                <Label className="text-xs">Quick Email</Label>
-                <Input
-                  placeholder="Subject"
-                  aria-label="Email subject"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                />
-                <Textarea
-                  placeholder="Write your email..."
-                  rows={3}
-                  aria-label="Email body"
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  className="w-full"
-                  disabled={!emailSubject.trim() || !emailBody.trim() || sendingEmail}
-                  onClick={handleQuickEmail}
-                >
-                  {sendingEmail ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
-                  {sendingEmail ? "Sending..." : "Send Email"}
-                </Button>
-              </div>
-              <Separator />
-              {/* Action buttons */}
-              <div className="space-y-2">
-                {!selectedLead.clientId && selectedLead.status !== "WON" && (
-                  <Button
-                    size="sm"
-                    className="w-full"
-                    variant="default"
-                    disabled={converting}
-                    onClick={handleConvertLead}
+
+              {/* Move to Stage dropdown (view mode only) */}
+              {!editMode && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Move to Stage</Label>
+                  <Select
+                    value={selectedLead.status}
+                    onValueChange={(value) => handleUpdateLead({ status: value })}
+                    disabled={updating}
                   >
-                    {converting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <UserCheck className="h-3 w-3 mr-1" />}
-                    {converting ? "Converting..." : "Convert to Client"}
-                  </Button>
-                )}
-                {selectedLead.clientId && (
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_COLUMNS.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <Separator />
+
+              {/* CRM-004: Functional Quick Email with state (view mode only) */}
+              {!editMode && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Quick Email</Label>
+                  <Input
+                    placeholder="Subject"
+                    aria-label="Email subject"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                  />
+                  <Textarea
+                    placeholder="Write your email..."
+                    rows={3}
+                    aria-label="Email body"
+                    value={emailBody}
+                    onChange={(e) => setEmailBody(e.target.value)}
+                  />
                   <Button
                     size="sm"
                     className="w-full"
+                    disabled={!emailSubject.trim() || !emailBody.trim() || sendingEmail}
+                    onClick={handleQuickEmail}
+                  >
+                    {sendingEmail ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
+                    {sendingEmail ? "Sending..." : "Send Email"}
+                  </Button>
+                </div>
+              )}
+
+              <Separator />
+
+              {/* Action buttons (view mode only) */}
+              {!editMode && (
+                <div className="space-y-2">
+                  {!selectedLead.clientId && selectedLead.status !== "WON" && (
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      variant="default"
+                      disabled={converting}
+                      onClick={handleConvertLead}
+                    >
+                      {converting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <UserCheck className="h-3 w-3 mr-1" />}
+                      {converting ? "Converting..." : "Convert to Client"}
+                    </Button>
+                  )}
+                  {selectedLead.clientId && (
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      variant="outline"
+                      onClick={() => router.push("/dashboard/clients")}
+                    >
+                      <Building2 className="h-3 w-3 mr-1" /> View Client
+                    </Button>
+                  )}
+                  {/* CRM-005: Improved dark mode contrast */}
+                  <Button
+                    size="sm"
+                    className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/40"
                     variant="outline"
-                    onClick={() => router.push("/dashboard/clients")}
+                    onClick={() => setDeleteTarget(selectedLead)}
+                    disabled={deleting}
                   >
-                    <Building2 className="h-3 w-3 mr-1" /> View Client
+                    <Trash2 className="h-3 w-3 mr-1" /> Delete Lead
                   </Button>
-                )}
-                {/* CRM-005: Improved dark mode contrast */}
-                <Button
-                  size="sm"
-                  className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/40"
-                  variant="outline"
-                  onClick={() => setDeleteTarget(selectedLead)}
-                  disabled={deleting}
-                >
-                  <Trash2 className="h-3 w-3 mr-1" /> Delete Lead
-                </Button>
-              </div>
+                </div>
+              )}
             </div>
           )}
         </SheetContent>
