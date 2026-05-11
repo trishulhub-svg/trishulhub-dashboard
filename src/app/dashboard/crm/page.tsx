@@ -35,6 +35,7 @@ import {
 import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
+import { cn, safeText, safeNumber } from "@/lib/utils";
 
 // CRM-028: 401 handling helper
 function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
@@ -83,6 +84,14 @@ function getScoreBadgeClass(score: number): string {
   return "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-400";
 }
 
+// CRM-008: Source badge color coding map
+const sourceColors: Record<string, string> = {
+  AI_FOUND: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  REFERRAL: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  SOCIAL_MEDIA: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  MANUAL: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+};
+
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const scoreColors = getScoreColors(lead.score);
   return (
@@ -93,20 +102,22 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       <CardContent className="p-3">
         <div className="flex items-start justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{lead.name}</p>
+            <p className="text-sm font-medium truncate">{safeText(lead.name, "Lead")}</p>
             {lead.company && (
               <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> {lead.company}
+                <Building2 className="h-3 w-3" /> {safeText(lead.company, "")}
               </p>
             )}
           </div>
           <div className="flex items-center gap-1">
             <Star className={`h-3 w-3 ${scoreColors.star}`} />
-            <span className={`text-xs font-medium ${scoreColors.text}`}>{lead.score}</span>
+            <span className={`text-xs font-medium ${scoreColors.text}`}>{safeNumber(lead.score)}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-2">
-          <Badge variant="secondary" className="text-[10px]">{lead.source}</Badge>
+          <Badge className={cn("text-[10px]", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
+            {safeText(lead.source, "")}
+          </Badge>
         </div>
       </CardContent>
     </Card>
@@ -190,6 +201,11 @@ export default function CRMPage() {
   const [emailBody, setEmailBody] = useState("");
   // CRM-012: Form validation errors
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  // CRM-006: Sort by dropdown state
+  const [sortBy, setSortBy] = useState<"score" | "name" | "createdAt">("createdAt");
+  // CRM-002: Inline score editing state
+  const [editingScore, setEditingScore] = useState(false);
+  const [scoreInput, setScoreInput] = useState(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -235,7 +251,7 @@ export default function CRMPage() {
     setEmailBody("");
   }, [selectedLead?.id]);
 
-  // CRM-017: useMemo for grouped leads, pre-grouped by status
+  // CRM-003 + CRM-006: useMemo for grouped leads, sorted by sortBy state
   const groupedLeads = useMemo(() => {
     const filtered = search
       ? leads.filter(
@@ -250,8 +266,20 @@ export default function CRMPage() {
     for (const l of filtered) {
       if (groups[l.status]) groups[l.status].push(l);
     }
+    // CRM-003 + CRM-006: Sort each column based on sortBy state
+    for (const s of LEAD_COLUMNS) {
+      if (sortBy === "score") {
+        groups[s].sort((a, b) => b.score - a.score);
+      } else if (sortBy === "name") {
+        groups[s].sort((a, b) => a.name.localeCompare(b.name));
+      }
+      // createdAt is default order (no sort needed)
+    }
     return groups;
-  }, [leads, search]);
+  }, [leads, search, sortBy]);
+
+  // CRM-007: Count total filtered leads for empty search state
+  const totalFiltered = Object.values(groupedLeads).reduce((sum, arr) => sum + arr.length, 0);
 
   // CRM-023: Summary stats
   const stats = useMemo(() => {
@@ -554,6 +582,17 @@ export default function CRMPage() {
               aria-label="Search leads"
             />
           </div>
+          {/* CRM-006: Sort dropdown */}
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
+            <SelectTrigger className="w-36 h-9 text-xs">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="createdAt">Newest First</SelectItem>
+              <SelectItem value="score">Highest Score</SelectItem>
+              <SelectItem value="name">Name A-Z</SelectItem>
+            </SelectContent>
+          </Select>
           <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) setFormErrors({}); }}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={adding}>
@@ -623,49 +662,49 @@ export default function CRMPage() {
         </div>
       </div>
 
-      {/* CRM-023: Summary stats cards */}
+      {/* CRM-023 + CRM-001: Summary stats cards — clickable */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSearch("")}>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-muted">
               <Users className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total Leads</p>
-              <p className="text-lg font-semibold">{stats.total}</p>
+              <p className="text-lg font-semibold">{safeNumber(stats.total)}</p>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSearch("")}>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-muted">
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">New This Week</p>
-              <p className="text-lg font-semibold">{stats.newThisWeek}</p>
+              <p className="text-lg font-semibold">{safeNumber(stats.newThisWeek)}</p>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSortBy("createdAt")}>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-muted">
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Conversion Rate</p>
-              <p className="text-lg font-semibold">{stats.conversionRate}%</p>
+              <p className="text-lg font-semibold">{safeText(stats.conversionRate, "0")}%</p>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSortBy("score")}>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-muted">
               <Star className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Avg Score</p>
-              <p className="text-lg font-semibold">{stats.avgScore}</p>
+              <p className="text-lg font-semibold">{safeNumber(stats.avgScore)}</p>
             </div>
           </CardContent>
         </Card>
@@ -682,6 +721,13 @@ export default function CRMPage() {
           <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-1" /> Add Lead
           </Button>
+        </div>
+      ) : leads.length > 0 && totalFiltered === 0 ? (
+        /* CRM-007: Empty search results state */
+        <div className="flex flex-col items-center justify-center min-h-[200px] gap-3">
+          <Search className="h-10 w-10 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No leads match &quot;{search}&quot;</p>
+          <Button variant="outline" size="sm" onClick={() => setSearch("")}>Clear Search</Button>
         </div>
       ) : (
         /* Kanban Board */
@@ -715,7 +761,7 @@ export default function CRMPage() {
       <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) setSelectedLead(null); }}>
         <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>{selectedLead?.name}</SheetTitle>
+            <SheetTitle>{safeText(selectedLead?.name, "Lead")}</SheetTitle>
           </SheetHeader>
           {selectedLead && (
             <div className="space-y-4">
@@ -723,19 +769,19 @@ export default function CRMPage() {
                 {/* CRM-027: Email as mailto: link */}
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <a href={`mailto:${selectedLead.email}`} className="hover:underline">{selectedLead.email}</a>
+                  <a href={`mailto:${safeText(selectedLead.email, "")}`} className="hover:underline">{safeText(selectedLead.email, "")}</a>
                 </div>
                 {/* CRM-026: Phone as tel: link */}
                 {selectedLead.phone && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <a href={`tel:${selectedLead.phone}`} className="hover:underline">{selectedLead.phone}</a>
+                    <a href={`tel:${safeText(selectedLead.phone, "")}`} className="hover:underline">{safeText(selectedLead.phone, "")}</a>
                   </div>
                 )}
                 {selectedLead.company && (
                   <div className="flex items-center gap-2 text-sm">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span>{selectedLead.company}</span>
+                    <span>{safeText(selectedLead.company, "")}</span>
                   </div>
                 )}
                 {/* CRM-008: Website as clickable link */}
@@ -748,26 +794,69 @@ export default function CRMPage() {
                       rel="noopener noreferrer"
                       className="text-primary hover:underline"
                     >
-                      {selectedLead.website}
+                      {safeText(selectedLead.website, "")}
                     </a>
                   </div>
                 )}
                 {/* CRM-024: Display createdAt */}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Added {new Date(selectedLead.createdAt).toLocaleDateString()}</span>
+                  <span>Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
                 </div>
               </div>
+              {/* CRM-002: Inline score editing */}
               <div className="flex items-center gap-2">
-                {/* CRM-025: Score color coding badge */}
-                <Badge variant="outline" className={getScoreBadgeClass(selectedLead.score)}>Score: {selectedLead.score}</Badge>
-                <Badge variant="secondary">{selectedLead.source}</Badge>
+                {editingScore ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={scoreInput}
+                      onChange={(e) => setScoreInput(parseInt(e.target.value) || 0)}
+                      className="w-20 h-8 text-sm"
+                      autoFocus
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => {
+                        handleUpdateLead({ score: scoreInput });
+                        setEditingScore(false);
+                      }}
+                      disabled={updating}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8"
+                      onClick={() => setEditingScore(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className={cn("cursor-pointer hover:opacity-80 transition-opacity", getScoreBadgeClass(selectedLead.score))}
+                      onClick={() => { setEditingScore(true); setScoreInput(selectedLead.score); }}
+                    >
+                      Score: {safeNumber(selectedLead.score)}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground">Click to edit</span>
+                  </>
+                )}
+                <Badge variant="secondary">{safeText(selectedLead.source, "")}</Badge>
               </div>
               {selectedLead.notes && (
                 <Card>
                   <CardContent className="p-3">
                     <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                    <p className="text-sm">{selectedLead.notes}</p>
+                    <p className="text-sm">{safeText(selectedLead.notes, "")}</p>
                   </CardContent>
                 </Card>
               )}
@@ -838,9 +927,10 @@ export default function CRMPage() {
                     <Building2 className="h-3 w-3 mr-1" /> View Client
                   </Button>
                 )}
+                {/* CRM-005: Improved dark mode contrast */}
                 <Button
                   size="sm"
-                  className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/40"
                   variant="outline"
                   onClick={() => setDeleteTarget(selectedLead)}
                   disabled={deleting}
@@ -859,7 +949,7 @@ export default function CRMPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Lead</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete &quot;{deleteTarget?.name}&quot; and all associated emails. This action cannot be undone.
+              This will permanently delete &quot;{safeText(deleteTarget?.name, "")}&quot; and all associated emails. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
