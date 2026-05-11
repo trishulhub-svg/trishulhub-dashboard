@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useDeferredValue, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   Briefcase, Plus, Search, Users, DollarSign, FileText, Phone, Mail,
   Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
   FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
+  ChevronLeft, ChevronRight, X, Calendar,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,98 @@ function formatDate(d: string | null) {
   return new Date(d).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
 }
 
+// CLI-032: Smart date search parser
+function parseSmartSearch(input: string): { textSearch: string; dateFrom: Date | null; dateTo: Date | null } {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return { textSearch: "", dateFrom: null, dateTo: null };
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  if (trimmed === "today") return { textSearch: "", dateFrom: today, dateTo: endOfToday };
+
+  if (trimmed === "yesterday") {
+    const start = new Date(today); start.setDate(start.getDate() - 1);
+    const end = new Date(today.getTime() - 1);
+    return { textSearch: "", dateFrom: start, dateTo: end };
+  }
+
+  if (trimmed === "this week" || trimmed === "week") {
+    const dayOfWeek = today.getDay();
+    const monday = new Date(today); monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23, 59, 59, 999);
+    return { textSearch: "", dateFrom: monday, dateTo: sunday };
+  }
+
+  const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+
+  if (trimmed === "this month" || trimmed === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { textSearch: "", dateFrom: start, dateTo: end };
+  }
+
+  const monthIdx = monthNames.indexOf(trimmed);
+  if (monthIdx !== -1) {
+    const start = new Date(now.getFullYear(), monthIdx, 1);
+    const end = new Date(now.getFullYear(), monthIdx + 1, 0, 23, 59, 59, 999);
+    return { textSearch: "", dateFrom: start, dateTo: end };
+  }
+
+  if (trimmed === "this year" || trimmed === "year") {
+    return { textSearch: "", dateFrom: new Date(now.getFullYear(), 0, 1), dateTo: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999) };
+  }
+
+  const lastDaysMatch = trimmed.match(/^last\s+(\d+)\s+days?$/);
+  if (lastDaysMatch) {
+    const n = parseInt(lastDaysMatch[1]);
+    const start = new Date(today); start.setDate(start.getDate() - n + 1);
+    return { textSearch: "", dateFrom: start, dateTo: endOfToday };
+  }
+
+  const monthYearMatch = trimmed.match(/^(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{4})$/);
+  if (monthYearMatch) {
+    const fullMonth = monthNames.find(m => m.startsWith(monthYearMatch[1]));
+    if (fullMonth) {
+      const mi = monthNames.indexOf(fullMonth);
+      const year = parseInt(monthYearMatch[2]);
+      const start = new Date(year, mi, 1);
+      const end = new Date(year, mi + 1, 0, 23, 59, 59, 999);
+      return { textSearch: "", dateFrom: start, dateTo: end };
+    }
+  }
+
+  if (/^\d{4}$/.test(trimmed)) {
+    const year = parseInt(trimmed);
+    if (year >= 2000 && year <= 2100) {
+      return { textSearch: "", dateFrom: new Date(year, 0, 1), dateTo: new Date(year, 11, 31, 23, 59, 59, 999) };
+    }
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const d = new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+    if (!isNaN(d.getTime())) {
+      return { textSearch: "", dateFrom: d, dateTo: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999) };
+    }
+  }
+
+  const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmyMatch) {
+    const d = new Date(parseInt(dmyMatch[3]), parseInt(dmyMatch[2]) - 1, parseInt(dmyMatch[1]));
+    if (!isNaN(d.getTime())) {
+      return { textSearch: "", dateFrom: d, dateTo: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999) };
+    }
+  }
+
+  return { textSearch: input.trim(), dateFrom: null, dateTo: null };
+}
+
+function toDateString(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
 // ━━ Form Errors ━━
 interface FormErrors {
   name?: string;
@@ -164,6 +257,14 @@ export default function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "createdAt" | "revenue">("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // CLI-036: Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
+
+  // CLI-033: Stats from API (aggregated across all pages, not current page slice)
+  const [stats, setStats] = useState({ total: 0, active: 0, revenue: 0 as number | undefined, invoices: 0 });
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -215,31 +316,34 @@ export default function ClientsPage() {
   }, [status, router, isAdminUser]);
 
   // ━━ Fetch clients ━━
-  const fetchClients = useCallback(async (signal?: AbortSignal) => {
+  const fetchClients = useCallback(async (signal?: AbortSignal, page: number = 1) => {
     try {
       const params = new URLSearchParams();
-      // CLI-005: use debouncedSearch instead of search
-      if (debouncedSearch) params.set("search", debouncedSearch);
+      // CLI-032: Smart date parsing
+      const parsed = parseSmartSearch(debouncedSearch);
+      if (parsed.textSearch) params.set("search", parsed.textSearch);
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter);
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
+      // CLI-036: Pagination
+      params.set("page", String(page));
+      // CLI-032: Date range params
+      if (parsed.dateFrom) params.set("dateFrom", toDateString(parsed.dateFrom));
+      if (parsed.dateTo) params.set("dateTo", toDateString(parsed.dateTo));
 
       const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res)) return;
       if (res.ok) {
         const result = await res.json();
-        // Handle paginated response format { data, total, page, limit, totalPages }
         const data: ClientRow[] = Array.isArray(result) ? result : (result.data || []);
-        // CLI-001: Client-side revenue sort (API now supports it, but keep fallback)
-        if (sortBy === "revenue") {
-          data.toSorted((a: ClientRow, b: ClientRow) => {
-            const diff = (a.revenue || 0) - (b.revenue || 0);
-            return sortOrder === "asc" ? diff : -diff;
-          });
-        }
+        // CLI-036: Store pagination info
+        setTotalResults(result.total || 0);
+        setCurrentPage(result.page || 1);
+        setTotalPages(result.totalPages || 1);
+        // CLI-033: Store aggregate stats from API
+        if (result.stats) setStats(result.stats);
         setClients(data);
       } else {
-        // CLI-020: try/catch around res.json() in error branch
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to load clients");
       }
@@ -258,13 +362,11 @@ export default function ClientsPage() {
     return () => controller.abort();
   }, [fetchClients]);
 
-  // ━━ Stats (useMemo to avoid recomputing on every render) ━━
-  const { total: totalClients, active: activeClients, revenue: totalRevenue, invoices: totalInvoices } = useMemo(() => ({
-    total: clients.length,
-    active: clients.filter((c) => c.status === "ACTIVE").length,
-    revenue: clients.reduce((sum, c) => sum + (c.revenue || 0), 0),
-    invoices: clients.reduce((sum, c) => sum + (c._count?.invoices || 0), 0),
-  }), [clients]);
+  // ━━ Pagination helper (CLI-036) ━━
+  const goToPage = (page: number) => {
+    const controller = new AbortController();
+    fetchClients(controller.signal, page);
+  };
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -498,6 +600,9 @@ export default function ClientsPage() {
     }
   };
 
+  // CLI-032: Check if a date quick filter is active
+  const isDateFilterActive = (value: string) => debouncedSearch.toLowerCase().trim() === value;
+
   // ━━ Early return for non-authenticated / non-admin ━━
   // NOTE: All hooks must be called before any early returns (react-hooks/rules-of-hooks)
   if (status === "loading") {
@@ -574,7 +679,7 @@ export default function ClientsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             id="client-search"
-            placeholder="Search by name, email, or company..."
+            placeholder="Search by name, email, phone, company, or website..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
@@ -593,6 +698,27 @@ export default function ClientsPage() {
         </Select>
       </div>
 
+      {/* CLI-032: Date quick filter buttons */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: "Today", value: "today" },
+          { label: "This Week", value: "this week" },
+          { label: "This Month", value: "this month" },
+          { label: "This Year", value: "this year" },
+        ].map((filter) => (
+          <Button
+            key={filter.value}
+            variant={isDateFilterActive(filter.value) ? "default" : "outline"}
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setSearchInput(isDateFilterActive(filter.value) ? "" : filter.value)}
+          >
+            <Calendar className="h-3 w-3 mr-1" />
+            {filter.label}
+          </Button>
+        ))}
+      </div>
+
       {/* ━━ Stats Cards ━━ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -600,7 +726,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Total Clients</p>
-                <p className="text-2xl font-bold mt-1">{totalClients}</p>
+                <p className="text-2xl font-bold mt-1">{stats.total}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                 <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -613,7 +739,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Active Clients</p>
-                <p className="text-2xl font-bold mt-1">{activeClients}</p>
+                <p className="text-2xl font-bold mt-1">{stats.active}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <Briefcase className="h-5 w-5 text-green-600 dark:text-green-400" />
@@ -626,7 +752,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Total Revenue</p>
-                <p className="text-2xl font-bold mt-1">{formatCurrency(totalRevenue)}</p>
+                <p className="text-2xl font-bold mt-1">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
                 <DollarSign className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
@@ -640,7 +766,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Total Invoices</p>
-                <p className="text-2xl font-bold mt-1">{totalInvoices}</p>
+                <p className="text-2xl font-bold mt-1">{stats.invoices}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                 <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
@@ -654,13 +780,23 @@ export default function ClientsPage() {
       <Card>
         <CardContent className="p-0">
           {clients.length === 0 ? (
-            <div className="text-center py-16">
-              <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">No clients found</p>
-              <Button variant="outline" className="mt-4" onClick={handleAdd}>
-                <Plus className="h-4 w-4 mr-2" /> Add your first client
-              </Button>
-            </div>
+            searchInput || statusFilter !== "ALL" ? (
+              <div className="text-center py-16">
+                <Search className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                <p className="text-muted-foreground">No clients found matching your filters</p>
+                <Button variant="outline" className="mt-4" onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}>
+                  <X className="h-4 w-4 mr-2" /> Clear Filters
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center py-16">
+                <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                <p className="text-muted-foreground">No clients found</p>
+                <Button variant="outline" className="mt-4" onClick={handleAdd}>
+                  <Plus className="h-4 w-4 mr-2" /> Add your first client
+                </Button>
+              </div>
+            )
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -782,6 +918,36 @@ export default function ClientsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* CLI-036: Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * 50 + 1} to {Math.min(currentPage * 50, totalResults)} of {totalResults}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage <= 1}
+              onClick={() => goToPage(currentPage - 1)}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= totalPages}
+              onClick={() => goToPage(currentPage + 1)}
+            >
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ━━ Add/Edit Client Dialog ━━ */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -950,10 +1116,26 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground">{detailClient.name}</p>
                     )}
                   </div>
-                  {/* CLI-030: default gray fallback */}
-                  <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
-                    {detailClient.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {/* CLI-030: default gray fallback */}
+                    <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
+                      {detailClient.status}
+                    </Badge>
+                    {/* CLI-035: Edit button in detail drawer */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        const client = detailClient;
+                        setDetailClient(null);
+                        handleEdit(client);
+                      }}
+                      aria-label="Edit client"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-3 mt-3 text-sm">
                   <div className="flex items-center gap-1.5 text-muted-foreground">

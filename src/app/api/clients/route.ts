@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
   const sortBy = searchParams.get("sortBy") || "createdAt"
   const sortOrder = searchParams.get("sortOrder") || "desc"
 
+  // CLI-032: Date range filter params
+  const dateFromParam = searchParams.get("dateFrom")
+  const dateToParam = searchParams.get("dateTo")
+
   // Pagination params
   const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
   const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
@@ -44,6 +48,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `Invalid sortOrder. Must be one of: ${validSortOrder.join(", ")}` }, { status: 400 })
   }
 
+  // Build date filter helper (reused for where and statsWhere)
+  const buildDateFilter = (fromParam: string | null, toParam: string | null): Record<string, unknown> | null => {
+    if (!fromParam && !toParam) return null
+    const dateFilter: Record<string, unknown> = {}
+    if (fromParam) dateFilter.gte = new Date(fromParam)
+    if (toParam) {
+      const endOfDay = new Date(toParam)
+      endOfDay.setHours(23, 59, 59, 999)
+      dateFilter.lte = endOfDay
+    }
+    return dateFilter
+  }
+
   // Build where clause
   const where: Record<string, unknown> = {}
 
@@ -56,12 +73,20 @@ export async function GET(req: NextRequest) {
     where.status = status
   }
 
+  // CLI-032: Date range filter
+  const dateFilter = buildDateFilter(dateFromParam, dateToParam)
+  if (dateFilter) {
+    where.createdAt = dateFilter
+  }
+
+  // CLI-031: Added website to search OR array
   if (search) {
     where.OR = [
       { name: { contains: search } },
       { email: { contains: search } },
       { company: { contains: search } },
       { phone: { contains: search } },
+      { website: { contains: search } },
     ]
   }
 
@@ -117,12 +142,41 @@ export async function GET(req: NextRequest) {
     })
   }
 
+  // CLI-033: Aggregate stats (computed across ALL matching clients, NOT just current page)
+  // Uses base filters (assignedClientIds, status, date) but WITHOUT text search
+  const statsWhere: Record<string, unknown> = {}
+  if (assignedClientIds) statsWhere.id = { in: assignedClientIds }
+  if (status && status !== "ALL") statsWhere.status = status
+  const statsDateFilter = buildDateFilter(dateFromParam, dateToParam)
+  if (statsDateFilter) statsWhere.createdAt = statsDateFilter
+
+  const [statsTotal, activeCount, invoiceCount] = await Promise.all([
+    db.client.count({ where: statsWhere }),
+    db.client.count({ where: { ...statsWhere, status: "ACTIVE" } }),
+    db.invoice.count({ where: { client: statsWhere } }),
+  ])
+
+  let totalRevenue: number | undefined
+  if (isAdmin(role)) {
+    const revenueResult = await db.invoice.aggregate({
+      where: { client: statsWhere, status: "PAID" },
+      _sum: { total: true },
+    })
+    totalRevenue = revenueResult._sum?.total ?? 0
+  }
+
   return NextResponse.json(JSON.parse(JSON.stringify({
     data: enriched,
     total,
     page,
     limit,
     totalPages: Math.ceil(total / limit),
+    stats: {
+      total: statsTotal,
+      active: activeCount,
+      revenue: totalRevenue,
+      invoices: invoiceCount,
+    },
   })))
 }
 
