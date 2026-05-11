@@ -308,17 +308,24 @@ model AgentActivityLog {
 
 // ━━ Clients ━━
 model Client {
-  id        String   @id @default(cuid())
-  name      String
-  email     String
-  phone     String?
-  company   String?
-  website   String?
-  status    String   @default("ACTIVE") // ACTIVE, INACTIVE
-  userId    String?  // linked portal user
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  email           String
+  phone           String?
+  company         String?
+  website         String?              // kept for backward compat
+  websites        String   @default("[]") // JSON array of website URLs
+  status          String   @default("ACTIVE") // ACTIVE, INACTIVE, ONBOARDING, PAUSED, COMPLETED, CHURNED
+  userId          String?  // linked portal user
+  notes           String?
+  projectType     String?              // ENGINEERING, MEDICAL, RETAIL, REAL_ESTATE, FINANCE, EDUCATION, LEGAL, FOOD_BEVERAGE, MANUFACTURING, IT_SERVICES, OTHER
+  projectStartDate DateTime?            // When engagement started
+  deliveryDate    DateTime?            // Expected delivery date
+  mediatorName    String?              // Mediator/agent/broker name
+  mediatorPhone   String?              // Mediator contact number
+  mediatorEmail   String?              // Mediator email
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   projects  Project[]
   invoices  Invoice[]

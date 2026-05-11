@@ -7,7 +7,7 @@ import {
   Briefcase, Plus, Search, Users, DollarSign, FileText, Phone, Mail,
   Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
   FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
-  ChevronLeft, ChevronRight, X, Calendar,
+  ChevronLeft, ChevronRight, X, Calendar, Link2, UserCircle, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,9 +50,16 @@ interface ClientRow {
   phone: string | null;
   company: string | null;
   website: string | null;
+  websites: string | null;       // JSON array
   status: string;
   userId: string | null;
   notes: string | null;
+  projectType: string | null;
+  projectStartDate: string | null;
+  deliveryDate: string | null;
+  mediatorName: string | null;
+  mediatorPhone: string | null;
+  mediatorEmail: string | null;
   createdAt: string;
   updatedAt: string;
   _count: { projects: number; invoices: number; tickets: number };
@@ -84,6 +91,47 @@ const defaultBadgeColor = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-
 const statusColors: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   INACTIVE: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300",
+  ONBOARDING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  PAUSED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  COMPLETED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+  CHURNED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const statusLabels: Record<string, string> = {
+  ACTIVE: "Active",
+  INACTIVE: "Inactive",
+  ONBOARDING: "Onboarding",
+  PAUSED: "Paused",
+  COMPLETED: "Completed",
+  CHURNED: "Churned",
+};
+
+const projectTypeOptions = [
+  { value: "ENGINEERING", label: "Engineering" },
+  { value: "MEDICAL", label: "Medical / Healthcare" },
+  { value: "RETAIL", label: "Retail / E-Commerce" },
+  { value: "REAL_ESTATE", label: "Real Estate" },
+  { value: "FINANCE", label: "Finance / FinTech" },
+  { value: "EDUCATION", label: "Education / EdTech" },
+  { value: "LEGAL", label: "Legal" },
+  { value: "FOOD_BEVERAGE", label: "Food & Beverage" },
+  { value: "MANUFACTURING", label: "Manufacturing" },
+  { value: "IT_SERVICES", label: "IT Services / Tech" },
+  { value: "OTHER", label: "Other" },
+];
+
+const projectTypeBadgeColors: Record<string, string> = {
+  ENGINEERING: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  MEDICAL: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300",
+  RETAIL: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
+  REAL_ESTATE: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  FINANCE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  EDUCATION: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
+  LEGAL: "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-300",
+  FOOD_BEVERAGE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  MANUFACTURING: "bg-zinc-100 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-300",
+  IT_SERVICES: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300",
 };
 
 const projectStatusColors: Record<string, string> = {
@@ -294,10 +342,19 @@ export default function ClientsPage() {
     phone: "",
     company: "",
     website: "",
+    websites: [] as string[],
     status: "ACTIVE" as ClientStatus,
+    projectType: "",
+    projectStartDate: "",
+    deliveryDate: "",
+    mediatorName: "",
+    mediatorPhone: "",
+    mediatorEmail: "",
     notes: "",
     createdAt: "",
   });
+
+  const [showMediator, setShowMediator] = useState(false);
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -372,15 +429,16 @@ export default function ClientsPage() {
   const handleAdd = () => {
     setEditingClient(null);
     setFormErrors({});
+    setShowMediator(false);
     setFormData({
-      name: "",
-      email: "",
-      phone: "",
-      company: "",
-      website: "",
+      name: "", email: "", phone: "", company: "", website: "",
+      websites: [""],
       status: "ACTIVE",
-      notes: "",
-      createdAt: "",
+      projectType: "",
+      projectStartDate: "",
+      deliveryDate: "",
+      mediatorName: "", mediatorPhone: "", mediatorEmail: "",
+      notes: "", createdAt: "",
     });
     setDialogOpen(true);
   };
@@ -389,13 +447,21 @@ export default function ClientsPage() {
   const handleEdit = (client: ClientRow) => {
     setEditingClient(client);
     setFormErrors({});
+    setShowMediator(!!(client.mediatorName || client.mediatorPhone));
+    let parsedWebsites: string[] = [""];
+    try { const w = client.websites ? JSON.parse(client.websites) : null; if (Array.isArray(w) && w.length > 0) parsedWebsites = w; else if (client.website) parsedWebsites = [client.website]; } catch { if (client.website) parsedWebsites = [client.website]; }
     setFormData({
-      name: client.name,
-      email: client.email,
-      phone: client.phone || "",
-      company: client.company || "",
+      name: client.name, email: client.email,
+      phone: client.phone || "", company: client.company || "",
       website: client.website || "",
+      websites: parsedWebsites,
       status: (client.status as ClientStatus) || "ACTIVE",
+      projectType: client.projectType || "",
+      projectStartDate: client.projectStartDate ? client.projectStartDate.split("T")[0] : "",
+      deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
+      mediatorName: client.mediatorName || "",
+      mediatorPhone: client.mediatorPhone || "",
+      mediatorEmail: client.mediatorEmail || "",
       notes: client.notes || "",
       createdAt: "",
     });
@@ -447,6 +513,13 @@ export default function ClientsPage() {
             website: formData.website || null,
             status: formData.status,
             notes: formData.notes || null,
+            projectType: formData.projectType || null,
+            projectStartDate: formData.projectStartDate || null,
+            deliveryDate: formData.deliveryDate || null,
+            websites: formData.websites.filter(w => w.trim()),
+            mediatorName: formData.mediatorName || null,
+            mediatorPhone: formData.mediatorPhone || null,
+            mediatorEmail: formData.mediatorEmail || null,
           }),
         });
         if (handleFetchError(res)) return;
@@ -473,6 +546,13 @@ export default function ClientsPage() {
           website: formData.website || undefined,
           status: formData.status,
           notes: formData.notes || undefined,
+          projectType: formData.projectType || undefined,
+          projectStartDate: formData.projectStartDate || undefined,
+          deliveryDate: formData.deliveryDate || undefined,
+          websites: formData.websites.filter(w => w.trim()),
+          mediatorName: formData.mediatorName || undefined,
+          mediatorPhone: formData.mediatorPhone || undefined,
+          mediatorEmail: formData.mediatorEmail || undefined,
         };
         if (formData.createdAt) {
           body.createdAt = formData.createdAt;
@@ -694,6 +774,10 @@ export default function ClientsPage() {
             <SelectItem value="ALL">All Status</SelectItem>
             <SelectItem value="ACTIVE">Active</SelectItem>
             <SelectItem value="INACTIVE">Inactive</SelectItem>
+            <SelectItem value="ONBOARDING">Onboarding</SelectItem>
+            <SelectItem value="PAUSED">Paused</SelectItem>
+            <SelectItem value="COMPLETED">Completed</SelectItem>
+            <SelectItem value="CHURNED">Churned</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -815,6 +899,7 @@ export default function ClientsPage() {
                     </TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead className="hidden md:table-cell">Phone</TableHead>
+                    <TableHead className="hidden md:table-cell text-center">Type</TableHead>
                     <TableHead className="text-center">Projects</TableHead>
                     <TableHead
                       className="cursor-pointer select-none text-right"
@@ -870,6 +955,15 @@ export default function ClientsPage() {
                       <TableCell className="hidden md:table-cell">
                         <span className="text-sm text-muted-foreground">{client.phone || "—"}</span>
                       </TableCell>
+                      <TableCell className="hidden md:table-cell text-center">
+                        {client.projectType ? (
+                          <Badge className={`text-[10px] ${projectTypeBadgeColors[client.projectType] || defaultBadgeColor}`}>
+                            {projectTypeOptions.find(p => p.value === client.projectType)?.label || client.projectType}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-center">
                         <Badge variant="secondary" className="text-xs">
                           {client._count?.projects || 0}
@@ -881,9 +975,8 @@ export default function ClientsPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
-                        {/* CLI-030: default gray fallback for status badges */}
                         <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
-                          {client.status}
+                          {statusLabels[client.status] || client.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
@@ -951,112 +1044,167 @@ export default function ClientsPage() {
 
       {/* ━━ Add/Edit Client Dialog ━━ */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
             <DialogDescription>{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
+            {/* Basic Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* CLI-026: id/htmlFor on labels and inputs */}
               <div className="space-y-2">
                 <Label htmlFor="client-name" className="text-xs font-medium">Name *</Label>
-                <Input
-                  id="client-name"
-                  placeholder="Client name"
-                  value={formData.name}
+                <Input id="client-name" placeholder="Client name" value={formData.name}
                   onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors({ ...formErrors, name: undefined }); }}
-                  className={formErrors.name ? "border-red-500" : ""}
-                />
+                  className={formErrors.name ? "border-red-500" : ""} />
                 {formErrors.name && <p className="text-xs text-red-500">{formErrors.name}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="client-email" className="text-xs font-medium">Email *</Label>
-                <Input
-                  id="client-email"
-                  placeholder="email@example.com"
-                  type="email"
-                  value={formData.email}
+                <Input id="client-email" placeholder="email@example.com" type="email" value={formData.email}
                   onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFormErrors({ ...formErrors, email: undefined }); }}
-                  className={formErrors.email ? "border-red-500" : ""}
-                />
+                  className={formErrors.email ? "border-red-500" : ""} />
                 {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
               </div>
+            </div>
+
+            {/* Contact & Company */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="client-phone" className="text-xs font-medium">Phone</Label>
-                {/* CLI-014: generic phone placeholder */}
-                <Input
-                  id="client-phone"
-                  placeholder="+1 (555) 123-4567"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
+                <Input id="client-phone" placeholder="+1 (555) 123-4567" value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="client-company" className="text-xs font-medium">Company</Label>
-                <Input
-                  id="client-company"
-                  placeholder="Company name"
-                  value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                />
+                <Input id="client-company" placeholder="Company name" value={formData.company}
+                  onChange={(e) => setFormData({ ...formData, company: e.target.value })} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="client-website" className="text-xs font-medium">Website</Label>
-                <Input
-                  id="client-website"
-                  placeholder="https://example.com"
-                  value={formData.website}
-                  onChange={(e) => { setFormData({ ...formData, website: e.target.value }); setFormErrors({ ...formErrors, website: undefined }); }}
-                  className={formErrors.website ? "border-red-500" : ""}
-                />
-                {formErrors.website && <p className="text-xs text-red-500">{formErrors.website}</p>}
-              </div>
+            </div>
+
+            {/* Project Details */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="client-status" className="text-xs font-medium">Status</Label>
                 <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v as ClientStatus })}>
-                  <SelectTrigger id="client-status">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger id="client-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ACTIVE">Active</SelectItem>
                     <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="ONBOARDING">Onboarding</SelectItem>
+                    <SelectItem value="PAUSED">Paused</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="CHURNED">Churned</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="client-project-type" className="text-xs font-medium">Project Type</Label>
+                <Select value={formData.projectType} onValueChange={(v) => setFormData({ ...formData, projectType: v })}>
+                  <SelectTrigger id="client-project-type"><SelectValue placeholder="Select type..." /></SelectTrigger>
+                  <SelectContent>
+                    {projectTypeOptions.map((pt) => (
+                      <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
+            {/* Dates */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="client-start-date" className="text-xs font-medium">Project Start Date</Label>
+                <Input id="client-start-date" type="date" value={formData.projectStartDate}
+                  onChange={(e) => setFormData({ ...formData, projectStartDate: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="client-delivery-date" className="text-xs font-medium">Delivery Date</Label>
+                <Input id="client-delivery-date" type="date" value={formData.deliveryDate}
+                  onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Websites — dynamic list */}
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">Websites</Label>
+              {formData.websites.map((ws, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input placeholder={i === 0 ? "https://example.com" : "Additional website URL"} value={ws}
+                    onChange={(e) => {
+                      const updated = [...formData.websites];
+                      updated[i] = e.target.value;
+                      setFormData({ ...formData, websites: updated });
+                    }} />
+                  {formData.websites.length > 1 && (
+                    <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0"
+                      onClick={() => setFormData({ ...formData, websites: formData.websites.filter((_, idx) => idx !== i) })}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="mt-1"
+                onClick={() => setFormData({ ...formData, websites: [...formData.websites, ""] })}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Website
+              </Button>
+            </div>
+
+            {/* Mediator Section — collapsible */}
+            <div className="border rounded-lg">
+              <button type="button" className="flex items-center justify-between w-full p-3 text-left"
+                onClick={() => setShowMediator(!showMediator)}>
+                <div className="flex items-center gap-2">
+                  <UserCircle className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-xs font-medium cursor-pointer">Mediator Details (Optional)</Label>
+                </div>
+                {showMediator ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+              {showMediator && (
+                <div className="px-3 pb-3 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="mediator-name" className="text-xs">Mediator Name</Label>
+                      <Input id="mediator-name" placeholder="Full name" value={formData.mediatorName}
+                        onChange={(e) => setFormData({ ...formData, mediatorName: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="mediator-phone" className="text-xs">Mediator Phone</Label>
+                      <Input id="mediator-phone" placeholder="+1 (555) 000-0000" value={formData.mediatorPhone}
+                        onChange={(e) => setFormData({ ...formData, mediatorPhone: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="mediator-email" className="text-xs">Mediator Email</Label>
+                    <Input id="mediator-email" placeholder="mediator@example.com" type="email" value={formData.mediatorEmail}
+                      onChange={(e) => setFormData({ ...formData, mediatorEmail: e.target.value })} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Created At — only for new clients */}
             {!editingClient && (
               <div className="space-y-2">
                 <Label htmlFor="client-created-at" className="text-xs font-medium">Created At (Optional)</Label>
-                <Input
-                  id="client-created-at"
-                  type="date"
-                  value={formData.createdAt}
+                <Input id="client-created-at" type="date" value={formData.createdAt}
                   onChange={(e) => { setFormData({ ...formData, createdAt: e.target.value }); setFormErrors({ ...formErrors, createdAt: undefined }); }}
-                  className={formErrors.createdAt ? "border-red-500" : ""}
-                />
+                  className={formErrors.createdAt ? "border-red-500" : ""} />
                 {formErrors.createdAt && <p className="text-xs text-red-500">{formErrors.createdAt}</p>}
                 <p className="text-xs text-muted-foreground">Override date for adding historical data</p>
               </div>
             )}
 
+            {/* Notes */}
             <div className="space-y-2">
               <Label htmlFor="client-notes" className="text-xs font-medium">Notes</Label>
-              <Textarea
-                id="client-notes"
-                placeholder="Add any notes about this client..."
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-              />
+              <Textarea id="client-notes" placeholder="Add any notes about this client..." value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={3} />
             </div>
 
+            {/* Buttons */}
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              {/* CLI-007: disable submit button when submitting */}
+              <Button variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button className="flex-1" onClick={handleSubmit} disabled={submitting}>
                 {submitting ? "Saving..." : editingClient ? "Update Client" : "Create Client"}
               </Button>
@@ -1119,7 +1267,7 @@ export default function ClientsPage() {
                   <div className="flex items-center gap-2">
                     {/* CLI-030: default gray fallback */}
                     <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
-                      {detailClient.status}
+                      {statusLabels[detailClient.status] || detailClient.status}
                     </Badge>
                     {/* CLI-035: Edit button in detail drawer */}
                     <Button
@@ -1156,11 +1304,47 @@ export default function ClientsPage() {
                       <Globe className="h-3.5 w-3.5" /> {detailClient.website}
                     </div>
                   )}
+                  {detailClient.projectType && (
+                    <div className="flex items-center gap-1.5">
+                      <Badge className={`text-[10px] ${projectTypeBadgeColors[detailClient.projectType] || defaultBadgeColor}`}>
+                        {projectTypeOptions.find(p => p.value === detailClient.projectType)?.label || detailClient.projectType}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm">
                   <span className="text-muted-foreground">Revenue: <span className="font-medium text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
                   <span className="text-muted-foreground">Since: <span className="font-medium text-foreground">{formatDate(detailClient.createdAt)}</span></span>
                 </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
+                  {detailClient.projectStartDate && (
+                    <span>Start: <span className="text-foreground font-medium">{formatDate(detailClient.projectStartDate)}</span></span>
+                  )}
+                  {detailClient.deliveryDate && (
+                    <span>Delivery: <span className="text-foreground font-medium">{formatDate(detailClient.deliveryDate)}</span></span>
+                  )}
+                  {detailClient.mediatorName && (
+                    <span>Mediator: <span className="text-foreground font-medium">{detailClient.mediatorName}</span>
+                      {detailClient.mediatorPhone && <span> ({detailClient.mediatorPhone})</span>}
+                    </span>
+                  )}
+                </div>
+                {(() => {
+                  let sites: string[] = [];
+                  try { const w = detailClient.websites ? JSON.parse(detailClient.websites) : null; if (Array.isArray(w)) sites = w.filter((s: string) => s.trim()); } catch {}
+                  if (detailClient.website && !sites.includes(detailClient.website)) sites.unshift(detailClient.website);
+                  if (sites.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {sites.map((site, i) => (
+                        <a key={i} href={site.startsWith("http") ? site : `https://${site}`} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                          <Link2 className="h-3 w-3" /> {site.replace(/^https?:\/\//, "")}
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })()}
                 {detailClient.portalUser && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                     <ExternalLink className="h-3 w-3" />

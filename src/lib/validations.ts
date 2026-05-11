@@ -26,9 +26,16 @@ export const createClientSchema = z.object({
   phone: z.string().optional(),
   company: z.string().optional(),
   website: z.string().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE", "ONBOARDING", "PAUSED", "COMPLETED", "CHURNED"]).optional(),
   userId: z.string().optional(),
   notes: z.string().optional(),
+  projectType: z.string().max(100).optional(),
+  projectStartDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date" }),
+  deliveryDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date" }),
+  websites: z.array(z.string().max(500)).optional(),
+  mediatorName: z.string().max(200).optional(),
+  mediatorPhone: z.string().max(50).optional(),
+  mediatorEmail: z.string().email("Valid mediator email is required").max(200).optional().nullable(),
   createdAt: z.string()
     .optional()
     .refine((val) => {
@@ -53,9 +60,16 @@ export const updateClientSchema = z.object({
   phone: z.string().nullable().optional(),
   company: z.string().nullable().optional(),
   website: z.string().nullable().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]).nullable().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE", "ONBOARDING", "PAUSED", "COMPLETED", "CHURNED"]).nullable().optional(),
   userId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  projectType: z.string().max(100).nullable().optional(),
+  projectStartDate: z.string().nullable().optional(),
+  deliveryDate: z.string().nullable().optional(),
+  websites: z.array(z.string().max(500)).nullable().optional(),
+  mediatorName: z.string().max(200).nullable().optional(),
+  mediatorPhone: z.string().max(50).nullable().optional(),
+  mediatorEmail: z.string().email("Valid mediator email is required").max(200).nullable().optional(),
 })
 
 export const createInvoiceSchema = z.object({

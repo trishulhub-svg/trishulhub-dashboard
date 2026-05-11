@@ -87,6 +87,8 @@ export async function GET(req: NextRequest) {
       { company: { contains: search } },
       { phone: { contains: search } },
       { website: { contains: search } },
+      { websites: { contains: search } },
+      { projectType: { contains: search } },
     ]
   }
 
@@ -224,9 +226,16 @@ export async function POST(req: NextRequest) {
     phone: string | null;
     company: string | null;
     website: string | null;
+    websites: string;
     status: string;
     userId: string | null;
     notes: string | null;
+    projectType: string | null;
+    projectStartDate: Date | null;
+    deliveryDate: Date | null;
+    mediatorName: string | null;
+    mediatorPhone: string | null;
+    mediatorEmail: string | null;
     createdAt?: Date;
   } = {
     name: data.name,
@@ -234,9 +243,16 @@ export async function POST(req: NextRequest) {
     phone: data.phone || null,
     company: data.company || null,
     website: data.website || null,
+    websites: data.websites ? JSON.stringify(data.websites) : "[]",
     status: data.status || "ACTIVE",
     userId: data.userId || null,
     notes: data.notes || null,
+    projectType: data.projectType || null,
+    projectStartDate: data.projectStartDate ? new Date(data.projectStartDate) : null,
+    deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
+    mediatorName: data.mediatorName || null,
+    mediatorPhone: data.mediatorPhone || null,
+    mediatorEmail: data.mediatorEmail || null,
   }
 
   // Support createdAt override for historical data

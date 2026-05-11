@@ -191,9 +191,16 @@ export async function PATCH(
     phone?: string | null;
     company?: string | null;
     website?: string | null;
+    websites?: string | null;
     status?: string;
     userId?: string | null;
     notes?: string | null;
+    projectType?: string | null;
+    projectStartDate?: Date | null;
+    deliveryDate?: Date | null;
+    mediatorName?: string | null;
+    mediatorPhone?: string | null;
+    mediatorEmail?: string | null;
   } = {}
   for (const [key, value] of Object.entries(updateData)) {
     if (value !== undefined) {
@@ -201,10 +208,22 @@ export async function PATCH(
     }
   }
 
+  // Handle date fields
+  if (sanitizedData.projectStartDate && typeof sanitizedData.projectStartDate === 'string') {
+    sanitizedData.projectStartDate = new Date(sanitizedData.projectStartDate);
+  }
+  if (sanitizedData.deliveryDate && typeof sanitizedData.deliveryDate === 'string') {
+    sanitizedData.deliveryDate = new Date(sanitizedData.deliveryDate);
+  }
+  // Handle websites array -> JSON string
+  if (Array.isArray(sanitizedData.websites)) {
+    sanitizedData.websites = JSON.stringify(sanitizedData.websites);
+  }
+
   try {
     const client = await db.client.update({
       where: { id },
-      data: sanitizedData,
+      data: sanitizedData as Parameters<typeof db.client.update>[0]["data"],
     })
     return NextResponse.json(client)
   } catch {
