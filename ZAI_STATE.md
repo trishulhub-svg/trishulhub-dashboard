@@ -1,17 +1,22 @@
 # ZAI STATE LOG
 **Project:** TrishulHub Dashboard
 **Status:** COMPLETED
-**Last Stage:** Stage 6: CHRONICLER ZAI — CRM smart search + editing deployed
-**Last Action:** Implemented smart search with date filtering, full lead detail editing, and source/status filter bar. Commit b70dcf6 pushed.
+**Last Stage:** Stage 6: CHRONICLER ZAI — Clients page audit complete
+**Last Action:** Fixed 9 bugs on Clients page: smart date search, pagination, aggregate stats, clear filters, edit in drawer, skeleton fixes. Commit 22def63 pushed.
 **Next Step:** Awaiting next task from user. Use "ZAI AUDIT [Page]" or "ZAI RESUME" to continue.
 **Pending Batches:** None
-**Active Bug List:** All CRM bugs FIXED, new features implemented
-  - CRM-S01 [HIGH]: No date filtering — FIXED (smart date parsing + quick filter buttons)
-  - CRM-S02 [HIGH]: No phone search — FIXED (phone added to text search)
-  - CRM-S03 [HIGH]: No smart query parsing — FIXED (today, week, month, year, month name, score filters)
-  - CRM-S04 [MEDIUM]: No filter bar — FIXED (source + status dropdowns + clear all)
-  - CRM-S05 [HIGH]: Lead details read-only — FIXED (full edit mode with inline form)
+**Active Bug List:** All Clients bugs FIXED
+  - CLI-031 [HIGH]: No website search — FIXED (website added to API OR clause)
+  - CLI-032 [HIGH]: No date/smart search — FIXED (smart date parsing + quick filter buttons + API dateFrom/dateTo)
+  - CLI-033 [HIGH]: Stats from page slice — FIXED (API aggregate stats across all clients)
+  - CLI-034 [HIGH]: No clear search — FIXED (differentiated empty states + Clear Filters button)
+  - CLI-035 [HIGH]: No edit in drawer — FIXED (Pencil button in detail drawer header)
+  - CLI-036 [HIGH]: No pagination — FIXED (pagination controls below table)
+  - CLI-037 [MEDIUM]: Skeleton grid mismatch — FIXED (responsive breakpoints match)
+  - CLI-038 [MEDIUM]: loading.tsx 3 skeletons — FIXED (now shows 4)
+  - CLI-040 [MEDIUM]: Placeholder missing fields — FIXED (updated to include all fields)
 **Recent Commits:**
+  - 22def63: fix: [Clients] Batch 1-2 — Smart date search, pagination, aggregate stats, clear filters, edit in drawer, skeleton fixes
   - b70dcf6: feat: [CRM] Smart search with date filters, full lead editing, source/status filter bar
   - a5f4405: fix: [CRM] Batch 1-3 — Clickable stats, inline score edit, sort by score, safeText/safeNumber, source colors, search empty state
   - 5fcee75: fix: [Dashboard] Batch 1-3 — Make stat cards & invoices clickable, add safeNumber to all stats, show real tasks for developers

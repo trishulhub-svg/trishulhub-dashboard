@@ -2,6 +2,28 @@
 
 All notable changes to the TrishulHub Dashboard will be documented in this file.
 
+## [2025-05-12] — Clients Page Audit Fix (ZAI Protocol)
+
+### Fixed
+- **CLI-031 [HIGH]**: Website field now included in API search OR clause — searching by URL now finds matching clients
+- **CLI-032 [HIGH]**: Smart date search implemented — type `today`, `this week`, `this month`, month names (`january`, `feb`), year (`2025`), `last 7 days`, or date formats (`2025-01-15`, `15/01/2025`) in the search box. API supports `dateFrom`/`dateTo` query params with proper end-of-day handling.
+- **CLI-033 [HIGH]**: Stats cards (Total Clients, Active, Revenue, Invoices) now use aggregate data from the API across ALL matching clients, not just the current page slice. Fixed incorrect counts when 50+ clients exist.
+- **CLI-034 [HIGH]**: Empty state now differentiates between "no results from filters" (shows "Clear Filters" button) and "truly no clients" (shows "Add your first client" button)
+- **CLI-035 [HIGH]**: Edit button (Pencil icon) added to the client detail drawer header — no need to close the drawer and find the client in the table to edit
+- **CLI-036 [HIGH]**: Pagination controls added below the table — "Showing X to Y of Z" with Previous/Next buttons when there are more than 50 clients
+- **CLI-037 [MEDIUM]**: Loading skeleton grid breakpoints now match the actual stats section (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`)
+- **CLI-038 [MEDIUM]**: `loading.tsx` now shows 4 stat skeletons instead of 3, matching the actual 4-card layout
+- **CLI-040 [MEDIUM]**: Search placeholder updated to mention all searchable fields: "Search by name, email, phone, company, or website..."
+
+### Added
+- **Date Quick-Filter Buttons**: One-click buttons (Today, This Week, This Month, This Year) below the search bar for fast date filtering
+- **API Aggregate Stats**: GET `/api/clients` now returns a `stats` object with `total`, `active`, `revenue`, and `invoices` aggregated across all matching clients
+
+### Commit
+- `22def63`: fix: [Clients] Batch 1-2 — Smart date search, pagination, aggregate stats, clear filters, edit in drawer, skeleton fixes
+
+---
+
 ## [2025-05-12] — Dashboard Audit Fix (ZAI Protocol)
 
 ### Fixed
