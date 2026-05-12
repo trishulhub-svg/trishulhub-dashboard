@@ -34,12 +34,12 @@ export const createClientSchema = z.object({
   deliveryDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date" }),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),
-    label: z.string().max(100).optional(),
+    label: z.string().max(100).nullable().optional(),
     isPrimary: z.boolean().optional(),
   })).optional(),
-  mediatorName: z.string().max(200).optional(),
-  mediatorPhone: z.string().max(50).optional(),
-  mediatorEmail: z.string().email("Valid mediator email is required").max(200).optional().nullable(),
+  mediatorName: z.string().max(200).nullable().optional(),
+  mediatorPhone: z.string().max(50).nullable().optional(),
+  mediatorEmail: z.string().email("Valid mediator email is required").max(200).nullable().optional(),
   createdAt: z.string()
     .optional()
     .refine((val) => {
@@ -72,7 +72,7 @@ export const updateClientSchema = z.object({
   deliveryDate: z.string().nullable().optional(),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),
-    label: z.string().max(100).optional(),
+    label: z.string().max(100).nullable().optional(),
     isPrimary: z.boolean().optional(),
   })).nullable().optional(),
   mediatorName: z.string().max(200).nullable().optional(),

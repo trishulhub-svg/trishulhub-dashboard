@@ -5,18 +5,19 @@ import { db } from "@/lib/db"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/clients/[id] - Single client detail with full relations
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Auto-migrate: ensure ClientWebsite table exists on first request (Turso)
-  await ensureTable("ClientWebsite")
+  try {
+    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
+    await ensureAllTables()
 
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = session.user.role
   const userId = session.user.id
@@ -145,7 +146,11 @@ export async function GET(
     revenue = paidInvoiceSum._sum.total ?? 0
   }
 
-  return NextResponse.json(JSON.parse(JSON.stringify({ ...client, portalUser, revenue })))
+    return NextResponse.json(JSON.parse(JSON.stringify({ ...client, portalUser, revenue })))
+  } catch (error: any) {
+    console.error("[clients/[id]] GET error:", error?.message)
+    return NextResponse.json({ error: "Failed to load client details" }, { status: 500 })
+  }
 }
 
 // PATCH /api/clients/[id] - Update client
@@ -153,6 +158,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
+    await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -238,8 +246,13 @@ export async function PATCH(
       include: { websites: true },
     })
     return NextResponse.json(JSON.parse(JSON.stringify(client)))
-  } catch {
+  } catch (updateErr: any) {
+    console.error("[clients/[id]] PATCH update error:", updateErr?.message)
     return NextResponse.json({ error: "Client not found or update failed" }, { status: 404 })
+  }
+  } catch (error: any) {
+    console.error("[clients/[id]] PATCH error:", error?.message)
+    return NextResponse.json({ error: "Failed to update client" }, { status: 500 })
   }
 }
 
