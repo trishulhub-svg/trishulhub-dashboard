@@ -87,8 +87,8 @@ export async function GET(req: NextRequest) {
       { company: { contains: search } },
       { phone: { contains: search } },
       { website: { contains: search } },
-      { websites: { contains: search } },
       { projectType: { contains: search } },
+      { mediatorName: { contains: search } },
     ]
   }
 
@@ -116,6 +116,11 @@ export async function GET(req: NextRequest) {
           where: { status: "PAID" },
           select: { total: true },
         },
+        websites: {
+          select: { id: true, url: true, label: true, isPrimary: true },
+          take: 1,
+          orderBy: { isPrimary: "desc" },
+        },
       },
       orderBy,
       skip: offset,
@@ -127,9 +132,10 @@ export async function GET(req: NextRequest) {
   // Compute aggregated revenue per client
   let enriched = clients.map((client) => {
     const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
-    const { invoices, ...rest } = client
+    const { invoices, websites, ...rest } = client
     return {
       ...rest,
+      primaryWebsite: websites.length > 0 ? websites[0] : null,
       // Hide revenue for developers
       revenue: isAdmin(role) ? revenue : undefined,
     }
@@ -220,30 +226,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Build create data
-  const createData: {
-    name: string;
-    email: string;
-    phone: string | null;
-    company: string | null;
-    website: string | null;
-    websites: string;
-    status: string;
-    userId: string | null;
-    notes: string | null;
-    projectType: string | null;
-    projectStartDate: Date | null;
-    deliveryDate: Date | null;
-    mediatorName: string | null;
-    mediatorPhone: string | null;
-    mediatorEmail: string | null;
-    createdAt?: Date;
-  } = {
+  const websitesData = data.websites || []
+  const primaryWebsite = websitesData.find((w) => w.isPrimary) || websitesData[0]
+
+  const createData = {
     name: data.name,
     email: data.email,
     phone: data.phone || null,
     company: data.company || null,
-    website: data.website || null,
-    websites: data.websites ? JSON.stringify(data.websites) : "[]",
+    website: primaryWebsite?.url || data.website || null, // keep legacy field in sync
     status: data.status || "ACTIVE",
     userId: data.userId || null,
     notes: data.notes || null,
@@ -253,15 +244,21 @@ export async function POST(req: NextRequest) {
     mediatorName: data.mediatorName || null,
     mediatorPhone: data.mediatorPhone || null,
     mediatorEmail: data.mediatorEmail || null,
-  }
-
-  // Support createdAt override for historical data
-  if (data.createdAt) {
-    createData.createdAt = new Date(data.createdAt)
+    createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
+    websites: {
+      create: websitesData.map((w, idx) => ({
+        url: w.url,
+        label: w.label || null,
+        isPrimary: w.isPrimary ?? (idx === 0),
+      })),
+    },
   }
 
   try {
-    const client = await db.client.create({ data: createData })
+    const client = await db.client.create({
+      data: createData,
+      include: { websites: true },
+    })
     return NextResponse.json(client, { status: 201 })
   } catch {
     return NextResponse.json({ error: "Failed to create client" }, { status: 500 })

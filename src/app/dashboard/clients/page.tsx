@@ -41,6 +41,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
+import { safeText, safeNumber } from "@/lib/utils";
 
 // ━━ Types ━━
 interface ClientRow {
@@ -810,7 +811,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Total Clients</p>
-                <p className="text-2xl font-bold mt-1">{stats.total}</p>
+                <p className="text-2xl font-bold mt-1">{safeNumber(stats.total)}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                 <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -823,7 +824,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Active Clients</p>
-                <p className="text-2xl font-bold mt-1">{stats.active}</p>
+                <p className="text-2xl font-bold mt-1">{safeNumber(stats.active)}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <Briefcase className="h-5 w-5 text-green-600 dark:text-green-400" />
@@ -850,7 +851,7 @@ export default function ClientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Total Invoices</p>
-                <p className="text-2xl font-bold mt-1">{stats.invoices}</p>
+                <p className="text-2xl font-bold mt-1">{safeNumber(stats.invoices)}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                 <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
@@ -936,29 +937,29 @@ export default function ClientsPage() {
                         <div className="flex items-center gap-3">
                           <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <span className="text-sm font-semibold text-primary">
-                              {(client.company || client.name).charAt(0).toUpperCase()}
+                              {safeText(client.company || client.name).charAt(0).toUpperCase()}
                             </span>
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">
-                              {client.company || client.name}
+                              {safeText(client.company || client.name)}
                             </p>
                             {client.company && (
-                              <p className="text-xs text-muted-foreground truncate">{client.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{safeText(client.name)}</p>
                             )}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">{client.email}</span>
+                        <span className="text-sm">{safeText(client.email)}</span>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
-                        <span className="text-sm text-muted-foreground">{client.phone || "—"}</span>
+                        <span className="text-sm text-muted-foreground">{safeText(client.phone) || "—"}</span>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-center">
                         {client.projectType ? (
                           <Badge className={`text-[10px] ${projectTypeBadgeColors[client.projectType] || defaultBadgeColor}`}>
-                            {projectTypeOptions.find(p => p.value === client.projectType)?.label || client.projectType}
+                            {projectTypeOptions.find(p => p.value === client.projectType)?.label || safeText(client.projectType)}
                           </Badge>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
@@ -966,7 +967,7 @@ export default function ClientsPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         <Badge variant="secondary" className="text-xs">
-                          {client._count?.projects || 0}
+                          {safeNumber(client._count?.projects ?? 0)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -976,7 +977,7 @@ export default function ClientsPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
-                          {statusLabels[client.status] || client.status}
+                          {statusLabels[client.status] || safeText(client.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
@@ -1219,7 +1220,7 @@ export default function ClientsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate Client</AlertDialogTitle>
             <AlertDialogDescription>
-              This will set &quot;{deleteTarget?.name}&quot; to INACTIVE status. You can reactivate them later.
+              This will set &quot;{safeText(deleteTarget?.name)}&quot; to INACTIVE status. You can reactivate them later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1259,15 +1260,15 @@ export default function ClientsPage() {
               <SheetHeader className="p-6 pb-4 border-b">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
-                    <SheetTitle className="text-lg">{detailClient.company || detailClient.name}</SheetTitle>
+                    <SheetTitle className="text-lg">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
                     {detailClient.company && (
-                      <p className="text-sm text-muted-foreground">{detailClient.name}</p>
+                      <p className="text-sm text-muted-foreground">{safeText(detailClient.name)}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
                     {/* CLI-030: default gray fallback */}
                     <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
-                      {statusLabels[detailClient.status] || detailClient.status}
+                      {statusLabels[detailClient.status] || safeText(detailClient.status)}
                     </Badge>
                     {/* CLI-035: Edit button in detail drawer */}
                     <Button
@@ -1287,27 +1288,27 @@ export default function ClientsPage() {
                 </div>
                 <div className="flex flex-wrap gap-3 mt-3 text-sm">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Mail className="h-3.5 w-3.5" /> {detailClient.email}
+                    <Mail className="h-3.5 w-3.5" /> {safeText(detailClient.email)}
                   </div>
                   {detailClient.phone && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Phone className="h-3.5 w-3.5" /> {detailClient.phone}
+                      <Phone className="h-3.5 w-3.5" /> {safeText(detailClient.phone)}
                     </div>
                   )}
                   {detailClient.company && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Building2 className="h-3.5 w-3.5" /> {detailClient.company}
+                      <Building2 className="h-3.5 w-3.5" /> {safeText(detailClient.company)}
                     </div>
                   )}
                   {detailClient.website && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Globe className="h-3.5 w-3.5" /> {detailClient.website}
+                      <Globe className="h-3.5 w-3.5" /> {safeText(detailClient.website)}
                     </div>
                   )}
                   {detailClient.projectType && (
                     <div className="flex items-center gap-1.5">
                       <Badge className={`text-[10px] ${projectTypeBadgeColors[detailClient.projectType] || defaultBadgeColor}`}>
-                        {projectTypeOptions.find(p => p.value === detailClient.projectType)?.label || detailClient.projectType}
+                        {projectTypeOptions.find(p => p.value === detailClient.projectType)?.label || safeText(detailClient.projectType)}
                       </Badge>
                     </div>
                   )}
@@ -1324,8 +1325,8 @@ export default function ClientsPage() {
                     <span>Delivery: <span className="text-foreground font-medium">{formatDate(detailClient.deliveryDate)}</span></span>
                   )}
                   {detailClient.mediatorName && (
-                    <span>Mediator: <span className="text-foreground font-medium">{detailClient.mediatorName}</span>
-                      {detailClient.mediatorPhone && <span> ({detailClient.mediatorPhone})</span>}
+                    <span>Mediator: <span className="text-foreground font-medium">{safeText(detailClient.mediatorName)}</span>
+                      {detailClient.mediatorPhone && <span> ({safeText(detailClient.mediatorPhone)})</span>}
                     </span>
                   )}
                 </div>
@@ -1339,7 +1340,7 @@ export default function ClientsPage() {
                       {sites.map((site, i) => (
                         <a key={i} href={site.startsWith("http") ? site : `https://${site}`} target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline">
-                          <Link2 className="h-3 w-3" /> {site.replace(/^https?:\/\//, "")}
+                          <Link2 className="h-3 w-3" /> {safeText(site.replace(/^https?:\/\//, ""))}
                         </a>
                       ))}
                     </div>
@@ -1348,7 +1349,7 @@ export default function ClientsPage() {
                 {detailClient.portalUser && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                     <ExternalLink className="h-3 w-3" />
-                    Portal: {detailClient.portalUser.name} ({detailClient.portalUser.email})
+                    Portal: {safeText(detailClient.portalUser.name)} ({safeText(detailClient.portalUser.email)})
                     <Badge variant="secondary" className="text-[10px] ml-1">
                       {detailClient.portalUser.isActive ? "Active" : "Inactive"}
                     </Badge>
@@ -1390,25 +1391,25 @@ export default function ClientsPage() {
                           <CardContent className="p-3">
                             <div className="flex items-center justify-between">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{project.name}</p>
+                                <p className="text-sm font-medium truncate">{safeText(project.name)}</p>
                                 <p className="text-xs text-muted-foreground">
                                   {project.budget ? formatCurrency(project.budget) : "No budget"} • Due: {formatDate(project.deadline)}
                                 </p>
                               </div>
                               <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || defaultBadgeColor}`}>
-                                {project.status}
+                                {safeText(project.status)}
                               </Badge>
                             </div>
                             <div className="mt-2">
                               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                                 <span>Progress</span>
                                 {/* CLI-022: clamp progress bar */}
-                                <span>{Math.min(100, Math.max(0, project.progress))}%</span>
+                                <span>{safeNumber(Math.min(100, Math.max(0, project.progress)))}%</span>
                               </div>
                               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-primary rounded-full transition-all"
-                                  style={{ width: `${Math.min(100, Math.max(0, project.progress))}%` }}
+                                  style={{ width: `${safeNumber(Math.min(100, Math.max(0, project.progress)))}%` }}
                                 />
                               </div>
                             </div>
@@ -1428,7 +1429,7 @@ export default function ClientsPage() {
                           <CardContent className="p-3">
                             <div className="flex items-center justify-between">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium">{inv.invoiceNumber}</p>
+                                <p className="text-sm font-medium">{safeText(inv.invoiceNumber)}</p>
                                 <p className="text-xs text-muted-foreground">
                                   Due: {formatDate(inv.dueDate)}
                                   {inv.paidAt && ` • Paid: ${formatDate(inv.paidAt)}`}
@@ -1437,7 +1438,7 @@ export default function ClientsPage() {
                               <div className="text-right shrink-0">
                                 <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
                                 <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || defaultBadgeColor}`}>
-                                  {inv.status}
+                                  {safeText(inv.status)}
                                 </Badge>
                               </div>
                             </div>
@@ -1457,15 +1458,15 @@ export default function ClientsPage() {
                           <CardContent className="p-3">
                             <div className="flex items-center justify-between">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{lead.name}</p>
+                                <p className="text-sm font-medium truncate">{safeText(lead.name)}</p>
                                 <p className="text-xs text-muted-foreground">{formatDate(lead.createdAt)}</p>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <Badge className={`text-[10px] ${leadStatusColors[lead.status] || defaultBadgeColor}`}>
-                                  {lead.status}
+                                  {safeText(lead.status)}
                                 </Badge>
                                 <Badge variant="secondary" className="text-[10px]">
-                                  Score: {lead.score}
+                                  Score: {safeNumber(lead.score)}
                                 </Badge>
                               </div>
                             </div>
@@ -1485,15 +1486,15 @@ export default function ClientsPage() {
                           <CardContent className="p-3">
                             <div className="flex items-center justify-between">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{ticket.subject}</p>
+                                <p className="text-sm font-medium truncate">{safeText(ticket.subject)}</p>
                                 <p className="text-xs text-muted-foreground">{formatDate(ticket.createdAt)}</p>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <Badge className={`text-[10px] ${priorityColors[ticket.priority] || defaultBadgeColor}`}>
-                                  {ticket.priority}
+                                  {safeText(ticket.priority)}
                                 </Badge>
                                 <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || defaultBadgeColor}`}>
-                                  {ticket.status}
+                                  {safeText(ticket.status)}
                                 </Badge>
                               </div>
                             </div>

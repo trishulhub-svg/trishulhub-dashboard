@@ -38,6 +38,10 @@ export async function GET(
   const adminOnly = isAdmin(role)
 
   const includeObj: Record<string, unknown> = {
+    websites: {
+      select: { id: true, url: true, label: true, isPrimary: true, createdAt: true },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    },
     projects: {
       select: {
         id: true,
@@ -137,7 +141,7 @@ export async function GET(
     revenue = paidInvoiceSum._sum.total ?? 0
   }
 
-  return NextResponse.json({ ...client, portalUser, revenue })
+  return NextResponse.json(JSON.parse(JSON.stringify({ ...client, portalUser, revenue })))
 }
 
 // PATCH /api/clients/[id] - Update client
@@ -160,10 +164,17 @@ export async function PATCH(
   }
 
   const { id } = await params
-  const body = await req.json()
+
+  // BUG FIX: Wrap req.json() in try/catch for malformed JSON
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
   // Ensure id from URL matches body
-  const validation = validateRequest(updateClientSchema, { ...body, id })
+  const validation = validateRequest(updateClientSchema, { ...(body as Record<string, unknown>), id })
 
   if (!validation.success) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
@@ -181,57 +192,54 @@ export async function PATCH(
     }
   }
 
-  // Remove id from update data
-  const { id: _id, ...updateData } = data
+  // Remove id and websites from update data (websites handled separately)
+  const { id: _id, websites: websitesData, ...updateData } = data
 
   // Clean up undefined/null fields
-  const sanitizedData: {
-    name?: string;
-    email?: string;
-    phone?: string | null;
-    company?: string | null;
-    website?: string | null;
-    websites?: string | null;
-    status?: string;
-    userId?: string | null;
-    notes?: string | null;
-    projectType?: string | null;
-    projectStartDate?: Date | null;
-    deliveryDate?: Date | null;
-    mediatorName?: string | null;
-    mediatorPhone?: string | null;
-    mediatorEmail?: string | null;
-  } = {}
+  const sanitizedData: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(updateData)) {
     if (value !== undefined) {
-      (sanitizedData as Record<string, unknown>)[key] = value === "" ? null : value
+      sanitizedData[key] = value === "" ? null : value
     }
   }
 
   // Handle date fields
-  if (sanitizedData.projectStartDate && typeof sanitizedData.projectStartDate === 'string') {
-    sanitizedData.projectStartDate = new Date(sanitizedData.projectStartDate);
+  if (sanitizedData.projectStartDate && typeof sanitizedData.projectStartDate === "string") {
+    sanitizedData.projectStartDate = new Date(sanitizedData.projectStartDate)
   }
-  if (sanitizedData.deliveryDate && typeof sanitizedData.deliveryDate === 'string') {
-    sanitizedData.deliveryDate = new Date(sanitizedData.deliveryDate);
+  if (sanitizedData.deliveryDate && typeof sanitizedData.deliveryDate === "string") {
+    sanitizedData.deliveryDate = new Date(sanitizedData.deliveryDate)
   }
-  // Handle websites array -> JSON string
-  if (Array.isArray(sanitizedData.websites)) {
-    sanitizedData.websites = JSON.stringify(sanitizedData.websites);
+
+  // Handle website updates: replace-all strategy
+  if (websitesData !== undefined && Array.isArray(websitesData)) {
+    const ws = websitesData as Array<{ url: string; label?: string; isPrimary?: boolean }>
+    sanitizedData.websites = {
+      deleteMany: {},
+      create: ws.map((w, idx) => ({
+        url: w.url,
+        label: w.label || null,
+        isPrimary: w.isPrimary ?? (idx === 0),
+      })),
+    }
+    // Keep legacy website field in sync with primary
+    const primary = ws.find((w) => w.isPrimary) || ws[0]
+    sanitizedData.website = primary?.url || null
   }
 
   try {
     const client = await db.client.update({
       where: { id },
-      data: sanitizedData as Parameters<typeof db.client.update>[0]["data"],
+      data: sanitizedData,
+      include: { websites: true },
     })
-    return NextResponse.json(client)
+    return NextResponse.json(JSON.parse(JSON.stringify(client)))
   } catch {
     return NextResponse.json({ error: "Client not found or update failed" }, { status: 404 })
   }
 }
 
-// DELETE /api/clients/[id] - Soft delete (set status to INACTIVE)
+// DELETE /api/clients/[id] - Soft delete (set status to CHURNED)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -252,19 +260,18 @@ export async function DELETE(
 
   const { id } = await params
 
-  // API-020: Check if client is already INACTIVE before soft-deleting
   const existing = await db.client.findUnique({ where: { id }, select: { status: true } })
   if (!existing) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 })
   }
-  if (existing.status === "INACTIVE") {
-    return NextResponse.json({ error: "Client is already inactive", client: existing }, { status: 409 })
+  if (existing.status === "CHURNED") {
+    return NextResponse.json({ error: "Client is already deactivated (churned)", client: existing }, { status: 409 })
   }
 
   try {
     const client = await db.client.update({
       where: { id },
-      data: { status: "INACTIVE" },
+      data: { status: "CHURNED" },
     })
     return NextResponse.json({ success: true, client })
   } catch {
