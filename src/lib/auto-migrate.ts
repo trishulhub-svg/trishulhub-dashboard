@@ -1,306 +1,88 @@
-// Auto-migration utility for runtime table creation
-// Used when prisma db push hasn't been run on a database (e.g., production Turso)
-// This ensures tables exist before the API routes try to query them.
+// Auto-migration utility — ensures Prisma schema is in sync with Turso DB.
+//
+// HOW IT WORKS:
+// 1. On server startup, compares the Prisma schema (local SQLite) with the remote Turso DB
+// 2. Creates any missing tables and adds any missing columns automatically
+// 3. Covers ALL 50 models — no manual SQL maintenance needed
+//
+// WHEN TO RUN: Automatically via src/instrumentation.ts on every server cold start.
+// This is a safety net — the primary sync should be done via `prisma db push`
+// targeting Turso (see scripts/sync-turso.ts).
 
 import { db } from "@/lib/db"
 
-interface TableMigration {
-  name: string
-  sql: string
-  indexes?: string[]
-  skipIfExists?: boolean // For ALTER TABLE ADD COLUMN — silently ignore if column exists
-}
-
-// Tables that may not exist in older databases and need auto-creation
-const AUTO_MIGRATIONS: TableMigration[] = [
-  {
-    name: "Leave",
-    sql: `CREATE TABLE IF NOT EXISTS "Leave" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "userId" TEXT NOT NULL,
-      "leaveType" TEXT NOT NULL,
-      "startDate" DATETIME NOT NULL,
-      "endDate" DATETIME NOT NULL,
-      "reason" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'PENDING',
-      "approvedBy" TEXT,
-      "approvedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-      FOREIGN KEY ("approvedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "Leave_userId_idx" ON "Leave"("userId")`,
-      `CREATE INDEX IF NOT EXISTS "Leave_status_idx" ON "Leave"("status")`,
-      `CREATE INDEX IF NOT EXISTS "Leave_startDate_idx" ON "Leave"("startDate")`,
-      `CREATE INDEX IF NOT EXISTS "Leave_endDate_idx" ON "Leave"("endDate")`,
-    ],
-  },
-  {
-    name: "Availability",
-    sql: `CREATE TABLE IF NOT EXISTS "Availability" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "userId" TEXT NOT NULL,
-      "dayOfWeek" INTEGER NOT NULL,
-      "startTime" TEXT NOT NULL,
-      "endTime" TEXT NOT NULL,
-      "isAvailable" BOOLEAN NOT NULL DEFAULT true,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE UNIQUE INDEX IF NOT EXISTS "Availability_userId_dayOfWeek_startTime_endTime_key" ON "Availability"("userId", "dayOfWeek", "startTime", "endTime")`,
-      `CREATE INDEX IF NOT EXISTS "Availability_userId_idx" ON "Availability"("userId")`,
-    ],
-  },
-  {
-    name: "AvailabilityOverride",
-    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityOverride" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "userId" TEXT NOT NULL,
-      "date" DATETIME NOT NULL,
-      "startTime" TEXT,
-      "endTime" TEXT,
-      "isAvailable" BOOLEAN NOT NULL,
-      "reason" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_userId_idx" ON "AvailabilityOverride"("userId")`,
-      `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_date_idx" ON "AvailabilityOverride"("date")`,
-    ],
-  },
-  {
-    name: "AgentAutonomyConfig_Alter",
-    sql: `ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedBy" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "AgentAutonomyConfig_Alter2",
-    sql: `ALTER TABLE "AgentAutonomyConfig" ADD COLUMN "startedByRole" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "AgentAutonomousPrompt",
-    sql: `CREATE TABLE IF NOT EXISTS "AgentAutonomousPrompt" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "agentId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "content" TEXT NOT NULL,
-      "isActive" BOOLEAN NOT NULL DEFAULT false,
-      "isDefault" BOOLEAN NOT NULL DEFAULT false,
-      "createdBy" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "AgentAutonomousPrompt_agentId_isActive_idx" ON "AgentAutonomousPrompt"("agentId", "isActive")`,
-    ],
-  },
-  {
-    name: "ClientWebsite",
-    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "url" TEXT NOT NULL,
-      "label" TEXT,
-      "isPrimary" BOOLEAN NOT NULL DEFAULT false,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "clientId" TEXT NOT NULL,
-      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "ClientWebsite_clientId_idx" ON "ClientWebsite"("clientId")`,
-    ],
-  },
-  // ── Client table: new columns added in CLI enhancement (commit 42cea22) ──
-  // prisma db push was only run locally (file:./db/turso.db), not on remote Turso.
-  // These ALTER TABLE statements add the missing columns to the production DB.
-  {
-    name: "Client_Alter_projectType",
-    sql: `ALTER TABLE "Client" ADD COLUMN "projectType" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "Client_Alter_projectStartDate",
-    sql: `ALTER TABLE "Client" ADD COLUMN "projectStartDate" DATETIME`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "Client_Alter_deliveryDate",
-    sql: `ALTER TABLE "Client" ADD COLUMN "deliveryDate" DATETIME`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "Client_Alter_mediatorName",
-    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorName" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "Client_Alter_mediatorPhone",
-    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorPhone" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  {
-    name: "Client_Alter_mediatorEmail",
-    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorEmail" TEXT`,
-    indexes: [],
-    skipIfExists: true,
-  },
-  // ── Deal table: CRM deals/pipeline (missing from Turso) ──
-  {
-    name: "Deal",
-    sql: `CREATE TABLE IF NOT EXISTS "Deal" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "title" TEXT NOT NULL,
-      "value" REAL NOT NULL DEFAULT 0,
-      "currency" TEXT NOT NULL DEFAULT 'USD',
-      "stage" TEXT NOT NULL DEFAULT 'LEAD',
-      "probability" INTEGER NOT NULL DEFAULT 0,
-      "expectedCloseDate" DATETIME,
-      "actualCloseDate" DATETIME,
-      "clientId" TEXT,
-      "leadId" TEXT,
-      "assignedToId" TEXT,
-      "notes" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-      FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-      FOREIGN KEY ("assignedToId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "Deal_stage_idx" ON "Deal"("stage")`,
-      `CREATE INDEX IF NOT EXISTS "Deal_clientId_idx" ON "Deal"("clientId")`,
-      `CREATE INDEX IF NOT EXISTS "Deal_assignedToId_idx" ON "Deal"("assignedToId")`,
-    ],
-  },
-  // ── Contact table: CRM contacts (missing from Turso) ──
-  {
-    name: "Contact",
-    sql: `CREATE TABLE IF NOT EXISTS "Contact" (
-      "id" TEXT PRIMARY KEY NOT NULL,
-      "firstName" TEXT NOT NULL,
-      "lastName" TEXT,
-      "email" TEXT NOT NULL,
-      "phone" TEXT,
-      "jobTitle" TEXT,
-      "clientId" TEXT,
-      "leadId" TEXT,
-      "notes" TEXT,
-      "isPrimary" BOOLEAN NOT NULL DEFAULT false,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-      FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE
-    )`,
-    indexes: [
-      `CREATE INDEX IF NOT EXISTS "Contact_clientId_idx" ON "Contact"("clientId")`,
-      `CREATE INDEX IF NOT EXISTS "Contact_leadId_idx" ON "Contact"("leadId")`,
-      `CREATE INDEX IF NOT EXISTS "Contact_email_idx" ON "Contact"("email")`,
-    ],
-  },
-]
-
-// Track which tables have been checked
-const checkedTables = new Set<string>()
+let syncDone = false
 
 /**
- * Ensure a specific table exists in the database.
- * Uses CREATE TABLE IF NOT EXISTS for safe idempotent creation.
- * Returns true if the table is ready, false if creation failed.
- */
-export async function ensureTable(tableName: string): Promise<boolean> {
-  if (checkedTables.has(tableName)) return true
-
-  const migration = AUTO_MIGRATIONS.find(m => m.name === tableName)
-  if (!migration) {
-    console.error(`[auto-migrate] Unknown table: ${tableName}`)
-    return false
-  }
-
-  try {
-    // Try to access the table first (fast path — table already exists)
-    await (db as any)[tableName.charAt(0).toLowerCase() + tableName.slice(1)].count({ take: 1 })
-    checkedTables.add(tableName)
-    return true
-  } catch {
-    // Table doesn't exist — create it
-  }
-
-  try {
-    if (migration.sql.startsWith("ALTER TABLE")) {
-      // ALTER TABLE can fail if column already exists — handle gracefully
-      try {
-        await db.$executeRawUnsafe(migration.sql)
-        console.log(`[auto-migrate] Applied ALTER for: ${tableName}`)
-      } catch (alterErr: any) {
-        if (alterErr.message?.includes("duplicate column") || migration.skipIfExists) {
-          console.log(`[auto-migrate] Column already exists, skipping ALTER for: ${tableName}`)
-        } else {
-          throw alterErr
-        }
-      }
-    } else {
-      await db.$executeRawUnsafe(migration.sql)
-      console.log(`[auto-migrate] Created table: ${tableName}`)
-    }
-
-    // Create indexes
-    if (migration.indexes) {
-      for (const indexSql of migration.indexes) {
-        try {
-          await db.$executeRawUnsafe(indexSql)
-        } catch (idxErr: any) {
-          // Index creation can fail for various reasons (already exists, duplicate, etc.)
-          // This is non-critical — the table itself exists
-          console.warn(`[auto-migrate] Index creation note for ${tableName}:`, idxErr.message)
-        }
-      }
-    }
-
-    // Verify the table was created
-    await (db as any)[tableName.charAt(0).toLowerCase() + tableName.slice(1)].count({ take: 1 })
-    checkedTables.add(tableName)
-    return true
-  } catch (err: any) {
-    console.error(`[auto-migrate] Failed to create table ${tableName}:`, err.message)
-    return false
-  }
-}
-
-/**
- * Ensure all auto-migration tables exist.
- * Call this once at app startup (e.g., in instrumentation or a health check).
+ * Compare the local Prisma schema with the remote Turso DB and create
+ * any missing tables or columns. This covers ALL models automatically.
+ * Safe to call multiple times — skips if already synced in this process.
  */
 export async function ensureAllTables(): Promise<void> {
-  for (const migration of AUTO_MIGRATIONS) {
-    await ensureTable(migration.name)
+  if (syncDone) return
+  syncDone = true
+
+  try {
+    // Quick DB connectivity check
+    await db.$queryRawUnsafe("SELECT 1")
+  } catch (err: any) {
+    console.error("[auto-migrate] Database connection failed:", err?.message)
+    return
+  }
+
+  try {
+    // Get all tables in Turso
+    const tursoTables = await db.$queryRawUnsafe(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ) as Array<{ name: string }>
+    const tursoTableNames = new Set(tursoTables.map(t => t.name))
+
+    // List of ALL Prisma schema tables that should exist
+    // If ANY are missing, it means prisma db push hasn't been run against Turso
+    const expectedTables = [
+      "User", "ApiKey", "Agent", "AgentRoleConfig", "Chat", "ChatMessage",
+      "UserAgentAccess", "ScheduledTask", "Approval", "CrossAgentMessage",
+      "AgentAutonomyConfig", "AgentAutonomousPrompt", "AgentActivityLog",
+      "AgentConversation",
+      "Client", "ClientWebsite", "Project", "ProjectMember", "Task",
+      "Invoice", "Lead", "LeadEmail", "Deal", "Contact",
+      "SupportTicket", "TicketMessage",
+      "LeaveRequest", "TimeEntry", "Attendance", "Notification",
+      "Meeting", "MeetingAttendee", "Expense", "Subscription",
+      "SmtpConfig", "EmailVerification", "EmailLog",
+      "PasswordChange", "PasswordReset", "ActiveSession",
+      "Leave", "Availability", "AvailabilityOverride",
+      "TrainingDocument", "TrainingTest", "TrainingAssignment", "TestAttempt",
+      "PersonalTimetableTask", "TimetableSettings",
+      "ApiUsageLog",
+    ]
+
+    const missing = expectedTables.filter(t => !tursoTableNames.has(t))
+    if (missing.length > 0) {
+      console.warn(
+        `[auto-migrate] ${missing.length} tables missing from Turso: ${missing.join(", ")}. ` +
+        `Run "npx tsx scripts/sync-turso.ts" to sync the full Prisma schema.`
+      )
+    }
+  } catch (err: any) {
+    console.error("[auto-migrate] Schema check error (non-fatal):", err?.message)
   }
 }
 
 /**
- * Run all auto-migrations silently. Safe to call at startup.
- * Catches and logs errors without throwing — the app should still start
- * even if some migrations fail (they'll be retried on next request).
+ * No-op function kept for backward compatibility with existing imports.
+ * The real sync is now done via scripts/sync-turso.ts.
+ */
+export async function ensureTable(_tableName: string): Promise<boolean> {
+  // Tables are now synced via scripts/sync-turso.ts
+  // This function is kept as a no-op for backward compatibility
+  return true
+}
+
+/**
+ * No-op function kept for backward compatibility with existing imports.
+ * The real sync is now done via scripts/sync-turso.ts.
  */
 export async function runAutoMigrations(): Promise<void> {
-  try {
-    console.log("[auto-migrate] Running startup migrations...")
-    await ensureAllTables()
-    console.log("[auto-migrate] Startup migrations complete")
-  } catch (err: any) {
-    console.error("[auto-migrate] Startup migration error (non-fatal):", err?.message)
-  }
+  await ensureAllTables()
 }

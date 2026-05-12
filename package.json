@@ -13,6 +13,7 @@
     "db:seed": "node seed.js",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
+    "db:sync-turso": "tsx scripts/sync-turso.ts",
     "vercel-build": "prisma generate && next build"
   },
   "dependencies": {
