@@ -1,25 +1,27 @@
 # ZAI STATE LOG
 **Project:** TrishulHub Dashboard
 **Status:** COMPLETED
-**Last Stage:** Stage 6: CHRONICLER ZAI — Clients page audit complete
-**Last Action:** Fixed 9 bugs on Clients page: smart date search, pagination, aggregate stats, clear filters, edit in drawer, skeleton fixes. Commit 22def63 pushed.
+**Last Stage:** Stage 6: CHRONICLER ZAI — Clients page audit + enhancement fix complete
+**Last Action:** Fixed deployment build error (ClientWebsite model missing) + 4 frontend type mismatches. Commits 76fd619, b1caab2 pushed.
 **Next Step:** Awaiting next task from user. Use "ZAI AUDIT [Page]" or "ZAI RESUME" to continue.
 **Pending Batches:** None
 **Active Bug List:** All Clients bugs FIXED
-  - CLI-031 [HIGH]: No website search — FIXED (website added to API OR clause)
-  - CLI-032 [HIGH]: No date/smart search — FIXED (smart date parsing + quick filter buttons + API dateFrom/dateTo)
-  - CLI-033 [HIGH]: Stats from page slice — FIXED (API aggregate stats across all clients)
-  - CLI-034 [HIGH]: No clear search — FIXED (differentiated empty states + Clear Filters button)
-  - CLI-035 [HIGH]: No edit in drawer — FIXED (Pencil button in detail drawer header)
-  - CLI-036 [HIGH]: No pagination — FIXED (pagination controls below table)
-  - CLI-037 [MEDIUM]: Skeleton grid mismatch — FIXED (responsive breakpoints match)
-  - CLI-038 [MEDIUM]: loading.tsx 3 skeletons — FIXED (now shows 4)
-  - CLI-040 [MEDIUM]: Placeholder missing fields — FIXED (updated to include all fields)
+  - CLI-041 [CRITICAL]: Build error 'websites does not exist in ClientInclude' — FIXED (added ClientWebsite model to schema)
+  - CLI-042 [HIGH]: ClientRow.websites type mismatch (string vs object) — FIXED (changed to primaryWebsite object)
+  - CLI-043 [HIGH]: Form submit sends wrong websites format — FIXED (string array → object array with url/label/isPrimary)
+  - CLI-044 [HIGH]: handleEdit JSON.parse on non-string — FIXED (reads from primaryWebsite relation)
+  - CLI-045 [HIGH]: Detail drawer JSON.parse on relation array — FIXED (direct object access)
+  - CLI-046 [MEDIUM]: ClientDetail missing websites/deals/contacts — FIXED (interface updated)
+**Enhancement Status (from previous session, user-confirmed):**
+  - [DONE] 6-status system (ACTIVE, INACTIVE, ONBOARDING, PAUSED, COMPLETED, CHURNED)
+  - [DONE] Start/Delivery date fields (projectStartDate, deliveryDate)
+  - [DONE] Project type field (11 categories with color badges)
+  - [DONE] Multiple websites via ClientWebsite relation table (simple Option B)
+  - [DONE] Mediator contact fields (name, phone, email — collapsible section)
 **Recent Commits:**
+  - b1caab2: fix: [Clients] Batch 2 — Fix frontend type mismatches for ClientWebsite relation
+  - 76fd619: fix: [Clients] Batch 1 — Add ClientWebsite model to Prisma schema
   - 22def63: fix: [Clients] Batch 1-2 — Smart date search, pagination, aggregate stats, clear filters, edit in drawer, skeleton fixes
-  - b70dcf6: feat: [CRM] Smart search with date filters, full lead editing, source/status filter bar
-  - a5f4405: fix: [CRM] Batch 1-3 — Clickable stats, inline score edit, sort by score, safeText/safeNumber, source colors, search empty state
-  - 5fcee75: fix: [Dashboard] Batch 1-3 — Make stat cards & invoices clickable, add safeNumber to all stats, show real tasks for developers
 **Tech Stack:**
   - Next.js 16 + React 19
   - Prisma ORM + Turso DB (SQLite)

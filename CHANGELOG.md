@@ -2,6 +2,28 @@
 
 All notable changes to the TrishulHub Dashboard will be documented in this file.
 
+## [2026-05-12] — Clients Enhancement Fix (ZAI Protocol)
+
+### Fixed
+- **CLI-041 [CRITICAL]**: Build error `'websites' does not exist in type 'ClientInclude'` — Added `ClientWebsite` model to Prisma schema with proper relation (`id`, `url`, `label`, `isPrimary`, `createdAt`, `clientId`). Changed Client.websites from `String @default("[]")` to `ClientWebsite[]` one-to-many relation.
+- **CLI-042 [HIGH]**: Frontend `ClientRow.websites` typed as `string | null` but API returns `primaryWebsite: { id, url, label, isPrimary } | null` — Updated TypeScript interface to match API response.
+- **CLI-043 [HIGH]**: Form submit sent `websites` as `["url1", "url2"]` (string array) but API Zod validation expects `[{ url, label, isPrimary }]` — Fixed both create and update branches to transform string array to proper object array.
+- **CLI-044 [HIGH]**: `handleEdit` called `JSON.parse(client.websites)` on a relation object — Now reads from `client.primaryWebsite.url` directly.
+- **CLI-045 [HIGH]**: Detail drawer `JSON.parse(detailClient.websites)` on a relation array — Now iterates `detailClient.websites.map(w => w.url)` directly.
+- **CLI-046 [MEDIUM]**: `ClientDetail` interface missing `websites`, `deals`, `contacts` fields — Added proper TypeScript declarations.
+
+### Schema Changes
+- Added `ClientWebsite` model (one-to-many with `Client`)
+- Columns: `id`, `url`, `label`, `isPrimary`, `createdAt`, `clientId`
+- Cascading delete: deleting a client removes all their websites
+- Index on `clientId` for query performance
+
+### Commits
+- `76fd619`: fix: [Clients] Batch 1 — Add ClientWebsite model to Prisma schema
+- `b1caab2`: fix: [Clients] Batch 2 — Fix frontend type mismatches for ClientWebsite relation
+
+---
+
 ## [2025-05-12] — Clients Page Audit Fix (ZAI Protocol)
 
 ### Fixed
