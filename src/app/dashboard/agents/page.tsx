@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useTheme } from "next-themes";
 import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles } from "lucide-react";
 
 /* ─── Data ─── */
@@ -11,24 +12,30 @@ const features = [
     title: "7 AI Agents",
     description:
       "Development, Sales, Finance, HR, Content, Support & Project Management.",
-    accent: "rgba(6, 182, 212, 1)",
-    glow: "rgba(6, 182, 212, 0.15)",
+    accentDark: "rgba(6, 182, 212, 1)",
+    glowDark: "rgba(6, 182, 212, 0.15)",
+    accentLight: "rgba(6, 150, 180, 1)",
+    glowLight: "rgba(6, 150, 180, 0.10)",
   },
   {
     icon: Shield,
     title: "OTP Authentication",
     description:
       "Secure email-based login with 6-digit OTP and 5-minute expiry.",
-    accent: "rgba(52, 211, 153, 1)",
-    glow: "rgba(52, 211, 153, 0.15)",
+    accentDark: "rgba(52, 211, 153, 1)",
+    glowDark: "rgba(52, 211, 153, 0.15)",
+    accentLight: "rgba(16, 160, 120, 1)",
+    glowLight: "rgba(16, 160, 120, 0.10)",
   },
   {
     icon: Rocket,
     title: "Live Protocol",
     description:
       "Trishul Protocol v4.0 — structured 7-stage development pipeline.",
-    accent: "rgba(168, 85, 247, 1)",
-    glow: "rgba(168, 85, 247, 0.15)",
+    accentDark: "rgba(168, 85, 247, 1)",
+    glowDark: "rgba(168, 85, 247, 0.15)",
+    accentLight: "rgba(140, 60, 210, 1)",
+    glowLight: "rgba(140, 60, 210, 0.10)",
   },
 ];
 
@@ -38,8 +45,22 @@ const MARQUEE_TEXT =
 /* ─── Component ─── */
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const userName = session?.user?.name || "User";
   const userRole = (session?.user?.role || "DEVELOPER").replace(/_/g, " ");
+
+  // Prevent hydration mismatch — only render theme-dependent styles after mount
+  useEffect(() => setMounted(true), []);
+
+  // Derive mode: "dark", "light", or "bluelight"
+  const mode = mounted
+    ? resolvedTheme === "bluelight"
+      ? "bluelight"
+      : resolvedTheme === "dark"
+      ? "dark"
+      : "light"
+    : "dark"; // SSR default
 
   // Custom cursor state
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -148,35 +169,52 @@ export default function TrishulWorkspacePage() {
     window.open("https://chat.z.ai", "_blank");
   }, []);
 
+  // Theme-aware accent values for cards
+  const cardAccent = (f: (typeof features)[number]) =>
+    mode === "light" ? f.accentLight : f.accentDark;
+  const cardGlow = (f: (typeof features)[number]) =>
+    mode === "light" ? f.glowLight : f.glowDark;
+
   return (
     <>
       {/* ── Custom Cursor ── */}
-      <div ref={cursorRef} className="trishul-cursor" aria-hidden />
-      <div ref={cursorDotRef} className="trishul-cursor-dot" aria-hidden />
+      <div
+        ref={cursorRef}
+        className={`trishul-cursor trishul-cursor--${mode}`}
+        aria-hidden
+      />
+      <div
+        ref={cursorDotRef}
+        className={`trishul-cursor-dot trishul-cursor-dot--${mode}`}
+        aria-hidden
+      />
 
       {/* ── Full-bleed wrapper — counters dashboard layout padding ── */}
-      <div className="trishul-root">
+      <div className={`trishul-root trishul-root--${mode}`}>
         {/* Noise / Film grain overlay */}
-        <div className="trishul-noise" aria-hidden />
+        <div className={`trishul-noise trishul-noise--${mode}`} aria-hidden />
 
         {/* Vignette overlay */}
-        <div className="trishul-vignette" aria-hidden />
+        <div className={`trishul-vignette trishul-vignette--${mode}`} aria-hidden />
 
         {/* Ambient gradient orbs */}
-        <div className="trishul-ambient" aria-hidden />
+        <div className={`trishul-ambient trishul-ambient--${mode}`} aria-hidden />
 
         {/* ──────── HERO ──────── */}
         <section className="trishul-hero">
           {/* Protocol badge */}
           <div className="trishul-badge-wrap">
-            <div className="trishul-badge">
-              <Sparkles className="trishul-badge-icon" />
+            <div className={`trishul-badge trishul-badge--${mode}`}>
+              <Sparkles className={`trishul-badge-icon trishul-badge-icon--${mode}`} />
               <span>TRISHUL PROTOCOL v4.0</span>
             </div>
           </div>
 
           {/* Massive title — letter-by-letter reveal */}
-          <h1 className="trishul-title-stroke" aria-label="TRISHUL">
+          <h1
+            className={`trishul-title-stroke trishul-title-stroke--${mode}`}
+            aria-label="TRISHUL"
+          >
             {"TRISHUL".split("").map((char, i) => (
               <span
                 key={i}
@@ -190,7 +228,7 @@ export default function TrishulWorkspacePage() {
 
           {/* "WORKSPACE" gradient line */}
           <p
-            className="trishul-subtitle"
+            className={`trishul-subtitle trishul-subtitle--${mode}`}
             style={{ animationDelay: "1.2s" }}
           >
             WORKSPACE
@@ -199,25 +237,30 @@ export default function TrishulWorkspacePage() {
           {/* Separator line that draws in */}
           <div className="trishul-line-wrap">
             <div
-              className="trishul-line"
+              className={`trishul-line trishul-line--${mode}`}
               style={{ animationDelay: "1.5s" }}
             />
           </div>
 
           {/* Scroll hint */}
-          <div className="trishul-scroll-hint" style={{ animationDelay: "2.2s" }}>
-            <span className="trishul-scroll-text">SCROLL</span>
-            <div className="trishul-scroll-line" />
+          <div
+            className="trishul-scroll-hint"
+            style={{ animationDelay: "2.2s" }}
+          >
+            <span className={`trishul-scroll-text trishul-scroll-text--${mode}`}>
+              SCROLL
+            </span>
+            <div className={`trishul-scroll-line trishul-scroll-line--${mode}`} />
           </div>
         </section>
 
         {/* ──────── MARQUEE BAND ──────── */}
         <section
           ref={marqueeRef}
-          className={`trishul-marquee ${marqueeVisible ? "trishul-marquee--visible" : ""}`}
+          className={`trishul-marquee trishul-marquee--${mode} ${marqueeVisible ? "trishul-marquee--visible" : ""}`}
         >
           <div className="trishul-marquee-track" aria-hidden>
-            <span className="trishul-marquee-text">
+            <span className={`trishul-marquee-text trishul-marquee-text--${mode}`}>
               {MARQUEE_TEXT}
               {MARQUEE_TEXT}
               {MARQUEE_TEXT}
@@ -234,21 +277,25 @@ export default function TrishulWorkspacePage() {
             {features.map((f, idx) => (
               <div
                 key={f.title}
-                className="trishul-card"
+                className={`trishul-card trishul-card--${mode}`}
                 style={{
-                  "--card-accent": f.accent,
-                  "--card-glow": f.glow,
+                  "--card-accent": cardAccent(f),
+                  "--card-glow": cardGlow(f),
                   animationDelay: `${idx * 0.18}s`,
                 } as React.CSSProperties}
               >
                 {/* Glow backdrop on hover */}
                 <div className="trishul-card-glow" />
                 <div className="trishul-card-content">
-                  <div className="trishul-card-icon-wrap">
+                  <div className={`trishul-card-icon-wrap trishul-card-icon-wrap--${mode}`}>
                     <f.icon className="trishul-card-icon" />
                   </div>
-                  <h3 className="trishul-card-title">{f.title}</h3>
-                  <p className="trishul-card-desc">{f.description}</p>
+                  <h3 className={`trishul-card-title trishul-card-title--${mode}`}>
+                    {f.title}
+                  </h3>
+                  <p className={`trishul-card-desc trishul-card-desc--${mode}`}>
+                    {f.description}
+                  </p>
                   <div className="trishul-card-line" />
                 </div>
               </div>
@@ -261,11 +308,13 @@ export default function TrishulWorkspacePage() {
           <div
             className={`trishul-launch-inner ${launchVisible ? "trishul-launch-inner--visible" : ""}`}
           >
-            <p className="trishul-launch-pre">Ready to build?</p>
+            <p className={`trishul-launch-pre trishul-launch-pre--${mode}`}>
+              Ready to build?
+            </p>
             <button
               ref={magneticRef}
               onClick={handleLaunch}
-              className="trishul-launch-btn"
+              className={`trishul-launch-btn trishul-launch-btn--${mode}`}
               style={{
                 transform: `translate3d(${magneticOffset.x}px, ${magneticOffset.y}px, 0)`,
               }}
@@ -274,23 +323,29 @@ export default function TrishulWorkspacePage() {
               <span className="trishul-launch-btn-text">LAUNCH</span>
               <ArrowUpRight className="trishul-launch-arrow" />
             </button>
-            <p className="trishul-launch-sub">Opens chat.z.ai in a new tab</p>
+            <p className={`trishul-launch-sub trishul-launch-sub--${mode}`}>
+              Opens workspace in a new tab
+            </p>
           </div>
         </section>
 
         {/* ──────── FOOTER ──────── */}
         <footer
           ref={footerRef}
-          className={`trishul-footer ${footerVisible ? "trishul-footer--visible" : ""}`}
+          className={`trishul-footer trishul-footer--${mode} ${footerVisible ? "trishul-footer--visible" : ""}`}
         >
           <div className="trishul-footer-inner">
-            <p className="trishul-footer-welcome">
+            <p className={`trishul-footer-welcome trishul-footer-welcome--${mode}`}>
               Welcome back,{" "}
-              <span className="trishul-footer-name">{userName}</span>
+              <span className={`trishul-footer-name trishul-footer-name--${mode}`}>
+                {userName}
+              </span>
             </p>
-            <span className="trishul-footer-role">{userRole}</span>
+            <span className={`trishul-footer-role trishul-footer-role--${mode}`}>
+              {userRole}
+            </span>
           </div>
-          <p className="trishul-footer-copy">
+          <p className={`trishul-footer-copy trishul-footer-copy--${mode}`}>
             &copy; {new Date().getFullYear()} TrishulHub &mdash; AI-Powered
             Workspace
           </p>
@@ -301,13 +356,10 @@ export default function TrishulWorkspacePage() {
       <style jsx global>{`
         /* ═══════════════════════════════════
            TRISHUL WORKSPACE — Lusion-inspired
+           DARK / LIGHT / BLUELIGHT
            ═══════════════════════════════════ */
 
-        /* Hide cursor on touch devices / inside this page */
-        .trishul-root,
-        .trishul-root * {
-          cursor: none !important;
-        }
+        /* Hide cursor on touch devices */
         @media (pointer: coarse) {
           .trishul-cursor,
           .trishul-cursor-dot {
@@ -319,30 +371,29 @@ export default function TrishulWorkspacePage() {
           }
         }
 
-        /* ── Root wrapper — full bleed ── */
-        .trishul-root {
-          position: relative;
-          min-height: 100vh;
-          background: #050505;
-          overflow: hidden;
-          margin: -1.25rem; /* counters main padding p-5 */
-          margin-top: -1.25rem;
+        /* ── Cursor: dark ── */
+        .trishul-root--dark,
+        .trishul-root--dark * {
+          cursor: none !important;
         }
-        @media (min-width: 768px) {
-          .trishul-root {
-            margin: -2rem; /* counters md:p-8 */
-            margin-top: -2rem;
-          }
+        /* ── Cursor: light ── */
+        .trishul-root--light,
+        .trishul-root--light * {
+          cursor: none !important;
+        }
+        /* ── Cursor: bluelight ── */
+        .trishul-root--bluelight,
+        .trishul-root--bluelight * {
+          cursor: none !important;
         }
 
-        /* ── Custom cursor ── */
+        /* ── Custom cursor base ── */
         .trishul-cursor {
           position: fixed;
           top: 0;
           left: 0;
           width: 40px;
           height: 40px;
-          border: 1.5px solid rgba(255, 255, 255, 0.35);
           border-radius: 50%;
           pointer-events: none;
           z-index: 99999;
@@ -352,17 +403,66 @@ export default function TrishulWorkspacePage() {
                       height 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
                       border-color 0.3s ease;
         }
+        .trishul-cursor--dark {
+          border: 1.5px solid rgba(255, 255, 255, 0.35);
+        }
+        .trishul-cursor--light {
+          border: 1.5px solid rgba(0, 0, 0, 0.25);
+        }
+        .trishul-cursor--bluelight {
+          border: 1.5px solid rgba(255, 200, 100, 0.35);
+        }
+
         .trishul-cursor-dot {
           position: fixed;
           top: 0;
           left: 0;
           width: 8px;
           height: 8px;
-          background: #fff;
           border-radius: 50%;
           pointer-events: none;
           z-index: 99999;
           will-change: transform;
+        }
+        .trishul-cursor-dot--dark {
+          background: #fff;
+        }
+        .trishul-cursor-dot--light {
+          background: #1a1a2e;
+        }
+        .trishul-cursor-dot--bluelight {
+          background: #fbbf24;
+        }
+
+        /* ═══════════════════════════════════
+           ROOT WRAPPER
+           ═══════════════════════════════════ */
+        .trishul-root {
+          position: relative;
+          min-height: 100vh;
+          overflow: hidden;
+          margin: -1.25rem;
+          margin-top: -1.25rem;
+          transition: background 0.5s ease;
+        }
+        @media (min-width: 768px) {
+          .trishul-root {
+            margin: -2rem;
+            margin-top: -2rem;
+          }
+        }
+
+        /* DARK */
+        .trishul-root--dark {
+          background: #050505;
+        }
+        /* LIGHT */
+        .trishul-root--light {
+          background: #f8f9fc;
+        }
+        /* BLUELIGHT */
+        .trishul-root--bluelight {
+          background: #0c0a09;
         }
 
         /* ── Noise overlay ── */
@@ -371,10 +471,19 @@ export default function TrishulWorkspacePage() {
           inset: 0;
           z-index: 9000;
           pointer-events: none;
-          opacity: 0.035;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-repeat: repeat;
           background-size: 180px 180px;
+          transition: opacity 0.5s ease;
+        }
+        .trishul-noise--dark {
+          opacity: 0.035;
+        }
+        .trishul-noise--light {
+          opacity: 0.018;
+        }
+        .trishul-noise--bluelight {
+          opacity: 0.025;
         }
 
         /* ── Vignette ── */
@@ -383,10 +492,27 @@ export default function TrishulWorkspacePage() {
           inset: 0;
           z-index: 8999;
           pointer-events: none;
+          transition: background 0.5s ease;
+        }
+        .trishul-vignette--dark {
           background: radial-gradient(
             ellipse 70% 60% at 50% 50%,
             transparent 0%,
             rgba(0, 0, 0, 0.55) 100%
+          );
+        }
+        .trishul-vignette--light {
+          background: radial-gradient(
+            ellipse 70% 60% at 50% 50%,
+            transparent 0%,
+            rgba(200, 210, 230, 0.25) 100%
+          );
+        }
+        .trishul-vignette--bluelight {
+          background: radial-gradient(
+            ellipse 70% 60% at 50% 50%,
+            transparent 0%,
+            rgba(0, 0, 0, 0.50) 100%
           );
         }
 
@@ -404,21 +530,48 @@ export default function TrishulWorkspacePage() {
           position: absolute;
           border-radius: 50%;
           filter: blur(120px);
+          transition: background 0.5s ease;
         }
-        .trishul-ambient::before {
-          width: 600px;
-          height: 600px;
-          top: -15%;
-          left: -10%;
+
+        /* DARK orbs */
+        .trishul-ambient--dark::before {
+          width: 600px; height: 600px;
+          top: -15%; left: -10%;
           background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 70%);
           animation: trishul-float-a 14s ease-in-out infinite;
         }
-        .trishul-ambient::after {
-          width: 500px;
-          height: 500px;
-          bottom: -10%;
-          right: -8%;
+        .trishul-ambient--dark::after {
+          width: 500px; height: 500px;
+          bottom: -10%; right: -8%;
           background: radial-gradient(circle, rgba(168, 85, 247, 0.07) 0%, transparent 70%);
+          animation: trishul-float-b 18s ease-in-out infinite;
+        }
+
+        /* LIGHT orbs */
+        .trishul-ambient--light::before {
+          width: 600px; height: 600px;
+          top: -15%; left: -10%;
+          background: radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
+          animation: trishul-float-a 14s ease-in-out infinite;
+        }
+        .trishul-ambient--light::after {
+          width: 500px; height: 500px;
+          bottom: -10%; right: -8%;
+          background: radial-gradient(circle, rgba(168, 85, 247, 0.05) 0%, transparent 70%);
+          animation: trishul-float-b 18s ease-in-out infinite;
+        }
+
+        /* BLUELIGHT orbs */
+        .trishul-ambient--bluelight::before {
+          width: 600px; height: 600px;
+          top: -15%; left: -10%;
+          background: radial-gradient(circle, rgba(251, 191, 36, 0.06) 0%, transparent 70%);
+          animation: trishul-float-a 14s ease-in-out infinite;
+        }
+        .trishul-ambient--bluelight::after {
+          width: 500px; height: 500px;
+          bottom: -10%; right: -8%;
+          background: radial-gradient(circle, rgba(217, 119, 6, 0.05) 0%, transparent 70%);
           animation: trishul-float-b 18s ease-in-out infinite;
         }
 
@@ -437,7 +590,7 @@ export default function TrishulWorkspacePage() {
           text-align: center;
         }
 
-        /* Protocol badge */
+        /* Protocol badge — base */
         .trishul-badge-wrap {
           opacity: 0;
           animation: trishul-fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
@@ -447,20 +600,43 @@ export default function TrishulWorkspacePage() {
           align-items: center;
           gap: 0.5rem;
           padding: 0.45rem 1.2rem;
-          border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 100px;
-          background: rgba(255, 255, 255, 0.03);
-          backdrop-filter: blur(12px);
           font-size: 0.65rem;
           font-weight: 600;
           letter-spacing: 0.18em;
           text-transform: uppercase;
+          backdrop-filter: blur(12px);
+          transition: border-color 0.4s ease, background 0.4s ease, color 0.4s ease;
+        }
+        .trishul-badge--dark {
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.03);
           color: rgba(255, 255, 255, 0.5);
         }
+        .trishul-badge--light {
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          background: rgba(255, 255, 255, 0.7);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+          color: rgba(0, 0, 0, 0.45);
+        }
+        .trishul-badge--bluelight {
+          border: 1px solid rgba(251, 191, 36, 0.15);
+          background: rgba(251, 191, 36, 0.05);
+          color: rgba(251, 191, 36, 0.6);
+        }
+
         .trishul-badge-icon {
           width: 12px;
           height: 12px;
+        }
+        .trishul-badge-icon--dark {
           color: rgba(251, 191, 36, 0.8);
+        }
+        .trishul-badge-icon--light {
+          color: rgba(217, 119, 6, 0.8);
+        }
+        .trishul-badge-icon--bluelight {
+          color: rgba(251, 191, 36, 0.9);
         }
 
         /* Massive title — outlined text */
@@ -470,16 +646,34 @@ export default function TrishulWorkspacePage() {
           line-height: 0.85;
           letter-spacing: -0.03em;
           color: transparent;
-          -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.25);
           margin: 2.5rem 0 0.5rem;
           display: flex;
           justify-content: center;
           user-select: none;
           overflow: hidden;
         }
-        @media (min-width: 768px) {
-          .trishul-title-stroke {
-            -webkit-text-stroke: 2px rgba(255, 255, 255, 0.25);
+        .trishul-title-stroke--dark {
+          -webkit-text-stroke: 2px rgba(255, 255, 255, 0.22);
+        }
+        @media (max-width: 767px) {
+          .trishul-title-stroke--dark {
+            -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.22);
+          }
+        }
+        .trishul-title-stroke--light {
+          -webkit-text-stroke: 2px rgba(20, 20, 60, 0.12);
+        }
+        @media (max-width: 767px) {
+          .trishul-title-stroke--light {
+            -webkit-text-stroke: 1.5px rgba(20, 20, 60, 0.12);
+          }
+        }
+        .trishul-title-stroke--bluelight {
+          -webkit-text-stroke: 2px rgba(251, 191, 36, 0.18);
+        }
+        @media (max-width: 767px) {
+          .trishul-title-stroke--bluelight {
+            -webkit-text-stroke: 1.5px rgba(251, 191, 36, 0.18);
           }
         }
 
@@ -491,9 +685,17 @@ export default function TrishulWorkspacePage() {
           animation: trishul-letter-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           transition: color 0.3s ease, -webkit-text-stroke-color 0.3s ease;
         }
-        .trishul-letter:hover {
+        .trishul-root--dark .trishul-letter:hover {
           color: #fff;
           -webkit-text-stroke-color: #fff;
+        }
+        .trishul-root--light .trishul-letter:hover {
+          color: #1a1a2e;
+          -webkit-text-stroke-color: #1a1a2e;
+        }
+        .trishul-root--bluelight .trishul-letter:hover {
+          color: #fbbf24;
+          -webkit-text-stroke-color: #fbbf24;
         }
 
         /* Subtitle — gradient fill */
@@ -502,13 +704,21 @@ export default function TrishulWorkspacePage() {
           font-weight: 900;
           line-height: 0.9;
           letter-spacing: -0.03em;
-          background: linear-gradient(135deg, #06b6d4 0%, #a855f7 50%, #ec4899 100%);
           -webkit-background-clip: text;
           background-clip: text;
           -webkit-text-fill-color: transparent;
           opacity: 0;
           animation: trishul-fade-up 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           user-select: none;
+        }
+        .trishul-subtitle--dark {
+          background-image: linear-gradient(135deg, #06b6d4 0%, #a855f7 50%, #ec4899 100%);
+        }
+        .trishul-subtitle--light {
+          background-image: linear-gradient(135deg, #0891b2 0%, #7c3aed 50%, #db2777 100%);
+        }
+        .trishul-subtitle--bluelight {
+          background-image: linear-gradient(135deg, #f59e0b 0%, #d97706 40%, #fbbf24 100%);
         }
 
         /* Separator line */
@@ -518,20 +728,37 @@ export default function TrishulWorkspacePage() {
           margin: 3rem 0 2rem;
           height: 1px;
           overflow: hidden;
+          transition: background 0.4s ease;
+        }
+        .trishul-line-wrap:has(.trishul-line--dark) {
           background: rgba(255, 255, 255, 0.04);
         }
+        .trishul-line-wrap:has(.trishul-line--light) {
+          background: rgba(0, 0, 0, 0.06);
+        }
+        .trishul-line-wrap:has(.trishul-line--bluelight) {
+          background: rgba(251, 191, 36, 0.06);
+        }
+
         .trishul-line {
           height: 100%;
           width: 0;
-          background: linear-gradient(
-            90deg,
-            transparent,
-            rgba(6, 182, 212, 0.5),
-            rgba(168, 85, 247, 0.5),
-            rgba(236, 72, 153, 0.5),
-            transparent
-          );
           animation: trishul-line-grow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .trishul-line--dark {
+          background: linear-gradient(
+            90deg, transparent, rgba(6, 182, 212, 0.5), rgba(168, 85, 247, 0.5), rgba(236, 72, 153, 0.5), transparent
+          );
+        }
+        .trishul-line--light {
+          background: linear-gradient(
+            90deg, transparent, rgba(8, 145, 178, 0.45), rgba(124, 58, 237, 0.45), rgba(219, 39, 119, 0.45), transparent
+          );
+        }
+        .trishul-line--bluelight {
+          background: linear-gradient(
+            90deg, transparent, rgba(245, 158, 11, 0.4), rgba(217, 119, 6, 0.4), rgba(251, 191, 36, 0.4), transparent
+          );
         }
 
         /* Scroll hint */
@@ -547,13 +774,32 @@ export default function TrishulWorkspacePage() {
           font-size: 0.6rem;
           font-weight: 500;
           letter-spacing: 0.25em;
+          transition: color 0.4s ease;
+        }
+        .trishul-scroll-text--dark {
           color: rgba(255, 255, 255, 0.2);
         }
+        .trishul-scroll-text--light {
+          color: rgba(0, 0, 0, 0.15);
+        }
+        .trishul-scroll-text--bluelight {
+          color: rgba(251, 191, 36, 0.25);
+        }
+
         .trishul-scroll-line {
           width: 1px;
           height: 40px;
-          background: linear-gradient(to bottom, rgba(255, 255, 255, 0.2), transparent);
           animation: trishul-scroll-pulse 2s ease-in-out infinite;
+          transition: background 0.4s ease;
+        }
+        .trishul-scroll-line--dark {
+          background: linear-gradient(to bottom, rgba(255, 255, 255, 0.2), transparent);
+        }
+        .trishul-scroll-line--light {
+          background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15), transparent);
+        }
+        .trishul-scroll-line--bluelight {
+          background: linear-gradient(to bottom, rgba(251, 191, 36, 0.25), transparent);
         }
 
         /* ═══════════════════════════════════
@@ -564,13 +810,27 @@ export default function TrishulWorkspacePage() {
           z-index: 1;
           overflow: hidden;
           padding: 1.25rem 0;
-          background: rgba(255, 255, 255, 0.02);
-          border-top: 1px solid rgba(255, 255, 255, 0.04);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
           opacity: 0;
           transform: translateY(20px);
           transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+                      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                      background 0.4s ease,
+                      border-color 0.4s ease;
+        }
+        .trishul-marquee--dark {
+          background: rgba(255, 255, 255, 0.02);
+          border-top: 1px solid rgba(255, 255, 255, 0.04);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .trishul-marquee--light {
+          background: rgba(255, 255, 255, 0.6);
+          border-top: 1px solid rgba(0, 0, 0, 0.06);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        }
+        .trishul-marquee--bluelight {
+          background: rgba(251, 191, 36, 0.03);
+          border-top: 1px solid rgba(251, 191, 36, 0.08);
+          border-bottom: 1px solid rgba(251, 191, 36, 0.08);
         }
         .trishul-marquee--visible {
           opacity: 1;
@@ -587,9 +847,18 @@ export default function TrishulWorkspacePage() {
           font-weight: 600;
           letter-spacing: 0.2em;
           text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.12);
           white-space: nowrap;
           padding-right: 0;
+          transition: color 0.4s ease;
+        }
+        .trishul-marquee-text--dark {
+          color: rgba(255, 255, 255, 0.12);
+        }
+        .trishul-marquee-text--light {
+          color: rgba(0, 0, 0, 0.10);
+        }
+        .trishul-marquee-text--bluelight {
+          color: rgba(251, 191, 36, 0.12);
         }
 
         /* ═══════════════════════════════════
@@ -634,18 +903,46 @@ export default function TrishulWorkspacePage() {
           transform: translateY(0);
         }
 
-        /* Card */
+        /* Card — base */
         .trishul-card {
           position: relative;
-          border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 20px;
-          background: rgba(255, 255, 255, 0.02);
           overflow: hidden;
-          transition: border-color 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: border-color 0.4s ease,
+                      transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                      background 0.4s ease,
+                      box-shadow 0.4s ease;
         }
         .trishul-card:hover {
-          border-color: var(--card-accent);
+          border-color: var(--card-accent) !important;
           transform: scale(1.02);
+        }
+
+        /* DARK card */
+        .trishul-card--dark {
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.02);
+        }
+        .trishul-card--dark:hover {
+          box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+        }
+        /* LIGHT card */
+        .trishul-card--light {
+          border: 1px solid rgba(0, 0, 0, 0.06);
+          background: rgba(255, 255, 255, 0.85);
+          backdrop-filter: blur(16px);
+        }
+        .trishul-card--light:hover {
+          box-shadow: 0 8px 40px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03);
+          background: rgba(255, 255, 255, 0.95);
+        }
+        /* BLUELIGHT card */
+        .trishul-card--bluelight {
+          border: 1px solid rgba(251, 191, 36, 0.08);
+          background: rgba(251, 191, 36, 0.03);
+        }
+        .trishul-card--bluelight:hover {
+          box-shadow: 0 8px 40px rgba(251, 191, 36, 0.05);
         }
 
         .trishul-card-glow {
@@ -677,10 +974,20 @@ export default function TrishulWorkspacePage() {
           align-items: center;
           justify-content: center;
           border-radius: 14px;
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(255, 255, 255, 0.03);
           margin-bottom: 1.5rem;
           transition: border-color 0.4s ease, background 0.4s ease;
+        }
+        .trishul-card--dark .trishul-card-icon-wrap {
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.03);
+        }
+        .trishul-card--light .trishul-card-icon-wrap {
+          border: 1px solid rgba(0, 0, 0, 0.06);
+          background: rgba(0, 0, 0, 0.03);
+        }
+        .trishul-card--bluelight .trishul-card-icon-wrap {
+          border: 1px solid rgba(251, 191, 36, 0.1);
+          background: rgba(251, 191, 36, 0.05);
         }
         .trishul-card:hover .trishul-card-icon-wrap {
           border-color: var(--card-accent);
@@ -700,15 +1007,33 @@ export default function TrishulWorkspacePage() {
         .trishul-card-title {
           font-size: 1.15rem;
           font-weight: 700;
-          color: rgba(255, 255, 255, 0.9);
           margin-bottom: 0.6rem;
           letter-spacing: -0.01em;
+          transition: color 0.4s ease;
+        }
+        .trishul-card-title--dark {
+          color: rgba(255, 255, 255, 0.9);
+        }
+        .trishul-card-title--light {
+          color: rgba(20, 20, 60, 0.9);
+        }
+        .trishul-card-title--bluelight {
+          color: rgba(255, 220, 150, 0.9);
         }
 
         .trishul-card-desc {
           font-size: 0.82rem;
           line-height: 1.6;
+          transition: color 0.4s ease;
+        }
+        .trishul-card-desc--dark {
           color: rgba(255, 255, 255, 0.35);
+        }
+        .trishul-card-desc--light {
+          color: rgba(0, 0, 0, 0.4);
+        }
+        .trishul-card-desc--bluelight {
+          color: rgba(251, 191, 36, 0.4);
         }
 
         .trishul-card-line {
@@ -753,8 +1078,17 @@ export default function TrishulWorkspacePage() {
           font-weight: 500;
           letter-spacing: 0.2em;
           text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.25);
           margin-bottom: 2rem;
+          transition: color 0.4s ease;
+        }
+        .trishul-launch-pre--dark {
+          color: rgba(255, 255, 255, 0.25);
+        }
+        .trishul-launch-pre--light {
+          color: rgba(0, 0, 0, 0.2);
+        }
+        .trishul-launch-pre--bluelight {
+          color: rgba(251, 191, 36, 0.35);
         }
 
         .trishul-launch-btn {
@@ -765,8 +1099,6 @@ export default function TrishulWorkspacePage() {
           padding: 1.25rem 3.5rem;
           border: none;
           border-radius: 100px;
-          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
-          background-size: 200% 200%;
           color: #fff;
           font-size: 1rem;
           font-weight: 700;
@@ -774,18 +1106,100 @@ export default function TrishulWorkspacePage() {
           text-transform: uppercase;
           outline: none;
           will-change: transform;
-          transition: box-shadow 0.4s ease, background-position 0.5s ease;
-          animation: trishul-btn-glow 3s ease-in-out infinite,
+          background-size: 200% 200%;
+          animation: trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn:active {
+          transform: scale(0.97) !important;
+        }
+
+        /* DARK btn */
+        .trishul-launch-btn--dark {
+          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
+          animation: trishul-btn-glow-dark 3s ease-in-out infinite,
                      trishul-btn-gradient 5s ease-in-out infinite;
         }
-        .trishul-launch-btn:hover {
+        .trishul-launch-btn--dark:hover {
           background-position: 100% 50%;
           box-shadow: 0 0 50px rgba(6, 182, 212, 0.3),
                       0 0 100px rgba(168, 85, 247, 0.2),
                       0 0 150px rgba(236, 72, 153, 0.1);
         }
-        .trishul-launch-btn:active {
-          transform: scale(0.97) !important;
+        .trishul-launch-btn--dark::before {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: 100px;
+          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
+          background-size: 200% 200%;
+          z-index: -1;
+          opacity: 0;
+          filter: blur(12px);
+          transition: opacity 0.4s ease;
+          animation: trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn--dark:hover::before {
+          opacity: 0.6;
+        }
+
+        /* LIGHT btn */
+        .trishul-launch-btn--light {
+          background: linear-gradient(135deg, #0891b2, #7c3aed, #db2777);
+          color: #fff;
+          animation: trishul-btn-glow-light 3s ease-in-out infinite,
+                     trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn--light:hover {
+          background-position: 100% 50%;
+          box-shadow: 0 0 40px rgba(8, 145, 178, 0.25),
+                      0 0 80px rgba(124, 58, 237, 0.15),
+                      0 0 120px rgba(219, 39, 119, 0.08);
+        }
+        .trishul-launch-btn--light::before {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: 100px;
+          background: linear-gradient(135deg, #0891b2, #7c3aed, #db2777);
+          background-size: 200% 200%;
+          z-index: -1;
+          opacity: 0;
+          filter: blur(12px);
+          transition: opacity 0.4s ease;
+          animation: trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn--light:hover::before {
+          opacity: 0.5;
+        }
+
+        /* BLUELIGHT btn */
+        .trishul-launch-btn--bluelight {
+          background: linear-gradient(135deg, #d97706, #f59e0b, #fbbf24);
+          color: #1a0f00;
+          animation: trishul-btn-glow-bluelight 3s ease-in-out infinite,
+                     trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn--bluelight:hover {
+          background-position: 100% 50%;
+          box-shadow: 0 0 40px rgba(251, 191, 36, 0.25),
+                      0 0 80px rgba(217, 119, 6, 0.15),
+                      0 0 120px rgba(245, 158, 11, 0.08);
+        }
+        .trishul-launch-btn--bluelight::before {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: 100px;
+          background: linear-gradient(135deg, #d97706, #f59e0b, #fbbf24);
+          background-size: 200% 200%;
+          z-index: -1;
+          opacity: 0;
+          filter: blur(12px);
+          transition: opacity 0.4s ease;
+          animation: trishul-btn-gradient 5s ease-in-out infinite;
+        }
+        .trishul-launch-btn--bluelight:hover::before {
+          opacity: 0.5;
         }
 
         .trishul-launch-btn-text {
@@ -804,29 +1218,20 @@ export default function TrishulWorkspacePage() {
           transform: translate(3px, -3px) rotate(-45deg);
         }
 
-        /* Pulsing ring around button */
-        .trishul-launch-btn::before {
-          content: "";
-          position: absolute;
-          inset: -3px;
-          border-radius: 100px;
-          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
-          background-size: 200% 200%;
-          z-index: -1;
-          opacity: 0;
-          filter: blur(12px);
-          transition: opacity 0.4s ease;
-          animation: trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn:hover::before {
-          opacity: 0.6;
-        }
-
         .trishul-launch-sub {
           font-size: 0.7rem;
-          color: rgba(255, 255, 255, 0.18);
           margin-top: 1.5rem;
           letter-spacing: 0.04em;
+          transition: color 0.4s ease;
+        }
+        .trishul-launch-sub--dark {
+          color: rgba(255, 255, 255, 0.18);
+        }
+        .trishul-launch-sub--light {
+          color: rgba(0, 0, 0, 0.15);
+        }
+        .trishul-launch-sub--bluelight {
+          color: rgba(251, 191, 36, 0.25);
         }
 
         /* ═══════════════════════════════════
@@ -857,29 +1262,71 @@ export default function TrishulWorkspacePage() {
         }
         .trishul-footer-welcome {
           font-size: 0.8rem;
+          transition: color 0.4s ease;
+        }
+        .trishul-footer-welcome--dark {
           color: rgba(255, 255, 255, 0.3);
         }
-        .trishul-footer-name {
-          color: rgba(255, 255, 255, 0.7);
-          font-weight: 600;
+        .trishul-footer-welcome--light {
+          color: rgba(0, 0, 0, 0.3);
         }
+        .trishul-footer-welcome--bluelight {
+          color: rgba(251, 191, 36, 0.35);
+        }
+
+        .trishul-footer-name {
+          font-weight: 600;
+          transition: color 0.4s ease;
+        }
+        .trishul-footer-name--dark {
+          color: rgba(255, 255, 255, 0.7);
+        }
+        .trishul-footer-name--light {
+          color: rgba(20, 20, 60, 0.7);
+        }
+        .trishul-footer-name--bluelight {
+          color: rgba(251, 191, 36, 0.7);
+        }
+
         .trishul-footer-role {
           display: inline-block;
           padding: 0.2rem 0.65rem;
-          border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 100px;
-          background: rgba(255, 255, 255, 0.03);
           font-size: 0.6rem;
           font-weight: 600;
           letter-spacing: 0.12em;
           text-transform: uppercase;
+          transition: border-color 0.4s ease, background 0.4s ease, color 0.4s ease;
+        }
+        .trishul-footer-role--dark {
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.03);
           color: rgba(255, 255, 255, 0.3);
+        }
+        .trishul-footer-role--light {
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          background: rgba(0, 0, 0, 0.03);
+          color: rgba(0, 0, 0, 0.3);
+        }
+        .trishul-footer-role--bluelight {
+          border: 1px solid rgba(251, 191, 36, 0.12);
+          background: rgba(251, 191, 36, 0.05);
+          color: rgba(251, 191, 36, 0.4);
         }
 
         .trishul-footer-copy {
           font-size: 0.65rem;
-          color: rgba(255, 255, 255, 0.12);
           letter-spacing: 0.05em;
+          transition: color 0.4s ease;
+        }
+        .trishul-footer-copy--dark {
+          color: rgba(255, 255, 255, 0.12);
+        }
+        .trishul-footer-copy--light {
+          color: rgba(0, 0, 0, 0.12);
+        }
+        .trishul-footer-copy--bluelight {
+          color: rgba(251, 191, 36, 0.18);
         }
 
         /* ═══════════════════════════════════
@@ -918,7 +1365,7 @@ export default function TrishulWorkspacePage() {
           100% { transform: translateX(-50%); }
         }
 
-        @keyframes trishul-btn-glow {
+        @keyframes trishul-btn-glow-dark {
           0%, 100% {
             box-shadow: 0 0 20px rgba(6, 182, 212, 0.2),
                         0 0 40px rgba(168, 85, 247, 0.15),
@@ -928,6 +1375,32 @@ export default function TrishulWorkspacePage() {
             box-shadow: 0 0 30px rgba(6, 182, 212, 0.35),
                         0 0 60px rgba(168, 85, 247, 0.25),
                         0 0 90px rgba(236, 72, 153, 0.1);
+          }
+        }
+
+        @keyframes trishul-btn-glow-light {
+          0%, 100% {
+            box-shadow: 0 0 15px rgba(8, 145, 178, 0.15),
+                        0 0 30px rgba(124, 58, 237, 0.10),
+                        0 0 0px rgba(219, 39, 119, 0);
+          }
+          50% {
+            box-shadow: 0 0 25px rgba(8, 145, 178, 0.25),
+                        0 0 50px rgba(124, 58, 237, 0.15),
+                        0 0 75px rgba(219, 39, 119, 0.06);
+          }
+        }
+
+        @keyframes trishul-btn-glow-bluelight {
+          0%, 100% {
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.15),
+                        0 0 30px rgba(217, 119, 6, 0.10),
+                        0 0 0px rgba(245, 158, 11, 0);
+          }
+          50% {
+            box-shadow: 0 0 25px rgba(251, 191, 36, 0.30),
+                        0 0 50px rgba(217, 119, 6, 0.20),
+                        0 0 75px rgba(245, 158, 11, 0.08);
           }
         }
 
