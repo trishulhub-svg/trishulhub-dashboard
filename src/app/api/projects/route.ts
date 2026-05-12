@@ -4,89 +4,98 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
+    await ensureAllTables()
 
-  // Rate limit
-  const rl = rateLimit(`projects-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = session.user.role
-  const userId = session.user.id
+    // Rate limit
+    const rl = rateLimit(`projects-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
 
-  const { searchParams } = new URL(req.url)
-  const projectId = searchParams.get("projectId")
+    const userRole = session.user.role
+    const userId = session.user.id
 
-  // CLIENT users can only see their own projects
-  if (userRole === "CLIENT") {
-    const client = await db.client.findFirst({ where: { userId } })
-    if (!client) return NextResponse.json([])
-    // ZAI FIX #310: When projectId specified (detail page), return scalar-only data.
-    // Detail page fetches tasks and members separately — no includes needed.
+    const { searchParams } = new URL(req.url)
+    const projectId = searchParams.get("projectId")
+
+    // CLIENT users can only see their own projects
+    if (userRole === "CLIENT") {
+      const client = await db.client.findFirst({ where: { userId } })
+      if (!client) return NextResponse.json([])
+      // ZAI FIX #310: When projectId specified (detail page), return scalar-only data.
+      // Detail page fetches tasks and members separately — no includes needed.
+      const projects = await db.project.findMany({
+        where: {
+          clientId: client.id,
+          ...(projectId ? { id: projectId } : {}),
+        },
+        include: { ...(projectId ? {} : { client: true, tasks: true }) },
+        orderBy: { createdAt: "desc" }
+      })
+      // Layer 0: JSON round-trip to ensure Date objects are ISO strings
+      return NextResponse.json(JSON.parse(JSON.stringify(projects)))
+    }
+
+    // DEVELOPER users only see projects they're assigned to
+    const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
+
+    // Build where clause
+    const where: Record<string, unknown> = {}
+    if (assignedProjectIds) {
+      where.id = { in: assignedProjectIds }
+    }
+    if (projectId) {
+      // SECURITY: For non-admin users, intersect projectId with assigned IDs
+      if (assignedProjectIds && !assignedProjectIds.includes(projectId)) {
+        return NextResponse.json([])
+      }
+      where.id = projectId
+    }
+
+    // For developers: don't expose budget info
+    const includeBudget = isAdmin(userRole)
+
+    // ZAI FIX #310: When projectId is specified (detail page), return ONLY
+    // scalar fields — no includes at all. The detail page fetches tasks,
+    // members, and client data from their own dedicated endpoints.
+    // This eliminates the possibility of circular refs or nested objects.
     const projects = await db.project.findMany({
-      where: {
-        clientId: client.id,
-        ...(projectId ? { id: projectId } : {}),
+      where,
+      include: {
+        ...(projectId ? {} : { client: true }),
+        ...(projectId ? {} : { tasks: true }),
+        ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
       },
-      include: { ...(projectId ? {} : { client: true, tasks: true }) },
       orderBy: { createdAt: "desc" }
     })
-    // Layer 0: JSON round-trip to ensure Date objects are ISO strings
-    return NextResponse.json(JSON.parse(JSON.stringify(projects)))
-  }
 
-  // DEVELOPER users only see projects they're assigned to
-  const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
-
-  // Build where clause
-  const where: Record<string, unknown> = {}
-  if (assignedProjectIds) {
-    where.id = { in: assignedProjectIds }
-  }
-  if (projectId) {
-    // SECURITY: For non-admin users, intersect projectId with assigned IDs
-    if (assignedProjectIds && !assignedProjectIds.includes(projectId)) {
-      return NextResponse.json([])
+    // For developers: hide budget and client financial details
+    if (!includeBudget) {
+      const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
+        ...rest,
+        budget: undefined,
+        client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
+      }))
+      // Layer 0: JSON round-trip to strip Date objects → ISO strings
+      return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
     }
-    where.id = projectId
-  }
 
-  // For developers: don't expose budget info
-  const includeBudget = isAdmin(userRole)
-
-  // ZAI FIX #310: When projectId is specified (detail page), return ONLY
-  // scalar fields — no includes at all. The detail page fetches tasks,
-  // members, and client data from their own dedicated endpoints.
-  // This eliminates the possibility of circular refs or nested objects.
-  const projects = await db.project.findMany({
-    where,
-    include: {
-      ...(projectId ? {} : { client: true }),
-      ...(projectId ? {} : { tasks: true }),
-      ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
-    },
-    orderBy: { createdAt: "desc" }
-  })
-
-  // For developers: hide budget and client financial details
-  if (!includeBudget) {
-    const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
-      ...rest,
-      budget: undefined,
-      client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
-    }))
     // Layer 0: JSON round-trip to strip Date objects → ISO strings
-    return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
+    return NextResponse.json(JSON.parse(JSON.stringify(projects)))
+  } catch (error: any) {
+    console.error("[projects] GET error:", error?.message)
+    return NextResponse.json({ error: "Failed to load projects" }, { status: 500 })
   }
-
-  // Layer 0: JSON round-trip to strip Date objects → ISO strings
-  return NextResponse.json(JSON.parse(JSON.stringify(projects)))
 }
 
 export async function POST(req: NextRequest) {

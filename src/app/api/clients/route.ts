@@ -5,12 +5,13 @@ import { db } from "@/lib/db"
 import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/clients - List all clients with pagination and aggregated data
 export async function GET(req: NextRequest) {
-  // Auto-migrate: ensure ClientWebsite table exists on first request (Turso)
-  await ensureTable("ClientWebsite")
+  try {
+    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
+    await ensureAllTables()
 
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -177,19 +178,23 @@ export async function GET(req: NextRequest) {
     totalRevenue = revenueResult._sum?.total ?? 0
   }
 
-  return NextResponse.json(JSON.parse(JSON.stringify({
-    data: enriched,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-    stats: {
-      total: statsTotal,
-      active: activeCount,
-      revenue: totalRevenue,
-      invoices: invoiceCount,
-    },
-  })))
+    return NextResponse.json(JSON.parse(JSON.stringify({
+      data: enriched,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      stats: {
+        total: statsTotal,
+        active: activeCount,
+        revenue: totalRevenue,
+        invoices: invoiceCount,
+      },
+    })))
+  } catch (error: any) {
+    console.error("[clients] GET error:", error?.message)
+    return NextResponse.json({ error: "Failed to load clients" }, { status: 500 })
+  }
 }
 
 // POST /api/clients - Create client with validation

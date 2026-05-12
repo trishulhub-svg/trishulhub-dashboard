@@ -119,6 +119,45 @@ const AUTO_MIGRATIONS: TableMigration[] = [
       `CREATE INDEX IF NOT EXISTS "ClientWebsite_clientId_idx" ON "ClientWebsite"("clientId")`,
     ],
   },
+  // ── Client table: new columns added in CLI enhancement (commit 42cea22) ──
+  // prisma db push was only run locally (file:./db/turso.db), not on remote Turso.
+  // These ALTER TABLE statements add the missing columns to the production DB.
+  {
+    name: "Client_Alter_projectType",
+    sql: `ALTER TABLE "Client" ADD COLUMN "projectType" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "Client_Alter_projectStartDate",
+    sql: `ALTER TABLE "Client" ADD COLUMN "projectStartDate" DATETIME`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "Client_Alter_deliveryDate",
+    sql: `ALTER TABLE "Client" ADD COLUMN "deliveryDate" DATETIME`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "Client_Alter_mediatorName",
+    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorName" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "Client_Alter_mediatorPhone",
+    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorPhone" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
+  {
+    name: "Client_Alter_mediatorEmail",
+    sql: `ALTER TABLE "Client" ADD COLUMN "mediatorEmail" TEXT`,
+    indexes: [],
+    skipIfExists: true,
+  },
 ]
 
 // Track which tables have been checked
@@ -195,5 +234,20 @@ export async function ensureTable(tableName: string): Promise<boolean> {
 export async function ensureAllTables(): Promise<void> {
   for (const migration of AUTO_MIGRATIONS) {
     await ensureTable(migration.name)
+  }
+}
+
+/**
+ * Run all auto-migrations silently. Safe to call at startup.
+ * Catches and logs errors without throwing — the app should still start
+ * even if some migrations fail (they'll be retried on next request).
+ */
+export async function runAutoMigrations(): Promise<void> {
+  try {
+    console.log("[auto-migrate] Running startup migrations...")
+    await ensureAllTables()
+    console.log("[auto-migrate] Startup migrations complete")
+  } catch (err: any) {
+    console.error("[auto-migrate] Startup migration error (non-fatal):", err?.message)
   }
 }
