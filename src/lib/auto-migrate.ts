@@ -104,6 +104,21 @@ const AUTO_MIGRATIONS: TableMigration[] = [
       `CREATE INDEX IF NOT EXISTS "AgentAutonomousPrompt_agentId_isActive_idx" ON "AgentAutonomousPrompt"("agentId", "isActive")`,
     ],
   },
+  {
+    name: "ClientWebsite",
+    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "url" TEXT NOT NULL,
+      "label" TEXT,
+      "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "clientId" TEXT NOT NULL,
+      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "ClientWebsite_clientId_idx" ON "ClientWebsite"("clientId")`,
+    ],
+  },
 ]
 
 // Track which tables have been checked

@@ -5,12 +5,16 @@ import { db } from "@/lib/db"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/clients/[id] - Single client detail with full relations
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auto-migrate: ensure ClientWebsite table exists on first request (Turso)
+  await ensureTable("ClientWebsite")
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
