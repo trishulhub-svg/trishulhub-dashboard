@@ -44,6 +44,14 @@ import type { ClientStatus } from "@/lib/types";
 import { safeText, safeNumber } from "@/lib/utils";
 
 // ━━ Types ━━
+interface ClientWebsite {
+  id: string;
+  url: string;
+  label: string | null;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
 interface ClientRow {
   id: string;
   name: string;
@@ -51,7 +59,7 @@ interface ClientRow {
   phone: string | null;
   company: string | null;
   website: string | null;
-  websites: string | null;       // JSON array
+  primaryWebsite: ClientWebsite | null;
   status: string;
   userId: string | null;
   notes: string | null;
@@ -69,6 +77,7 @@ interface ClientRow {
 }
 
 interface ClientDetail extends ClientRow {
+  websites: ClientWebsite[];
   projects: {
     id: string; name: string; status: string; progress: number;
     deadline: string | null; budget: number | null; createdAt: string;
@@ -79,6 +88,14 @@ interface ClientDetail extends ClientRow {
   }[];
   leads: {
     id: string; name: string; status: string; score: number; createdAt: string;
+  }[];
+  deals: {
+    id: string; title: string; value: number; stage: string;
+    expectedCloseDate: string | null; createdAt: string;
+  }[];
+  contacts: {
+    id: string; firstName: string; lastName: string | null;
+    email: string; isPrimary: boolean;
   }[];
   tickets: {
     id: string; subject: string; status: string; priority: string; createdAt: string;
@@ -449,8 +466,13 @@ export default function ClientsPage() {
     setEditingClient(client);
     setFormErrors({});
     setShowMediator(!!(client.mediatorName || client.mediatorPhone));
+    // Read websites from primaryWebsite relation object (not legacy JSON string)
     let parsedWebsites: string[] = [""];
-    try { const w = client.websites ? JSON.parse(client.websites) : null; if (Array.isArray(w) && w.length > 0) parsedWebsites = w; else if (client.website) parsedWebsites = [client.website]; } catch { if (client.website) parsedWebsites = [client.website]; }
+    if (client.primaryWebsite) {
+      parsedWebsites = [client.primaryWebsite.url];
+    } else if (client.website) {
+      parsedWebsites = [client.website];
+    }
     setFormData({
       name: client.name, email: client.email,
       phone: client.phone || "", company: client.company || "",
@@ -517,7 +539,12 @@ export default function ClientsPage() {
             projectType: formData.projectType || null,
             projectStartDate: formData.projectStartDate || null,
             deliveryDate: formData.deliveryDate || null,
-            websites: formData.websites.filter(w => w.trim()),
+            // Transform string array to API-expected object array
+            websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
+              url,
+              label: null,
+              isPrimary: idx === 0,
+            })),
             mediatorName: formData.mediatorName || null,
             mediatorPhone: formData.mediatorPhone || null,
             mediatorEmail: formData.mediatorEmail || null,
@@ -550,7 +577,12 @@ export default function ClientsPage() {
           projectType: formData.projectType || undefined,
           projectStartDate: formData.projectStartDate || undefined,
           deliveryDate: formData.deliveryDate || undefined,
-          websites: formData.websites.filter(w => w.trim()),
+          // Transform string array to API-expected object array
+          websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
+            url,
+            label: null,
+            isPrimary: idx === 0,
+          })),
           mediatorName: formData.mediatorName || undefined,
           mediatorPhone: formData.mediatorPhone || undefined,
           mediatorEmail: formData.mediatorEmail || undefined,
@@ -1331,13 +1363,15 @@ export default function ClientsPage() {
                   )}
                 </div>
                 {(() => {
-                  let sites: string[] = [];
-                  try { const w = detailClient.websites ? JSON.parse(detailClient.websites) : null; if (Array.isArray(w)) sites = w.filter((s: string) => s.trim()); } catch {}
+                  // Read from relation array (not legacy JSON string)
+                  const sites = (detailClient.websites || [])
+                    .map((w: ClientWebsite) => w.url)
+                    .filter((s: string) => s.trim());
                   if (detailClient.website && !sites.includes(detailClient.website)) sites.unshift(detailClient.website);
                   if (sites.length === 0) return null;
                   return (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {sites.map((site, i) => (
+                      {sites.map((site: string, i: number) => (
                         <a key={i} href={site.startsWith("http") ? site : `https://${site}`} target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline">
                           <Link2 className="h-3 w-3" /> {safeText(site.replace(/^https?:\/\//, ""))}
