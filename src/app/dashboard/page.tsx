@@ -309,11 +309,9 @@ export default function DashboardPage() {
               const Icon = agentIcons[agent.type] || Bot;
               const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
               return (
-                <button
+                <div
                   key={agent.id}
-                  onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
-                  className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
-                  type="button"
+                  className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors"
                 >
                   <div className="relative">
                     <Icon className="h-5 w-5 text-muted-foreground" />
@@ -324,7 +322,7 @@ export default function DashboardPage() {
                     <p className="text-xs text-muted-foreground">{AGENT_TYPES[agent.type as AgentType]?.label || safeText(agent.type, "")}</p>
                   </div>
                   <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                </button>
+                </div>
               );
             })}
           </CardContent>
