@@ -314,7 +314,7 @@ model Client {
   phone           String?
   company         String?
   website         String?              // kept for backward compat
-  websites        String   @default("[]") // JSON array of website URLs
+  websites        ClientWebsite[]
   status          String   @default("ACTIVE") // ACTIVE, INACTIVE, ONBOARDING, PAUSED, COMPLETED, CHURNED
   userId          String?  // linked portal user
   notes           String?
@@ -333,6 +333,20 @@ model Client {
   deals     Deal[]
   contacts  Contact[]
   tickets   SupportTicket[]
+}
+
+// ━━ Client Websites (one-to-many) ━━
+model ClientWebsite {
+  id        String   @id @default(cuid())
+  url       String
+  label     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  clientId  String
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
 }
 
 // ━━ Projects ━━
