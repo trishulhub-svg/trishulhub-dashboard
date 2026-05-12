@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Bot,
+  Rocket,
   Users,
   FolderKanban,
   DollarSign,
@@ -79,7 +80,7 @@ const navGroups: NavGroup[] = [
     label: "Overview",
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Agents", href: "/dashboard/agents", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Workspace", href: "/dashboard/agents", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
@@ -607,16 +608,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        {/* CRITICAL FIX: Agent chat pages need overflow-hidden (not overflow-auto) so the chat's
-            internal ScrollArea works. Without this, <main> becomes a competing scroll container
-            that breaks the Radix ScrollArea's viewport scrolling. Also set p-0 for agent chat
-            pages so the chat can fill the entire area without negative margin hacks. */}
-        <main className={cn(
-          "flex-1",
-          pathname?.match(/^\/dashboard\/agents\/[^/]+$/)
-            ? "overflow-hidden p-0"
-            : "p-5 md:p-8 overflow-auto"
-        )}>{children}</main>
+        <main className="flex-1 p-5 md:p-8 overflow-auto">{children}</main>
       </div>
     </div>
   );
