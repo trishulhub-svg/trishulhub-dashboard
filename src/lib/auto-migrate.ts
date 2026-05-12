@@ -158,6 +158,59 @@ const AUTO_MIGRATIONS: TableMigration[] = [
     indexes: [],
     skipIfExists: true,
   },
+  // ── Deal table: CRM deals/pipeline (missing from Turso) ──
+  {
+    name: "Deal",
+    sql: `CREATE TABLE IF NOT EXISTS "Deal" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "title" TEXT NOT NULL,
+      "value" REAL NOT NULL DEFAULT 0,
+      "currency" TEXT NOT NULL DEFAULT 'USD',
+      "stage" TEXT NOT NULL DEFAULT 'LEAD',
+      "probability" INTEGER NOT NULL DEFAULT 0,
+      "expectedCloseDate" DATETIME,
+      "actualCloseDate" DATETIME,
+      "clientId" TEXT,
+      "leadId" TEXT,
+      "assignedToId" TEXT,
+      "notes" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      FOREIGN KEY ("assignedToId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )`,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "Deal_stage_idx" ON "Deal"("stage")`,
+      `CREATE INDEX IF NOT EXISTS "Deal_clientId_idx" ON "Deal"("clientId")`,
+      `CREATE INDEX IF NOT EXISTS "Deal_assignedToId_idx" ON "Deal"("assignedToId")`,
+    ],
+  },
+  // ── Contact table: CRM contacts (missing from Turso) ──
+  {
+    name: "Contact",
+    sql: `CREATE TABLE IF NOT EXISTS "Contact" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "firstName" TEXT NOT NULL,
+      "lastName" TEXT,
+      "email" TEXT NOT NULL,
+      "phone" TEXT,
+      "jobTitle" TEXT,
+      "clientId" TEXT,
+      "leadId" TEXT,
+      "notes" TEXT,
+      "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )`,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "Contact_clientId_idx" ON "Contact"("clientId")`,
+      `CREATE INDEX IF NOT EXISTS "Contact_leadId_idx" ON "Contact"("leadId")`,
+      `CREATE INDEX IF NOT EXISTS "Contact_email_idx" ON "Contact"("email")`,
+    ],
+  },
 ]
 
 // Track which tables have been checked
