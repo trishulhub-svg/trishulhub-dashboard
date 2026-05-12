@@ -21,6 +21,10 @@ All notable changes to the TrishulHub Dashboard will be documented in this file.
 ### Commits
 - `76fd619`: fix: [Clients] Batch 1 — Add ClientWebsite model to Prisma schema
 - `b1caab2`: fix: [Clients] Batch 2 — Fix frontend type mismatches for ClientWebsite relation
+- `472537e`: fix: [Clients] Batch 3 — Auto-migrate ClientWebsite table for Turso production
+
+### Root Cause
+The `ClientWebsite` model was added to the Prisma schema but `prisma db push` only synced the **local SQLite** database. The production Turso database (accessed via `@prisma/adapter-libsql`) did not have the `ClientWebsite` table, causing all client queries with `include: { websites: true }` to fail. Fixed by adding the table to the project's `auto-migrate.ts` system which auto-creates missing tables on first API request.
 
 ---
 
