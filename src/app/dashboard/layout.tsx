@@ -83,7 +83,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Workspace", href: "/dashboard/agents", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Protocol Access", href: "/dashboard/protocol/access", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Protocol Access", href: "/dashboard/protocol/access", icon: ShieldCheck, roles: ["ADMIN", "DEVELOPER"] },
     ],
   },
   {

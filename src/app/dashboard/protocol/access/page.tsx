@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ShieldCheck,
@@ -61,6 +62,15 @@ const AGENT_COLORS: Record<string, string> = {
 
 export default function ProtocolAccessPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+
+  // SUPER_ADMIN should use the management panel, not this page
+  useEffect(() => {
+    if (status === "authenticated" && session?.user?.role === "SUPER_ADMIN") {
+      router.replace("/dashboard/protocol");
+    }
+  }, [status, session, router]);
+
   const [step, setStep] = useState<Step>("check");
   const [inviteCode, setInviteCode] = useState("");
   const [otp, setOtp] = useState("");
