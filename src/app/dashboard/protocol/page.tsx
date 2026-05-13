@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -21,6 +21,7 @@ import {
   Key,
   Clock,
   AlertTriangle,
+  Upload,
 } from "lucide-react";
 import { cn, safeText, safeNumber, safeDate, safeArray, safeJsonParse } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -402,6 +403,76 @@ export default function ProtocolManagementPage() {
     }
   };
 
+  // ── Upload protocol document ──
+  const protocolFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleProtocolFileUpload = async (file: File) => {
+    const allowedTypes = [
+      "text/plain",
+      "text/markdown",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    const allowedExtensions = [".txt", ".md", ".pdf", ".doc", ".docx"];
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+
+    if (!allowedExtensions.includes(ext)) {
+      toast.error("Unsupported file type. Use .txt, .md, .pdf, .doc, or .docx");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File too large. Maximum size is 5MB.");
+      return;
+    }
+
+    // For .txt and .md, read directly
+    if (ext === ".txt" || ext === ".md") {
+      try {
+        const text = await file.text();
+        setProtocolContent(text);
+        toast.success(`Loaded ${file.name} into editor (${(file.size / 1024).toFixed(1)} KB)`);
+      } catch {
+        toast.error("Failed to read file");
+      }
+      return;
+    }
+
+    // For .pdf, .doc, .docx — send to API for extraction
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/protocol/upload-document", {
+        method: "POST",
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.content) {
+          setProtocolContent(data.content);
+          toast.success(`Loaded ${file.name} into editor (${(data.content.length / 1024).toFixed(1)} KB)`);
+        } else {
+          toast.error("Could not extract text from this file");
+        }
+      } else {
+        const data = await res.json();
+        toast.error(safeText(data.error, "Failed to process file"));
+      }
+    } catch {
+      toast.error("Failed to upload file");
+    }
+    setLoading(false);
+  };
+
+  const onProtocolFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleProtocolFileUpload(file);
+    // Reset input so same file can be re-uploaded
+    e.target.value = "";
+  };
+
   // ── Loading / Access check ──
   if (status === "loading" || loading) {
     return (
@@ -522,10 +593,30 @@ export default function ProtocolManagementPage() {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-sm font-medium">Protocol Content</label>
-                  <span className="text-xs text-muted-foreground">
-                    {protocolContent.length} characters
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={protocolFileInputRef}
+                      type="file"
+                      accept=".txt,.md,.pdf,.doc,.docx"
+                      className="hidden"
+                      onChange={onProtocolFileSelect}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => protocolFileInputRef.current?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5 mr-1" /> Upload Document
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {protocolContent.length} characters
+                    </span>
+                  </div>
                 </div>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Upload a .txt, .md, .pdf, .doc, or .docx file — or type/paste directly below
+                </p>
                 <Textarea
                   placeholder="Write your complete Trishul Protocol here...
 
