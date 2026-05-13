@@ -24,9 +24,9 @@ export default function AgentsListError({
           </div>
         </div>
         <div className="space-y-2">
-          <h2 className="text-xl font-bold text-foreground">Failed to Load Agents</h2>
+          <h2 className="text-xl font-bold text-foreground">Failed to Load Workspace</h2>
           <p className="text-muted-foreground text-sm">
-            There was an error loading the agents list. Please try again.
+            There was an error loading the workspace. Please try again.
           </p>
         </div>
         <Button onClick={reset} className="gap-2">

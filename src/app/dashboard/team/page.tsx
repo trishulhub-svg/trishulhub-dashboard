@@ -4,13 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, Bot, AlertCircle, RefreshCw, MessageSquare,
+  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, AlertCircle, RefreshCw, MessageSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -25,23 +24,6 @@ import { toast } from "sonner";
 
 // ── TypeScript Interfaces ── [FIX M3: Replace unknown[] with proper types]
 
-interface AgentInfo {
-  id: string;
-  name: string;
-  type: string;
-}
-
-interface UserAgentAccessItem {
-  id: string;
-  userId: string;
-  agentId: string;
-  canChat: boolean;
-  canView: boolean;
-  canApprove: boolean;
-  user?: { id: string; name: string; email: string; role: string; department?: string | null };
-  agent?: AgentInfo;
-}
-
 interface TeamUser {
   id: string;
   name: string;
@@ -50,7 +32,6 @@ interface TeamUser {
   department?: string | null;
   isActive: boolean;
   avatar?: string | null;
-  agentAccess?: UserAgentAccessItem[];
 }
 
 interface LeaveRecord {
@@ -75,12 +56,6 @@ interface AttendanceRecord {
   user?: { id: string; name: string; email: string; role: string };
 }
 
-interface AgentOption {
-  id: string;
-  name: string;
-  type: string;
-}
-
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
@@ -97,18 +72,14 @@ export default function TeamPage() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [agentAccess, setAgentAccess] = useState<UserAgentAccessItem[]>([]);
-  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"team" | "leaves" | "attendance" | "access">("team");
+  const [tab, setTab] = useState<"team" | "leaves" | "attendance">("team");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
-  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectingLeaveId, setRejectingLeaveId] = useState<string | null>(null);
   const [rejectFeedback, setRejectFeedback] = useState("");
-  const [removeAccessConfirmId, setRemoveAccessConfirmId] = useState<string | null>(null);
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
 
@@ -121,20 +92,15 @@ export default function TeamPage() {
   // Leave form
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
 
-  // Access form
-  const [accessForm, setAccessForm] = useState({ userId: "", agentId: "", canChat: true, canView: true, canApprove: false });
-
   // Add member form
   const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [userRes, leaveRes, attendRes, accessRes, agentsRes] = await Promise.all([
+      const [userRes, leaveRes, attendRes] = await Promise.all([
         fetch("/api/team", { credentials: 'include', signal }),
         fetch("/api/team?type=leaves", { credentials: 'include', signal }),
         fetch("/api/team?type=attendance", { credentials: 'include', signal }),
-        fetch("/api/team?type=agent-access", { credentials: 'include', signal }),
-        fetch("/api/agents", { credentials: 'include', signal }),
       ]);
 
       // [FIX C1: Safe array fallback for all responses]
@@ -161,22 +127,6 @@ export default function TeamPage() {
       } else {
         const errData = await attendRes.json().catch(() => null);
         toast.error(errData?.error || "Failed to load attendance data");
-      }
-
-      if (accessRes.ok) {
-        const accessData = await accessRes.json();
-        setAgentAccess(safeArray<UserAgentAccessItem>(accessData));
-      } else {
-        const errData = await accessRes.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load agent access");
-      }
-
-      if (agentsRes.ok) {
-        const agentsData = await agentsRes.json();
-        setAgents(safeArray<AgentOption>(agentsData));
-      } else {
-        const errData = await agentsRes.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load agents");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -248,56 +198,6 @@ export default function TeamPage() {
       setMutating(false);
     }
   }, [leaveForm, mutating, fetchData]);
-
-  const handleGrantAccess = useCallback(async () => {
-    if (mutating) return; // [FIX H3]
-    setMutating(true);
-    try {
-      const res = await fetch("/api/team", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: 'include',
-        body: JSON.stringify({ type: "agent-access", ...accessForm }),
-      });
-      if (res.ok) {
-        toast.success("Agent access granted");
-        setAccessDialogOpen(false);
-        setAccessForm({ userId: "", agentId: "", canChat: true, canView: true, canApprove: false });
-        fetchData();
-      } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to grant access");
-      }
-    } catch {
-      toast.error("Failed to grant access");
-    } finally {
-      setMutating(false);
-    }
-  }, [accessForm, mutating, fetchData]);
-
-  const handleRemoveAccess = useCallback(async (id: string) => {
-    if (mutating) return; // [FIX H3]
-    setMutating(true);
-    try {
-      const res = await fetch(`/api/team?type=agent-access&id=${id}`, {
-        method: "DELETE",
-        credentials: 'include',
-      });
-      if (res.ok) {
-        toast.success("Access removed");
-        setRemoveAccessConfirmId(null);
-        fetchData();
-      } else {
-        // [FIX H5: Show error toast for non-ok delete response]
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to remove access");
-      }
-    } catch {
-      toast.error("Failed to remove access");
-    } finally {
-      setMutating(false);
-    }
-  }, [mutating, fetchData]);
 
   const handleAddMember = useCallback(async () => {
     if (!memberForm.name || !memberForm.email || !memberForm.password) {
@@ -392,7 +292,7 @@ export default function TeamPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Team Management</h1>
-          <p className="text-muted-foreground text-sm">Manage team members, leave requests, and agent access</p>
+          <p className="text-muted-foreground text-sm">Manage team members and leave requests</p>
         </div>
         <div className="flex gap-2">
           {/* [FIX M10: Add refresh button] */}
@@ -409,21 +309,15 @@ export default function TeamPage() {
               <Plus className="h-4 w-4 mr-1" /> Apply Leave
             </Button>
           )}
-          {tab === "access" && (
-            <Button size="sm" onClick={() => setAccessDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Grant Access
-            </Button>
-          )}
         </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        {(["team", "leaves", "attendance", "access"] as const).map((t) => (
+        {(["team", "leaves", "attendance"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "default" : "outline"} size="sm" onClick={() => setTab(t)}>
             {t === "team" ? `Team (${users.length})`
               : t === "leaves" ? `Leave Requests${pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}`
-              : t === "attendance" ? "Attendance"
-              : "Agent Access"}
+              : "Attendance"}
           </Button>
         ))}
       </div>
@@ -455,15 +349,6 @@ export default function TeamPage() {
                     </Badge>
                   </div>
                 </div>
-                {user.agentAccess && user.agentAccess.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-3">
-                    {user.agentAccess.map((a) => (
-                      <Badge key={a.id} variant="outline" className="text-[10px]">
-                        <Bot className="h-2.5 w-2.5 mr-0.5" /> {a.agent?.name}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
               </CardContent>
             </Card>
           ))}
@@ -568,52 +453,6 @@ export default function TeamPage() {
         </div>
       )}
 
-      {tab === "access" && (
-        <div className="space-y-3">
-          {agentAccess.map((access) => (
-            <Card key={access.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
-                      <Shield className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">
-                        {access.user?.name} <span className="text-muted-foreground">&rarr;</span> {access.agent?.name}
-                      </p>
-                      <div className="flex gap-2 mt-1">
-                        {access.canChat && <Badge variant="outline" className="text-[10px]">Chat</Badge>}
-                        {access.canView && <Badge variant="outline" className="text-[10px]">View</Badge>}
-                        {access.canApprove && <Badge variant="outline" className="text-[10px]">Approve</Badge>}
-                      </div>
-                    </div>
-                  </div>
-                  {/* [FIX M4: Confirmation before removing access] */}
-                  {removeAccessConfirmId === access.id ? (
-                    <div className="flex items-center gap-1">
-                      <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleRemoveAccess(access.id)} disabled={mutating}>
-                        Confirm
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setRemoveAccessConfirmId(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setRemoveAccessConfirmId(access.id)} aria-label="Remove access">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {agentAccess.length === 0 && (
-            <p className="text-center py-8 text-muted-foreground">No agent access mappings. Click &quot;Grant Access&quot; to add one.</p>
-          )}
-        </div>
-      )}
-
       {/* Apply Leave Dialog */}
       <Dialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
         <DialogContent>
@@ -690,57 +529,6 @@ export default function TeamPage() {
             >
               Reject Leave
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Grant Access Dialog */}
-      <Dialog open={accessDialogOpen} onOpenChange={setAccessDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Grant Agent Access</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Team Member</Label>
-              <Select value={accessForm.userId} onValueChange={(v) => setAccessForm(p => ({ ...p, userId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select member" /></SelectTrigger>
-                <SelectContent>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name} ({u.role})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>AI Agent</Label>
-              <Select value={accessForm.agentId} onValueChange={(v) => setAccessForm(p => ({ ...p, agentId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
-                <SelectContent>
-                  {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.name} ({a.type})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Can Chat</Label>
-                <Switch checked={accessForm.canChat} onCheckedChange={(v) => setAccessForm(p => ({ ...p, canChat: v }))} />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label>Can View</Label>
-                <Switch checked={accessForm.canView} onCheckedChange={(v) => setAccessForm(p => ({ ...p, canView: v }))} />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label>Can Approve</Label>
-                <Switch checked={accessForm.canApprove} onCheckedChange={(v) => setAccessForm(p => ({ ...p, canApprove: v }))} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAccessDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleGrantAccess} disabled={!accessForm.userId || !accessForm.agentId || mutating}>Grant Access</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

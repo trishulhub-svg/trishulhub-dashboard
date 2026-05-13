@@ -1212,7 +1212,7 @@ export default function TimetablePage() {
                     <div className="text-center py-8">
                       <Briefcase className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
                       <p className="text-sm text-muted-foreground">No work tasks for this day</p>
-                      <p className="text-xs text-muted-foreground mt-1">Tasks from agents, projects, training, and meetings will appear here</p>
+                      <p className="text-xs text-muted-foreground mt-1">Tasks from projects, training, and meetings will appear here</p>
                     </div>
                   );
                 }

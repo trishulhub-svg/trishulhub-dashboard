@@ -121,8 +121,8 @@ export default function ApprovalsPage() {
       if (res.ok) {
         const msgs: Record<string, string> = {
           APPROVED: "Approved successfully!",
-          REJECTED: "Rejected - sent back to agent",
-          NEEDS_IMPROVEMENT: "Marked as needs improvement - agent will revise",
+          REJECTED: "Rejected — sent back for revision",
+          NEEDS_IMPROVEMENT: "Marked as needs improvement — will be revised",
         };
         toast.success(msgs[action]);
         fetchApprovals(activeTab === "ALL" ? undefined : activeTab);
@@ -154,7 +154,7 @@ export default function ApprovalsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Approval Queue</h1>
-          <p className="text-muted-foreground text-sm">Review and approve AI agent outputs. Provide feedback to guide improvements.</p>
+          <p className="text-muted-foreground text-sm">Review and approve pending items. Provide feedback to guide improvements.</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => fetchApprovals(activeTab === "ALL" ? undefined : activeTab)}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
@@ -238,7 +238,7 @@ export default function ApprovalsPage() {
                       {parsedData.output && (
                         <div className="bg-muted rounded-lg p-3">
                           <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
-                            <MessageSquare className="h-3 w-3" /> Agent Output
+                            <MessageSquare className="h-3 w-3" /> Output
                           </div>
                           <p className="text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">{parsedData.output}</p>
                         </div>

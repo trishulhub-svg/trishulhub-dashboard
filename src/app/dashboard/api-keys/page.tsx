@@ -668,7 +668,7 @@ export default function ApiKeysPage() {
             <Key className="h-16 w-16 text-muted-foreground mb-4 opacity-30" />
             <h3 className="text-xl font-semibold mb-2">No API Keys Added</h3>
             <p className="text-sm text-muted-foreground text-center max-w-md mb-6">
-              Add an API key from any supported provider to start using AI agents. Keys are tried in priority order with automatic failover.
+              Add an API key from any supported provider to power the AI workspace. Keys are tried in priority order with automatic failover.
             </p>
             <div className="grid grid-cols-3 gap-4 mb-6">
               {Object.entries(providerInfo).filter(([k]) => k !== "OTHER").map(([key, info]) => (

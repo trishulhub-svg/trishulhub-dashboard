@@ -108,7 +108,6 @@ export default function ProjectDetailPage() {
   // ── State: ALL typed as unknown[] or Record<string,unknown> for safety ──
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);
-  const [agents, setAgents] = useState<unknown[]>([]);
   const [members, setMembers] = useState<unknown[]>([]);
   const [teamUsers, setTeamUsers] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,10 +117,9 @@ export default function ProjectDetailPage() {
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     if (!projectId) { setLoading(false); return; }
     try {
-      const [projRes, taskRes, agentRes, memberRes] = await Promise.all([
+      const [projRes, taskRes, memberRes] = await Promise.all([
         fetch(`/api/projects?projectId=${projectId}`, { credentials: "include", signal }),
         fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include", signal }),
-        fetch("/api/agents", { credentials: "include", signal }),
         fetch(`/api/projects/${projectId}/members`, { credentials: "include", signal }),
       ]);
 
@@ -140,11 +138,6 @@ export default function ProjectDetailPage() {
         const td = deepSanitize(await taskRes.json());
         setTasks(Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []));
       } else { handle401(taskRes); }
-
-      if (agentRes.ok) {
-        const ad = deepSanitize(await agentRes.json());
-        setAgents(Array.isArray(ad) ? ad : (Array.isArray((ad as Record<string, unknown>)?.data) ? (ad as Record<string, unknown>).data as unknown[] : []));
-      } else { handle401(agentRes); }
 
       if (memberRes.ok) {
         const md = deepSanitize(await memberRes.json());
@@ -511,7 +504,6 @@ export default function ProjectDetailPage() {
                     <Label className="text-xs">Assign To</Label>
                     <select name="assigneeType" defaultValue="HUMAN" className="border rounded px-3 py-2 text-sm bg-background w-full">
                       <option value="HUMAN">Team Member</option>
-                      <option value="AI">AI Agent</option>
                     </select>
                   </div>
                 </div>
@@ -523,11 +515,6 @@ export default function ProjectDetailPage() {
                       const mUserId = extractStr(m, "userId", "");
                       const mUserName = extractNestedStr(m, ["user", "name"], "Unknown");
                       return <option key={mUserId} value={mUserId}>{mUserName}</option>;
-                    })}
-                    {agents.map((a) => {
-                      const aId = extractStr(a, "id", "");
-                      const aName = extractStr(a, "name", "Unknown Agent");
-                      return <option key={aId} value={aId}>{aName} (AI)</option>;
                     })}
                   </select>
                 </div>

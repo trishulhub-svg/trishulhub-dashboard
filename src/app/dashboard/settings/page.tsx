@@ -1172,43 +1172,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Agent Settings */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Agent Configuration</CardTitle>
-          </div>
-          <CardDescription>Configure how AI agents operate <span className="text-[10px] text-muted-foreground">(Coming soon — settings are not yet persisted)</span></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Require Approval</p>
-              <p className="text-xs text-muted-foreground">All agent outputs must be approved before being applied</p>
-            </div>
-            <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} disabled />
-          </div>
-          <Separator />
-          <div className="space-y-1">
-            <Label className="text-xs">Auto-downgrade Threshold <span className="text-[10px] text-muted-foreground">(Coming soon)</span></Label>
-            <Input
-              type="number"
-              value={autoDowngradeThreshold}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val) && val >= 1 && val <= 100) setAutoDowngradeThreshold(e.target.value);
-              }}
-              min={1}
-              max={100}
-              className="w-24"
-              disabled
-            />
-            <p className="text-xs text-muted-foreground">Percentage of budget at which to switch to free models</p>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Team Management - ADMIN and above */}
       {isAdminOrAbove && (
         <Card>
@@ -1595,7 +1558,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Platform</span>
-              <span>TrishulHub AI Agent Dashboard</span>
+              <span>TrishulHub Dashboard</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Framework</span>

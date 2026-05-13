@@ -208,7 +208,7 @@ function SidebarContent({
         {!collapsed && (
           <div className="min-w-0">
             <h1 className="font-extrabold text-sidebar-primary text-xl leading-tight tracking-tight">TrishulHub</h1>
-            <p className="text-[11px] text-muted-foreground font-medium">AI Agent Dashboard</p>
+            <p className="text-[11px] text-muted-foreground font-medium">AI Workspace</p>
           </div>
         )}
       </div>

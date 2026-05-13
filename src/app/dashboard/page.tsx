@@ -4,9 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  Bot, DollarSign, FolderKanban, TrendingUp, AlertCircle,
+  Rocket, DollarSign, FolderKanban, TrendingUp, AlertCircle,
   Clock, ArrowRight, Plus, Send, Shield,
-  Code2, Crosshair, ClipboardList, PenTool, HeadphonesIcon, Users,
+  ClipboardList,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
-import { AGENT_TYPES, STATUS_COLORS } from "@/lib/types";
-import type { AgentStatus, AgentType } from "@/lib/types";
-
-const agentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  DEV: Code2,
-  CLIENT_HUNTER: Crosshair,
-  FINANCE: DollarSign,
-  PROJECT_MANAGER: ClipboardList,
-  HR: Users,
-  CONTENT: PenTool,
-  SUPPORT: HeadphonesIcon,
-};
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
@@ -123,22 +111,13 @@ export default function DashboardPage() {
     totalLeads: safeNumber(rawStats.totalLeads),
   };
 
-  const agents = safeArray<{ id: string; name: string; type: string; status: string; description: string }>(data.agents);
   const projects = safeArray<{ id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }>(data.projects);
   const invoices = safeArray<{ id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }>(data.invoices);
-  const usageLogs = safeArray<{ agentId: string; agent: { name: string; type: string }; cost: number }>(data.usageLogs);
   const apiKeys = safeArray<{ id: string; keyName: string; currentSpend: number; monthlyBudget: number }>(data.apiKeys);
   // DASH-005: Extract tasks data for developer "My Tasks" section
   const tasks = safeArray<{ id: string; title: string; status: string; priority: string; project: { name: string } }>(data.tasks);
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-
-  // Calculate usage by agent
-  const usageByAgent = usageLogs.reduce((acc, log) => {
-    const agentName = log.agent?.name || log.agentId;
-    acc[agentName] = (acc[agentName] || 0) + log.cost;
-    return acc;
-  }, {} as Record<string, number>);
 
   return (
     <div className="space-y-6">
@@ -147,7 +126,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground text-sm">
             {isAdminUser 
-              ? "Welcome back! Here's what's happening with your agents." 
+              ? "Welcome back! Here's your overview." 
               : "Welcome back! Here's your project overview."}
           </p>
         </div>
@@ -158,7 +137,7 @@ export default function DashboardPage() {
             </Button>
           )}
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/agents")}>
-            <Bot className="h-4 w-4 mr-1" /> Give Task
+            <Rocket className="h-4 w-4 mr-1" /> Open Workspace
           </Button>
           {isAdminUser && (
             <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
@@ -291,45 +270,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {/* Agent Status Panel */}
-        <Card className="lg:col-span-1">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Agent Status</CardTitle>
-                <CardDescription>Real-time status of AI agents</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/agents")}>
-                View All <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {agents.map((agent) => {
-              const Icon = agentIcons[agent.type] || Bot;
-              const statusColor = STATUS_COLORS[agent.status as AgentStatus] || "bg-gray-400";
-              return (
-                <div
-                  key={agent.id}
-                  className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors"
-                >
-                  <div className="relative">
-                    <Icon className="h-5 w-5 text-muted-foreground" />
-                    <div className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background", statusColor)} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{safeText(agent.name, "Agent")}</p>
-                    <p className="text-xs text-muted-foreground">{AGENT_TYPES[agent.type as AgentType]?.label || safeText(agent.type, "")}</p>
-                  </div>
-                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
         {/* Active Projects */}
-        <Card className={isAdminUser ? "lg:col-span-2" : "lg:col-span-2"}>
+        <Card className="lg:col-span-3">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">{isAdminUser ? "Active Projects" : "My Projects"}</CardTitle>
@@ -407,17 +349,6 @@ export default function DashboardPage() {
                   <span>Remaining: ${(safeNumber(stats.monthlyBudget) - safeNumber(stats.totalApiSpend)).toFixed(2)}</span>
                   <span>Expenses: {formatCurrency(safeNumber(stats.totalExpenses))}</span>
                 </div>
-                {Object.keys(usageByAgent).length > 0 && (
-                  <div className="space-y-2 pt-2 border-t">
-                    <p className="text-xs font-medium text-muted-foreground">Usage by Agent</p>
-                    {Object.entries(usageByAgent).map(([name, cost]) => (
-                      <div key={name} className="flex items-center justify-between text-xs">
-                        <span>{name}</span>
-                        <span>${cost.toFixed(4)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </CardContent>
           </Card>
@@ -535,10 +466,10 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
                 type="button"
               >
-                <Bot className="h-5 w-5 text-purple-500" />
+                <Rocket className="h-5 w-5 text-purple-500" />
                 <div>
-                  <p className="text-sm font-medium">Chat with Agents</p>
-                  <p className="text-xs text-muted-foreground">Get AI assistance on your tasks</p>
+                  <p className="text-sm font-medium">AI Workspace</p>
+                  <p className="text-xs text-muted-foreground">Launch the AI-powered workspace</p>
                 </div>
               </button>
               <button 

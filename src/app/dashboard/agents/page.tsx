@@ -9,9 +9,9 @@ import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles } from "lucide-react";
 const features = [
   {
     icon: Cpu,
-    title: "7 AI Agents",
+    title: "AI Workspace",
     description:
-      "Development, Sales, Finance, HR, Content, Support & Project Management.",
+      "Collaborative AI workspace for development, management, and communication.",
     accentDark: "rgba(6, 182, 212, 1)",
     glowDark: "rgba(6, 182, 212, 0.15)",
     accentLight: "rgba(6, 150, 180, 1)",
@@ -40,7 +40,7 @@ const features = [
 ];
 
 const MARQUEE_TEXT =
-  "DEVELOPMENT \u2022 AI AGENTS \u2022 DESIGN \u2022 COLLABORATION \u2022 DEPLOYMENT \u2022 PROTOCOL \u2022 ";
+  "DEVELOPMENT \u2022 WORKSPACE \u2022 DESIGN \u2022 COLLABORATION \u2022 DEPLOYMENT \u2022 PROTOCOL \u2022 ";
 
 /* ─── Component ─── */
 export default function TrishulWorkspacePage() {
@@ -206,7 +206,7 @@ export default function TrishulWorkspacePage() {
           <div className="trishul-badge-wrap">
             <div className={`trishul-badge trishul-badge--${mode}`}>
               <Sparkles className={`trishul-badge-icon trishul-badge-icon--${mode}`} />
-              <span>TRISHUL PROTOCOL v4.0</span>
+              <span>TRISHUL PROTOCOL v5.0</span>
             </div>
           </div>
 
@@ -586,7 +586,7 @@ export default function TrishulWorkspacePage() {
           align-items: center;
           justify-content: center;
           min-height: 100vh;
-          padding: 6rem 1.5rem 4rem;
+          padding: 4rem 1rem 3rem;
           text-align: center;
         }
 
@@ -872,8 +872,27 @@ export default function TrishulWorkspacePage() {
           justify-content: center;
         }
         @media (min-width: 768px) {
+          .trishul-hero {
+            padding: 6rem 1.5rem 4rem;
+          }
+        }
+
+        @media (min-width: 1024px) {
+          .trishul-hero {
+            padding: 6rem 2rem 4rem;
+          }
+        }
+
+        .trishul-features {
+          position: relative;
+          z-index: 1;
+          padding: 4rem 1rem;
+          display: flex;
+          justify-content: center;
+        }
+        @media (min-width: 768px) {
           .trishul-features {
-            padding: 8rem 2rem;
+            padding: 6rem 2rem;
           }
         }
 
@@ -1055,7 +1074,7 @@ export default function TrishulWorkspacePage() {
           z-index: 1;
           display: flex;
           justify-content: center;
-          padding: 4rem 1.5rem 6rem;
+          padding: 3rem 1rem 4rem;
         }
 
         .trishul-launch-inner {
@@ -1096,7 +1115,7 @@ export default function TrishulWorkspacePage() {
           display: inline-flex;
           align-items: center;
           gap: 0.75rem;
-          padding: 1.25rem 3.5rem;
+          padding: 1.1rem 2.5rem;
           border: none;
           border-radius: 100px;
           color: #fff;
