@@ -49,6 +49,8 @@ model User {
   trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
   personalTimetableTasks PersonalTimetableTask[]
   timetableSettings      TimetableSettings?
+  protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
+  protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
 }
 
 // ━━ API Keys ━━
@@ -982,4 +984,54 @@ model TimetableSettings {
   updatedAt       DateTime @updatedAt
 
   user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Protocol Management ━━
+model ProtocolVersion {
+  id                String   @id @default(cuid())
+  version           String   @unique  // e.g., "5.0"
+  title             String   @default("Trishul Protocol")
+  content           String   @default("") // Full protocol markdown content
+  stageDescriptions String   @default("[]") // JSON: [{stage: 0, title: "...", description: "...", deliverables: "..."}]
+  agentSkills       String   @default("[]") // JSON: [{agentType: "DEV", name: "Dev Agent", skills: ["..."]}]
+  isActive          Boolean  @default(true)
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  creator           User     @relation("ProtocolVersions", fields: [createdBy], references: [id])
+  invites           ProtocolInvite[]
+  accessLogs        ProtocolAccessLog[]
+}
+
+model ProtocolInvite {
+  id            String    @id @default(cuid())
+  protocolId    String
+  inviteCode    String    @unique  // e.g., "TRISHUL-A3X9K2"
+  targetEmail   String    // User email this invite is for
+  targetName    String?   // User name
+  agentAccess   String    @default("[]") // JSON: ["DEV", "CLIENT_HUNTER", ...] - which agents user can access
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdBy     String    // SUPER_ADMIN userId
+  status        String    @default("PENDING") // PENDING, USED, EXPIRED, REVOKED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creator       User           @relation("ProtocolInvites", fields: [createdBy], references: [id])
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+  accessLogs    ProtocolAccessLog[]
+}
+
+model ProtocolAccessLog {
+  id            String   @id @default(cuid())
+  inviteId      String
+  protocolId    String
+  userEmail     String
+  agentAccess   String   @default("[]") // Snapshot of agent access at time of access
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+
+  invite        ProtocolInvite @relation(fields: [inviteId], references: [id])
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
 }

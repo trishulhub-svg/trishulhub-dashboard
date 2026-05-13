@@ -36,6 +36,8 @@ import {
   GraduationCap,
   BookOpen,
   CalendarRange,
+  FileText,
+  ShieldCheck,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -81,6 +83,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Workspace", href: "/dashboard/agents", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Protocol Access", href: "/dashboard/protocol/access", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
@@ -120,6 +123,7 @@ const navGroups: NavGroup[] = [
     label: "System",
     items: [
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
+      { title: "Protocol", href: "/dashboard/protocol", icon: FileText, roles: ["SUPER_ADMIN"] },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },

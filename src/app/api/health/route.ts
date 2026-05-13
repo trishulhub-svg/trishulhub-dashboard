@@ -10,13 +10,13 @@ export async function GET() {
     return NextResponse.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      service: "TrishulHub AI Agent Dashboard",
+      service: "TrishulHub Dashboard",
     })
   } catch {
     return NextResponse.json({
       status: "degraded",
       timestamp: new Date().toISOString(),
-      service: "TrishulHub AI Agent Dashboard",
+      service: "TrishulHub Dashboard",
     }, { status: 503 })
   }
 }
@@ -40,13 +40,13 @@ export async function POST() {
     diagnostics.nextAuthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "MISSING"
     diagnostics.tursoUrl = process.env.TURSO_DATABASE_URL ? "SET" : "MISSING"
     diagnostics.tursoAuthToken = process.env.TURSO_AUTH_TOKEN ? "SET" : "MISSING"
-    return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub AI Agent Dashboard", diagnostics })
+    return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics })
   } catch (error: any) {
     diagnostics.database = "disconnected"
     diagnostics.nextAuthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "MISSING"
     diagnostics.tursoUrl = process.env.TURSO_DATABASE_URL ? "SET" : "MISSING"
     diagnostics.tursoAuthToken = process.env.TURSO_AUTH_TOKEN ? "SET" : "MISSING"
     diagnostics.error = error.message
-    return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub AI Agent Dashboard", diagnostics }, { status: 503 })
+    return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics }, { status: 503 })
   }
 }

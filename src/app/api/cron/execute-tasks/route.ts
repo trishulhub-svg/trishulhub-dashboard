@@ -126,7 +126,7 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
           title: "Scheduled Task Completed",
           message: `"${task.title}" has been completed by ${task.agent.name}. Check the results!`,
           type: "SUCCESS",
-          link: `/dashboard/agents/${task.agentId}`,
+          link: `/dashboard/agents`,
           metadata: JSON.stringify({ taskId: task.id, agentId: task.agentId }),
         }
       })

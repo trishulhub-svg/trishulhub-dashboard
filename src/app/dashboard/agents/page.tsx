@@ -31,7 +31,7 @@ const features = [
     icon: Rocket,
     title: "Live Protocol",
     description:
-      "Trishul Protocol v4.0 — structured 7-stage development pipeline.",
+      "Trishul Protocol v5.0 — structured 7-stage development pipeline.",
     accentDark: "rgba(168, 85, 247, 1)",
     glowDark: "rgba(168, 85, 247, 0.15)",
     accentLight: "rgba(140, 60, 210, 1)",
@@ -368,6 +368,21 @@ export default function TrishulWorkspacePage() {
           .trishul-root,
           .trishul-root * {
             cursor: auto !important;
+          }
+          /* Disable card hover scale on touch */
+          .trishul-card:hover {
+            transform: none !important;
+          }
+          /* Disable launch button glow on touch */
+          .trishul-launch-btn--dark:hover::before,
+          .trishul-launch-btn--light:hover::before,
+          .trishul-launch-btn--bluelight:hover::before {
+            opacity: 0 !important;
+          }
+          .trishul-launch-btn--dark:hover,
+          .trishul-launch-btn--light:hover,
+          .trishul-launch-btn--bluelight:hover {
+            box-shadow: none !important;
           }
         }
 
@@ -1346,6 +1361,187 @@ export default function TrishulWorkspacePage() {
         }
         .trishul-footer-copy--bluelight {
           color: rgba(251, 191, 36, 0.18);
+        }
+
+        /* ═══════════════════════════════════
+           RESPONSIVE — MOBILE / TABLET
+           ═══════════════════════════════════ */
+
+        /* ── Mobile (max-width: 639px / sm breakpoint) ── */
+        @media (max-width: 639px) {
+          /* Hero: tighter padding, shorter vh */
+          .trishul-hero {
+            min-height: 85vh;
+            padding: 3rem 0.75rem 2rem;
+          }
+
+          /* Badge: smaller on tiny screens */
+          .trishul-badge {
+            padding: 0.35rem 0.9rem;
+            font-size: 0.55rem;
+            letter-spacing: 0.14em;
+          }
+          .trishul-badge-icon {
+            width: 10px;
+            height: 10px;
+          }
+
+          /* Title: tighter margins */
+          .trishul-title-stroke {
+            margin: 1.5rem 0 0.25rem;
+          }
+
+          /* Line separator: narrower margins */
+          .trishul-line-wrap {
+            max-width: 280px;
+            margin: 2rem auto 1.5rem;
+          }
+
+          /* Scroll hint: smaller */
+          .trishul-scroll-text {
+            font-size: 0.5rem;
+          }
+          .trishul-scroll-line {
+            height: 28px;
+          }
+
+          /* Marquee: readable on small phones */
+          .trishul-marquee {
+            padding: 1rem 0;
+          }
+          .trishul-marquee-text {
+            font-size: 0.7rem;
+            letter-spacing: 0.14em;
+          }
+
+          /* Features: tighter padding */
+          .trishul-features {
+            padding: 3rem 0.75rem;
+          }
+          .trishul-features-grid {
+            gap: 1rem;
+            max-width: 100%;
+          }
+
+          /* Card: smaller radius & padding on mobile */
+          .trishul-card {
+            border-radius: 16px;
+          }
+          .trishul-card-content {
+            padding: 1.5rem 1.25rem 1.25rem;
+          }
+          .trishul-card-icon-wrap {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+          }
+          .trishul-card-icon {
+            width: 18px;
+            height: 18px;
+          }
+          .trishul-card-title {
+            font-size: 1rem;
+          }
+          .trishul-card-desc {
+            font-size: 0.78rem;
+          }
+          .trishul-card-line {
+            margin-top: 1.25rem;
+          }
+          /* Launch: full-width button */
+          .trishul-launch {
+            padding: 2.5rem 1rem 3rem;
+          }
+          .trishul-launch-inner {
+            width: 100%;
+            max-width: 100%;
+            padding: 0 0.5rem;
+          }
+          .trishul-launch-pre {
+            font-size: 0.6rem;
+            margin-bottom: 1.5rem;
+          }
+          .trishul-launch-btn {
+            width: 100%;
+            justify-content: center;
+            padding: 1rem 2rem;
+            font-size: 0.9rem;
+            letter-spacing: 0.12em;
+          }
+          .trishul-launch-arrow {
+            width: 18px;
+            height: 18px;
+          }
+          .trishul-launch-sub {
+            font-size: 0.6rem;
+            margin-top: 1rem;
+          }
+
+          /* Footer: responsive layout */
+          .trishul-footer {
+            padding: 2rem 1rem 2.5rem;
+          }
+          .trishul-footer-inner {
+            flex-direction: column;
+            gap: 0.5rem;
+            text-align: center;
+          }
+          .trishul-footer-welcome {
+            font-size: 0.75rem;
+          }
+          .trishul-footer-copy {
+            font-size: 0.58rem;
+          }
+        }
+
+        /* ── Tablet (max-width: 767px / md breakpoint) ── */
+        @media (max-width: 767px) {
+          .trishul-hero {
+            padding: 3.5rem 1rem 2.5rem;
+          }
+
+          /* Floating orbs: much smaller on mobile */
+          .trishul-ambient--dark::before,
+          .trishul-ambient--light::before,
+          .trishul-ambient--bluelight::before {
+            width: 320px !important;
+            height: 320px !important;
+          }
+          .trishul-ambient--dark::after,
+          .trishul-ambient--light::after,
+          .trishul-ambient--bluelight::after {
+            width: 280px !important;
+            height: 280px !important;
+          }
+
+          /* Line separator: narrower on tablet */
+          .trishul-line-wrap {
+            max-width: 360px;
+          }
+        }
+
+        /* ── Small phone (max-width: 374px / iPhone SE) ── */
+        @media (max-width: 374px) {
+          .trishul-badge {
+            padding: 0.3rem 0.7rem;
+            font-size: 0.5rem;
+            letter-spacing: 0.12em;
+          }
+          .trishul-title-stroke {
+            margin: 1rem 0 0.15rem;
+          }
+          .trishul-line-wrap {
+            max-width: 220px;
+            margin: 1.5rem auto 1rem;
+          }
+          .trishul-launch-btn {
+            padding: 0.9rem 1.5rem;
+            font-size: 0.85rem;
+          }
+          .trishul-card-content {
+            padding: 1.25rem 1rem 1rem;
+          }
         }
 
         /* ═══════════════════════════════════

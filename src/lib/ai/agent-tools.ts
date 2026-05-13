@@ -385,6 +385,32 @@ export const DEV_AGENT_TOOLS: AgentTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "trishul_protocol",
+      description: "Retrieve the Trishul Protocol stages and methodology. Use this at the START of any project to understand the structured development lifecycle (Stage 0-6). Each stage defines specific deliverables and quality gates that must be met before advancing. Follow these stages systematically for every project.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            description: "What to do with the protocol.",
+            enum: ["get_stages", "get_current_stage", "advance_stage", "get_stage_checklist"],
+          },
+          current_stage: {
+            type: "number",
+            description: "Current protocol stage (0-6). Required for 'get_current_stage', 'advance_stage', and 'get_stage_checklist' actions.",
+          },
+          project_context: {
+            type: "string",
+            description: "Brief description of the project for context. Used with 'get_stages' to provide tailored guidance.",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
   PLAN_TASK_TOOL,
 ]
 
@@ -1185,6 +1211,11 @@ export async function executeToolCall(
 
       case "git_diff":
         result = await executeGitDiff(args.path, args.purpose)
+        break
+
+      // ── Trishul Protocol (Dev Agent) ──
+      case "trishul_protocol":
+        result = executeTrishulProtocol(args.action, args.current_stage, args.project_context)
         break
 
       // ── Client Hunter tools ──
@@ -2038,6 +2069,229 @@ async function executeGitDiff(filePath?: string, purpose?: string): Promise<stri
     return `Git Diff${purpose ? ` (Purpose: ${purpose})` : ""}:\n${truncated}`
   } catch (error: any) {
     return `Error checking git diff: ${error.message}`
+  }
+}
+
+// ━━ Trishul Protocol Execution ━━
+
+const TRISHUL_PROTOCOL_STAGES = [
+  {
+    stage: 0,
+    title: "Discovery & Planning",
+    description: "Understand client requirements, analyze existing systems, define project scope, create technical specifications, and establish development roadmap.",
+    deliverables: ["Project brief", "Technical specification", "Architecture diagram", "Task breakdown"],
+    checklist: [
+      "Gather and document all client requirements",
+      "Analyze existing systems and integrations",
+      "Define project scope and boundaries",
+      "Create technical specification document",
+      "Design system architecture",
+      "Break down work into phases and tasks",
+      "Estimate timelines and resources",
+      "Get stakeholder sign-off on plan",
+    ],
+  },
+  {
+    stage: 1,
+    title: "Design & Architecture",
+    description: "Design UI/UX wireframes, database schema, API structure, component hierarchy, and system architecture following industry best practices.",
+    deliverables: ["UI mockups/wireframes", "Database schema", "API design document", "Component tree"],
+    checklist: [
+      "Create UI/UX wireframes or mockups",
+      "Design database schema with relationships",
+      "Define API endpoints and data contracts",
+      "Plan component hierarchy and state management",
+      "Set up project structure and configuration",
+      "Choose appropriate tech stack and libraries",
+      "Document architecture decisions",
+      "Get design approval from stakeholders",
+    ],
+  },
+  {
+    stage: 2,
+    title: "Core Development",
+    description: "Build core features, implement business logic, create API endpoints, develop frontend components, and integrate third-party services.",
+    deliverables: ["Working codebase", "API endpoints", "UI components", "Integration tests"],
+    checklist: [
+      "Set up development environment",
+      "Implement database models and migrations",
+      "Build API endpoints with validation",
+      "Develop core UI components",
+      "Implement business logic",
+      "Integrate third-party services",
+      "Add authentication and authorization",
+      "Write unit tests for critical paths",
+    ],
+  },
+  {
+    stage: 3,
+    title: "Testing & Quality Assurance",
+    description: "Perform unit testing, integration testing, end-to-end testing, security auditing, performance optimization, and bug fixing.",
+    deliverables: ["Test reports", "Bug fixes", "Performance benchmarks", "Security audit report"],
+    checklist: [
+      "Run comprehensive unit tests",
+      "Perform integration testing",
+      "Execute end-to-end test scenarios",
+      "Conduct security audit and vulnerability scan",
+      "Optimize performance bottlenecks",
+      "Fix all critical and high-priority bugs",
+      "Test cross-browser compatibility",
+      "Validate data integrity and edge cases",
+    ],
+  },
+  {
+    stage: 4,
+    title: "Review & Refinement",
+    description: "Code review, UX refinement, accessibility compliance, cross-browser testing, mobile responsiveness verification, and stakeholder feedback incorporation.",
+    deliverables: ["Code review report", "Refined UI/UX", "Accessibility audit", "Stakeholder sign-off"],
+    checklist: [
+      "Conduct thorough code review",
+      "Refine UI/UX based on feedback",
+      "Ensure accessibility compliance (WCAG)",
+      "Test mobile responsiveness across devices",
+      "Verify cross-browser compatibility",
+      "Incorporate stakeholder feedback",
+      "Optimize user experience flows",
+      "Final quality gate review",
+    ],
+  },
+  {
+    stage: 5,
+    title: "Deployment & Launch",
+    description: "Deploy to production environment, configure CI/CD pipelines, set up monitoring, DNS configuration, SSL setup, and go-live verification.",
+    deliverables: ["Deployed application", "CI/CD pipeline", "Monitoring dashboard", "Launch checklist"],
+    checklist: [
+      "Configure production environment",
+      "Set up CI/CD pipeline",
+      "Deploy to production/staging",
+      "Configure DNS and SSL",
+      "Set up monitoring and alerting",
+      "Verify all endpoints and functionality",
+      "Test production deployment thoroughly",
+      "Prepare rollback plan",
+    ],
+  },
+  {
+    stage: 6,
+    title: "Handover & Documentation",
+    description: "Create technical documentation, user guides, training materials, knowledge transfer sessions, and post-launch support setup.",
+    deliverables: ["Technical docs", "User manual", "Training materials", "Support plan"],
+    checklist: [
+      "Write comprehensive technical documentation",
+      "Create user guide and manuals",
+      "Prepare training materials",
+      "Conduct knowledge transfer session",
+      "Set up post-launch support plan",
+      "Document known issues and workarounds",
+      "Create maintenance runbook",
+      "Final project retrospective",
+    ],
+  },
+]
+
+function executeTrishulProtocol(
+  action: string,
+  currentStage?: number,
+  projectContext?: string
+): string {
+  switch (action) {
+    case "get_stages": {
+      const contextNote = projectContext
+        ? `\n\nProject Context: ${projectContext}\nRecommendation: Follow all 7 stages sequentially. Tailor each stage's checklist to the specific needs of this project.`
+        : ""
+      return JSON.stringify({
+        protocol: "Trishul Protocol v5.0",
+        totalStages: 7,
+        description: "The Trishul Protocol is a structured 7-stage development lifecycle used by TrishulHub for delivering high-quality web applications. Every project MUST follow these stages sequentially, completing all checklist items before advancing.",
+        stages: TRISHUL_PROTOCOL_STAGES.map((s) => ({
+          stage: s.stage,
+          title: s.title,
+          description: s.description,
+          deliverables: s.deliverables,
+          checklistItemCount: s.checklist.length,
+        })),
+        usage: "Call 'get_stage_checklist' with a specific stage number to get the full checklist for that stage. Use 'get_current_stage' to understand what to focus on right now.",
+        keyPrinciples: [
+          "Complete each stage fully before advancing",
+          "Get stakeholder sign-off at key quality gates",
+          "Document all decisions and changes",
+          "Test continuously, not just at Stage 3",
+          "Security is considered at every stage, not just QA",
+        ],
+      } + contextNote, null, 2)
+    }
+
+    case "get_current_stage": {
+      const stage = TRISHUL_PROTOCOL_STAGES.find((s) => s.stage === currentStage)
+      if (!stage || currentStage === undefined || currentStage < 0 || currentStage > 6) {
+        return JSON.stringify({
+          error: "Invalid stage number. Must be 0-6.",
+          availableStages: TRISHUL_PROTOCOL_STAGES.map((s) => ({ stage: s.stage, title: s.title })),
+        })
+      }
+      const prevStage = currentStage > 0 ? TRISHUL_PROTOCOL_STAGES[currentStage - 1] : null
+      const nextStage = currentStage < 6 ? TRISHUL_PROTOCOL_STAGES[currentStage + 1] : null
+      return JSON.stringify({
+        protocol: "Trishul Protocol v5.0",
+        currentStage: stage.stage,
+        currentTitle: stage.title,
+        focus: stage.description,
+        deliverables: stage.deliverables,
+        checklist: stage.checklist,
+        previousStage: prevStage ? { stage: prevStage.stage, title: prevStage.title } : null,
+        nextStage: nextStage ? { stage: nextStage.stage, title: nextStage.title } : null,
+        isFinalStage: currentStage === 6,
+        progress: `${((currentStage + 1) / 7 * 100).toFixed(0)}% complete`,
+      }, null, 2)
+    }
+
+    case "advance_stage": {
+      if (currentStage === undefined || currentStage < 0 || currentStage > 5) {
+        return JSON.stringify({ error: "Cannot advance. Current stage must be 0-5 to advance." })
+      }
+      const next = TRISHUL_PROTOCOL_STAGES[currentStage + 1]
+      return JSON.stringify({
+        message: `Advancing from Stage ${currentStage} to Stage ${next.stage}`,
+        previousStage: { stage: currentStage, title: TRISHUL_PROTOCOL_STAGES[currentStage].title },
+        nextStage: {
+          stage: next.stage,
+          title: next.title,
+          description: next.description,
+          deliverables: next.deliverables,
+          checklist: next.checklist,
+        },
+        reminder: "Ensure all checklist items from the previous stage are completed before advancing.",
+      }, null, 2)
+    }
+
+    case "get_stage_checklist": {
+      const stage = TRISHUL_PROTOCOL_STAGES.find((s) => s.stage === currentStage)
+      if (!stage || currentStage === undefined || currentStage < 0 || currentStage > 6) {
+        return JSON.stringify({
+          error: "Invalid stage number. Must be 0-6.",
+          availableStages: TRISHUL_PROTOCOL_STAGES.map((s) => ({ stage: s.stage, title: s.title })),
+        })
+      }
+      return JSON.stringify({
+        protocol: "Trishul Protocol v5.0",
+        stage: stage.stage,
+        title: stage.title,
+        description: stage.description,
+        deliverables: stage.deliverables,
+        checklist: stage.checklist.map((item, idx) => ({
+          number: idx + 1,
+          task: item,
+          status: "pending",
+        })),
+        qualityGate: `Complete all ${stage.checklist.length} checklist items and get stakeholder approval before advancing to the next stage.`,
+      }, null, 2)
+    }
+
+    default:
+      return JSON.stringify({
+        error: `Unknown action: ${action}`,
+        availableActions: ["get_stages", "get_current_stage", "advance_stage", "get_stage_checklist"],
+      })
   }
 }
 

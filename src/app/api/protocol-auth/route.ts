@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
                 <tr>
                   <td style="padding-top: 16px;">
                     <p style="margin: 0; font-size: 12px; color: #475569; line-height: 1.5;">If you did not request this code, please ignore this email. Your account remains secure.</p>
-                    <p style="margin: 12px 0 0; font-size: 11px; color: #334155;">&copy; ${new Date().getFullYear()} TrishulHub &mdash; AI Agent Dashboard</p>
+                    <p style="margin: 12px 0 0; font-size: 11px; color: #334155;">&copy; ${new Date().getFullYear()} TrishulHub &mdash; AI Workspace Dashboard</p>
                   </td>
                 </tr>
               </table>
