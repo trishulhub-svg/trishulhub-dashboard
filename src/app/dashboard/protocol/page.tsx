@@ -5,25 +5,21 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   FileText,
-  Users,
   Shield,
   Plus,
   Copy,
   Check,
-  X,
   Trash2,
   Loader2,
   Save,
   Download,
-  UserCog,
-  Ban,
   RefreshCw,
   Key,
   Clock,
   AlertTriangle,
   Upload,
 } from "lucide-react";
-import { cn, safeText, safeNumber, safeDate, safeArray, safeJsonParse } from "@/lib/utils";
+import { cn, safeText, safeNumber, safeDate, safeJsonParse } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,28 +68,6 @@ interface ProtocolInvite {
   createdAt: string;
 }
 
-interface UserProtocolAccess {
-  id: string;
-  userId: string;
-  userEmail: string;
-  userName: string | null;
-  agentAccess: string;
-  isActive: boolean;
-  verifiedAt: string;
-  verifiedVia: string;
-  user?: { id: string; name: string; email: string; role: string };
-}
-
-const ALL_AGENT_TYPES = [
-  { value: "DEV", label: "Dev Agent" },
-  { value: "CLIENT_HUNTER", label: "Client Hunter" },
-  { value: "FINANCE", label: "Finance Agent" },
-  { value: "PROJECT_MANAGER", label: "Project Manager" },
-  { value: "HR", label: "HR Agent" },
-  { value: "CONTENT", label: "Content Agent" },
-  { value: "SUPPORT", label: "Support Agent" },
-];
-
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   USED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
@@ -101,11 +75,12 @@ const STATUS_COLORS: Record<string, string> = {
   REVOKED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
 };
 
+const ACTIVATE_URL = "https://trishulhub.com/protocol/activate";
+
 export default function ProtocolManagementPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  // Access control — only SUPER_ADMIN
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role !== "SUPER_ADMIN") {
       router.push("/dashboard");
@@ -117,8 +92,8 @@ export default function ProtocolManagementPage() {
 
   // Protocol editor state
   const [protocolId, setProtocolId] = useState<string | null>(null);
-  const [protocolVersion, setProtocolVersion] = useState<string>("");
-  const [protocolTitle, setProtocolTitle] = useState("Trishul Protocol v5.0");
+  const [protocolVersion, setProtocolVersion] = useState("");
+  const [protocolTitle, setProtocolTitle] = useState("Trishul Protocol");
   const [protocolContent, setProtocolContent] = useState("");
   const [savingProtocol, setSavingProtocol] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -126,22 +101,17 @@ export default function ProtocolManagementPage() {
   // Invites state
   const [invites, setInvites] = useState<ProtocolInvite[]>([]);
 
-  // User access state
-  const [userAccessList, setUserAccessList] = useState<UserProtocolAccess[]>([]);
-  const [editingUserAccess, setEditingUserAccess] = useState<Record<string, string[]>>({});
-  const [savingUserAccess, setSavingUserAccess] = useState<string | null>(null);
-
-  // Generate token dialog state
+  // Generate dialog state
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteAgents, setInviteAgents] = useState<string[]>([]);
   const [inviteExpiry, setInviteExpiry] = useState("72");
   const [creatingInvite, setCreatingInvite] = useState(false);
 
-  // Token result dialog
+  // Result dialog
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [generatedCode, setGeneratedCode] = useState("");
   const [generatedExpiry, setGeneratedExpiry] = useState("");
+  const [generatedEmail, setGeneratedEmail] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
 
   // ── Fetch data ──
@@ -169,28 +139,10 @@ export default function ProtocolManagementPage() {
       const res = await fetch("/api/protocol/invites");
       if (res.ok) {
         const data = await res.json();
-        setInvites(safeArray<ProtocolInvite>(data));
+        setInvites(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error("Failed to fetch invites:", err);
-    }
-  }, []);
-
-  const fetchUserAccess = useCallback(async () => {
-    try {
-      const res = await fetch("/api/protocol/agent-access");
-      if (res.ok) {
-        const data = await res.json();
-        const list = safeArray<UserProtocolAccess>(data);
-        setUserAccessList(list);
-        const editState: Record<string, string[]> = {};
-        list.forEach((item) => {
-          editState[item.userId] = safeJsonParse<string[]>(item.agentAccess, []);
-        });
-        setEditingUserAccess(editState);
-      }
-    } catch (err) {
-      console.error("Failed to fetch user access:", err);
     }
   }, []);
 
@@ -198,12 +150,12 @@ export default function ProtocolManagementPage() {
     if (session?.user?.role === "SUPER_ADMIN") {
       const loadAll = async () => {
         setLoading(true);
-        await Promise.all([fetchProtocol(), fetchInvites(), fetchUserAccess()]);
+        await Promise.all([fetchProtocol(), fetchInvites()]);
         setLoading(false);
       };
       loadAll();
     }
-  }, [session, fetchProtocol, fetchInvites, fetchUserAccess]);
+  }, [session, fetchProtocol, fetchInvites]);
 
   // ── Protocol save ──
   const saveProtocol = async () => {
@@ -217,7 +169,6 @@ export default function ProtocolManagementPage() {
       let res: Response;
       let targetId = protocolId;
 
-      // If no protocolId, try to find the existing active protocol first
       if (!targetId) {
         try {
           const checkRes = await fetch("/api/protocol?active=true");
@@ -229,21 +180,17 @@ export default function ProtocolManagementPage() {
               setProtocolId(existing.id);
             }
           }
-        } catch {
-          // Non-critical, will fall through to POST
-        }
+        } catch { /* fall through to POST */ }
       }
 
       if (targetId) {
-        // Update existing protocol
         res = await fetch("/api/protocol", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: targetId, ...body }),
         });
       } else {
-        // No existing protocol found — create new one
-        body.version = "5.0";
+        body.version = "5.1";
         res = await fetch("/api/protocol", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -261,7 +208,7 @@ export default function ProtocolManagementPage() {
         const data = await res.json();
         toast.error(safeText(data.error, "Failed to save"));
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to save protocol");
     }
     setSavingProtocol(false);
@@ -271,10 +218,6 @@ export default function ProtocolManagementPage() {
   const createToken = async () => {
     if (!inviteEmail.trim()) {
       toast.error("Team member email is required");
-      return;
-    }
-    if (inviteAgents.length === 0) {
-      toast.error("Select at least one agent");
       return;
     }
     if (!protocolId) {
@@ -288,7 +231,7 @@ export default function ProtocolManagementPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           targetEmail: inviteEmail.trim(),
-          agentAccess: inviteAgents,
+          agentAccess: ["ALL"],
           expiresInHours: safeNumber(inviteExpiry, 72),
         }),
       });
@@ -297,10 +240,10 @@ export default function ProtocolManagementPage() {
         const data = await res.json();
         setGeneratedCode(safeText(data.inviteCode));
         setGeneratedExpiry(safeText(data.expiresAt));
+        setGeneratedEmail(inviteEmail.trim());
         setTokenDialogOpen(false);
         setResultDialogOpen(true);
         setInviteEmail("");
-        setInviteAgents([]);
         setInviteExpiry("72");
         setCopiedCode(false);
         await fetchInvites();
@@ -308,37 +251,50 @@ export default function ProtocolManagementPage() {
         const data = await res.json();
         toast.error(safeText(data.error, "Failed to create access document"));
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to create access document");
     }
     setCreatingInvite(false);
   };
 
-  // ── Download small access document ──
-  const downloadAccessDocument = (code: string, targetEmail: string) => {
+  // ── Download small access document (GLM-compatible) ──
+  const downloadAccessDocument = (code: string, email: string, expiresAt: string) => {
     const content = [
-      "========================================",
-      "   TRISHULHUB — PROTOCOL ACCESS KEY",
-      "========================================",
+      "=============================================",
+      "   TRISHULHUB — PROTOCOL ACCESS DOCUMENT",
+      "=============================================",
       "",
       `Access Code: ${code}`,
-      `Issued For:   ${targetEmail}`,
+      `Issued For:   ${email}`,
       `Generated:   ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-      `Expires:     ${new Date(generatedExpiry || Date.now() + 72 * 3600000).toLocaleDateString()}`,
+      `Expires:     ${new Date(expiresAt || Date.now() + 72 * 3600000).toLocaleDateString()}`,
       "",
-      "========================================",
-      "INSTRUCTIONS:",
-      "1. Go to your TrishulHub Dashboard",
-      "2. Open 'Protocol Access' page",
-      "3. Upload this file OR enter the code above",
-      "4. An OTP will be sent to administrator",
-      "5. Contact administrator for the OTP",
-      "6. Enter OTP to activate protocol access",
-      "========================================",
+      "=============================================",
+      "  HOW TO ACTIVATE YOUR PROTOCOL",
+      "=============================================",
       "",
-      "WARNING: This key is for authorized use only.",
-      "Do not share or distribute this document.",
+      "STEP 1: Go to the activation page:",
+      ACTIVATE_URL,
+      "",
+      "STEP 2: Enter your access code (above)",
+      "",
+      "STEP 3: OTP will be sent to administrator",
+      "         Contact your admin for the OTP",
+      "",
+      "STEP 4: Enter the 6-digit OTP",
+      "",
+      "STEP 5: Protocol activated! Copy it",
+      "         and paste into your GLM workspace",
+      "",
+      "=============================================",
+      "",
+      "You can also paste this ENTIRE document",
+      "into your GLM chat to start activation.",
+      "",
+      "WARNING: This document is for authorized",
+      "use only. Do not share or distribute.",
       "Unauthorized access will be revoked.",
+      "=============================================",
     ].join("\n");
 
     const blob = new Blob([content], { type: "text/plain" });
@@ -375,106 +331,40 @@ export default function ProtocolManagementPage() {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // ── Agent access handlers ──
-  const toggleAgentForUser = (userId: string, agentType: string) => {
-    const current = editingUserAccess[userId] || [];
-    const updated = current.includes(agentType)
-      ? current.filter((a) => a !== agentType)
-      : [...current, agentType];
-    setEditingUserAccess((prev) => ({ ...prev, [userId]: updated }));
-  };
-
-  const saveUserAgentAccess = async (userId: string) => {
-    const agents = editingUserAccess[userId] || [];
-    setSavingUserAccess(userId);
-    try {
-      const res = await fetch("/api/protocol/agent-access", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, agentAccess: agents }),
-      });
-      if (res.ok) {
-        toast.success("Agent access updated");
-        await fetchUserAccess();
-      } else {
-        const data = await res.json();
-        toast.error(safeText(data.error, "Failed to update"));
-      }
-    } catch {
-      toast.error("Failed to update agent access");
-    }
-    setSavingUserAccess(null);
-  };
-
-  const revokeUserAccess = async (userId: string) => {
-    try {
-      const res = await fetch("/api/protocol/agent-access", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (res.ok) {
-        toast.success("Protocol access revoked");
-        await fetchUserAccess();
-      } else {
-        const data = await res.json();
-        toast.error(safeText(data.error, "Failed to revoke"));
-      }
-    } catch {
-      toast.error("Failed to revoke access");
-    }
-  };
-
   // ── Upload protocol document ──
   const protocolFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleProtocolFileUpload = async (file: File) => {
-    const allowedTypes = [
-      "text/plain",
-      "text/markdown",
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
     const allowedExtensions = [".txt", ".md", ".pdf", ".doc", ".docx"];
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-
     if (!allowedExtensions.includes(ext)) {
-      toast.error("Unsupported file type. Use .txt, .md, .pdf, .doc, or .docx");
+      toast.error("Use .txt, .md, .pdf, .doc, or .docx");
       return;
     }
-
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("File too large. Maximum size is 5MB.");
+      toast.error("File too large (max 5MB)");
       return;
     }
-
-    // For .txt and .md, read directly
     if (ext === ".txt" || ext === ".md") {
       try {
         const text = await file.text();
         setProtocolContent(text);
-        toast.success(`Loaded ${file.name} into editor (${(file.size / 1024).toFixed(1)} KB)`);
+        toast.success(`Loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
       } catch {
         toast.error("Failed to read file");
       }
       return;
     }
-
-    // For .pdf, .doc, .docx — send to API for extraction
     setLoading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/protocol/upload-document", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch("/api/protocol/upload-document", { method: "POST", body: formData });
       if (res.ok) {
         const data = await res.json();
         if (data.content) {
           setProtocolContent(data.content);
-          toast.success(`Loaded ${file.name} into editor (${(data.content.length / 1024).toFixed(1)} KB)`);
+          toast.success(`Loaded ${file.name} (${(data.content.length / 1024).toFixed(1)} KB)`);
         } else {
           toast.error("Could not extract text from this file");
         }
@@ -491,7 +381,6 @@ export default function ProtocolManagementPage() {
   const onProtocolFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleProtocolFileUpload(file);
-    // Reset input so same file can be re-uploaded
     e.target.value = "";
   };
 
@@ -503,13 +392,10 @@ export default function ProtocolManagementPage() {
       </div>
     );
   }
-
-  if (!session || session.user.role !== "SUPER_ADMIN") {
-    return null;
-  }
+  if (!session || session.user.role !== "SUPER_ADMIN") return null;
 
   const pendingCount = invites.filter((i) => i.status === "PENDING").length;
-  const activeUsersCount = userAccessList.filter((u) => u.isActive).length;
+  const usedCount = invites.filter((i) => i.status === "USED").length;
 
   return (
     <div className="space-y-6">
@@ -518,14 +404,13 @@ export default function ProtocolManagementPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Protocol Management</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Edit your master protocol, control team access, and generate access documents
+            Edit master protocol and generate access documents for your team
           </p>
         </div>
         <div className="flex gap-2">
           {lastSaved && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              Last saved: {safeDate(lastSaved)}
+              <Clock className="h-3 w-3" /> Last saved: {safeDate(lastSaved)}
             </span>
           )}
         </div>
@@ -546,22 +431,11 @@ export default function ProtocolManagementPage() {
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Users className="h-4 w-4 text-blue-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Active Users</p>
-              <p className="text-sm font-semibold">{safeNumber(activeUsersCount)}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-yellow-500/10 flex items-center justify-center">
               <Key className="h-4 w-4 text-yellow-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Pending Tokens</p>
+              <p className="text-xs text-muted-foreground">Pending</p>
               <p className="text-sm font-semibold">{safeNumber(pendingCount)}</p>
             </div>
           </div>
@@ -572,6 +446,17 @@ export default function ProtocolManagementPage() {
               <Check className="h-4 w-4 text-green-500" />
             </div>
             <div>
+              <p className="text-xs text-muted-foreground">Activated</p>
+              <p className="text-sm font-semibold">{safeNumber(usedCount)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <Download className="h-4 w-4 text-blue-500" />
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Total Issued</p>
               <p className="text-sm font-semibold">{safeNumber(invites.length)}</p>
             </div>
@@ -579,27 +464,25 @@ export default function ProtocolManagementPage() {
         </Card>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — 2 only */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="protocol" className="flex items-center gap-1.5">
             <FileText className="h-4 w-4" /> Master Protocol
-          </TabsTrigger>
-          <TabsTrigger value="team" className="flex items-center gap-1.5">
-            <UserCog className="h-4 w-4" /> Team Access
           </TabsTrigger>
           <TabsTrigger value="documents" className="flex items-center gap-1.5">
             <Download className="h-4 w-4" /> Access Documents
           </TabsTrigger>
         </TabsList>
 
-        {/* ═══════════ TAB 1: Master Protocol Editor ═══════════ */}
+        {/* ═══ TAB 1: Master Protocol Editor ═══ */}
         <TabsContent value="protocol" className="space-y-4 mt-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Your Master Protocol</CardTitle>
+              <CardTitle className="text-base">Master Protocol</CardTitle>
               <CardDescription>
-                This is the live Trishul Protocol. Edit it anytime and click Save. Your team will use this protocol after they authenticate.
+                This is the live protocol. Your team will follow this after OTP verification in GLM workspace.
+                Only you (SUPER_ADMIN) can see and edit this content.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -608,7 +491,7 @@ export default function ProtocolManagementPage() {
                 <Input
                   value={protocolTitle}
                   onChange={(e) => setProtocolTitle(e.target.value)}
-                  placeholder="Trishul Protocol v5.0"
+                  placeholder="Trishul Protocol"
                   className="max-w-md"
                 />
               </div>
@@ -616,36 +499,15 @@ export default function ProtocolManagementPage() {
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-sm font-medium">Protocol Content</label>
                   <div className="flex items-center gap-2">
-                    <input
-                      ref={protocolFileInputRef}
-                      type="file"
-                      accept=".txt,.md,.pdf,.doc,.docx"
-                      className="hidden"
-                      onChange={onProtocolFileSelect}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => protocolFileInputRef.current?.click()}
-                    >
+                    <input ref={protocolFileInputRef} type="file" accept=".txt,.md,.pdf,.doc,.docx" className="hidden" onChange={onProtocolFileSelect} />
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => protocolFileInputRef.current?.click()}>
                       <Upload className="h-3.5 w-3.5 mr-1" /> Upload Document
                     </Button>
-                    <span className="text-xs text-muted-foreground">
-                      {protocolContent.length} characters
-                    </span>
+                    <span className="text-xs text-muted-foreground">{protocolContent.length} chars</span>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Upload a .txt, .md, .pdf, .doc, or .docx file — or type/paste directly below
-                </p>
                 <Textarea
-                  placeholder="Write your complete Trishul Protocol here...
-
-Include everything: stages, agent instructions, workflows, rules, etc.
-
-This is the master document. Your team will follow this protocol after OTP verification.
-They will NEVER see this raw document — it's only used by the workspace agents."
+                  placeholder="Write your complete Trishul Protocol here..."
                   className="min-h-[500px] font-mono text-sm leading-relaxed"
                   value={protocolContent}
                   onChange={(e) => setProtocolContent(e.target.value)}
@@ -654,14 +516,10 @@ They will NEVER see this raw document — it's only used by the workspace agents
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" />
-                  Only you (SUPER_ADMIN) can see and edit this content
+                  Security rules are automatically added when team members activate
                 </p>
                 <Button onClick={saveProtocol} disabled={savingProtocol}>
-                  {savingProtocol ? (
-                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-1.5" />
-                  )}
+                  {savingProtocol ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
                   Save Protocol
                 </Button>
               </div>
@@ -669,154 +527,47 @@ They will NEVER see this raw document — it's only used by the workspace agents
           </Card>
         </TabsContent>
 
-        {/* ═══════════ TAB 2: Team Agent Access Control ═══════════ */}
-        <TabsContent value="team" className="space-y-4 mt-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Agent Access Control</CardTitle>
-                  <CardDescription className="mt-1">
-                    Choose which agents each team member can use. Changes take effect immediately.
-                  </CardDescription>
+        {/* ═══ TAB 2: Access Documents ═══ */}
+        <TabsContent value="documents" className="space-y-4 mt-6">
+          {/* How it works */}
+          <Card className="bg-muted/30 border-dashed">
+            <CardContent className="py-4">
+              <div className="flex items-start gap-3">
+                <Shield className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">How access documents work:</p>
+                  <p>1. Generate an access document for a team member (small .txt file with just a code)</p>
+                  <p>2. Share the file with them — they go to <code className="bg-background px-1.5 py-0.5 rounded text-xs">trishulhub.com/protocol/activate</code> and verify via OTP</p>
+                  <p>3. After OTP verification, they copy the protocol and paste it into their GLM workspace</p>
+                  <p className="text-amber-600 dark:text-amber-400 font-medium">The small document does NOT contain the protocol. OTP is sent to your email.</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={fetchUserAccess}>
-                  <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh
-                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {userAccessList.length === 0 ? (
-                <div className="py-12 text-center px-4">
-                  <UserCog className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                  <p className="text-sm text-muted-foreground">No team members have protocol access yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Generate access documents and share them with your team. They will appear here after OTP verification.
-                  </p>
-                </div>
-              ) : (
-                <ScrollArea className="max-h-[500px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[160px]">Team Member</TableHead>
-                        <TableHead>Agent Access</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {userAccessList.map((ua) => {
-                        const currentAgents = editingUserAccess[ua.userId] || [];
-                        return (
-                          <TableRow key={safeText(ua.id)}>
-                            <TableCell>
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {safeText(ua.userName) || safeText(ua.user?.name) || "Unknown"}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {safeText(ua.userEmail) || safeText(ua.user?.email)}
-                                </p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1.5">
-                                {ALL_AGENT_TYPES.map((agent) => (
-                                  <label
-                                    key={agent.value}
-                                    className={cn(
-                                      "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors border",
-                                      currentAgents.includes(agent.value)
-                                        ? "border-primary bg-primary/10 text-primary font-medium"
-                                        : "border-border text-muted-foreground hover:bg-accent/50"
-                                    )}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="sr-only"
-                                      checked={currentAgents.includes(agent.value)}
-                                      onChange={() => toggleAgentForUser(ua.userId, agent.value)}
-                                    />
-                                    {agent.label}
-                                  </label>
-                                ))}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={cn(
-                                "text-[10px]",
-                                ua.isActive
-                                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                  : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                              )}>
-                                {ua.isActive ? "Active" : "Revoked"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7"
-                                  disabled={savingUserAccess === ua.userId || !ua.isActive}
-                                  onClick={() => saveUserAgentAccess(ua.userId)}
-                                >
-                                  {savingUserAccess === ua.userId ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Save className="h-3.5 w-3.5 mr-1" />
-                                  )}
-                                  Save
-                                </Button>
-                                {ua.isActive && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-destructive hover:text-destructive"
-                                    onClick={() => revokeUserAccess(ua.userId)}
-                                  >
-                                    <Ban className="h-3.5 w-3.5 mr-1" /> Revoke
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
-              )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* ═══════════ TAB 3: Access Documents ═══════════ */}
-        <TabsContent value="documents" className="space-y-4 mt-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">Access Documents</CardTitle>
-                  <CardDescription className="mt-1">
-                    Generate access keys for your team. Download the small document and share it with them.
-                    When they upload it, OTP will be sent to your email.
-                  </CardDescription>
+                  <CardDescription className="mt-1">Generate and manage access documents for your team</CardDescription>
                 </div>
-                <Button onClick={() => setTokenDialogOpen(true)} size="sm">
-                  <Plus className="h-4 w-4 mr-1.5" /> Generate New
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={fetchInvites}>
+                    <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh
+                  </Button>
+                  <Button onClick={() => setTokenDialogOpen(true)} size="sm">
+                    <Plus className="h-4 w-4 mr-1.5" /> Generate New
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
               {invites.length === 0 ? (
                 <div className="py-12 text-center px-4">
                   <Download className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                  <p className="text-sm text-muted-foreground">No access documents generated yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Click &quot;Generate New&quot; to create an access document for a team member.
-                  </p>
+                  <p className="text-sm text-muted-foreground">No access documents yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">Click &quot;Generate New&quot; to create one for a team member.</p>
                 </div>
               ) : (
                 <ScrollArea className="max-h-[500px]">
@@ -825,68 +576,45 @@ They will NEVER see this raw document — it's only used by the workspace agents
                       <TableRow>
                         <TableHead>Access Code</TableHead>
                         <TableHead>Issued For</TableHead>
-                        <TableHead>Agents</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Expires</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {invites.map((invite) => {
-                        const agentList = safeJsonParse<string[]>(invite.agentAccess, []);
-                        return (
-                          <TableRow key={safeText(invite.id)}>
-                            <TableCell className="font-mono text-xs font-semibold">
-                              {safeText(invite.inviteCode)}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {safeText(invite.targetEmail)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {agentList.slice(0, 2).map((a) => (
-                                  <Badge key={a} variant="outline" className="text-[10px] px-1.5">{safeText(a)}</Badge>
-                                ))}
-                                {agentList.length > 2 && (
-                                  <Badge variant="secondary" className="text-[10px] px-1.5">+{agentList.length - 2}</Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={cn("text-[10px]", STATUS_COLORS[invite.status] || "")}>
-                                {safeText(invite.status)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {safeDate(invite.expiresAt)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                {invite.status === "PENDING" && (
-                                  <>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7"
-                                      onClick={() => downloadAccessDocument(invite.inviteCode, invite.targetEmail)}
-                                    >
-                                      <Download className="h-3.5 w-3.5 mr-1" /> Download
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 text-destructive hover:text-destructive"
-                                      onClick={() => revokeInvite(invite.id)}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {invites.map((invite) => (
+                        <TableRow key={safeText(invite.id)}>
+                          <TableCell className="font-mono text-xs font-semibold">{safeText(invite.inviteCode)}</TableCell>
+                          <TableCell className="text-sm">{safeText(invite.targetEmail)}</TableCell>
+                          <TableCell>
+                            <Badge className={cn("text-[10px]", STATUS_COLORS[invite.status] || "")}>
+                              {safeText(invite.status)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{safeDate(invite.expiresAt)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {invite.status === "PENDING" && (
+                                <>
+                                  <Button variant="outline" size="sm" className="h-7"
+                                    onClick={() => downloadAccessDocument(invite.inviteCode, invite.targetEmail, invite.expiresAt)}>
+                                    <Download className="h-3.5 w-3.5 mr-1" /> Download
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive"
+                                    onClick={() => revokeInvite(invite.id)}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              )}
+                              {invite.status === "USED" && (
+                                <span className="text-xs text-green-600 flex items-center gap-1">
+                                  <Check className="h-3 w-3" /> Activated
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </ScrollArea>
@@ -896,54 +624,23 @@ They will NEVER see this raw document — it's only used by the workspace agents
         </TabsContent>
       </Tabs>
 
-      {/* ═══════════ Generate Token Dialog ═══════════ */}
+      {/* ═══ Generate Token Dialog ═══ */}
       <Dialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Generate Access Document</DialogTitle>
             <DialogDescription>
-              Create an access key for a team member. You can download it as a small file and share it with them.
+              Create a small access document for a team member. This document only contains a code — NOT the protocol.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Team Member Email *</label>
-              <Input
-                type="email"
-                placeholder="name@company.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Agent Access * (select what they can use)</label>
-              <div className="flex flex-wrap gap-2">
-                {ALL_AGENT_TYPES.map((agent) => (
-                  <label
-                    key={agent.value}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border cursor-pointer text-sm transition-colors",
-                      inviteAgents.includes(agent.value)
-                        ? "border-primary bg-primary/10 text-primary font-medium"
-                        : "border-border hover:bg-accent/50"
-                    )}
-                  >
-                    <input type="checkbox" className="sr-only"
-                      checked={inviteAgents.includes(agent.value)}
-                      onChange={(e) => {
-                        if (e.target.checked) setInviteAgents([...inviteAgents, agent.value]);
-                        else setInviteAgents(inviteAgents.filter((a) => a !== agent.value));
-                      }}
-                    />
-                    {agent.label}
-                  </label>
-                ))}
-              </div>
+              <Input type="email" placeholder="name@company.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Expires In (hours)</label>
-              <Input type="number" min="1" max="720" value={inviteExpiry}
-                onChange={(e) => setInviteExpiry(e.target.value)} />
+              <Input type="number" min="1" max="720" value={inviteExpiry} onChange={(e) => setInviteExpiry(e.target.value)} />
               <p className="text-xs text-muted-foreground mt-1">Default: 72 hours (3 days)</p>
             </div>
           </div>
@@ -957,45 +654,34 @@ They will NEVER see this raw document — it's only used by the workspace agents
         </DialogContent>
       </Dialog>
 
-      {/* ═══════════ Token Result Dialog ═══════════ */}
+      {/* ═══ Token Result Dialog ═══ */}
       <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Check className="h-5 w-5 text-green-500" /> Access Document Ready
             </DialogTitle>
-            <DialogDescription>
-              Download this document and share it with your team member. Do NOT share the code publicly.
-            </DialogDescription>
+            <DialogDescription>Share this document with your team member. OTP will be sent to your email when they activate.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="p-4 bg-muted/50 rounded-lg border-2 border-dashed">
               <p className="text-xs text-muted-foreground mb-1">Access Code</p>
               <p className="font-mono text-lg font-bold tracking-wider">{safeText(generatedCode)}</p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Expires: {safeDate(generatedExpiry)}
-            </p>
+            <p className="text-xs text-muted-foreground">For: {safeText(generatedEmail)} &middot; Expires: {safeDate(generatedExpiry)}</p>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => copyToClipboard(generatedCode)}
-              >
+              <Button variant="outline" className="flex-1" onClick={() => copyToClipboard(generatedCode)}>
                 {copiedCode ? <Check className="h-4 w-4 mr-1.5" /> : <Copy className="h-4 w-4 mr-1.5" />}
                 {copiedCode ? "Copied!" : "Copy Code"}
               </Button>
-              <Button
-                className="flex-1"
-                onClick={() => downloadAccessDocument(generatedCode, inviteEmail)}
-              >
+              <Button className="flex-1" onClick={() => downloadAccessDocument(generatedCode, generatedEmail, generatedExpiry)}>
                 <Download className="h-4 w-4 mr-1.5" /> Download File
               </Button>
             </div>
             <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
               <p className="text-xs text-amber-800 dark:text-amber-300">
-                <strong>Next steps:</strong> Share the downloaded file with your team member.
-                When they upload it, an OTP will be sent to your email. Give them the OTP verbally to activate their access.
+                <strong>Next steps:</strong> Send the file to your team member. They activate at
+                trishulhub.com/protocol/activate. OTP will be sent to your email when they submit the code.
               </p>
             </div>
           </div>

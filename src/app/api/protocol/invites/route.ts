@@ -54,11 +54,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!agentAccess || !Array.isArray(agentAccess) || agentAccess.length === 0) {
-      return NextResponse.json({ error: "At least one agent access must be selected" }, { status: 400 });
+      return NextResponse.json({ error: "Agent access is required" }, { status: 400 });
     }
 
-    const validAgents = ["DEV", "CLIENT_HUNTER", "FINANCE", "PROJECT_MANAGER", "HR", "CONTENT", "SUPPORT"];
-    const invalidAgents = agentAccess.filter((a: string) => !validAgents.includes(a));
+    // Accept "ALL" as a shorthand for all agent types
+    const validAgents = ["DEV", "CLIENT_HUNTER", "FINANCE", "PROJECT_MANAGER", "HR", "CONTENT", "SUPPORT", "ALL"];
+    const resolvedAccess = agentAccess.includes("ALL") ? validAgents.filter(a => a !== "ALL") : agentAccess;
+    const invalidAgents = resolvedAccess.filter((a: string) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
       return NextResponse.json({ error: `Invalid agent types: ${invalidAgents.join(", ")}` }, { status: 400 });
     }
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
         inviteCode,
         targetEmail: targetEmail.toLowerCase(),
         targetName: targetName || null,
-        agentAccess: JSON.stringify(agentAccess),
+        agentAccess: JSON.stringify(resolvedAccess),
         expiresAt,
         createdBy: token.id as string,
         status: "PENDING",
