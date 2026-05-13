@@ -124,7 +124,7 @@ function decodePdfString(str: string): string {
 // DOCX is a ZIP file — we read word/document.xml and extract text
 async function extractDocxText(buffer: Buffer): Promise<string> {
   // Use Node.js built-in zlib for decompression (DOCX uses ZIP)
-  const { decompressSync } = await import("zlib");
+  const { inflateSync } = await import("zlib");
 
   try {
     // Simple ZIP parser — find the Central Directory to locate word/document.xml
@@ -165,7 +165,7 @@ async function extractDocxText(buffer: Buffer): Promise<string> {
       xmlContent = compressedData.toString("utf8");
     } else if (compressionMethod === 8) {
       // Deflate
-      const decompressed = decompressSync(compressedData);
+      const decompressed = inflateSync(compressedData);
       xmlContent = decompressed.toString("utf8");
     } else {
       return extractDocxTextFallback(buffer);
