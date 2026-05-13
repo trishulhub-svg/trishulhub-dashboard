@@ -117,6 +117,7 @@ export default function ProtocolManagementPage() {
 
   // Protocol editor state
   const [protocolId, setProtocolId] = useState<string | null>(null);
+  const [protocolVersion, setProtocolVersion] = useState<string>("");
   const [protocolTitle, setProtocolTitle] = useState("Trishul Protocol v5.0");
   const [protocolContent, setProtocolContent] = useState("");
   const [savingProtocol, setSavingProtocol] = useState(false);
@@ -152,6 +153,7 @@ export default function ProtocolManagementPage() {
         const active = Array.isArray(data) ? data.find((p: ProtocolVersion) => p.isActive) : data;
         if (active) {
           setProtocolId(active.id);
+          setProtocolVersion(active.version || "");
           setProtocolTitle(active.title || "Trishul Protocol");
           setProtocolContent(active.content || "");
           setLastSaved(active.updatedAt || active.createdAt);
@@ -518,7 +520,7 @@ export default function ProtocolManagementPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Protocol</p>
-              <p className="text-sm font-semibold">v5.0 Live</p>
+              <p className="text-sm font-semibold">{protocolVersion ? `v${safeText(protocolVersion)} Live` : "No Version"}</p>
             </div>
           </div>
         </Card>

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
+import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { storeAdminOtp, getAdminOtp, consumeAdminOtp, generateOtp } from "@/lib/protocol-otp-store";
 import { sendEmailWithFailover } from "@/lib/email";
 
 // GET — Check if logged-in user has active protocol access
 export async function GET(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || !token.sub) {
       return NextResponse.json({ hasAccess: false }, { status: 401 });
@@ -56,6 +58,7 @@ export async function GET(request: NextRequest) {
 // POST — Step 1: User submits access token, OTP generated and sent to SUPER_ADMIN email
 export async function POST(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const body = await request.json();
     const { inviteCode } = body;
 
@@ -160,6 +163,7 @@ export async function POST(request: NextRequest) {
 // PUT — Step 2: User submits OTP, on success links protocol to user account
 export async function PUT(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || !token.sub) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
+import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { generateInviteCode } from "@/lib/protocol-otp-store";
 
 // GET — list all invites (SUPER_ADMIN only)
 export async function GET(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -38,6 +40,7 @@ export async function GET(request: NextRequest) {
 // and sent to the SUPER_ADMIN's email at that time.
 export async function POST(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -115,6 +118,7 @@ export async function POST(request: NextRequest) {
 // PATCH — update invite status / revoke (SUPER_ADMIN only)
 export async function PATCH(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

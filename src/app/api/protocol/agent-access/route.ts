@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
+import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 
 // GET — List all users with protocol access (SUPER_ADMIN only)
 export async function GET(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
 // PUT — Update a user's agent access (SUPER_ADMIN only)
 export async function PUT(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -76,6 +79,7 @@ export async function PUT(request: NextRequest) {
 // DELETE — Revoke a user's protocol access entirely (SUPER_ADMIN only)
 export async function DELETE(request: NextRequest) {
   try {
+    await ensureProtocolTables();
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
