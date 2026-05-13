@@ -215,14 +215,34 @@ export default function ProtocolManagementPage() {
       };
 
       let res: Response;
-      if (protocolId) {
+      let targetId = protocolId;
+
+      // If no protocolId, try to find the existing active protocol first
+      if (!targetId) {
+        try {
+          const checkRes = await fetch("/api/protocol?active=true");
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            const existing = Array.isArray(checkData) ? checkData.find((p: ProtocolVersion) => p.isActive) : checkData;
+            if (existing?.id) {
+              targetId = existing.id;
+              setProtocolId(existing.id);
+            }
+          }
+        } catch {
+          // Non-critical, will fall through to POST
+        }
+      }
+
+      if (targetId) {
+        // Update existing protocol
         res = await fetch("/api/protocol", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: protocolId, ...body }),
+          body: JSON.stringify({ id: targetId, ...body }),
         });
       } else {
-        // Auto-create first protocol version
+        // No existing protocol found — create new one
         body.version = "5.0";
         res = await fetch("/api/protocol", {
           method: "POST",

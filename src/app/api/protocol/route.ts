@@ -50,7 +50,18 @@ export async function POST(request: NextRequest) {
 
     const existing = await db.protocolVersion.findUnique({ where: { version } });
     if (existing) {
-      return NextResponse.json({ error: "Version already exists" }, { status: 409 });
+      // Upsert: update existing protocol with same version instead of erroring
+      const updated = await db.protocolVersion.update({
+        where: { id: existing.id },
+        data: {
+          title: title || "Trishul Protocol",
+          content: content || "",
+          stageDescriptions: typeof stageDescriptions === "string" ? stageDescriptions : JSON.stringify(stageDescriptions || []),
+          agentSkills: typeof agentSkills === "string" ? agentSkills : JSON.stringify(agentSkills || []),
+          isActive: true,
+        },
+      });
+      return NextResponse.json(JSON.parse(JSON.stringify(updated)));
     }
 
     const protocol = await db.protocolVersion.create({
