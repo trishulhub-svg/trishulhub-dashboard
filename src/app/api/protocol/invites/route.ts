@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
-import { storeProtocolOtp, generateInviteCode, generateOtp } from "@/lib/protocol-otp-store";
+import { generateInviteCode } from "@/lib/protocol-otp-store";
 
 // GET — list all invites (SUPER_ADMIN only)
 export async function GET(request: NextRequest) {
@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST — create new OTP invite (SUPER_ADMIN only)
+// POST — create new access token (SUPER_ADMIN only)
+// Note: OTP is NOT generated here. It's generated when the user submits the token,
+// and sent to the SUPER_ADMIN's email at that time.
 export async function POST(request: NextRequest) {
   try {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
@@ -76,25 +78,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get protocol version string for the OTP store
-    const protocol = await db.protocolVersion.findUnique({
-      where: { id: targetProtocolId },
-      select: { version: true },
-    });
-
     const hours = expiresInHours || 24;
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
-    // Generate invite code and OTP
+    // Generate invite code
     let inviteCode = generateInviteCode();
-    // Ensure uniqueness (very unlikely collision but just in case)
     while (await db.protocolInvite.findUnique({ where: { inviteCode } })) {
       inviteCode = generateInviteCode();
     }
 
-    const otp = generateOtp();
-
-    // Create invite in DB
+    // Create invite in DB (no OTP generation here)
     const invite = await db.protocolInvite.create({
       data: {
         protocolId: targetProtocolId,
@@ -108,21 +101,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Store OTP in memory
-    storeProtocolOtp(inviteCode, {
-      otp,
-      expiresAt: Date.now() + hours * 60 * 60 * 1000,
-      inviteId: invite.id,
-      inviteCode,
-      targetEmail: targetEmail.toLowerCase(),
-      targetName: targetName || null,
-      agentAccess,
-      protocolVersion: protocol?.version || "unknown",
-    });
-
     return NextResponse.json({
       inviteCode,
-      otp,
       expiresAt: expiresAt.toISOString(),
       inviteId: invite.id,
     }, { status: 201 });

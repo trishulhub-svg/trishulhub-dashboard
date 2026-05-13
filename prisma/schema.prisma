@@ -51,6 +51,8 @@ model User {
   timetableSettings      TimetableSettings?
   protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
   protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
+  protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
+  protocolAccess      UserProtocolAccess?
 }
 
 // ━━ API Keys ━━
@@ -1002,6 +1004,7 @@ model ProtocolVersion {
   creator           User     @relation("ProtocolVersions", fields: [createdBy], references: [id])
   invites           ProtocolInvite[]
   accessLogs        ProtocolAccessLog[]
+  userAccessList    UserProtocolAccess[]
 }
 
 model ProtocolInvite {
@@ -1013,12 +1016,14 @@ model ProtocolInvite {
   agentAccess   String    @default("[]") // JSON: ["DEV", "CLIENT_HUNTER", ...] - which agents user can access
   expiresAt     DateTime
   usedAt        DateTime?
+  usedBy        String?   // userId who used this invite
   createdBy     String    // SUPER_ADMIN userId
   status        String    @default("PENDING") // PENDING, USED, EXPIRED, REVOKED
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   creator       User           @relation("ProtocolInvites", fields: [createdBy], references: [id])
+  usedByUser    User?          @relation("InviteUsedBy", fields: [usedBy], references: [id])
   protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
   accessLogs    ProtocolAccessLog[]
 }
@@ -1033,5 +1038,22 @@ model ProtocolAccessLog {
   createdAt     DateTime @default(now())
 
   invite        ProtocolInvite @relation(fields: [inviteId], references: [id])
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+}
+
+// ━━ User Protocol Access (persistent) ━━
+model UserProtocolAccess {
+  id            String   @id @default(cuid())
+  userId        String   @unique  // One protocol access per user
+  userEmail     String
+  userName      String?
+  protocolId    String
+  agentAccess   String   @default("[]") // JSON: ["DEV", "FINANCE", ...] - SUPER_ADMIN controls this
+  isActive      Boolean  @default(true)
+  verifiedAt    DateTime @default(now())
+  verifiedVia   String   // invite code used
+  lastAccessAt  DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
 }

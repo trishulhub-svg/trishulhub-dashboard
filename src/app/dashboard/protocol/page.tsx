@@ -13,10 +13,12 @@ import {
   X,
   Trash2,
   Loader2,
-  AlertCircle,
   Save,
   ChevronDown,
   ChevronUp,
+  UserCog,
+  Ban,
+  RefreshCw,
 } from "lucide-react";
 import { cn, safeText, safeNumber, safeDate, safeArray, safeJsonParse } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,7 +35,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
@@ -82,6 +83,21 @@ interface AccessLog {
   protocol?: { version: string; title: string };
 }
 
+interface UserProtocolAccess {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string | null;
+  protocolId: string;
+  agentAccess: string;
+  isActive: boolean;
+  verifiedAt: string;
+  verifiedVia: string;
+  lastAccessAt: string;
+  user?: { id: string; name: string; email: string; role: string };
+  protocol?: { id: string; version: string; title: string };
+}
+
 interface StageItem {
   stage: number;
   title: string;
@@ -128,6 +144,7 @@ export default function ProtocolManagementPage() {
   const [protocols, setProtocols] = useState<ProtocolVersion[]>([]);
   const [invites, setInvites] = useState<ProtocolInvite[]>([]);
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
+  const [userProtocolAccessList, setUserProtocolAccessList] = useState<UserProtocolAccess[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Editor state
@@ -141,22 +158,23 @@ export default function ProtocolManagementPage() {
   const [expandedStage, setExpandedStage] = useState<number | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
-  // Invite dialog
+  // Invite dialog state
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
   const [inviteAgents, setInviteAgents] = useState<string[]>([]);
   const [inviteProtocolId, setInviteProtocolId] = useState("");
   const [inviteExpiry, setInviteExpiry] = useState("24");
   const [creatingInvite, setCreatingInvite] = useState(false);
 
-  // Success dialog (shows invite code + OTP)
-  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
+  // Token created dialog (simpler — just shows the token code)
+  const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [generatedCode, setGeneratedCode] = useState("");
-  const [generatedOtp, setGeneratedOtp] = useState("");
   const [generatedExpiry, setGeneratedExpiry] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedOtp, setCopiedOtp] = useState(false);
+
+  // Agent access editing state
+  const [editingUserAccess, setEditingUserAccess] = useState<Record<string, string[]>>({});
+  const [savingUserAccess, setSavingUserAccess] = useState<string | null>(null);
 
   // Fetch data
   const fetchProtocols = useCallback(async () => {
@@ -188,7 +206,6 @@ export default function ProtocolManagementPage() {
       const res = await fetch("/api/protocol/invites?status=USED");
       if (res.ok) {
         const data = await res.json();
-        // Extract access logs from used invites
         const usedInvites = safeArray<ProtocolInvite>(data);
         const logs: AccessLog[] = usedInvites.map((inv) => ({
           id: inv.id,
@@ -205,16 +222,35 @@ export default function ProtocolManagementPage() {
     }
   }, []);
 
+  const fetchUserProtocolAccess = useCallback(async () => {
+    try {
+      const res = await fetch("/api/protocol/agent-access");
+      if (res.ok) {
+        const data = await res.json();
+        const list = safeArray<UserProtocolAccess>(data);
+        setUserProtocolAccessList(list);
+        // Initialize editing state with current values
+        const editState: Record<string, string[]> = {};
+        list.forEach((item) => {
+          editState[item.userId] = safeJsonParse<string[]>(item.agentAccess, []);
+        });
+        setEditingUserAccess(editState);
+      }
+    } catch (err) {
+      console.error("Failed to fetch user protocol access:", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (session?.user?.role === "SUPER_ADMIN") {
       const loadAll = async () => {
         setLoading(true);
-        await Promise.all([fetchProtocols(), fetchInvites(), fetchAccessLogs()]);
+        await Promise.all([fetchProtocols(), fetchInvites(), fetchAccessLogs(), fetchUserProtocolAccess()]);
         setLoading(false);
       };
       loadAll();
     }
-  }, [session, fetchProtocols, fetchInvites, fetchAccessLogs]);
+  }, [session, fetchProtocols, fetchInvites, fetchAccessLogs, fetchUserProtocolAccess]);
 
   // ── Editor handlers ──
   const loadProtocolForEdit = (protocol: ProtocolVersion) => {
@@ -232,15 +268,9 @@ export default function ProtocolManagementPage() {
     setFormVersion("");
     setFormTitle("Trishul Protocol");
     setFormContent("");
-    setFormStages([
-      { stage: 0, title: "", description: "", deliverables: "" },
-    ]);
+    setFormStages([{ stage: 0, title: "", description: "", deliverables: "" }]);
     setFormAgentSkills(
-      ALL_AGENT_TYPES.map((a) => ({
-        agentType: a.value,
-        name: a.label,
-        skills: [""],
-      }))
+      ALL_AGENT_TYPES.map((a) => ({ agentType: a.value, name: a.label, skills: [""] }))
     );
     setActiveTab("editor");
   };
@@ -293,12 +323,8 @@ export default function ProtocolManagementPage() {
     setSaving(false);
   };
 
-  // Stage handlers
   const addStage = () => {
-    setFormStages([
-      ...formStages,
-      { stage: formStages.length, title: "", description: "", deliverables: "" },
-    ]);
+    setFormStages([...formStages, { stage: formStages.length, title: "", description: "", deliverables: "" }]);
   };
 
   const removeStage = (index: number) => {
@@ -311,22 +337,15 @@ export default function ProtocolManagementPage() {
     setFormStages(updated);
   };
 
-  // Agent skill handlers
   const addSkill = (agentIndex: number) => {
     const updated = [...formAgentSkills];
-    updated[agentIndex] = {
-      ...updated[agentIndex],
-      skills: [...updated[agentIndex].skills, ""],
-    };
+    updated[agentIndex] = { ...updated[agentIndex], skills: [...updated[agentIndex].skills, ""] };
     setFormAgentSkills(updated);
   };
 
   const removeSkill = (agentIndex: number, skillIndex: number) => {
     const updated = [...formAgentSkills];
-    updated[agentIndex] = {
-      ...updated[agentIndex],
-      skills: updated[agentIndex].skills.filter((_, i) => i !== skillIndex),
-    };
+    updated[agentIndex] = { ...updated[agentIndex], skills: updated[agentIndex].skills.filter((_, i) => i !== skillIndex) };
     setFormAgentSkills(updated);
   };
 
@@ -336,8 +355,8 @@ export default function ProtocolManagementPage() {
     setFormAgentSkills(updated);
   };
 
-  // ── Invite handlers ──
-  const createInvite = async () => {
+  // ── Token (invite) handlers ──
+  const createToken = async () => {
     if (!inviteEmail.trim()) {
       toast.error("Target email is required");
       return;
@@ -350,7 +369,6 @@ export default function ProtocolManagementPage() {
     try {
       const body: Record<string, unknown> = {
         targetEmail: inviteEmail.trim(),
-        targetName: inviteName.trim() || null,
         agentAccess: inviteAgents,
         expiresInHours: safeNumber(inviteExpiry, 24),
       };
@@ -365,24 +383,21 @@ export default function ProtocolManagementPage() {
       if (res.ok) {
         const data = await res.json();
         setGeneratedCode(safeText(data.inviteCode));
-        setGeneratedOtp(safeText(data.otp));
         setGeneratedExpiry(safeText(data.expiresAt));
         setInviteDialogOpen(false);
-        setSuccessDialogOpen(true);
+        setTokenDialogOpen(true);
         // Reset form
         setInviteEmail("");
-        setInviteName("");
         setInviteAgents([]);
         setInviteExpiry("24");
         setCopiedCode(false);
-        setCopiedOtp(false);
         await fetchInvites();
       } else {
         const data = await res.json();
-        toast.error(safeText(data.error, "Failed to create invite"));
+        toast.error(safeText(data.error, "Failed to create token"));
       }
     } catch (err) {
-      toast.error("Failed to create invite");
+      toast.error("Failed to create token");
     }
     setCreatingInvite(false);
   };
@@ -395,22 +410,67 @@ export default function ProtocolManagementPage() {
         body: JSON.stringify({ id: inviteId, status: "REVOKED" }),
       });
       if (res.ok) {
-        toast.success("Invite revoked");
+        toast.success("Token revoked");
         await fetchInvites();
       }
     } catch {
-      toast.error("Failed to revoke invite");
+      toast.error("Failed to revoke token");
     }
   };
 
-  const copyToClipboard = (text: string, type: "code" | "otp") => {
+  const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    if (type === "code") {
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    } else {
-      setCopiedOtp(true);
-      setTimeout(() => setCopiedOtp(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  // ── Agent Access handlers ──
+  const toggleAgentForUser = (userId: string, agentType: string) => {
+    const current = editingUserAccess[userId] || [];
+    const updated = current.includes(agentType)
+      ? current.filter((a) => a !== agentType)
+      : [...current, agentType];
+    setEditingUserAccess((prev) => ({ ...prev, [userId]: updated }));
+  };
+
+  const saveUserAgentAccess = async (userId: string) => {
+    const agents = editingUserAccess[userId] || [];
+    setSavingUserAccess(userId);
+    try {
+      const res = await fetch("/api/protocol/agent-access", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, agentAccess: agents }),
+      });
+      if (res.ok) {
+        toast.success("Agent access updated");
+        await fetchUserProtocolAccess();
+      } else {
+        const data = await res.json();
+        toast.error(safeText(data.error, "Failed to update"));
+      }
+    } catch {
+      toast.error("Failed to update agent access");
+    }
+    setSavingUserAccess(null);
+  };
+
+  const revokeUserAccess = async (userId: string) => {
+    try {
+      const res = await fetch("/api/protocol/agent-access", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        toast.success("Protocol access revoked");
+        await fetchUserProtocolAccess();
+      } else {
+        const data = await res.json();
+        toast.error(safeText(data.error, "Failed to revoke"));
+      }
+    } catch {
+      toast.error("Failed to revoke access");
     }
   };
 
@@ -427,8 +487,6 @@ export default function ProtocolManagementPage() {
     return null;
   }
 
-  const activeProtocol = protocols.find((p) => p.isActive);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -436,7 +494,7 @@ export default function ProtocolManagementPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Protocol Management</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Create and distribute protocol versions with OTP-secured access
+            Create protocol versions, manage access tokens, and control agent permissions
           </p>
         </div>
         <div className="flex gap-2">
@@ -448,15 +506,18 @@ export default function ProtocolManagementPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="editor" className="flex items-center gap-1.5">
-            <FileText className="h-4 w-4" /> Editor
+            <FileText className="h-4 w-4" /> Protocol
           </TabsTrigger>
-          <TabsTrigger value="invites" className="flex items-center gap-1.5">
-            <Users className="h-4 w-4" /> Invites
+          <TabsTrigger value="tokens" className="flex items-center gap-1.5">
+            <Users className="h-4 w-4" /> Tokens
+          </TabsTrigger>
+          <TabsTrigger value="agent-access" className="flex items-center gap-1.5">
+            <UserCog className="h-4 w-4" /> Agent Access
           </TabsTrigger>
           <TabsTrigger value="logs" className="flex items-center gap-1.5">
-            <Shield className="h-4 w-4" /> Access Logs
+            <Shield className="h-4 w-4" /> Logs
           </TabsTrigger>
         </TabsList>
 
@@ -485,18 +546,14 @@ export default function ProtocolManagementPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm">v{safeText(p.version)}</span>
                           {p.isActive && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              Active
-                            </Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Active</Badge>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground truncate">
                           {safeText(p.title)} &middot; {safeText(p.creator?.name)}
                         </p>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {safeDate(p.createdAt)}
-                      </span>
+                      <span className="text-xs text-muted-foreground">{safeDate(p.createdAt)}</span>
                     </div>
                   ))}
                 </div>
@@ -560,44 +617,20 @@ export default function ProtocolManagementPage() {
                           onClick={() => setExpandedStage(expandedStage === idx ? null : idx)}
                         >
                           <span className="text-primary font-bold">Stage {safeNumber(stage.stage)}</span>
-                          <span className="text-muted-foreground">
-                            {safeText(stage.title) || "(untitled)"}
-                          </span>
-                          {expandedStage === idx ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )}
+                          <span className="text-muted-foreground">{safeText(stage.title) || "(untitled)"}</span>
+                          {expandedStage === idx ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </button>
                         {formStages.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            onClick={() => removeStage(idx)}
-                          >
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => removeStage(idx)}>
                             <X className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
                       {expandedStage === idx && (
                         <div className="space-y-2 pt-1">
-                          <Input
-                            placeholder="Stage title"
-                            value={stage.title}
-                            onChange={(e) => updateStage(idx, "title", e.target.value)}
-                          />
-                          <Textarea
-                            placeholder="Description"
-                            rows={2}
-                            value={stage.description}
-                            onChange={(e) => updateStage(idx, "description", e.target.value)}
-                          />
-                          <Input
-                            placeholder="Deliverables (comma-separated)"
-                            value={stage.deliverables}
-                            onChange={(e) => updateStage(idx, "deliverables", e.target.value)}
-                          />
+                          <Input placeholder="Stage title" value={stage.title} onChange={(e) => updateStage(idx, "title", e.target.value)} />
+                          <Textarea placeholder="Description" rows={2} value={stage.description} onChange={(e) => updateStage(idx, "description", e.target.value)} />
+                          <Input placeholder="Deliverables (comma-separated)" value={stage.deliverables} onChange={(e) => updateStage(idx, "deliverables", e.target.value)} />
                         </div>
                       )}
                     </div>
@@ -617,48 +650,27 @@ export default function ProtocolManagementPage() {
                         onClick={() => setExpandedAgent(expandedAgent === agent.agentType ? null : agent.agentType)}
                       >
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="font-mono text-xs">
-                            {safeText(agent.agentType)}
-                          </Badge>
+                          <Badge variant="outline" className="font-mono text-xs">{safeText(agent.agentType)}</Badge>
                           <span className="text-sm font-medium">{safeText(agent.name)}</span>
                           <span className="text-xs text-muted-foreground">
                             ({safeNumber(agent.skills.filter((s) => s.trim()).length)} skills)
                           </span>
                         </div>
-                        {expandedAgent === agent.agentType ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
+                        {expandedAgent === agent.agentType ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
                       {expandedAgent === agent.agentType && (
                         <div className="p-3 pt-0 space-y-1.5 border-t">
                           {agent.skills.map((skill, skillIdx) => (
                             <div key={skillIdx} className="flex gap-2">
-                              <Input
-                                placeholder="Skill description"
-                                className="text-sm"
-                                value={skill}
-                                onChange={(e) => updateSkill(agentIdx, skillIdx, e.target.value)}
-                              />
+                              <Input placeholder="Skill description" className="text-sm" value={skill} onChange={(e) => updateSkill(agentIdx, skillIdx, e.target.value)} />
                               {agent.skills.length > 1 && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-9 w-9 p-0 shrink-0 text-destructive hover:text-destructive"
-                                  onClick={() => removeSkill(agentIdx, skillIdx)}
-                                >
+                                <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0 text-destructive hover:text-destructive" onClick={() => removeSkill(agentIdx, skillIdx)}>
                                   <X className="h-4 w-4" />
                                 </Button>
                               )}
                             </div>
                           ))}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-1"
-                            onClick={() => addSkill(agentIdx)}
-                          >
+                          <Button variant="outline" size="sm" className="mt-1" onClick={() => addSkill(agentIdx)}>
                             <Plus className="h-3.5 w-3.5 mr-1" /> Add Skill
                           </Button>
                         </div>
@@ -669,28 +681,24 @@ export default function ProtocolManagementPage() {
               </div>
 
               <Button onClick={saveProtocol} disabled={saving} className="w-full sm:w-auto">
-                {saving ? (
-                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 mr-1.5" />
-                )}
+                {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
                 {editingId ? "Update Protocol" : "Create Protocol"}
               </Button>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── TAB 2: Manage Invites ── */}
-        <TabsContent value="invites" className="space-y-6 mt-6">
+        {/* ── TAB 2: Access Tokens ── */}
+        <TabsContent value="tokens" className="space-y-6 mt-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Invite Management</h2>
+              <h2 className="text-lg font-semibold">Access Tokens</h2>
               <p className="text-sm text-muted-foreground">
-                Create OTP-secured invites for protocol access
+                Generate tokens for users. When a user submits a token, an OTP is sent to your email.
               </p>
             </div>
             <Button onClick={() => setInviteDialogOpen(true)} size="sm">
-              <Plus className="h-4 w-4 mr-1.5" /> Create Invite
+              <Plus className="h-4 w-4 mr-1.5" /> Generate Token
             </Button>
           </div>
 
@@ -698,7 +706,7 @@ export default function ProtocolManagementPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">No invites created yet</p>
+                <p className="text-sm text-muted-foreground">No tokens created yet</p>
               </CardContent>
             </Card>
           ) : (
@@ -708,11 +716,11 @@ export default function ProtocolManagementPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Invite Code</TableHead>
-                        <TableHead>Target</TableHead>
+                        <TableHead>Token Code</TableHead>
+                        <TableHead>Target Email</TableHead>
                         <TableHead>Agent Access</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Expiry</TableHead>
+                        <TableHead>Created</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -724,23 +732,14 @@ export default function ProtocolManagementPage() {
                             <TableCell className="font-mono text-xs font-semibold">
                               {safeText(invite.inviteCode)}
                             </TableCell>
-                            <TableCell>
-                              <div>
-                                <p className="text-sm font-medium">{safeText(invite.targetName) || "—"}</p>
-                                <p className="text-xs text-muted-foreground">{safeText(invite.targetEmail)}</p>
-                              </div>
-                            </TableCell>
+                            <TableCell className="text-sm">{safeText(invite.targetEmail)}</TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
                                 {agentAccessList.slice(0, 3).map((a) => (
-                                  <Badge key={a} variant="outline" className="text-[10px] px-1.5">
-                                    {safeText(a)}
-                                  </Badge>
+                                  <Badge key={a} variant="outline" className="text-[10px] px-1.5">{safeText(a)}</Badge>
                                 ))}
                                 {agentAccessList.length > 3 && (
-                                  <Badge variant="secondary" className="text-[10px] px-1.5">
-                                    +{agentAccessList.length - 3}
-                                  </Badge>
+                                  <Badge variant="secondary" className="text-[10px] px-1.5">+{agentAccessList.length - 3}</Badge>
                                 )}
                               </div>
                             </TableCell>
@@ -749,17 +748,10 @@ export default function ProtocolManagementPage() {
                                 {safeText(invite.status)}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {safeDate(invite.expiresAt)}
-                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{safeDate(invite.createdAt)}</TableCell>
                             <TableCell className="text-right">
                               {invite.status === "PENDING" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 text-destructive hover:text-destructive"
-                                  onClick={() => revokeInvite(invite.id)}
-                                >
+                                <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={() => revokeInvite(invite.id)}>
                                   <Trash2 className="h-3.5 w-3.5 mr-1" /> Revoke
                                 </Button>
                               )}
@@ -775,13 +767,133 @@ export default function ProtocolManagementPage() {
           )}
         </TabsContent>
 
-        {/* ── TAB 3: Access Logs ── */}
+        {/* ── TAB 3: Agent Access Control ── */}
+        <TabsContent value="agent-access" className="space-y-6 mt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Agent Access Control</h2>
+              <p className="text-sm text-muted-foreground">
+                Manage which agents each verified user can access. Changes take effect immediately.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchUserProtocolAccess}>
+              <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh
+            </Button>
+          </div>
+
+          {userProtocolAccessList.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <UserCog className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground">No verified users yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Users will appear here after they verify their access token.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <ScrollArea className="max-h-[500px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User</TableHead>
+                        <TableHead>Protocol</TableHead>
+                        <TableHead>Agent Access</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {userProtocolAccessList.map((ua) => {
+                        const currentAgents = editingUserAccess[ua.userId] || [];
+                        return (
+                          <TableRow key={safeText(ua.id)}>
+                            <TableCell>
+                              <div>
+                                <p className="text-sm font-medium">{safeText(ua.userName) || safeText(ua.user?.name)}</p>
+                                <p className="text-xs text-muted-foreground">{safeText(ua.userEmail) || safeText(ua.user?.email)}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">v{safeText(ua.protocol?.version)}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1.5">
+                                {ALL_AGENT_TYPES.map((agent) => (
+                                  <label
+                                    key={agent.value}
+                                    className={cn(
+                                      "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors border",
+                                      currentAgents.includes(agent.value)
+                                        ? "border-primary bg-primary/10 text-primary font-medium"
+                                        : "border-border text-muted-foreground hover:bg-accent/50"
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="sr-only"
+                                      checked={currentAgents.includes(agent.value)}
+                                      onChange={() => toggleAgentForUser(ua.userId, agent.value)}
+                                    />
+                                    {agent.label}
+                                  </label>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={cn(
+                                "text-[10px]",
+                                ua.isActive
+                                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                  : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                              )}>
+                                {ua.isActive ? "Active" : "Revoked"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7"
+                                  disabled={savingUserAccess === ua.userId || !ua.isActive}
+                                  onClick={() => saveUserAgentAccess(ua.userId)}
+                                >
+                                  {savingUserAccess === ua.userId ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Save className="h-3.5 w-3.5 mr-1" />
+                                  )}
+                                  Save
+                                </Button>
+                                {ua.isActive && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-destructive hover:text-destructive"
+                                    onClick={() => revokeUserAccess(ua.userId)}
+                                  >
+                                    <Ban className="h-3.5 w-3.5 mr-1" /> Revoke
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── TAB 4: Access Logs ── */}
         <TabsContent value="logs" className="space-y-6 mt-6">
           <div>
             <h2 className="text-lg font-semibold">Access Logs</h2>
-            <p className="text-sm text-muted-foreground">
-              Records of all protocol access events
-            </p>
+            <p className="text-sm text-muted-foreground">Records of all protocol access events</p>
           </div>
 
           {accessLogs.length === 0 ? (
@@ -811,22 +923,16 @@ export default function ProtocolManagementPage() {
                           <TableRow key={safeText(log.id)}>
                             <TableCell className="text-sm">{safeText(log.userEmail)}</TableCell>
                             <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                v{safeText(log.protocol?.version)}
-                              </Badge>
+                              <Badge variant="outline" className="text-xs">v{safeText(log.protocol?.version)}</Badge>
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
                                 {agentAccessList.map((a) => (
-                                  <Badge key={a} variant="secondary" className="text-[10px] px-1.5">
-                                    {safeText(a)}
-                                  </Badge>
+                                  <Badge key={a} variant="secondary" className="text-[10px] px-1.5">{safeText(a)}</Badge>
                                 ))}
                               </div>
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {safeDate(log.createdAt)}
-                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{safeDate(log.createdAt)}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -839,13 +945,13 @@ export default function ProtocolManagementPage() {
         </TabsContent>
       </Tabs>
 
-      {/* ── Create Invite Dialog ── */}
+      {/* ── Generate Token Dialog ── */}
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Protocol Invite</DialogTitle>
+            <DialogTitle>Generate Access Token</DialogTitle>
             <DialogDescription>
-              Generate an OTP-secured invite code for protocol access. Share the code and OTP verbally with the user.
+              Create a token for a user. When they submit it, an OTP will be sent to your email.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -856,14 +962,6 @@ export default function ProtocolManagementPage() {
                 placeholder="user@company.com"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Target Name</label>
-              <Input
-                placeholder="Full name (optional)"
-                value={inviteName}
-                onChange={(e) => setInviteName(e.target.value)}
               />
             </div>
             <div>
@@ -925,78 +1023,40 @@ export default function ProtocolManagementPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={createInvite} disabled={creatingInvite}>
-              {creatingInvite ? (
-                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-1.5" />
-              )}
-              Generate Invite
+            <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>Cancel</Button>
+            <Button onClick={createToken} disabled={creatingInvite}>
+              {creatingInvite ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Plus className="h-4 w-4 mr-1.5" />}
+              Generate Token
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Success Dialog (Invite Code + OTP) ── */}
-      <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>
+      {/* ── Token Created Dialog (just shows token code) ── */}
+      <Dialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-500" /> Invite Created Successfully
+              <Check className="h-5 w-5 text-green-500" /> Token Generated
             </DialogTitle>
             <DialogDescription>
-              Share the following information with the user. Do not send this via email — share it verbally or through a secure channel.
+              Share this token with the user. When they submit it, an OTP will be sent to your email.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Invite Code */}
             <div className="p-4 bg-muted/50 rounded-lg border-2 border-dashed">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                Invite Code
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Access Token</p>
               <div className="flex items-center justify-between gap-2">
                 <p className="font-mono text-lg font-bold tracking-wider">{safeText(generatedCode)}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => copyToClipboard(generatedCode, "code")}
-                >
+                <Button variant="outline" size="sm" className="shrink-0" onClick={() => copyToClipboard(generatedCode)}>
                   {copiedCode ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
-
-            {/* OTP */}
-            <div className="p-4 bg-muted/50 rounded-lg border-2 border-dashed">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                One-Time OTP
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-mono text-lg font-bold tracking-widest text-primary">
-                  {safeText(generatedOtp)}
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => copyToClipboard(generatedOtp, "otp")}
-                >
-                  {copiedOtp ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-
-            {/* Expiry */}
-            <p className="text-xs text-muted-foreground text-center">
-              Expires: {safeText(generatedExpiry)}
-            </p>
+            <p className="text-xs text-muted-foreground text-center">Expires: {safeText(generatedExpiry)}</p>
           </div>
           <DialogFooter>
-            <Button onClick={() => setSuccessDialogOpen(false)}>Done</Button>
+            <Button onClick={() => setTokenDialogOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

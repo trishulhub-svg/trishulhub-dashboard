@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import {
   ShieldCheck,
   Key,
@@ -13,13 +14,15 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronUp,
+  Clock,
+  Lock,
+  UserCheck,
 } from "lucide-react";
 import { cn, safeText, safeNumber, safeArray, safeJsonParse } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
 // ── Types ──
@@ -44,7 +47,7 @@ interface ProtocolData {
   agentSkills: AgentSkill[];
 }
 
-type Step = "invite_code" | "otp" | "verified" | "error";
+type Step = "check" | "invite_code" | "otp_sent" | "otp_verify" | "verified" | "error";
 
 const AGENT_COLORS: Record<string, string> = {
   DEV: "text-blue-500 border-blue-500/30 bg-blue-500/5",
@@ -57,21 +60,49 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 export default function ProtocolAccessPage() {
-  const [step, setStep] = useState<Step>("invite_code");
+  const { data: session, status } = useSession();
+  const [step, setStep] = useState<Step>("check");
   const [inviteCode, setInviteCode] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
-  const [targetName, setTargetName] = useState("");
-  const [protocolVersion, setProtocolVersion] = useState("");
-  const [protocol, setProtocol] = useState<ProtocolData | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [protocol, setProtocol] = useState<ProtocolData | null>(null);
   const [expandedStage, setExpandedStage] = useState<number | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
-  // Step 1: Submit invite code
-  const submitInviteCode = async () => {
+  // On mount, check if user already has active protocol access
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/protocol/verify");
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          if (data.hasAccess && data.protocol) {
+            setProtocol(data.protocol as ProtocolData);
+            setStep("verified");
+            return;
+          }
+        }
+      } catch {
+        // Non-critical — just show the token entry form
+      }
+      if (!cancelled) {
+        setStep("invite_code");
+        setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [status]);
+
+  // Step 1: Submit access token
+  const submitAccessToken = async () => {
     if (!inviteCode.trim()) {
-      toast.error("Please enter your invite code");
+      toast.error("Please enter your access token");
       return;
     }
     setLoading(true);
@@ -83,12 +114,10 @@ export default function ProtocolAccessPage() {
         body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
       });
       const data = await res.json();
-      if (res.ok && data.step === "otp_required") {
-        setTargetName(safeText(data.targetName));
-        setProtocolVersion(safeText(data.protocolVersion));
-        setStep("otp");
+      if (res.ok && data.step === "otp_sent") {
+        setStep("otp_sent");
       } else {
-        setErrorMsg(safeText(data.error, "Invalid invite code"));
+        setErrorMsg(safeText(data.error, "Invalid access token"));
         setStep("error");
       }
     } catch {
@@ -102,6 +131,10 @@ export default function ProtocolAccessPage() {
   const submitOtp = async () => {
     if (!otp.trim()) {
       toast.error("Please enter the OTP");
+      return;
+    }
+    if (otp.trim().length !== 6) {
+      toast.error("OTP must be 6 digits");
       return;
     }
     setLoading(true);
@@ -136,12 +169,19 @@ export default function ProtocolAccessPage() {
     setInviteCode("");
     setOtp("");
     setProtocol(null);
-    setTargetName("");
-    setProtocolVersion("");
     setErrorMsg("");
     setExpandedStage(null);
     setExpandedAgent(null);
   };
+
+  // ── Initial loading ──
+  if (status === "loading" || (loading && step === "check")) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -154,49 +194,53 @@ export default function ProtocolAccessPage() {
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Protocol Access</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Verify your invite code to access the Trishul Protocol
+          {step === "verified"
+            ? "Trishul Protocol — Secure Access Granted"
+            : "Verify your access token to view the Trishul Protocol"}
         </p>
       </div>
 
-      {/* Step Indicators */}
-      <div className="flex items-center justify-center gap-2">
-        {[
-          { label: "Invite Code", key: "invite_code" },
-          { label: "OTP", key: "otp" },
-          { label: "Access", key: "verified" },
-        ].map((s, idx) => (
-          <div key={s.key} className="flex items-center gap-2">
-            {idx > 0 && <ArrowRight className="h-4 w-4 text-muted-foreground" />}
-            <div
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors",
-                step === s.key || (s.key === "otp" && step === "verified")
-                  ? "bg-primary text-primary-foreground"
-                  : s.key === "error"
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-muted text-muted-foreground"
-              )}
-            >
-              {s.key === "verified" && step === "verified" ? (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              ) : (
+      {/* Step Indicators (hidden when verified) */}
+      {step !== "verified" && step !== "check" && (
+        <div className="flex items-center justify-center gap-2">
+          {[
+            { label: "Token", key: "invite_code" },
+            { label: "OTP", key: "otp_sent" },
+            { label: "Access", key: "verified" },
+          ].map((s, idx) => (
+            <div key={s.key} className="flex items-center gap-2">
+              {idx > 0 && <ArrowRight className="h-4 w-4 text-muted-foreground" />}
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                  step === s.key || step === "otp_verify"
+                    ? idx === 1
+                      ? "bg-primary text-primary-foreground"
+                      : step === s.key
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                    : step === "error"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-muted text-muted-foreground"
+                )}
+              >
                 <span className="font-bold">{idx + 1}</span>
-              )}
-              {s.label}
+                {s.label}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* ── STEP: Invite Code ── */}
       {step === "invite_code" && (
         <Card className="border-2">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Key className="h-5 w-5" /> Enter Your Invite Code
+              <Key className="h-5 w-5" /> Enter Your Protocol Access Token
             </CardTitle>
             <CardDescription>
-              Enter the invite code provided by your administrator
+              Enter the token provided by your TrishulHub administrator
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -207,37 +251,45 @@ export default function ProtocolAccessPage() {
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 className="font-mono tracking-wider text-center text-lg"
                 maxLength={14}
-                onKeyDown={(e) => e.key === "Enter" && submitInviteCode()}
+                onKeyDown={(e) => e.key === "Enter" && submitAccessToken()}
               />
-              <Button onClick={submitInviteCode} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+              <Button onClick={submitAccessToken} disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              The code format is TRISHUL- followed by 6 characters
+              The token format is TRISHUL- followed by 6 characters
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* ── STEP: OTP ── */}
-      {step === "otp" && (
+      {/* ── STEP: OTP Sent to Administrator ── */}
+      {(step === "otp_sent" || step === "otp_verify") && (
         <Card className="border-2 border-primary/30">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5" /> Enter OTP
+              <Lock className="h-5 w-5 text-primary" /> OTP Sent to Administrator
             </CardTitle>
             <CardDescription>
-              {targetName
-                ? `Hello, ${targetName}! Enter the 6-digit OTP provided by your admin.`
-                : "Enter the 6-digit OTP provided by your administrator."}
+              A 6-digit OTP has been sent to your administrator&apos;s email.
+              Please contact them to get the OTP.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-3 bg-muted/50 rounded-lg border text-center">
-              <p className="text-xs text-muted-foreground mb-1">Protocol Version</p>
-              <Badge variant="outline" className="font-mono">v{safeText(protocolVersion)}</Badge>
+            {/* Warning banner */}
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  Do NOT refresh this page
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  The OTP expires in 5 minutes. Contact your administrator to get the OTP, then enter it below.
+                </p>
+              </div>
             </div>
+
             <div className="flex gap-2">
               <Input
                 placeholder="000000"
@@ -246,13 +298,14 @@ export default function ProtocolAccessPage() {
                 className="font-mono tracking-widest text-center text-2xl"
                 maxLength={6}
                 onKeyDown={(e) => e.key === "Enter" && submitOtp()}
+                autoFocus
               />
-              <Button onClick={submitOtp} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
+              <Button onClick={submitOtp} disabled={loading || otp.length !== 6}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify OTP"}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Enter the OTP your admin shared with you verbally
+              Enter the 6-digit OTP your administrator shared with you verbally
             </p>
           </CardContent>
         </Card>
@@ -294,6 +347,14 @@ export default function ProtocolAccessPage() {
             </CardHeader>
           </Card>
 
+          {/* Linked account notice */}
+          <div className="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
+            <UserCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              Protocol access linked to your account. Your administrator controls which agents you can access.
+            </p>
+          </div>
+
           {/* Protocol Content */}
           {protocol.content && (
             <Card>
@@ -327,10 +388,7 @@ export default function ProtocolAccessPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {protocol.stageDescriptions.map((stage, idx) => (
-                  <div
-                    key={idx}
-                    className="border rounded-lg overflow-hidden transition-colors hover:border-primary/30"
-                  >
+                  <div key={idx} className="border rounded-lg overflow-hidden transition-colors hover:border-primary/30">
                     <button
                       type="button"
                       className="flex items-center justify-between w-full p-4 hover:bg-accent/30 transition-colors text-left"
@@ -342,30 +400,20 @@ export default function ProtocolAccessPage() {
                         </div>
                         <div>
                           <p className="font-semibold text-sm">{safeText(stage.title)}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {safeText(stage.description)}
-                          </p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{safeText(stage.description)}</p>
                         </div>
                       </div>
-                      {expandedStage === idx ? (
-                        <ChevronUp className="h-5 w-5 text-muted-foreground shrink-0" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />
-                      )}
+                      {expandedStage === idx ? <ChevronUp className="h-5 w-5 text-muted-foreground shrink-0" /> : <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />}
                     </button>
                     {expandedStage === idx && (
                       <div className="px-4 pb-4 pt-0 border-t">
                         <p className="text-sm mt-3 leading-relaxed">{safeText(stage.description)}</p>
                         {stage.deliverables && (
                           <div className="mt-3">
-                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                              Deliverables
-                            </p>
+                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Deliverables</p>
                             <div className="flex flex-wrap gap-1.5">
                               {stage.deliverables.split(",").map((d, i) => (
-                                <Badge key={i} variant="secondary" className="text-xs">
-                                  {safeText(d.trim())}
-                                </Badge>
+                                <Badge key={i} variant="secondary" className="text-xs">{safeText(d.trim())}</Badge>
                               ))}
                             </div>
                           </div>
@@ -393,34 +441,21 @@ export default function ProtocolAccessPage() {
                 {protocol.agentSkills.map((agent) => (
                   <div
                     key={safeText(agent.agentType)}
-                    className={cn(
-                      "border rounded-lg overflow-hidden",
-                      AGENT_COLORS[agent.agentType] || "border-border"
-                    )}
+                    className={cn("border rounded-lg overflow-hidden", AGENT_COLORS[agent.agentType] || "border-border")}
                   >
                     <button
                       type="button"
                       className="flex items-center justify-between w-full p-4 hover:bg-accent/30 transition-colors text-left"
-                      onClick={() =>
-                        setExpandedAgent(expandedAgent === agent.agentType ? null : agent.agentType)
-                      }
+                      onClick={() => setExpandedAgent(expandedAgent === agent.agentType ? null : agent.agentType)}
                     >
                       <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="font-mono text-xs">
-                          {safeText(agent.agentType)}
-                        </Badge>
+                        <Badge variant="outline" className="font-mono text-xs">{safeText(agent.agentType)}</Badge>
                         <div>
                           <p className="font-semibold text-sm">{safeText(agent.name)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {safeNumber(agent.skills.length)} capabilities
-                          </p>
+                          <p className="text-xs text-muted-foreground">{safeNumber(agent.skills.length)} capabilities</p>
                         </div>
                       </div>
-                      {expandedAgent === agent.agentType ? (
-                        <ChevronUp className="h-5 w-5 shrink-0" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 shrink-0" />
-                      )}
+                      {expandedAgent === agent.agentType ? <ChevronUp className="h-5 w-5 shrink-0" /> : <ChevronDown className="h-5 w-5 shrink-0" />}
                     </button>
                     {expandedAgent === agent.agentType && (
                       <div className="px-4 pb-4 pt-0 border-t">
