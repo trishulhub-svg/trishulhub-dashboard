@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { storeAdminOtp, getAdminOtp, consumeAdminOtp, generateOtp } from "@/lib/protocol-otp-store";
-import { sendEmailWithFailover, logEmailEvent } from "@/lib/email";
+import { sendEmailWithFailover } from "@/lib/email";
 
 // GET — Check if logged-in user has active protocol access
 export async function GET(request: NextRequest) {
@@ -34,40 +34,18 @@ export async function GET(request: NextRequest) {
       userAgentAccess = [];
     }
 
-    // Parse protocol data
-    let stageDescriptions: unknown[] = [];
-    let agentSkills: unknown[] = [];
-    try {
-      stageDescriptions = JSON.parse(userAccess.protocol.stageDescriptions);
-    } catch {
-      stageDescriptions = [];
-    }
-    try {
-      agentSkills = JSON.parse(userAccess.protocol.agentSkills);
-    } catch {
-      agentSkills = [];
-    }
-
-    // Filter agent skills to only include agents the user has access to
-    const filteredAgentSkills = agentSkills.filter((agent: any) =>
-      userAgentAccess.includes(agent.agentType)
-    );
-
     // Update lastAccessAt
     await db.userProtocolAccess.update({
       where: { userId },
       data: { lastAccessAt: new Date() },
     });
 
+    // SECURITY: Never send protocol content to non-SUPER_ADMIN users
+    // They only need to know their agent access list
     return NextResponse.json({
       hasAccess: true,
-      protocol: {
-        version: userAccess.protocol.version,
-        title: userAccess.protocol.title,
-        content: userAccess.protocol.content,
-        stageDescriptions,
-        agentSkills: filteredAgentSkills,
-      },
+      protocolVersion: userAccess.protocol.version,
+      agentAccess: userAgentAccess,
     });
   } catch (error: any) {
     console.error("[protocol/verify] GET error:", error);
@@ -295,34 +273,11 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // Parse protocol data
-    let stageDescriptions: unknown[] = [];
-    let agentSkills: unknown[] = [];
-    try {
-      stageDescriptions = JSON.parse(invite.protocol.stageDescriptions);
-    } catch {
-      stageDescriptions = [];
-    }
-    try {
-      agentSkills = JSON.parse(invite.protocol.agentSkills);
-    } catch {
-      agentSkills = [];
-    }
-
-    // Filter agent skills to only include agents the user has access to
-    const filteredAgentSkills = agentSkills.filter((agent: any) =>
-      userAgentAccess.includes(agent.agentType)
-    );
-
+    // SECURITY: Never send protocol content to non-SUPER_ADMIN users
     return NextResponse.json({
       success: true,
-      protocol: {
-        version: invite.protocol.version,
-        title: invite.protocol.title,
-        content: invite.protocol.content,
-        stageDescriptions,
-        agentSkills: filteredAgentSkills,
-      },
+      protocolVersion: invite.protocol.version,
+      agentAccess: userAgentAccess,
     });
   } catch (error: any) {
     console.error("[protocol/verify] PUT error:", error);

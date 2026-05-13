@@ -1,54 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ShieldCheck,
-  Key,
+  Upload,
   Loader2,
   AlertCircle,
   CheckCircle2,
-  FileText,
-  Cpu,
   ArrowRight,
   RotateCcw,
-  ChevronDown,
-  ChevronUp,
   Clock,
   Lock,
-  UserCheck,
+  Key,
+  Cpu,
+  FileText,
 } from "lucide-react";
-import { cn, safeText, safeNumber, safeArray, safeJsonParse } from "@/lib/utils";
+import { cn, safeText } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
-// ── Types ──
-interface StageDesc {
-  stage: number;
-  title: string;
-  description: string;
-  deliverables: string;
-}
-
-interface AgentSkill {
-  agentType: string;
-  name: string;
-  skills: string[];
-}
-
-interface ProtocolData {
-  version: string;
-  title: string;
-  content: string;
-  stageDescriptions: StageDesc[];
-  agentSkills: AgentSkill[];
-}
-
-type Step = "check" | "invite_code" | "otp_sent" | "otp_verify" | "verified" | "error";
+type Step = "check" | "upload" | "otp_sent" | "otp_verify" | "verified" | "error";
 
 const AGENT_COLORS: Record<string, string> = {
   DEV: "text-blue-500 border-blue-500/30 bg-blue-500/5",
@@ -60,9 +36,20 @@ const AGENT_COLORS: Record<string, string> = {
   SUPPORT: "text-teal-500 border-teal-500/30 bg-teal-500/5",
 };
 
+const AGENT_LABELS: Record<string, string> = {
+  DEV: "Dev Agent",
+  CLIENT_HUNTER: "Client Hunter",
+  FINANCE: "Finance Agent",
+  PROJECT_MANAGER: "Project Manager",
+  HR: "HR Agent",
+  CONTENT: "Content Agent",
+  SUPPORT: "Support Agent",
+};
+
 export default function ProtocolAccessPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // SUPER_ADMIN should use the management panel, not this page
   useEffect(() => {
@@ -76,13 +63,15 @@ export default function ProtocolAccessPage() {
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [protocol, setProtocol] = useState<ProtocolData | null>(null);
-  const [expandedStage, setExpandedStage] = useState<number | null>(null);
-  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [userAgentAccess, setUserAgentAccess] = useState<string[]>([]);
+  const [protocolVersion, setProtocolVersion] = useState("");
 
   // On mount, check if user already has active protocol access
   useEffect(() => {
     if (status !== "authenticated") return;
+    if (session?.user?.role === "SUPER_ADMIN") return;
     let cancelled = false;
 
     (async () => {
@@ -91,28 +80,51 @@ export default function ProtocolAccessPage() {
         const res = await fetch("/api/protocol/verify");
         if (res.ok && !cancelled) {
           const data = await res.json();
-          if (data.hasAccess && data.protocol) {
-            setProtocol(data.protocol as ProtocolData);
+          if (data.hasAccess) {
+            setUserAgentAccess(data.agentAccess || []);
+            setProtocolVersion(data.protocolVersion || "");
             setStep("verified");
             return;
           }
         }
       } catch {
-        // Non-critical — just show the token entry form
+        // Non-critical
       }
       if (!cancelled) {
-        setStep("invite_code");
+        setStep("upload");
         setLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status]);
+  }, [status, session]);
+
+  // ── Read file and extract invite code ──
+  const processFile = async (file: File) => {
+    if (file.size > 1024 * 100) {
+      toast.error("File is too large. Maximum size is 100KB.");
+      return;
+    }
+
+    const text = await file.text();
+    setFileName(file.name);
+
+    // Extract TRISHUL-XXXXXX code from file content
+    const match = text.match(/TRISHUL-[A-Z2-9]{6}/i);
+    if (match) {
+      setInviteCode(match[0].toUpperCase());
+      submitAccessToken(match[0].toUpperCase());
+    } else {
+      // No code found in file — show error
+      setErrorMsg("This file does not contain a valid TrishulHub access code. Please use the document provided by your administrator.");
+      setStep("error");
+    }
+  };
 
   // Step 1: Submit access token
-  const submitAccessToken = async () => {
-    if (!inviteCode.trim()) {
-      toast.error("Please enter your access token");
+  const submitAccessToken = async (code: string) => {
+    if (!code.trim()) {
+      toast.error("Please upload the access document or enter the code");
       return;
     }
     setLoading(true);
@@ -121,7 +133,7 @@ export default function ProtocolAccessPage() {
       const res = await fetch("/api/protocol/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
+        body: JSON.stringify({ inviteCode: code.trim().toUpperCase() }),
       });
       const data = await res.json();
       if (res.ok && data.step === "otp_sent") {
@@ -160,7 +172,8 @@ export default function ProtocolAccessPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setProtocol(data.protocol as ProtocolData);
+        setUserAgentAccess(data.agentAccess || []);
+        setProtocolVersion(data.protocolVersion || "");
         setStep("verified");
       } else {
         setErrorMsg(safeText(data.error, "Verification failed"));
@@ -173,15 +186,33 @@ export default function ProtocolAccessPage() {
     setLoading(false);
   };
 
+  // File upload handler
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
+  // Manual code entry
+  const handleManualSubmit = () => {
+    submitAccessToken(inviteCode);
+  };
+
   // Reset flow
   const resetFlow = () => {
-    setStep("invite_code");
+    setStep("upload");
     setInviteCode("");
     setOtp("");
-    setProtocol(null);
+    setFileName("");
     setErrorMsg("");
-    setExpandedStage(null);
-    setExpandedAgent(null);
+    setUserAgentAccess([]);
+    setProtocolVersion("");
   };
 
   // ── Initial loading ──
@@ -194,7 +225,7 @@ export default function ProtocolAccessPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       {/* Header */}
       <div className="text-center">
         <div className="flex justify-center mb-3">
@@ -205,8 +236,8 @@ export default function ProtocolAccessPage() {
         <h1 className="text-2xl font-bold tracking-tight">Protocol Access</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {step === "verified"
-            ? "Trishul Protocol — Secure Access Granted"
-            : "Verify your access token to view the Trishul Protocol"}
+            ? "Protocol Access — Verified"
+            : "Upload your access document to connect to the Trishul Protocol"}
         </p>
       </div>
 
@@ -214,9 +245,9 @@ export default function ProtocolAccessPage() {
       {step !== "verified" && step !== "check" && (
         <div className="flex items-center justify-center gap-2">
           {[
-            { label: "Token", key: "invite_code" },
+            { label: "Upload", key: "upload" },
             { label: "OTP", key: "otp_sent" },
-            { label: "Access", key: "verified" },
+            { label: "Done", key: "verified" },
           ].map((s, idx) => (
             <div key={s.key} className="flex items-center gap-2">
               {idx > 0 && <ArrowRight className="h-4 w-4 text-muted-foreground" />}
@@ -242,18 +273,55 @@ export default function ProtocolAccessPage() {
         </div>
       )}
 
-      {/* ── STEP: Invite Code ── */}
-      {step === "invite_code" && (
+      {/* ═══════════ STEP: Upload Document ═══════════ */}
+      {step === "upload" && (
         <Card className="border-2">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Key className="h-5 w-5" /> Enter Your Protocol Access Token
+              <Upload className="h-5 w-5" /> Upload Access Document
             </CardTitle>
             <CardDescription>
-              Enter the token provided by your TrishulHub administrator
+              Upload the access document provided by your administrator, or enter the access code manually
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Drag & Drop Area */}
+            <div
+              className={cn(
+                "border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer",
+                dragOver
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-accent/30"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className={cn("h-8 w-8 mx-auto mb-2", dragOver ? "text-primary" : "text-muted-foreground")} />
+              <p className="text-sm font-medium">
+                {dragOver ? "Drop file here" : "Click to upload or drag and drop"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Supports .txt files — the document from your administrator
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.text"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t" />
+              <span className="text-xs text-muted-foreground">or enter code manually</span>
+              <div className="flex-1 border-t" />
+            </div>
+
+            {/* Manual Code Entry */}
             <div className="flex gap-2">
               <Input
                 placeholder="TRISHUL-XXXXXX"
@@ -261,33 +329,35 @@ export default function ProtocolAccessPage() {
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 className="font-mono tracking-wider text-center text-lg"
                 maxLength={14}
-                onKeyDown={(e) => e.key === "Enter" && submitAccessToken()}
+                onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
               />
-              <Button onClick={submitAccessToken} disabled={loading}>
+              <Button onClick={handleManualSubmit} disabled={loading || !inviteCode.trim()}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground text-center">
-              The token format is TRISHUL- followed by 6 characters
-            </p>
+            {fileName && (
+              <p className="text-xs text-muted-foreground text-center">
+                File: {safeText(fileName)}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* ── STEP: OTP Sent to Administrator ── */}
+      {/* ═══════════ STEP: OTP Sent ═══════════ */}
       {(step === "otp_sent" || step === "otp_verify") && (
         <Card className="border-2 border-primary/30">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Lock className="h-5 w-5 text-primary" /> OTP Sent to Administrator
+              <Lock className="h-5 w-5 text-primary" /> OTP Verification Required
             </CardTitle>
             <CardDescription>
               A 6-digit OTP has been sent to your administrator&apos;s email.
-              Please contact them to get the OTP.
+              Contact your administrator to get the OTP.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Warning banner */}
+            {/* Warning */}
             <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
               <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <div>
@@ -295,7 +365,7 @@ export default function ProtocolAccessPage() {
                   Do NOT refresh this page
                 </p>
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                  The OTP expires in 5 minutes. Contact your administrator to get the OTP, then enter it below.
+                  The OTP expires in 5 minutes. Contact your administrator, get the OTP, and enter it below.
                 </p>
               </div>
             </div>
@@ -315,13 +385,13 @@ export default function ProtocolAccessPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Enter the 6-digit OTP your administrator shared with you verbally
+              Enter the 6-digit OTP your administrator shared with you
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* ── STEP: Error ── */}
+      {/* ═══════════ STEP: Error ═══════════ */}
       {step === "error" && (
         <Card className="border-destructive/50">
           <CardContent className="py-8 text-center space-y-4">
@@ -337,163 +407,105 @@ export default function ProtocolAccessPage() {
         </Card>
       )}
 
-      {/* ── STEP: Verified — Protocol Content ── */}
-      {step === "verified" && protocol && (
-        <div className="space-y-6">
-          {/* Protocol Header */}
-          <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+      {/* ═══════════ STEP: Verified — Access Granted ═══════════ */}
+      {step === "verified" && (
+        <div className="space-y-4">
+          {/* Success Banner */}
+          <Card className="border-green-500/30 bg-gradient-to-br from-green-500/5 to-transparent">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl">{safeText(protocol.title)}</CardTitle>
-                  <CardDescription className="mt-1">
-                    Version {safeText(protocol.version)} &middot; Secure Access Granted
-                  </CardDescription>
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Protocol Access Granted</CardTitle>
+                    <CardDescription>
+                      Trishul Protocol {protocolVersion ? `v${safeText(protocolVersion)}` : ""} is now active in your workspace
+                    </CardDescription>
+                  </div>
                 </div>
                 <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Verified
+                  Verified
                 </Badge>
               </div>
             </CardHeader>
           </Card>
 
-          {/* Linked account notice */}
-          <div className="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
-            <UserCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <p className="text-sm text-muted-foreground">
-              Protocol access linked to your account. Your administrator controls which agents you can access.
-            </p>
-          </div>
-
-          {/* Protocol Content */}
-          {protocol.content && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-5 w-5" /> Protocol Document
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  {protocol.content.split("\n").map((line, i) => {
-                    const trimmed = line.trim();
-                    if (!trimmed) return <br key={i} />;
-                    if (trimmed.startsWith("# ")) return <h1 key={i} className="text-2xl font-bold mt-6 mb-3">{trimmed.slice(2)}</h1>;
-                    if (trimmed.startsWith("## ")) return <h2 key={i} className="text-xl font-semibold mt-5 mb-2">{trimmed.slice(3)}</h2>;
-                    if (trimmed.startsWith("### ")) return <h3 key={i} className="text-lg font-semibold mt-4 mb-2">{trimmed.slice(4)}</h3>;
-                    if (trimmed.startsWith("- ")) return <li key={i} className="ml-4 list-disc">{trimmed.slice(2)}</li>;
-                    return <p key={i} className="my-1">{trimmed}</p>;
-                  })}
+          {/* Your Agent Access */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Cpu className="h-5 w-5" /> Your Agent Access
+              </CardTitle>
+              <CardDescription>
+                These are the agents you can use in your workspace. Your administrator controls this list.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {userAgentAccess.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {userAgentAccess.map((agentType) => (
+                    <div
+                      key={agentType}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border",
+                        AGENT_COLORS[agentType] || "border-border"
+                      )}
+                    >
+                      <div className="h-8 w-8 rounded-full bg-current/10 flex items-center justify-center shrink-0">
+                        <Cpu className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">
+                          {AGENT_LABELS[agentType] || safeText(agentType)}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-mono">{safeText(agentType)}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Stage Descriptions */}
-          {protocol.stageDescriptions && protocol.stageDescriptions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Development Stages</CardTitle>
-                <CardDescription>The 7-stage development lifecycle</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {protocol.stageDescriptions.map((stage, idx) => (
-                  <div key={idx} className="border rounded-lg overflow-hidden transition-colors hover:border-primary/30">
-                    <button
-                      type="button"
-                      className="flex items-center justify-between w-full p-4 hover:bg-accent/30 transition-colors text-left"
-                      onClick={() => setExpandedStage(expandedStage === idx ? null : idx)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
-                          {safeNumber(stage.stage)}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-sm">{safeText(stage.title)}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{safeText(stage.description)}</p>
-                        </div>
-                      </div>
-                      {expandedStage === idx ? <ChevronUp className="h-5 w-5 text-muted-foreground shrink-0" /> : <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />}
-                    </button>
-                    {expandedStage === idx && (
-                      <div className="px-4 pb-4 pt-0 border-t">
-                        <p className="text-sm mt-3 leading-relaxed">{safeText(stage.description)}</p>
-                        {stage.deliverables && (
-                          <div className="mt-3">
-                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Deliverables</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {stage.deliverables.split(",").map((d, i) => (
-                                <Badge key={i} variant="secondary" className="text-xs">{safeText(d.trim())}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Agent Skills */}
-          {protocol.agentSkills && protocol.agentSkills.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Cpu className="h-5 w-5" /> Your Agent Capabilities
-                </CardTitle>
-                <CardDescription>
-                  AI agents you have access to based on your permissions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {protocol.agentSkills.map((agent) => (
-                  <div
-                    key={safeText(agent.agentType)}
-                    className={cn("border rounded-lg overflow-hidden", AGENT_COLORS[agent.agentType] || "border-border")}
-                  >
-                    <button
-                      type="button"
-                      className="flex items-center justify-between w-full p-4 hover:bg-accent/30 transition-colors text-left"
-                      onClick={() => setExpandedAgent(expandedAgent === agent.agentType ? null : agent.agentType)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="font-mono text-xs">{safeText(agent.agentType)}</Badge>
-                        <div>
-                          <p className="font-semibold text-sm">{safeText(agent.name)}</p>
-                          <p className="text-xs text-muted-foreground">{safeNumber(agent.skills.length)} capabilities</p>
-                        </div>
-                      </div>
-                      {expandedAgent === agent.agentType ? <ChevronUp className="h-5 w-5 shrink-0" /> : <ChevronDown className="h-5 w-5 shrink-0" />}
-                    </button>
-                    {expandedAgent === agent.agentType && (
-                      <div className="px-4 pb-4 pt-0 border-t">
-                        <ul className="space-y-1.5 mt-3">
-                          {agent.skills.map((skill, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm">
-                              <span className="h-1.5 w-1.5 rounded-full bg-current mt-1.5 shrink-0" />
-                              {safeText(skill)}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Security Notice */}
-          <Card className="bg-muted/30">
-            <CardContent className="py-4">
-              <p className="text-xs text-muted-foreground text-center">
-                This protocol document is controlled and distributed by TrishulHub administration.
-                Unauthorized distribution, modification, or sharing of this document is strictly prohibited.
-              </p>
+              ) : (
+                <div className="py-6 text-center">
+                  <p className="text-sm text-muted-foreground">No agent access configured</p>
+                  <p className="text-xs text-muted-foreground mt-1">Contact your administrator</p>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* How to use */}
+          <Card className="bg-muted/30">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-5 w-5" /> How to Use
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                  Go to your Workspace and start a conversation with any available agent
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                  The Trishul Protocol is automatically applied to your agent sessions
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                  Your administrator can change your agent access at any time
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          {/* Security Notice */}
+          <div className="text-center py-2">
+            <p className="text-xs text-muted-foreground">
+              Protocol access is controlled by TrishulHub administration.
+              Unauthorized access attempts are logged and monitored.
+            </p>
+          </div>
         </div>
       )}
     </div>
