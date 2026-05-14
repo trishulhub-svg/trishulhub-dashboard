@@ -1,47 +1,24 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles, KeyRound } from "lucide-react";
+import { KeyRound, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import dynamic from "next/dynamic";
 
-/* ─── Data ─── */
-const features = [
-  {
-    icon: Cpu,
-    title: "AI Workspace",
-    description:
-      "Collaborative AI workspace for development, management, and communication.",
-    accentDark: "rgba(6, 182, 212, 1)",
-    glowDark: "rgba(6, 182, 212, 0.15)",
-    accentLight: "rgba(6, 150, 180, 1)",
-    glowLight: "rgba(6, 150, 180, 0.10)",
-  },
-  {
-    icon: Shield,
-    title: "OTP Authentication",
-    description:
-      "Secure email-based login with 6-digit OTP and 5-minute expiry.",
-    accentDark: "rgba(52, 211, 153, 1)",
-    glowDark: "rgba(52, 211, 153, 0.15)",
-    accentLight: "rgba(16, 160, 120, 1)",
-    glowLight: "rgba(16, 160, 120, 0.10)",
-  },
-  {
-    icon: Rocket,
-    title: "Live Protocol",
-    description:
-      "Trishul Protocol v5.0 — structured 7-stage development pipeline.",
-    accentDark: "rgba(168, 85, 247, 1)",
-    glowDark: "rgba(168, 85, 247, 0.15)",
-    accentLight: "rgba(140, 60, 210, 1)",
-    glowLight: "rgba(140, 60, 210, 0.10)",
-  },
+/* ─── Three.js Canvas (dynamic import — no SSR) ─── */
+const ParticleCanvas = dynamic(() => import("./ParticleCanvas"), { ssr: false });
+
+/* ─── Shape Data ─── */
+const SHAPES = [
+  { key: "Trishulhub", title: "TRISHULHUB", desc: "Your Personal Workspace." },
+  { key: "AI", title: "AI POWERED", desc: "Intelligent automation at your fingertips." },
+  { key: "Secure", title: "SECURE", desc: "Enterprise-grade security protocols." },
+  { key: "Protocol", title: "LIVE PROTOCOL", desc: "Real-time collaboration & deployment." },
+  { key: "Workspace", title: "WORKSPACE", desc: "Everything you need, in one place." },
+  { key: "Ready", title: "READY?", desc: "I am ready to cook." },
 ];
-
-const MARQUEE_TEXT =
-  "DEVELOPMENT \u2022 WORKSPACE \u2022 DESIGN \u2022 COLLABORATION \u2022 DEPLOYMENT \u2022 PROTOCOL \u2022 ";
 
 /* ─── Component ─── */
 export default function TrishulWorkspacePage() {
@@ -52,1805 +29,653 @@ export default function TrishulWorkspacePage() {
   const userName = session?.user?.name || "User";
   const userRole = (session?.user?.role || "DEVELOPER").replace(/_/g, " ");
 
-  // Prevent hydration mismatch — only render theme-dependent styles after mount
   useEffect(() => setMounted(true), []);
 
-  // Derive mode: "dark", "light", or "bluelight"
   const mode = mounted
     ? resolvedTheme === "bluelight"
       ? "bluelight"
       : resolvedTheme === "dark"
       ? "dark"
       : "light"
-    : "dark"; // SSR default
+    : "dark";
 
-  // Custom cursor state
+  /* ── Loading Screen ── */
+  const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLoadProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => setLoading(false), 400);
+          return 100;
+        }
+        return prev + Math.random() * 18 + 5;
+      });
+    }, 150);
+    return () => clearInterval(interval);
+  }, []);
+
+  /* ── Shape Navigation ── */
+  const [shapeIndex, setShapeIndex] = useState(0);
+  const [displayTitle, setDisplayTitle] = useState(SHAPES[0].title);
+  const [displayDesc, setDisplayDesc] = useState(SHAPES[0].desc);
+  const [titleFading, setTitleFading] = useState(false);
+
+  const changeShape = useCallback((dir: number) => {
+    setTitleFading(true);
+    setTimeout(() => {
+      setShapeIndex((prev) => {
+        const next = (prev + dir + SHAPES.length) % SHAPES.length;
+        setDisplayTitle(SHAPES[next].title);
+        setDisplayDesc(SHAPES[next].desc);
+        return next;
+      });
+      setTitleFading(false);
+    }, 300);
+  }, []);
+
+  /* ── Custom cursor ── */
   const cursorRef = useRef<HTMLDivElement>(null);
   const cursorDotRef = useRef<HTMLDivElement>(null);
   const mousePos = useRef({ x: -100, y: -100 });
   const cursorPos = useRef({ x: -100, y: -100 });
   const rafRef = useRef<number>(0);
 
-  // Magnetic button state
-  const magneticRef = useRef<HTMLButtonElement>(null);
-  const [magneticOffset, setMagneticOffset] = useState({ x: 0, y: 0 });
-
-  // Refs for Intersection Observer
-  const marqueeRef = useRef<HTMLDivElement>(null);
-  const featuresRef = useRef<HTMLDivElement>(null);
-  const launchRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
-  const [marqueeVisible, setMarqueeVisible] = useState(false);
-  const [featuresVisible, setFeaturesVisible] = useState(false);
-  const [launchVisible, setLaunchVisible] = useState(false);
-  const [footerVisible, setFooterVisible] = useState(false);
-
-  /* ── Custom cursor with lerp ── */
   const handleMouseMove = useCallback((e: MouseEvent) => {
     mousePos.current = { x: e.clientX, y: e.clientY };
-
-    // Magnetic effect for button
-    if (magneticRef.current) {
-      const rect = magneticRef.current.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const distX = e.clientX - centerX;
-      const distY = e.clientY - centerY;
-      const dist = Math.sqrt(distX * distX + distY * distY);
-
-      if (dist < 200) {
-        const pull = (1 - dist / 200) * 0.35;
-        setMagneticOffset({ x: distX * pull, y: distY * pull });
-      } else {
-        setMagneticOffset({ x: 0, y: 0 });
-      }
-    }
   }, []);
 
   useEffect(() => {
     const animateCursor = () => {
       const lerp = 0.12;
-      cursorPos.current.x +=
-        (mousePos.current.x - cursorPos.current.x) * lerp;
-      cursorPos.current.y +=
-        (mousePos.current.y - cursorPos.current.y) * lerp;
-
-      if (cursorRef.current) {
+      cursorPos.current.x += (mousePos.current.x - cursorPos.current.x) * lerp;
+      cursorPos.current.y += (mousePos.current.y - cursorPos.current.y) * lerp;
+      if (cursorRef.current)
         cursorRef.current.style.transform = `translate3d(${cursorPos.current.x - 20}px, ${cursorPos.current.y - 20}px, 0)`;
-      }
-      if (cursorDotRef.current) {
+      if (cursorDotRef.current)
         cursorDotRef.current.style.transform = `translate3d(${mousePos.current.x - 4}px, ${mousePos.current.y - 4}px, 0)`;
-      }
       rafRef.current = requestAnimationFrame(animateCursor);
     };
-
     window.addEventListener("mousemove", handleMouseMove);
     rafRef.current = requestAnimationFrame(animateCursor);
-
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       cancelAnimationFrame(rafRef.current);
     };
   }, [handleMouseMove]);
 
-  /* ── Intersection Observer ── */
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const target = entry.target as HTMLElement;
-            if (target.dataset.section === "marquee") setMarqueeVisible(true);
-            if (target.dataset.section === "features") setFeaturesVisible(true);
-            if (target.dataset.section === "launch") setLaunchVisible(true);
-            if (target.dataset.section === "footer") setFooterVisible(true);
-          }
-        });
-      },
-      { threshold: 0.15 }
-    );
-
-    const elements = [
-      { ref: marqueeRef, key: "marquee" },
-      { ref: featuresRef, key: "features" },
-      { ref: launchRef, key: "launch" },
-      { ref: footerRef, key: "footer" },
-    ];
-
-    elements.forEach(({ ref, key }) => {
-      if (ref.current) {
-        ref.current.dataset.section = key;
-        observer.observe(ref.current);
-      }
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
-  const handleLaunch = useCallback(() => {
+  /* ── Handlers ── */
+  const handleStart = useCallback(() => {
     window.open("https://chat.z.ai", "_blank");
   }, []);
-
-  const handleClaimCredentials = useCallback(() => {
+  const handleCredentials = useCallback(() => {
     router.push("/dashboard/credentials");
   }, [router]);
-
-  // Theme-aware accent values for cards
-  const cardAccent = (f: (typeof features)[number]) =>
-    mode === "light" ? f.accentLight : f.accentDark;
-  const cardGlow = (f: (typeof features)[number]) =>
-    mode === "light" ? f.glowLight : f.glowDark;
+  const handleSignOut = useCallback(() => {
+    window.location.href = "/api/auth/signout";
+  }, []);
 
   return (
     <>
-      {/* ── Custom Cursor ── */}
-      <div
-        ref={cursorRef}
-        className={`trishul-cursor trishul-cursor--${mode}`}
-        aria-hidden
-      />
-      <div
-        ref={cursorDotRef}
-        className={`trishul-cursor-dot trishul-cursor-dot--${mode}`}
-        aria-hidden
-      />
-
-      {/* ── Full-bleed wrapper — counters dashboard layout padding ── */}
-      <div className={`trishul-root trishul-root--${mode}`}>
-        {/* Noise / Film grain overlay */}
-        <div className={`trishul-noise trishul-noise--${mode}`} aria-hidden />
-
-        {/* Vignette overlay */}
-        <div className={`trishul-vignette trishul-vignette--${mode}`} aria-hidden />
-
-        {/* Ambient gradient orbs */}
-        <div className={`trishul-ambient trishul-ambient--${mode}`} aria-hidden />
-
-        {/* ──────── HERO ──────── */}
-        <section className="trishul-hero">
-          {/* Protocol badge */}
-          <div className="trishul-badge-wrap">
-            <div className={`trishul-badge trishul-badge--${mode}`}>
-              <Sparkles className={`trishul-badge-icon trishul-badge-icon--${mode}`} />
-              <span>TRISHUL PROTOCOL v5.0</span>
-            </div>
-          </div>
-
-          {/* Unified title — TrishulHub with spring wave cascade */}
-          <h1
-            className={`trishul-title-unified trishul-title-unified--${mode}`}
-            aria-label="TrishulHub Workspace"
-          >
-            <span className="trishul-title-word">
-              {"TrishulHub".split("").map((char, i) => (
-                <span
-                  key={`t-${i}`}
-                  className="trishul-wave-letter"
-                  style={{ animationDelay: `${0.5 + i * 0.05}s` }}
-                >
-                  {char}
-                </span>
-              ))}
-            </span>
-            <span className={`trishul-title-subword trishul-title-subword--${mode}`}>
-              {"WORKSPACE".split("").map((char, i) => (
-                <span
-                  key={`s-${i}`}
-                  className="trishul-wave-letter"
-                  style={{ animationDelay: `${0.9 + i * 0.045}s` }}
-                >
-                  {char}
-                </span>
-              ))}
-            </span>
-          </h1>
-
-          {/* Separator line that draws in */}
-          <div className="trishul-line-wrap">
-            <div
-              className={`trishul-line trishul-line--${mode}`}
-              style={{ animationDelay: "1.5s" }}
-            />
-          </div>
-
-          {/* Scroll hint */}
+      {/* ── Loading Screen ── */}
+      <div className={`brainit-loader ${!loading ? "brainit-loader--hidden" : ""}`}>
+        <div className="brainit-loader-text">One moment please...</div>
+        <div className="brainit-loader-bar-track">
           <div
-            className="trishul-scroll-hint"
-            style={{ animationDelay: "2.2s" }}
-          >
-            <span className={`trishul-scroll-text trishul-scroll-text--${mode}`}>
-              SCROLL
-            </span>
-            <div className={`trishul-scroll-line trishul-scroll-line--${mode}`} />
-          </div>
-        </section>
-
-        {/* ──────── MARQUEE BAND ──────── */}
-        <section
-          ref={marqueeRef}
-          className={`trishul-marquee trishul-marquee--${mode} ${marqueeVisible ? "trishul-marquee--visible" : ""}`}
-        >
-          <div className="trishul-marquee-track" aria-hidden>
-            <span className={`trishul-marquee-text trishul-marquee-text--${mode}`}>
-              {MARQUEE_TEXT}
-              {MARQUEE_TEXT}
-              {MARQUEE_TEXT}
-              {MARQUEE_TEXT}
-            </span>
-          </div>
-        </section>
-
-        {/* ──────── FEATURES ──────── */}
-        <section ref={featuresRef} className="trishul-features">
-          <div
-            className={`trishul-features-grid ${featuresVisible ? "trishul-features-grid--visible" : ""}`}
-          >
-            {features.map((f, idx) => (
-              <div
-                key={f.title}
-                className={`trishul-card trishul-card--${mode}`}
-                style={{
-                  "--card-accent": cardAccent(f),
-                  "--card-glow": cardGlow(f),
-                  animationDelay: `${idx * 0.18}s`,
-                } as React.CSSProperties}
-              >
-                {/* Glow backdrop on hover */}
-                <div className="trishul-card-glow" />
-                <div className="trishul-card-content">
-                  <div className={`trishul-card-icon-wrap trishul-card-icon-wrap--${mode}`}>
-                    <f.icon className="trishul-card-icon" />
-                  </div>
-                  <h3 className={`trishul-card-title trishul-card-title--${mode}`}>
-                    {f.title}
-                  </h3>
-                  <p className={`trishul-card-desc trishul-card-desc--${mode}`}>
-                    {f.description}
-                  </p>
-                  <div className="trishul-card-line" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ──────── LAUNCH ──────── */}
-        <section ref={launchRef} className="trishul-launch">
-          <div
-            className={`trishul-launch-inner ${launchVisible ? "trishul-launch-inner--visible" : ""}`}
-          >
-            <p className={`trishul-launch-pre trishul-launch-pre--${mode}`}>
-              Ready to build?
-            </p>
-
-            {/* Primary LAUNCH — chat.z.ai */}
-            <button
-              ref={magneticRef}
-              onClick={handleLaunch}
-              className={`trishul-launch-btn trishul-launch-btn--${mode}`}
-              style={{
-                transform: `translate3d(${magneticOffset.x}px, ${magneticOffset.y}px, 0)`,
-              }}
-              type="button"
-            >
-              <span className="trishul-launch-btn-text">LAUNCH</span>
-              <ArrowUpRight className="trishul-launch-arrow" />
-            </button>
-            <p className={`trishul-launch-sub trishul-launch-sub--${mode}`}>
-              Opens workspace in a new tab
-            </p>
-
-            {/* Secondary action button */}
-            <div className="trishul-actions-row">
-              <button
-                onClick={handleClaimCredentials}
-                className={`trishul-action-btn trishul-action-btn--${mode}`}
-                type="button"
-              >
-                <KeyRound className="trishul-action-icon" />
-                <div className="trishul-action-text-wrap">
-                  <span className={`trishul-action-title trishul-action-title--${mode}`}>Claim Credentials</span>
-                  <span className={`trishul-action-desc trishul-action-desc--${mode}`}>ID & Password</span>
-                </div>
-                <ArrowUpRight className="trishul-action-arrow" />
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* ──────── FOOTER ──────── */}
-        <footer
-          ref={footerRef}
-          className={`trishul-footer trishul-footer--${mode} ${footerVisible ? "trishul-footer--visible" : ""}`}
-        >
-          <div className="trishul-footer-inner">
-            <p className={`trishul-footer-welcome trishul-footer-welcome--${mode}`}>
-              Welcome back,{" "}
-              <span className={`trishul-footer-name trishul-footer-name--${mode}`}>
-                {userName}
-              </span>
-            </p>
-            <span className={`trishul-footer-role trishul-footer-role--${mode}`}>
-              {userRole}
-            </span>
-          </div>
-          <p className={`trishul-footer-copy trishul-footer-copy--${mode}`}>
-            &copy; {new Date().getFullYear()} TrishulHub &mdash; AI-Powered
-            Workspace
-          </p>
-        </footer>
+            className="brainit-loader-bar-fill"
+            style={{ width: `${Math.min(loadProgress, 100)}%` }}
+          />
+        </div>
       </div>
 
-      {/* ── Scoped Keyframes & Styles ── */}
+      {/* ── Custom Cursor ── */}
+      <div ref={cursorRef} className="brainit-cursor" aria-hidden />
+      <div ref={cursorDotRef} className="brainit-cursor-dot" aria-hidden />
+
+      {/* ── Full-bleed wrapper ── */}
+      <div className={`brainit-root brainit-root--${mode}`}>
+        {/* Three.js Particle Canvas */}
+        <div className="brainit-canvas-wrap">
+          <ParticleCanvas shapeIndex={shapeIndex} mode={mode} />
+        </div>
+
+        {/* Noise overlay */}
+        <div className="brainit-noise" aria-hidden />
+
+        {/* Vignette */}
+        <div className="brainit-vignette" aria-hidden />
+
+        {/* ──────── TOP CONTROLS BAR (Shape Slider) ──────── */}
+        <div className="brainit-shape-slider">
+          <button
+            onClick={() => changeShape(-1)}
+            className="brainit-shape-arrow"
+            type="button"
+            aria-label="Previous shape"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <div className="brainit-shape-label">
+            <span
+              className={`brainit-shape-title ${titleFading ? "brainit-fade-out" : "brainit-fade-in"}`}
+            >
+              {displayTitle}
+            </span>
+            <span
+              className={`brainit-shape-desc ${titleFading ? "brainit-fade-out" : "brainit-fade-in"}`}
+            >
+              {displayDesc}
+            </span>
+          </div>
+          <button
+            onClick={() => changeShape(1)}
+            className="brainit-shape-arrow"
+            type="button"
+            aria-label="Next shape"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* ──────── ZOOM PROGRESS BAR (Right Side) ──────── */}
+        <div className="brainit-progress">
+          <div className="brainit-progress-dot brainit-progress-dot--top" />
+          <div className="brainit-progress-track">
+            <div
+              className="brainit-progress-fill"
+              style={{ height: `${((shapeIndex + 1) / SHAPES.length) * 100}%` }}
+            />
+          </div>
+          <div className="brainit-progress-dot brainit-progress-dot--bottom" />
+        </div>
+
+        {/* ──────── HERO CENTER TEXT ──────── */}
+        <div className="brainit-hero-text">
+          <h1 className="brainit-hero-heading">TRISHULHUB</h1>
+          <p className="brainit-hero-sub">Your Personal Workspace</p>
+        </div>
+
+        {/* ──────── BOTTOM NAV BAR ──────── */}
+        <div className="brainit-bottom-bar">
+          {/* Animated glow dome */}
+          <div className="brainit-glow-dome" aria-hidden />
+
+          {/* Logo left */}
+          <div className="brainit-bar-logo">
+            <span className="brainit-logo-text">TrishulHub</span>
+          </div>
+
+          {/* Nav center */}
+          <nav className="brainit-nav">
+            <button onClick={handleStart} className="brainit-nav-link brainit-nav-link--active" type="button">
+              <span className="brainit-nav-icon">🚀</span>
+              Start
+            </button>
+            <button onClick={handleCredentials} className="brainit-nav-link" type="button">
+              <span className="brainit-nav-icon">🔑</span>
+              Credentials
+            </button>
+            <button onClick={handleSignOut} className="brainit-nav-link" type="button">
+              <span className="brainit-nav-icon">
+                <LogOut size={16} />
+              </span>
+              Sign Out
+            </button>
+          </nav>
+
+          {/* Welcome right */}
+          <div className="brainit-bar-user">
+            <span className="brainit-user-name">{userName}</span>
+            <span className="brainit-user-role">{userRole}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ STYLES ═══ */}
       <style jsx global>{`
         /* ═══════════════════════════════════
-           TRISHUL WORKSPACE — Lusion-inspired
-           DARK / LIGHT / BLUELIGHT
+           BRAINIT-INSPIRED TRISHULHUB WORKSPACE
            ═══════════════════════════════════ */
 
-        /* Hide cursor on touch devices */
+        /* ── Hide cursor on touch ── */
         @media (pointer: coarse) {
-          .trishul-cursor,
-          .trishul-cursor-dot {
-            display: none !important;
-          }
-          .trishul-root,
-          .trishul-root * {
-            cursor: auto !important;
-          }
-          /* Disable card hover scale on touch */
-          .trishul-card:hover {
-            transform: none !important;
-          }
-          /* Disable launch button glow on touch */
-          .trishul-launch-btn--dark:hover::before,
-          .trishul-launch-btn--light:hover::before,
-          .trishul-launch-btn--bluelight:hover::before {
-            opacity: 0 !important;
-          }
-          .trishul-launch-btn--dark:hover,
-          .trishul-launch-btn--light:hover,
-          .trishul-launch-btn--bluelight:hover {
-            box-shadow: none !important;
-          }
+          .brainit-cursor, .brainit-cursor-dot { display: none !important; }
+          .brainit-root, .brainit-root * { cursor: auto !important; }
         }
 
-        /* ── Cursor: dark ── */
-        .trishul-root--dark,
-        .trishul-root--dark * {
-          cursor: none !important;
-        }
-        /* ── Cursor: light ── */
-        .trishul-root--light,
-        .trishul-root--light * {
-          cursor: none !important;
-        }
-        /* ── Cursor: bluelight ── */
-        .trishul-root--bluelight,
-        .trishul-root--bluelight * {
-          cursor: none !important;
+        /* ── Cursor hide for desktop ── */
+        .brainit-root, .brainit-root * { cursor: none !important; }
+        @media (pointer: coarse) {
+          .brainit-root, .brainit-root * { cursor: auto !important; }
         }
 
-        /* ── Custom cursor base ── */
-        .trishul-cursor {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          pointer-events: none;
-          z-index: 99999;
-          will-change: transform;
+        .brainit-cursor {
+          position: fixed; top: 0; left: 0;
+          width: 40px; height: 40px; border-radius: 50%;
+          pointer-events: none; z-index: 99999; will-change: transform;
           mix-blend-mode: difference;
-          transition: width 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                      height 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                      border-color 0.3s ease;
+          border: 1.5px solid rgba(255,255,255,0.35);
+          transition: width 0.3s, height 0.3s;
         }
-        .trishul-cursor--dark {
-          border: 1.5px solid rgba(255, 255, 255, 0.35);
-        }
-        .trishul-cursor--light {
-          border: 1.5px solid rgba(0, 0, 0, 0.25);
-        }
-        .trishul-cursor--bluelight {
-          border: 1.5px solid rgba(255, 200, 100, 0.35);
-        }
-
-        .trishul-cursor-dot {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          pointer-events: none;
-          z-index: 99999;
-          will-change: transform;
-        }
-        .trishul-cursor-dot--dark {
+        .brainit-cursor-dot {
+          position: fixed; top: 0; left: 0;
+          width: 8px; height: 8px; border-radius: 50%;
+          pointer-events: none; z-index: 99999; will-change: transform;
           background: #fff;
         }
-        .trishul-cursor-dot--light {
-          background: #1a1a2e;
+
+        /* ═══ LOADING SCREEN ═══ */
+        .brainit-loader {
+          position: fixed; inset: 0; z-index: 100000;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          background: #000; gap: 1.5rem;
+          transition: opacity 0.6s ease-out;
         }
-        .trishul-cursor-dot--bluelight {
-          background: #fbbf24;
+        .brainit-loader--hidden { opacity: 0; pointer-events: none; }
+        .brainit-loader-text {
+          font-family: 'Arial', sans-serif;
+          font-size: 1.2rem; color: #fff;
+          letter-spacing: 2px; opacity: 0.7;
+        }
+        .brainit-loader-bar-track {
+          width: 60%; max-width: 300px; height: 6px;
+          border-radius: 3px; background: rgba(255,255,255,0.1);
+          overflow: hidden;
+        }
+        .brainit-loader-bar-fill {
+          height: 100%; border-radius: 3px;
+          background: linear-gradient(90deg, #00A2FF, #00FFEA);
+          transition: width 0.15s ease-out;
+          box-shadow: 0 0 15px rgba(0,255,234,0.4);
         }
 
-        /* ═══════════════════════════════════
-           ROOT WRAPPER
-           ═══════════════════════════════════ */
-        .trishul-root {
-          position: relative;
-          min-height: 100vh;
-          overflow: hidden;
-          margin: -1.25rem;
-          margin-top: -1.25rem;
-          transition: background 0.5s ease;
+        /* ═══ ROOT ═══ */
+        .brainit-root {
+          position: relative; min-height: 100vh; overflow: hidden;
+          margin: -1.25rem; margin-top: -1.25rem;
+          background: #000000;
+          font-family: 'Arial', sans-serif;
         }
         @media (min-width: 768px) {
-          .trishul-root {
-            margin: -2rem;
-            margin-top: -2rem;
-          }
+          .brainit-root { margin: -2rem; margin-top: -2rem; }
+        }
+        .brainit-root--light { background: #f8f9fc; }
+        .brainit-root--bluelight { background: #0c0a09; }
+
+        /* ── Canvas ── */
+        .brainit-canvas-wrap {
+          position: fixed; inset: 0; z-index: 0;
+        }
+        .brainit-canvas-wrap canvas {
+          width: 100% !important; height: 100% !important;
         }
 
-        /* DARK */
-        .trishul-root--dark {
-          background: #050505;
-        }
-        /* LIGHT */
-        .trishul-root--light {
-          background: #f8f9fc;
-        }
-        /* BLUELIGHT */
-        .trishul-root--bluelight {
-          background: #0c0a09;
-        }
-
-        /* ── Noise overlay ── */
-        .trishul-noise {
-          position: fixed;
-          inset: 0;
-          z-index: 9000;
+        /* ── Noise ── */
+        .brainit-noise {
+          position: fixed; inset: 0; z-index: 9000;
           pointer-events: none;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-          background-repeat: repeat;
-          background-size: 180px 180px;
-          transition: opacity 0.5s ease;
-        }
-        .trishul-noise--dark {
-          opacity: 0.035;
-        }
-        .trishul-noise--light {
-          opacity: 0.018;
-        }
-        .trishul-noise--bluelight {
-          opacity: 0.025;
+          background-repeat: repeat; background-size: 180px;
+          opacity: 0.03;
         }
 
         /* ── Vignette ── */
-        .trishul-vignette {
-          position: fixed;
-          inset: 0;
-          z-index: 8999;
+        .brainit-vignette {
+          position: fixed; inset: 0; z-index: 8999;
           pointer-events: none;
-          transition: background 0.5s ease;
+          background: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 0%, rgba(0,0,0,0.5) 100%);
         }
-        .trishul-vignette--dark {
-          background: radial-gradient(
-            ellipse 70% 60% at 50% 50%,
-            transparent 0%,
-            rgba(0, 0, 0, 0.55) 100%
-          );
-        }
-        .trishul-vignette--light {
-          background: radial-gradient(
-            ellipse 70% 60% at 50% 50%,
-            transparent 0%,
-            rgba(200, 210, 230, 0.25) 100%
-          );
-        }
-        .trishul-vignette--bluelight {
-          background: radial-gradient(
-            ellipse 70% 60% at 50% 50%,
-            transparent 0%,
-            rgba(0, 0, 0, 0.50) 100%
-          );
+        .brainit-root--light .brainit-vignette {
+          background: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 0%, rgba(200,210,230,0.2) 100%);
         }
 
-        /* ── Ambient gradient orbs ── */
-        .trishul-ambient {
-          position: absolute;
-          inset: 0;
-          z-index: 0;
-          pointer-events: none;
-          overflow: hidden;
+        /* ═══ TOP SHAPE SLIDER ═══ */
+        .brainit-shape-slider {
+          position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
+          z-index: 100;
+          display: flex; align-items: center; gap: 1.5rem;
+          padding: 0.8rem 2rem;
+          border-radius: 50px;
+          background: rgba(0,0,0,0.3);
+          backdrop-filter: blur(5px);
+          border: 1px solid rgba(255,255,255,0.1);
+          mix-blend-mode: hard-light;
+          animation: brainit-fade-up 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s both;
         }
-        .trishul-ambient::before,
-        .trishul-ambient::after {
-          content: "";
-          position: absolute;
-          border-radius: 50%;
-          filter: blur(120px);
-          transition: background 0.5s ease;
-        }
-
-        /* DARK orbs */
-        .trishul-ambient--dark::before {
-          width: 600px; height: 600px;
-          top: -15%; left: -10%;
-          background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 70%);
-          animation: trishul-float-a 14s ease-in-out infinite;
-        }
-        .trishul-ambient--dark::after {
-          width: 500px; height: 500px;
-          bottom: -10%; right: -8%;
-          background: radial-gradient(circle, rgba(168, 85, 247, 0.07) 0%, transparent 70%);
-          animation: trishul-float-b 18s ease-in-out infinite;
+        .brainit-root--light .brainit-shape-slider {
+          background: rgba(255,255,255,0.3);
+          border-color: rgba(0,0,0,0.1);
         }
 
-        /* LIGHT orbs */
-        .trishul-ambient--light::before {
-          width: 600px; height: 600px;
-          top: -15%; left: -10%;
-          background: radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
-          animation: trishul-float-a 14s ease-in-out infinite;
+        .brainit-shape-arrow {
+          background: none; border: none; padding: 0.2rem;
+          color: rgba(255,255,255,0.7); font-size: 1.5rem;
+          transition: transform 0.2s, color 0.2s, text-shadow 0.2s;
+          display: flex; align-items: center; justify-content: center;
         }
-        .trishul-ambient--light::after {
-          width: 500px; height: 500px;
-          bottom: -10%; right: -8%;
-          background: radial-gradient(circle, rgba(168, 85, 247, 0.05) 0%, transparent 70%);
-          animation: trishul-float-b 18s ease-in-out infinite;
+        .brainit-shape-arrow:hover {
+          color: #fff; transform: scale(1.2);
+          text-shadow: 0 0 10px rgba(255,255,255,0.5);
         }
-
-        /* BLUELIGHT orbs */
-        .trishul-ambient--bluelight::before {
-          width: 600px; height: 600px;
-          top: -15%; left: -10%;
-          background: radial-gradient(circle, rgba(251, 191, 36, 0.06) 0%, transparent 70%);
-          animation: trishul-float-a 14s ease-in-out infinite;
+        .brainit-root--light .brainit-shape-arrow {
+          color: rgba(0,0,0,0.6);
         }
-        .trishul-ambient--bluelight::after {
-          width: 500px; height: 500px;
-          bottom: -10%; right: -8%;
-          background: radial-gradient(circle, rgba(217, 119, 6, 0.05) 0%, transparent 70%);
-          animation: trishul-float-b 18s ease-in-out infinite;
+        .brainit-root--light .brainit-shape-arrow:hover {
+          color: #000;
         }
 
-        /* ═══════════════════════════════════
-           HERO
-           ═══════════════════════════════════ */
-        .trishul-hero {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          min-height: 100vh;
-          padding: 4rem 1rem 3rem;
-          text-align: center;
-        }
-
-        /* Protocol badge — base */
-        .trishul-badge-wrap {
-          opacity: 0;
-          animation: trishul-fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
-        }
-        .trishul-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.45rem 1.2rem;
-          border-radius: 100px;
-          font-size: 0.65rem;
-          font-weight: 600;
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-          backdrop-filter: blur(12px);
-          transition: border-color 0.4s ease, background 0.4s ease, color 0.4s ease;
-        }
-        .trishul-badge--dark {
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(255, 255, 255, 0.03);
-          color: rgba(255, 255, 255, 0.5);
-        }
-        .trishul-badge--light {
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          background: rgba(255, 255, 255, 0.7);
-          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-          color: rgba(0, 0, 0, 0.45);
-        }
-        .trishul-badge--bluelight {
-          border: 1px solid rgba(251, 191, 36, 0.15);
-          background: rgba(251, 191, 36, 0.05);
-          color: rgba(251, 191, 36, 0.6);
-        }
-
-        .trishul-badge-icon {
-          width: 12px;
-          height: 12px;
-        }
-        .trishul-badge-icon--dark {
-          color: rgba(251, 191, 36, 0.8);
-        }
-        .trishul-badge-icon--light {
-          color: rgba(217, 119, 6, 0.8);
-        }
-        .trishul-badge-icon--bluelight {
-          color: rgba(251, 191, 36, 0.9);
-        }
-
-        /* ── Unified Title — TrishulHub + WORKSPACE ── */
-        .trishul-title-unified {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.15em;
-          margin: 2rem 0 0.5rem;
-          user-select: none;
-          overflow: hidden;
-        }
-        .trishul-title-word {
-          display: flex;
-          justify-content: center;
-          font-size: clamp(3.2rem, 12vw, 9rem);
-          font-weight: 900;
-          line-height: 0.95;
-          letter-spacing: -0.03em;
-          color: transparent;
-          background-clip: text;
-          -webkit-background-clip: text;
-          background-size: 200% 100%;
-          animation: trishul-gradient-shift 6s ease-in-out infinite;
-        }
-        .trishul-title-unified--dark .trishul-title-word {
-          background-image: linear-gradient(135deg, #06b6d4 0%, #a855f7 50%, #ec4899 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        .trishul-title-unified--light .trishul-title-word {
-          background-image: linear-gradient(135deg, #0891b2 0%, #7c3aed 50%, #db2777 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        .trishul-title-unified--bluelight .trishul-title-word {
-          background-image: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #fbbf24 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        .trishul-title-subword {
-          display: flex;
-          justify-content: center;
-          font-size: clamp(1.4rem, 6vw, 4.5rem);
-          font-weight: 800;
-          line-height: 1;
-          letter-spacing: 0.15em;
-          color: transparent;
-          background-clip: text;
-          -webkit-background-clip: text;
-          background-size: 200% 100%;
-          animation: trishul-gradient-shift 6s ease-in-out infinite;
-          position: relative;
-        }
-        .trishul-title-subword--dark {
-          background-image: linear-gradient(90deg, rgba(6,182,212,0.4) 0%, rgba(168,85,247,0.5) 30%, rgba(236,72,153,0.4) 60%, rgba(6,182,212,0.4) 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        .trishul-title-subword--light {
-          background-image: linear-gradient(90deg, rgba(8,145,178,0.35) 0%, rgba(124,58,237,0.45) 30%, rgba(219,39,119,0.35) 60%, rgba(8,145,178,0.35) 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        .trishul-title-subword--bluelight {
-          background-image: linear-gradient(90deg, rgba(245,158,11,0.4) 0%, rgba(217,119,6,0.5) 30%, rgba(251,191,36,0.4) 60%, rgba(245,158,11,0.4) 100%);
-          -webkit-text-fill-color: transparent;
-        }
-        /* Shimmer sweep on subword */
-        .trishul-title-subword::after {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 60%;
-          height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-          animation: trishul-shimmer 4s cubic-bezier(0.4, 0, 0.2, 1) 2s infinite;
-        }
-        .trishul-title-unified--light .trishul-title-subword::after {
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
-        }
-        .trishul-title-unified--bluelight .trishul-title-subword::after {
-          background: linear-gradient(90deg, transparent, rgba(251,191,36,0.12), transparent);
-        }
-
-        /* Wave letter animation */
-        .trishul-wave-letter {
-          display: inline-block;
-          opacity: 0;
-          transform: translateY(40px) scale(0.8);
-          animation: trishul-wave-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-          transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-                      filter 0.3s ease;
-        }
-        .trishul-root--dark .trishul-title-word .trishul-wave-letter:hover {
-          transform: translateY(-4px) scale(1.08);
-          filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.5));
-        }
-        .trishul-root--light .trishul-title-word .trishul-wave-letter:hover {
-          transform: translateY(-4px) scale(1.08);
-          filter: drop-shadow(0 0 12px rgba(124, 58, 237, 0.3));
-        }
-        .trishul-root--bluelight .trishul-title-word .trishul-wave-letter:hover {
-          transform: translateY(-4px) scale(1.08);
-          filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.5));
-        }
-
-        /* Separator line */
-        .trishul-line-wrap {
-          width: 100%;
-          max-width: 480px;
-          margin: 3rem 0 2rem;
-          height: 1px;
-          overflow: hidden;
-          transition: background 0.4s ease;
-        }
-        .trishul-line-wrap:has(.trishul-line--dark) {
-          background: rgba(255, 255, 255, 0.04);
-        }
-        .trishul-line-wrap:has(.trishul-line--light) {
-          background: rgba(0, 0, 0, 0.06);
-        }
-        .trishul-line-wrap:has(.trishul-line--bluelight) {
-          background: rgba(251, 191, 36, 0.06);
-        }
-
-        .trishul-line {
-          height: 100%;
-          width: 0;
-          animation: trishul-line-grow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .trishul-line--dark {
-          background: linear-gradient(
-            90deg, transparent, rgba(6, 182, 212, 0.5), rgba(168, 85, 247, 0.5), rgba(236, 72, 153, 0.5), transparent
-          );
-        }
-        .trishul-line--light {
-          background: linear-gradient(
-            90deg, transparent, rgba(8, 145, 178, 0.45), rgba(124, 58, 237, 0.45), rgba(219, 39, 119, 0.45), transparent
-          );
-        }
-        .trishul-line--bluelight {
-          background: linear-gradient(
-            90deg, transparent, rgba(245, 158, 11, 0.4), rgba(217, 119, 6, 0.4), rgba(251, 191, 36, 0.4), transparent
-          );
-        }
-
-        /* Scroll hint */
-        .trishul-scroll-hint {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.5rem;
-          opacity: 0;
-          animation: trishul-fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .trishul-scroll-text {
-          font-size: 0.6rem;
-          font-weight: 500;
-          letter-spacing: 0.25em;
-          transition: color 0.4s ease;
-        }
-        .trishul-scroll-text--dark {
-          color: rgba(255, 255, 255, 0.2);
-        }
-        .trishul-scroll-text--light {
-          color: rgba(0, 0, 0, 0.15);
-        }
-        .trishul-scroll-text--bluelight {
-          color: rgba(251, 191, 36, 0.25);
-        }
-
-        .trishul-scroll-line {
-          width: 1px;
-          height: 40px;
-          animation: trishul-scroll-pulse 2s ease-in-out infinite;
-          transition: background 0.4s ease;
-        }
-        .trishul-scroll-line--dark {
-          background: linear-gradient(to bottom, rgba(255, 255, 255, 0.2), transparent);
-        }
-        .trishul-scroll-line--light {
-          background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15), transparent);
-        }
-        .trishul-scroll-line--bluelight {
-          background: linear-gradient(to bottom, rgba(251, 191, 36, 0.25), transparent);
-        }
-
-        /* ═══════════════════════════════════
-           MARQUEE
-           ═══════════════════════════════════ */
-        .trishul-marquee {
-          position: relative;
-          z-index: 1;
-          overflow: hidden;
-          padding: 1.25rem 0;
-          opacity: 0;
-          transform: translateY(20px);
-          transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-                      background 0.4s ease,
-                      border-color 0.4s ease;
-        }
-        .trishul-marquee--dark {
-          background: rgba(255, 255, 255, 0.02);
-          border-top: 1px solid rgba(255, 255, 255, 0.04);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-        .trishul-marquee--light {
-          background: rgba(255, 255, 255, 0.6);
-          border-top: 1px solid rgba(0, 0, 0, 0.06);
-          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-        }
-        .trishul-marquee--bluelight {
-          background: rgba(251, 191, 36, 0.03);
-          border-top: 1px solid rgba(251, 191, 36, 0.08);
-          border-bottom: 1px solid rgba(251, 191, 36, 0.08);
-        }
-        .trishul-marquee--visible {
-          opacity: 1;
-          transform: translateY(0);
-        }
-
-        .trishul-marquee-track {
-          display: flex;
-          width: max-content;
-          animation: trishul-marquee-scroll 35s linear infinite;
-        }
-        .trishul-marquee-text {
-          font-size: clamp(0.75rem, 1.5vw, 1rem);
-          font-weight: 600;
-          letter-spacing: 0.2em;
-          text-transform: uppercase;
-          white-space: nowrap;
-          padding-right: 0;
-          transition: color 0.4s ease;
-        }
-        .trishul-marquee-text--dark {
-          color: rgba(255, 255, 255, 0.12);
-        }
-        .trishul-marquee-text--light {
-          color: rgba(0, 0, 0, 0.10);
-        }
-        .trishul-marquee-text--bluelight {
-          color: rgba(251, 191, 36, 0.12);
-        }
-
-        /* ═══════════════════════════════════
-           FEATURES
-           ═══════════════════════════════════ */
-        .trishul-features {
-          position: relative;
-          z-index: 1;
-          padding: 6rem 1.5rem;
-          display: flex;
-          justify-content: center;
-        }
-        @media (min-width: 768px) {
-          .trishul-hero {
-            padding: 6rem 1.5rem 4rem;
-          }
-        }
-
-        @media (min-width: 1024px) {
-          .trishul-hero {
-            padding: 6rem 2rem 4rem;
-          }
-        }
-
-        .trishul-features {
-          position: relative;
-          z-index: 1;
-          padding: 4rem 1rem;
-          display: flex;
-          justify-content: center;
-        }
-        @media (min-width: 768px) {
-          .trishul-features {
-            padding: 6rem 2rem;
-          }
-        }
-
-        .trishul-features-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 1.25rem;
-          width: 100%;
-          max-width: 1100px;
-        }
-        @media (min-width: 768px) {
-          .trishul-features-grid {
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-          }
-        }
-
-        /* Staggered entry */
-        .trishul-features-grid > * {
-          opacity: 0;
-          transform: translateY(40px);
-          transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-features-grid--visible > * {
-          opacity: 1;
-          transform: translateY(0);
-        }
-
-        /* Card — base */
-        .trishul-card {
-          position: relative;
-          border-radius: 20px;
-          overflow: hidden;
-          transition: border-color 0.4s ease,
-                      transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
-                      background 0.4s ease,
-                      box-shadow 0.4s ease;
-        }
-        .trishul-card:hover {
-          border-color: var(--card-accent) !important;
-          transform: scale(1.02);
-        }
-
-        /* DARK card */
-        .trishul-card--dark {
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(255, 255, 255, 0.02);
-        }
-        .trishul-card--dark:hover {
-          box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
-        }
-        /* LIGHT card */
-        .trishul-card--light {
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          background: rgba(255, 255, 255, 0.85);
-          backdrop-filter: blur(16px);
-        }
-        .trishul-card--light:hover {
-          box-shadow: 0 8px 40px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03);
-          background: rgba(255, 255, 255, 0.95);
-        }
-        /* BLUELIGHT card */
-        .trishul-card--bluelight {
-          border: 1px solid rgba(251, 191, 36, 0.08);
-          background: rgba(251, 191, 36, 0.03);
-        }
-        .trishul-card--bluelight:hover {
-          box-shadow: 0 8px 40px rgba(251, 191, 36, 0.05);
-        }
-
-        .trishul-card-glow {
-          position: absolute;
-          inset: 0;
-          opacity: 0;
-          transition: opacity 0.5s ease;
-          background: radial-gradient(
-            ellipse 60% 50% at 50% 0%,
-            var(--card-glow),
-            transparent 70%
-          );
-          pointer-events: none;
-        }
-        .trishul-card:hover .trishul-card-glow {
-          opacity: 1;
-        }
-
-        .trishul-card-content {
-          position: relative;
-          z-index: 1;
-          padding: 2rem 1.75rem 1.75rem;
-        }
-
-        .trishul-card-icon-wrap {
-          width: 48px;
-          height: 48px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 14px;
-          margin-bottom: 1.5rem;
-          transition: border-color 0.4s ease, background 0.4s ease;
-        }
-        .trishul-card--dark .trishul-card-icon-wrap {
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(255, 255, 255, 0.03);
-        }
-        .trishul-card--light .trishul-card-icon-wrap {
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          background: rgba(0, 0, 0, 0.03);
-        }
-        .trishul-card--bluelight .trishul-card-icon-wrap {
-          border: 1px solid rgba(251, 191, 36, 0.1);
-          background: rgba(251, 191, 36, 0.05);
-        }
-        .trishul-card:hover .trishul-card-icon-wrap {
-          border-color: var(--card-accent);
-          background: var(--card-glow);
-        }
-
-        .trishul-card-icon {
-          width: 22px;
-          height: 22px;
-          color: var(--card-accent);
-          transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-card:hover .trishul-card-icon {
-          transform: scale(1.15) rotate(-5deg);
-        }
-
-        .trishul-card-title {
-          font-size: 1.15rem;
-          font-weight: 700;
-          margin-bottom: 0.6rem;
-          letter-spacing: -0.01em;
-          transition: color 0.4s ease;
-        }
-        .trishul-card-title--dark {
-          color: rgba(255, 255, 255, 0.9);
-        }
-        .trishul-card-title--light {
-          color: rgba(20, 20, 60, 0.9);
-        }
-        .trishul-card-title--bluelight {
-          color: rgba(255, 220, 150, 0.9);
-        }
-
-        .trishul-card-desc {
-          font-size: 0.82rem;
-          line-height: 1.6;
-          transition: color 0.4s ease;
-        }
-        .trishul-card-desc--dark {
-          color: rgba(255, 255, 255, 0.35);
-        }
-        .trishul-card-desc--light {
-          color: rgba(0, 0, 0, 0.4);
-        }
-        .trishul-card-desc--bluelight {
-          color: rgba(251, 191, 36, 0.4);
-        }
-
-        .trishul-card-line {
-          height: 1px;
-          margin-top: 1.5rem;
-          width: 0;
-          background: var(--card-accent);
-          transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-card:hover .trishul-card-line {
-          width: 100%;
-        }
-
-        /* ═══════════════════════════════════
-           LAUNCH
-           ═══════════════════════════════════ */
-        .trishul-launch {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          justify-content: center;
-          padding: 3rem 1rem 4rem;
-        }
-
-        .trishul-launch-inner {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          opacity: 0;
-          transform: translateY(30px);
-          transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-launch-inner--visible {
-          opacity: 1;
-          transform: translateY(0);
-        }
-
-        .trishul-launch-pre {
-          font-size: 0.7rem;
-          font-weight: 500;
-          letter-spacing: 0.2em;
-          text-transform: uppercase;
-          margin-bottom: 2rem;
-          transition: color 0.4s ease;
-        }
-        .trishul-launch-pre--dark {
-          color: rgba(255, 255, 255, 0.25);
-        }
-        .trishul-launch-pre--light {
-          color: rgba(0, 0, 0, 0.2);
-        }
-        .trishul-launch-pre--bluelight {
-          color: rgba(251, 191, 36, 0.35);
-        }
-
-        .trishul-launch-btn {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 1.1rem 2.5rem;
-          border: none;
-          border-radius: 100px;
+        .brainit-shape-label {
+          display: flex; flex-direction: column; align-items: center;
+          min-width: 180px;
+        }
+        .brainit-shape-title {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: 1.4rem; font-weight: 400;
+          letter-spacing: 2px; text-transform: uppercase;
           color: #fff;
-          font-size: 1rem;
+          text-shadow: 0 0 10px rgba(255,255,255,0.3);
+          transition: opacity 0.3s, transform 0.3s;
+        }
+        .brainit-shape-desc {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: 0.85rem; font-weight: 300;
+          color: rgba(255,255,255,0.7);
+          margin-top: 4px;
+          transition: opacity 0.3s, transform 0.3s;
+        }
+        .brainit-root--light .brainit-shape-title {
+          color: #1a1a2e;
+          text-shadow: none;
+        }
+        .brainit-root--light .brainit-shape-desc {
+          color: rgba(0,0,0,0.5);
+        }
+        .brainit-root--bluelight .brainit-shape-title {
+          color: #fbbf24;
+          text-shadow: 0 0 10px rgba(251,191,36,0.3);
+        }
+        .brainit-root--bluelight .brainit-shape-desc {
+          color: rgba(251,191,36,0.6);
+        }
+
+        .brainit-fade-out { opacity: 0; transform: translateY(-8px); }
+        .brainit-fade-in { opacity: 1; transform: translateY(0); }
+
+        /* ═══ ZOOM PROGRESS BAR (Right) ═══ */
+        .brainit-progress {
+          position: fixed; right: 30px; top: 50%; transform: translateY(-50%);
+          z-index: 100; display: flex; flex-direction: column;
+          align-items: center; gap: 0;
+          animation: brainit-fade-up 0.8s cubic-bezier(0.16,1,0.3,1) 0.8s both;
+        }
+        .brainit-progress-dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: #00FFEA;
+          box-shadow: 0 0 10px #00FFEA;
+        }
+        .brainit-progress-track {
+          width: 4px; height: 280px; border-radius: 4px;
+          background: rgba(255,255,255,0.1);
+          backdrop-filter: blur(2px);
+          overflow: hidden; position: relative;
+        }
+        .brainit-progress-fill {
+          position: absolute; bottom: 0; width: 100%;
+          background: linear-gradient(to top, #00A2FF, #00FFEA);
+          border-radius: 4px;
+          box-shadow: 0 0 15px rgba(0,255,234,0.6);
+          transition: height 0.6s cubic-bezier(0.16,1,0.3,1);
+        }
+
+        /* ═══ HERO CENTER TEXT ═══ */
+        .brainit-hero-text {
+          position: fixed; top: 50%; left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 50; text-align: center;
+          pointer-events: none;
+          animation: brainit-fade-up 1s cubic-bezier(0.16,1,0.3,1) 0.3s both;
+        }
+        .brainit-hero-heading {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: clamp(2.5rem, 8vw, 5.5rem);
           font-weight: 700;
-          letter-spacing: 0.15em;
+          letter-spacing: 8px;
           text-transform: uppercase;
-          outline: none;
-          will-change: transform;
-          background-size: 200% 200%;
-          animation: trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn:active {
-          transform: scale(0.97) !important;
-        }
-
-        /* DARK btn */
-        .trishul-launch-btn--dark {
-          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
-          animation: trishul-btn-glow-dark 3s ease-in-out infinite,
-                     trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn--dark:hover {
-          background-position: 100% 50%;
-          box-shadow: 0 0 50px rgba(6, 182, 212, 0.3),
-                      0 0 100px rgba(168, 85, 247, 0.2),
-                      0 0 150px rgba(236, 72, 153, 0.1);
-        }
-        .trishul-launch-btn--dark::before {
-          content: "";
-          position: absolute;
-          inset: -3px;
-          border-radius: 100px;
-          background: linear-gradient(135deg, #06b6d4, #a855f7, #ec4899);
-          background-size: 200% 200%;
-          z-index: -1;
-          opacity: 0;
-          filter: blur(12px);
-          transition: opacity 0.4s ease;
-          animation: trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn--dark:hover::before {
-          opacity: 0.6;
-        }
-
-        /* LIGHT btn */
-        .trishul-launch-btn--light {
-          background: linear-gradient(135deg, #0891b2, #7c3aed, #db2777);
           color: #fff;
-          animation: trishul-btn-glow-light 3s ease-in-out infinite,
-                     trishul-btn-gradient 5s ease-in-out infinite;
+          text-shadow: 0 0 40px rgba(0,255,234,0.15), 0 0 80px rgba(0,162,255,0.08);
+          margin: 0;
+          line-height: 1.1;
         }
-        .trishul-launch-btn--light:hover {
-          background-position: 100% 50%;
-          box-shadow: 0 0 40px rgba(8, 145, 178, 0.25),
-                      0 0 80px rgba(124, 58, 237, 0.15),
-                      0 0 120px rgba(219, 39, 119, 0.08);
+        .brainit-hero-sub {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: clamp(0.85rem, 2vw, 1.1rem);
+          font-weight: 300;
+          letter-spacing: 4px;
+          text-transform: uppercase;
+          color: rgba(255,255,255,0.5);
+          margin-top: 0.75rem;
         }
-        .trishul-launch-btn--light::before {
-          content: "";
-          position: absolute;
-          inset: -3px;
-          border-radius: 100px;
-          background: linear-gradient(135deg, #0891b2, #7c3aed, #db2777);
-          background-size: 200% 200%;
+        .brainit-root--light .brainit-hero-heading {
+          color: #1a1a2e;
+          text-shadow: 0 0 40px rgba(0,162,255,0.08);
+        }
+        .brainit-root--light .brainit-hero-sub {
+          color: rgba(0,0,0,0.4);
+        }
+        .brainit-root--bluelight .brainit-hero-heading {
+          color: #fbbf24;
+          text-shadow: 0 0 40px rgba(251,191,36,0.15);
+        }
+        .brainit-root--bluelight .brainit-hero-sub {
+          color: rgba(251,191,36,0.5);
+        }
+
+        /* ═══ BOTTOM NAV BAR ═══ */
+        .brainit-bottom-bar {
+          position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+          z-index: 100;
+          width: calc(100% - 60px); max-width: 1100px;
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 0.8rem 1.5rem;
+          border-radius: 12px;
+          background: rgba(25,30,50,0.35);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255,255,255,0.1);
+          box-shadow: inset 0 0 10px rgba(255,255,255,0.05);
+          mix-blend-mode: plus-lighter;
+          animation: brainit-fade-up 0.8s cubic-bezier(0.16,1,0.3,1) 1s both;
+        }
+        .brainit-root--light .brainit-bottom-bar {
+          background: rgba(255,255,255,0.35);
+          border-color: rgba(0,0,0,0.1);
+          box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+          mix-blend-mode: normal;
+        }
+        .brainit-root--bluelight .brainit-bottom-bar {
+          background: rgba(40,30,10,0.35);
+          border-color: rgba(251,191,36,0.15);
+        }
+
+        /* ── Glow Dome ── */
+        .brainit-glow-dome {
+          position: absolute; bottom: 0; left: 50%;
+          transform: translateX(-50%);
+          width: 120%; height: 200%;
+          border-radius: 50% 50% 0% 0%;
+          background: radial-gradient(ellipse farthest-side at bottom, rgba(0,0,0,0.9) 70%, transparent 100%);
           z-index: -1;
-          opacity: 0;
-          filter: blur(12px);
-          transition: opacity 0.4s ease;
-          animation: trishul-btn-gradient 5s ease-in-out infinite;
+          animation: brainit-glow-pulse 12s ease-in-out infinite;
+          pointer-events: none;
         }
-        .trishul-launch-btn--light:hover::before {
-          opacity: 0.5;
-        }
-
-        /* BLUELIGHT btn */
-        .trishul-launch-btn--bluelight {
-          background: linear-gradient(135deg, #d97706, #f59e0b, #fbbf24);
-          color: #1a0f00;
-          animation: trishul-btn-glow-bluelight 3s ease-in-out infinite,
-                     trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn--bluelight:hover {
-          background-position: 100% 50%;
-          box-shadow: 0 0 40px rgba(251, 191, 36, 0.25),
-                      0 0 80px rgba(217, 119, 6, 0.15),
-                      0 0 120px rgba(245, 158, 11, 0.08);
-        }
-        .trishul-launch-btn--bluelight::before {
-          content: "";
-          position: absolute;
-          inset: -3px;
-          border-radius: 100px;
-          background: linear-gradient(135deg, #d97706, #f59e0b, #fbbf24);
-          background-size: 200% 200%;
-          z-index: -1;
-          opacity: 0;
-          filter: blur(12px);
-          transition: opacity 0.4s ease;
-          animation: trishul-btn-gradient 5s ease-in-out infinite;
-        }
-        .trishul-launch-btn--bluelight:hover::before {
-          opacity: 0.5;
+        @keyframes brainit-glow-pulse {
+          0%, 100% {
+            filter: drop-shadow(0 20px 60px hsl(300, 30%, 85%));
+          }
+          25% {
+            filter: drop-shadow(0 20px 80px hsl(300, 100%, 65%));
+          }
+          50% {
+            filter: drop-shadow(0 20px 100px hsl(240, 100%, 65%));
+          }
+          75% {
+            filter: drop-shadow(0 20px 70px hsl(180, 80%, 52%));
+          }
         }
 
-        .trishul-launch-btn-text {
-          position: relative;
-          z-index: 1;
-        }
-
-        .trishul-launch-arrow {
-          width: 20px;
-          height: 20px;
-          position: relative;
-          z-index: 1;
-          transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-launch-btn:hover .trishul-launch-arrow {
-          transform: translate(3px, -3px) rotate(-45deg);
-        }
-
-        .trishul-launch-sub {
-          font-size: 0.7rem;
-          margin-top: 1.5rem;
-          letter-spacing: 0.04em;
-          transition: color 0.4s ease;
-        }
-        .trishul-launch-sub--dark {
-          color: rgba(255, 255, 255, 0.18);
-        }
-        .trishul-launch-sub--light {
-          color: rgba(0, 0, 0, 0.15);
-        }
-        .trishul-launch-sub--bluelight {
-          color: rgba(251, 191, 36, 0.25);
-        }
-
-        /* ═══════════════════════════════════
-           SECONDARY ACTION BUTTONS
-           ═══════════════════════════════════ */
-        .trishul-actions-row {
-          display: flex;
-          gap: 1rem;
-          margin-top: 2rem;
-          flex-wrap: wrap;
-          justify-content: center;
-        }
-
-        .trishul-action-btn {
-          position: relative;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.9rem 1.5rem;
-          border-radius: 16px;
-          border: none;
-          outline: none;
-          transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                      box-shadow 0.3s ease,
-                      background 0.3s ease,
-                      border-color 0.3s ease;
-          min-width: 220px;
-        }
-        .trishul-action-btn:hover {
-          transform: translateY(-2px);
-        }
-        .trishul-action-btn:active {
-          transform: scale(0.98) !important;
-        }
-
-        .trishul-action-btn--dark {
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .trishul-action-btn--dark:hover {
-          background: rgba(255, 255, 255, 0.08);
-          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-          border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .trishul-action-btn--light {
-          background: rgba(255, 255, 255, 0.7);
-          border: 1px solid rgba(0, 0, 0, 0.08);
-        }
-        .trishul-action-btn--light:hover {
-          background: rgba(255, 255, 255, 0.9);
-          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
-          border-color: rgba(0, 0, 0, 0.12);
-        }
-
-        .trishul-action-btn--bluelight {
-          background: rgba(251, 191, 36, 0.05);
-          border: 1px solid rgba(251, 191, 36, 0.12);
-        }
-        .trishul-action-btn--bluelight:hover {
-          background: rgba(251, 191, 36, 0.1);
-          box-shadow: 0 8px 30px rgba(251, 191, 36, 0.08);
-          border-color: rgba(251, 191, 36, 0.25);
-        }
-
-        .trishul-action-icon {
-          width: 20px;
-          height: 20px;
+        /* ── Logo ── */
+        .brainit-bar-logo {
+          display: flex; align-items: center;
+          mix-blend-mode: overlay;
+          filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
           flex-shrink: 0;
         }
-        .trishul-action-icon--dark {
-          color: rgba(6, 182, 212, 0.8);
+        .brainit-logo-text {
+          font-size: 1.1rem; font-weight: 700;
+          letter-spacing: 1px;
+          color: #fff;
         }
-        .trishul-action-icon--light {
-          color: rgba(8, 145, 178, 0.8);
+        .brainit-root--light .brainit-logo-text { color: #1a1a2e; }
+        .brainit-root--bluelight .brainit-logo-text { color: #fbbf24; }
+
+        /* ── Nav Links ── */
+        .brainit-nav {
+          display: flex; align-items: center; gap: 0.5rem;
         }
-        .trishul-action-icon--bluelight {
-          color: rgba(251, 191, 36, 0.8);
+        .brainit-nav-link {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: 0.6rem 1.2rem; border-radius: 8px;
+          background: none; border: 1px solid transparent;
+          color: rgba(255,255,255,0.6);
+          font-size: 0.85rem; font-weight: 700;
+          font-family: 'Arial', sans-serif;
+          transition: all 0.3s ease;
+          text-shadow: 0 0 5px rgba(0,128,255,0.3);
+        }
+        .brainit-nav-link:hover {
+          background: rgba(255,255,255,0.05);
+          color: #A5C1E9;
+          border-color: rgba(106,117,130,0.5);
+          text-shadow: 0 0 10px rgba(0,195,255,0.6);
+        }
+        .brainit-nav-link--active {
+          color: #A5C1E9;
+          border-color: rgba(106,117,130,0.5);
+          background: rgba(0,255,234,0.05);
+          text-shadow: 0 0 10px rgba(0,195,255,0.6);
+        }
+        .brainit-nav-link--active:hover {
+          background: rgba(0,255,234,0.1);
+        }
+        .brainit-root--light .brainit-nav-link {
+          color: rgba(0,0,0,0.5);
+          text-shadow: none;
+        }
+        .brainit-root--light .brainit-nav-link:hover,
+        .brainit-root--light .brainit-nav-link--active {
+          color: #2563eb;
+          border-color: rgba(37,99,235,0.3);
+          background: rgba(37,99,235,0.05);
+          text-shadow: none;
+        }
+        .brainit-root--bluelight .brainit-nav-link {
+          color: rgba(251,191,36,0.6);
+          text-shadow: 0 0 5px rgba(251,191,36,0.2);
+        }
+        .brainit-root--bluelight .brainit-nav-link:hover,
+        .brainit-root--bluelight .brainit-nav-link--active {
+          color: #fbbf24;
+          border-color: rgba(251,191,36,0.4);
+          background: rgba(251,191,36,0.08);
+          text-shadow: 0 0 10px rgba(251,191,36,0.4);
         }
 
-        .trishul-action-text-wrap {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          text-align: left;
+        .brainit-nav-icon {
+          display: flex; align-items: center; justify-content: center;
+          width: 18px; height: 18px; font-size: 14px;
         }
 
-        .trishul-action-title {
-          font-size: 0.82rem;
-          font-weight: 600;
-          letter-spacing: 0.02em;
-          transition: color 0.3s ease;
-        }
-        .trishul-action-title--dark {
-          color: rgba(255, 255, 255, 0.85);
-        }
-        .trishul-action-title--light {
-          color: rgba(20, 20, 60, 0.85);
-        }
-        .trishul-action-title--bluelight {
-          color: rgba(255, 220, 150, 0.85);
-        }
-
-        .trishul-action-desc {
-          font-size: 0.65rem;
-          font-weight: 400;
-          transition: color 0.3s ease;
-        }
-        .trishul-action-desc--dark {
-          color: rgba(255, 255, 255, 0.3);
-        }
-        .trishul-action-desc--light {
-          color: rgba(0, 0, 0, 0.35);
-        }
-        .trishul-action-desc--bluelight {
-          color: rgba(251, 191, 36, 0.4);
-        }
-
-        .trishul-action-arrow {
-          width: 14px;
-          height: 14px;
+        /* ── User Info ── */
+        .brainit-bar-user {
+          display: flex; flex-direction: column; align-items: flex-end;
           flex-shrink: 0;
-          margin-left: auto;
-          transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .trishul-action-arrow--dark {
-          color: rgba(255, 255, 255, 0.2);
+        .brainit-user-name {
+          font-size: 0.85rem; font-weight: 600;
+          color: rgba(255,255,255,0.8);
         }
-        .trishul-action-arrow--light {
-          color: rgba(0, 0, 0, 0.2);
+        .brainit-user-role {
+          font-size: 0.65rem; color: rgba(255,255,255,0.35);
+          text-transform: uppercase; letter-spacing: 1px;
         }
-        .trishul-action-arrow--bluelight {
-          color: rgba(251, 191, 36, 0.3);
+        .brainit-root--light .brainit-user-name { color: rgba(0,0,0,0.8); }
+        .brainit-root--light .brainit-user-role { color: rgba(0,0,0,0.35); }
+        .brainit-root--bluelight .brainit-user-name { color: rgba(251,191,36,0.8); }
+        .brainit-root--bluelight .brainit-user-role { color: rgba(251,191,36,0.35); }
+
+        /* ═══ ANIMATIONS ═══ */
+        @keyframes brainit-fade-up {
+          from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
-        .trishul-action-btn:hover .trishul-action-arrow {
-          transform: translate(2px, -2px);
+        /* Override for elements that don't use translateX */
+        .brainit-shape-slider {
+          animation-name: brainit-fade-up-simple;
+        }
+        .brainit-progress {
+          animation-name: brainit-fade-up-progress;
+        }
+        .brainit-hero-text {
+          animation-name: brainit-fade-up-hero;
+        }
+        @keyframes brainit-fade-up-simple {
+          from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes brainit-fade-up-progress {
+          from { opacity: 0; transform: translateY(-50%) translateX(20px); }
+          to { opacity: 1; transform: translateY(-50%) translateX(0); }
+        }
+        @keyframes brainit-fade-up-hero {
+          from { opacity: 0; transform: translate(-50%, -40%); }
+          to { opacity: 1; transform: translate(-50%, -50%); }
         }
 
-        /* ═══════════════════════════════════
-           FOOTER
-           ═══════════════════════════════════ */
-        .trishul-footer {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 2rem 1.5rem 3rem;
-          opacity: 0;
-          transform: translateY(15px);
-          transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .trishul-footer--visible {
-          opacity: 1;
-          transform: translateY(0);
+        /* ═══ CUSTOM SCROLLBAR ═══ */
+        .brainit-root::-webkit-scrollbar { width: 6px; }
+        .brainit-root::-webkit-scrollbar-track { background: #0B0B0B; }
+        .brainit-root::-webkit-scrollbar-thumb { background: #00FFEA; border-radius: 3px; }
+
+        /* ═══ RESPONSIVE ═══ */
+        @media (max-width: 768px) {
+          .brainit-shape-slider {
+            top: 15px; padding: 0.6rem 1rem; gap: 0.8rem;
+          }
+          .brainit-shape-title { font-size: 1rem; }
+          .brainit-shape-desc { font-size: 0.7rem; }
+          .brainit-progress { right: 15px; }
+          .brainit-progress-track { height: 150px; }
+          .brainit-bottom-bar {
+            bottom: 15px; width: calc(100% - 30px);
+            padding: 0.6rem 1rem;
+            flex-wrap: wrap; gap: 0.5rem;
+                justify-content: center;
+          }
+          .brainit-bar-logo { display: none; }
+          .brainit-bar-user { display: none; }
+          .brainit-nav { width: 100%; justify-content: center; }
+          .brainit-nav-link { padding: 0.5rem 0.8rem; font-size: 0.75rem; }
+          .brainit-hero-heading { letter-spacing: 4px; }
+          .brainit-hero-sub { letter-spacing: 2px; }
         }
 
-        .trishul-footer-inner {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-        .trishul-footer-welcome {
-          font-size: 0.8rem;
-          transition: color 0.4s ease;
-        }
-        .trishul-footer-welcome--dark {
-          color: rgba(255, 255, 255, 0.3);
-        }
-        .trishul-footer-welcome--light {
-          color: rgba(0, 0, 0, 0.3);
-        }
-        .trishul-footer-welcome--bluelight {
-          color: rgba(251, 191, 36, 0.35);
-        }
-
-        .trishul-footer-name {
-          font-weight: 600;
-          transition: color 0.4s ease;
-        }
-        .trishul-footer-name--dark {
-          color: rgba(255, 255, 255, 0.7);
-        }
-        .trishul-footer-name--light {
-          color: rgba(20, 20, 60, 0.7);
-        }
-        .trishul-footer-name--bluelight {
-          color: rgba(251, 191, 36, 0.7);
-        }
-
-        .trishul-footer-role {
-          display: inline-block;
-          padding: 0.2rem 0.65rem;
-          border-radius: 100px;
-          font-size: 0.6rem;
-          font-weight: 600;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          transition: border-color 0.4s ease, background 0.4s ease, color 0.4s ease;
-        }
-        .trishul-footer-role--dark {
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(255, 255, 255, 0.03);
-          color: rgba(255, 255, 255, 0.3);
-        }
-        .trishul-footer-role--light {
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          background: rgba(0, 0, 0, 0.03);
-          color: rgba(0, 0, 0, 0.3);
-        }
-        .trishul-footer-role--bluelight {
-          border: 1px solid rgba(251, 191, 36, 0.12);
-          background: rgba(251, 191, 36, 0.05);
-          color: rgba(251, 191, 36, 0.4);
-        }
-
-        .trishul-footer-copy {
-          font-size: 0.65rem;
-          letter-spacing: 0.05em;
-          transition: color 0.4s ease;
-        }
-        .trishul-footer-copy--dark {
-          color: rgba(255, 255, 255, 0.12);
-        }
-        .trishul-footer-copy--light {
-          color: rgba(0, 0, 0, 0.12);
-        }
-        .trishul-footer-copy--bluelight {
-          color: rgba(251, 191, 36, 0.18);
-        }
-
-        /* ═══════════════════════════════════
-           RESPONSIVE — MOBILE / TABLET
-           ═══════════════════════════════════ */
-
-        /* ── Mobile (max-width: 639px / sm breakpoint) ── */
-        @media (max-width: 639px) {
-          /* Hero: tighter padding, shorter vh */
-          .trishul-hero {
-            min-height: 85vh;
-            padding: 3rem 0.75rem 2rem;
-          }
-
-          /* Badge: smaller on tiny screens */
-          .trishul-badge {
-            padding: 0.35rem 0.9rem;
-            font-size: 0.55rem;
-            letter-spacing: 0.14em;
-          }
-          .trishul-badge-icon {
-            width: 10px;
-            height: 10px;
-          }
-
-          /* Title: tighter margins */
-          .trishul-title-stroke {
-            margin: 1.5rem 0 0.25rem;
-          }
-
-          /* Line separator: narrower margins */
-          .trishul-line-wrap {
-            max-width: 280px;
-            margin: 2rem auto 1.5rem;
-          }
-
-          /* Scroll hint: smaller */
-          .trishul-scroll-text {
-            font-size: 0.5rem;
-          }
-          .trishul-scroll-line {
-            height: 28px;
-          }
-
-          /* Marquee: readable on small phones */
-          .trishul-marquee {
-            padding: 1rem 0;
-          }
-          .trishul-marquee-text {
-            font-size: 0.7rem;
-            letter-spacing: 0.14em;
-          }
-
-          /* Features: tighter padding */
-          .trishul-features {
-            padding: 3rem 0.75rem;
-          }
-          .trishul-features-grid {
-            gap: 1rem;
-            max-width: 100%;
-          }
-
-          /* Card: smaller radius & padding on mobile */
-          .trishul-card {
-            border-radius: 16px;
-          }
-          .trishul-card-content {
-            padding: 1.5rem 1.25rem 1.25rem;
-          }
-          .trishul-card-icon-wrap {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
-            margin-bottom: 1rem;
-          }
-          .trishul-card-icon {
-            width: 18px;
-            height: 18px;
-          }
-          .trishul-card-title {
-            font-size: 1rem;
-          }
-          .trishul-card-desc {
-            font-size: 0.78rem;
-          }
-          .trishul-card-line {
-            margin-top: 1.25rem;
-          }
-          /* Launch: full-width button */
-          .trishul-launch {
-            padding: 2.5rem 1rem 3rem;
-          }
-          .trishul-launch-inner {
-            width: 100%;
-            max-width: 100%;
-            padding: 0 0.5rem;
-          }
-          .trishul-launch-pre {
-            font-size: 0.6rem;
-            margin-bottom: 1.5rem;
-          }
-          .trishul-launch-btn {
-            width: 100%;
-            justify-content: center;
-            padding: 1rem 2rem;
-            font-size: 0.9rem;
-            letter-spacing: 0.12em;
-          }
-          .trishul-launch-arrow {
-            width: 18px;
-            height: 18px;
-          }
-          .trishul-launch-sub {
-            font-size: 0.6rem;
-            margin-top: 1rem;
-          }
-
-          /* Footer: responsive layout */
-          .trishul-footer {
-            padding: 2rem 1rem 2.5rem;
-          }
-          .trishul-footer-inner {
-            flex-direction: column;
-            gap: 0.5rem;
-            text-align: center;
-          }
-          .trishul-footer-welcome {
-            font-size: 0.75rem;
-          }
-          .trishul-footer-copy {
-            font-size: 0.58rem;
-          }
-        }
-
-        /* ── Tablet (max-width: 767px / md breakpoint) ── */
-        @media (max-width: 767px) {
-          .trishul-hero {
-            padding: 3.5rem 1rem 2.5rem;
-          }
-
-          /* Floating orbs: much smaller on mobile */
-          .trishul-ambient--dark::before,
-          .trishul-ambient--light::before,
-          .trishul-ambient--bluelight::before {
-            width: 320px !important;
-            height: 320px !important;
-          }
-          .trishul-ambient--dark::after,
-          .trishul-ambient--light::after,
-          .trishul-ambient--bluelight::after {
-            width: 280px !important;
-            height: 280px !important;
-          }
-
-          /* Line separator: narrower on tablet */
-          .trishul-line-wrap {
-            max-width: 360px;
-          }
-        }
-
-        /* ── Small phone (max-width: 374px / iPhone SE) ── */
-        @media (max-width: 374px) {
-          .trishul-badge {
-            padding: 0.3rem 0.7rem;
-            font-size: 0.5rem;
-            letter-spacing: 0.12em;
-          }
-          .trishul-title-stroke {
-            margin: 1rem 0 0.15rem;
-          }
-          .trishul-line-wrap {
-            max-width: 220px;
-            margin: 1.5rem auto 1rem;
-          }
-          .trishul-launch-btn {
-            padding: 0.9rem 1.5rem;
-            font-size: 0.85rem;
-          }
-          .trishul-card-content {
-            padding: 1.25rem 1rem 1rem;
-          }
-        }
-
-        /* ═══════════════════════════════════
-           KEYFRAMES
-           ═══════════════════════════════════ */
-
-        @keyframes trishul-wave-in {
-          0% {
-            opacity: 0;
-            transform: translateY(40px) scale(0.8);
-          }
-          60% {
-            opacity: 1;
-            transform: translateY(-6px) scale(1.05);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-
-        @keyframes trishul-gradient-shift {
-          0%, 100% {
-            background-position: 0% 50%;
-          }
-          50% {
-            background-position: 100% 50%;
-          }
-        }
-
-        @keyframes trishul-shimmer {
-          0% {
-            left: -100%;
-          }
-          100% {
-            left: 200%;
-          }
-        }
-
-        @keyframes trishul-fade-up {
-          0% {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes trishul-line-grow {
-          0% { width: 0; }
-          100% { width: 100%; }
-        }
-
-        @keyframes trishul-marquee-scroll {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
-        }
-
-        @keyframes trishul-btn-glow-dark {
-          0%, 100% {
-            box-shadow: 0 0 20px rgba(6, 182, 212, 0.2),
-                        0 0 40px rgba(168, 85, 247, 0.15),
-                        0 0 0px rgba(236, 72, 153, 0);
-          }
-          50% {
-            box-shadow: 0 0 30px rgba(6, 182, 212, 0.35),
-                        0 0 60px rgba(168, 85, 247, 0.25),
-                        0 0 90px rgba(236, 72, 153, 0.1);
-          }
-        }
-
-        @keyframes trishul-btn-glow-light {
-          0%, 100% {
-            box-shadow: 0 0 15px rgba(8, 145, 178, 0.15),
-                        0 0 30px rgba(124, 58, 237, 0.10),
-                        0 0 0px rgba(219, 39, 119, 0);
-          }
-          50% {
-            box-shadow: 0 0 25px rgba(8, 145, 178, 0.25),
-                        0 0 50px rgba(124, 58, 237, 0.15),
-                        0 0 75px rgba(219, 39, 119, 0.06);
-          }
-        }
-
-        @keyframes trishul-btn-glow-bluelight {
-          0%, 100% {
-            box-shadow: 0 0 15px rgba(251, 191, 36, 0.15),
-                        0 0 30px rgba(217, 119, 6, 0.10),
-                        0 0 0px rgba(245, 158, 11, 0);
-          }
-          50% {
-            box-shadow: 0 0 25px rgba(251, 191, 36, 0.30),
-                        0 0 50px rgba(217, 119, 6, 0.20),
-                        0 0 75px rgba(245, 158, 11, 0.08);
-          }
-        }
-
-        @keyframes trishul-btn-gradient {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-
-        @keyframes trishul-float-a {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(40px, 30px) scale(1.05); }
-          66% { transform: translate(-20px, 50px) scale(0.97); }
-        }
-
-        @keyframes trishul-float-b {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          40% { transform: translate(-30px, -40px) scale(1.08); }
-          70% { transform: translate(20px, -20px) scale(0.95); }
-        }
-
-        @keyframes trishul-scroll-pulse {
-          0%, 100% {
-            opacity: 0.3;
-            transform: scaleY(1);
-          }
-          50% {
-            opacity: 0.7;
-            transform: scaleY(1.2);
-          }
+        @media (max-width: 480px) {
+          .brainit-shape-label { min-width: 120px; }
+          .brainit-shape-title { font-size: 0.85rem; letter-spacing: 1px; }
+          .brainit-shape-desc { display: none; }
+          .brainit-hero-heading { letter-spacing: 2px; }
         }
       `}</style>
     </>
