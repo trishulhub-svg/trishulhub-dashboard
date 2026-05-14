@@ -56,7 +56,7 @@ export async function ensureAllTables(): Promise<void> {
       "PersonalTimetableTask", "TimetableSettings",
       "ApiUsageLog",
       "ProtocolVersion", "ProtocolInvite", "ProtocolAccessLog",
-      "UserProtocolAccess",
+      "UserProtocolAccess", "UserCredential",
     ]
 
     const missing = expectedTables.filter(t => !tursoTableNames.has(t))

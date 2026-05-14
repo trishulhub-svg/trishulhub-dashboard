@@ -4,7 +4,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles } from "lucide-react";
+import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles, KeyRound, Globe } from "lucide-react";
 
 /* ─── Data ─── */
 const features = [
@@ -168,7 +168,15 @@ export default function TrishulWorkspacePage() {
   }, []);
 
   const handleLaunch = useCallback(() => {
+    window.open("https://chat.z.ai", "_blank");
+  }, []);
+
+  const handleSecondWorkspace = useCallback(() => {
     router.push("/dashboard/workspace");
+  }, [router]);
+
+  const handleClaimCredentials = useCallback(() => {
+    router.push("/dashboard/credentials");
   }, [router]);
 
   // Theme-aware accent values for cards
@@ -313,6 +321,8 @@ export default function TrishulWorkspacePage() {
             <p className={`trishul-launch-pre trishul-launch-pre--${mode}`}>
               Ready to build?
             </p>
+
+            {/* Primary LAUNCH — chat.z.ai */}
             <button
               ref={magneticRef}
               onClick={handleLaunch}
@@ -326,8 +336,37 @@ export default function TrishulWorkspacePage() {
               <ArrowUpRight className="trishul-launch-arrow" />
             </button>
             <p className={`trishul-launch-sub trishul-launch-sub--${mode}`}>
-              Launch the AI workspace
+              Opens workspace in a new tab
             </p>
+
+            {/* Secondary action buttons */}
+            <div className="trishul-actions-row">
+              <button
+                onClick={handleSecondWorkspace}
+                className={`trishul-action-btn trishul-action-btn--${mode}`}
+                type="button"
+              >
+                <Globe className="trishul-action-icon" />
+                <div className="trishul-action-text-wrap">
+                  <span className={`trishul-action-title trishul-action-title--${mode}`}>2nd Workspace</span>
+                  <span className={`trishul-action-desc trishul-action-desc--${mode}`}>TrishulHub AI Chat</span>
+                </div>
+                <ArrowUpRight className="trishul-action-arrow" />
+              </button>
+
+              <button
+                onClick={handleClaimCredentials}
+                className={`trishul-action-btn trishul-action-btn--${mode}`}
+                type="button"
+              >
+                <KeyRound className="trishul-action-icon" />
+                <div className="trishul-action-text-wrap">
+                  <span className={`trishul-action-title trishul-action-title--${mode}`}>Claim Credentials</span>
+                  <span className={`trishul-action-desc trishul-action-desc--${mode}`}>ID & Password</span>
+                </div>
+                <ArrowUpRight className="trishul-action-arrow" />
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1268,6 +1307,142 @@ export default function TrishulWorkspacePage() {
         }
         .trishul-launch-sub--bluelight {
           color: rgba(251, 191, 36, 0.25);
+        }
+
+        /* ═══════════════════════════════════
+           SECONDARY ACTION BUTTONS
+           ═══════════════════════════════════ */
+        .trishul-actions-row {
+          display: flex;
+          gap: 1rem;
+          margin-top: 2rem;
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .trishul-action-btn {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 0.9rem 1.5rem;
+          border-radius: 16px;
+          border: none;
+          outline: none;
+          transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                      box-shadow 0.3s ease,
+                      background 0.3s ease,
+                      border-color 0.3s ease;
+          min-width: 220px;
+        }
+        .trishul-action-btn:hover {
+          transform: translateY(-2px);
+        }
+        .trishul-action-btn:active {
+          transform: scale(0.98) !important;
+        }
+
+        .trishul-action-btn--dark {
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .trishul-action-btn--dark:hover {
+          background: rgba(255, 255, 255, 0.08);
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+          border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .trishul-action-btn--light {
+          background: rgba(255, 255, 255, 0.7);
+          border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        .trishul-action-btn--light:hover {
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+          border-color: rgba(0, 0, 0, 0.12);
+        }
+
+        .trishul-action-btn--bluelight {
+          background: rgba(251, 191, 36, 0.05);
+          border: 1px solid rgba(251, 191, 36, 0.12);
+        }
+        .trishul-action-btn--bluelight:hover {
+          background: rgba(251, 191, 36, 0.1);
+          box-shadow: 0 8px 30px rgba(251, 191, 36, 0.08);
+          border-color: rgba(251, 191, 36, 0.25);
+        }
+
+        .trishul-action-icon {
+          width: 20px;
+          height: 20px;
+          flex-shrink: 0;
+        }
+        .trishul-action-icon--dark {
+          color: rgba(6, 182, 212, 0.8);
+        }
+        .trishul-action-icon--light {
+          color: rgba(8, 145, 178, 0.8);
+        }
+        .trishul-action-icon--bluelight {
+          color: rgba(251, 191, 36, 0.8);
+        }
+
+        .trishul-action-text-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          text-align: left;
+        }
+
+        .trishul-action-title {
+          font-size: 0.82rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          transition: color 0.3s ease;
+        }
+        .trishul-action-title--dark {
+          color: rgba(255, 255, 255, 0.85);
+        }
+        .trishul-action-title--light {
+          color: rgba(20, 20, 60, 0.85);
+        }
+        .trishul-action-title--bluelight {
+          color: rgba(255, 220, 150, 0.85);
+        }
+
+        .trishul-action-desc {
+          font-size: 0.65rem;
+          font-weight: 400;
+          transition: color 0.3s ease;
+        }
+        .trishul-action-desc--dark {
+          color: rgba(255, 255, 255, 0.3);
+        }
+        .trishul-action-desc--light {
+          color: rgba(0, 0, 0, 0.35);
+        }
+        .trishul-action-desc--bluelight {
+          color: rgba(251, 191, 36, 0.4);
+        }
+
+        .trishul-action-arrow {
+          width: 14px;
+          height: 14px;
+          flex-shrink: 0;
+          margin-left: auto;
+          transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .trishul-action-arrow--dark {
+          color: rgba(255, 255, 255, 0.2);
+        }
+        .trishul-action-arrow--light {
+          color: rgba(0, 0, 0, 0.2);
+        }
+        .trishul-action-arrow--bluelight {
+          color: rgba(251, 191, 36, 0.3);
+        }
+        .trishul-action-btn:hover .trishul-action-arrow {
+          transform: translate(2px, -2px);
         }
 
         /* ═══════════════════════════════════

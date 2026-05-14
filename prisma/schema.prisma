@@ -53,6 +53,7 @@ model User {
   protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
   protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
   protocolAccess      UserProtocolAccess?
+  userCredentials     UserCredential[]
 }
 
 // ━━ API Keys ━━
@@ -1056,4 +1057,22 @@ model UserProtocolAccess {
 
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+}
+
+// ━━ User Credentials (ID & Password Management) ━━
+model UserCredential {
+  id          String   @id @default(cuid())
+  userId      String
+  label       String   // e.g., "Workspace", "Email", "Portal", "Hosting"
+  username    String   // The ID / username
+  password    String   // The password / secret
+  url         String?  // Optional login URL
+  notes       String?  // Additional instructions
+  createdBy   String?  // SUPER_ADMIN userId who created it
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
