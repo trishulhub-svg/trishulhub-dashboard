@@ -274,7 +274,7 @@ export default function ParticleCanvas({ shapeIndex, mode }: ParticleCanvasProps
       ref.frameId = requestAnimationFrame(animate);
     };
 
-    ref.frameId = requestAnimationFrame(animate);
+    sceneRef.current.frameId = requestAnimationFrame(animate);
 
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
