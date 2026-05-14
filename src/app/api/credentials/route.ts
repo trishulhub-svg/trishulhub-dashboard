@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 
 // GET — Users see their own credentials, SUPER_ADMIN sees all
 export async function GET(req: NextRequest) {
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
       if (targetUserId) {
         // Get credentials for a specific user
-        const credentials = await prisma.userCredential.findMany({
+        const credentials = await db.userCredential.findMany({
           where: { userId: targetUserId },
           include: { user: { select: { id: true, name: true, email: true, role: true } } },
           orderBy: { createdAt: "desc" },
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Get all credentials grouped
-      const credentials = await prisma.userCredential.findMany({
+      const credentials = await db.userCredential.findMany({
         include: { user: { select: { id: true, name: true, email: true, role: true } } },
         orderBy: { createdAt: "desc" },
       });
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Regular users — only their own credentials (no password field initially masked)
-    const credentials = await prisma.userCredential.findMany({
+    const credentials = await db.userCredential.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
     });
@@ -72,12 +72,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify the target user exists
-    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    const targetUser = await db.user.findUnique({ where: { id: userId } });
     if (!targetUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const credential = await prisma.userCredential.create({
+    const credential = await db.userCredential.create({
       data: {
         userId,
         label,
@@ -115,7 +115,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Credential ID is required" }, { status: 400 });
     }
 
-    const credential = await prisma.userCredential.update({
+    const credential = await db.userCredential.update({
       where: { id },
       data: {
         ...(label && { label }),
@@ -152,7 +152,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Credential ID is required" }, { status: 400 });
     }
 
-    await prisma.userCredential.delete({ where: { id } });
+    await db.userCredential.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Credentials DELETE error:", error);
