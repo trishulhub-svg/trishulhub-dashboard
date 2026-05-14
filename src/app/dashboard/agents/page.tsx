@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Cpu, Shield, Rocket, ArrowUpRight, Sparkles } from "lucide-react";
 
@@ -45,6 +46,7 @@ const MARQUEE_TEXT =
 /* ─── Component ─── */
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
+  const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const userName = session?.user?.name || "User";
@@ -166,8 +168,8 @@ export default function TrishulWorkspacePage() {
   }, []);
 
   const handleLaunch = useCallback(() => {
-    window.open("https://chat.z.ai", "_blank");
-  }, []);
+    router.push("/dashboard/workspace");
+  }, [router]);
 
   // Theme-aware accent values for cards
   const cardAccent = (f: (typeof features)[number]) =>
@@ -324,7 +326,7 @@ export default function TrishulWorkspacePage() {
               <ArrowUpRight className="trishul-launch-arrow" />
             </button>
             <p className={`trishul-launch-sub trishul-launch-sub--${mode}`}>
-              Opens workspace in a new tab
+              Launch the AI workspace
             </p>
           </div>
         </section>
