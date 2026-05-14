@@ -47,10 +47,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { targetEmail, targetName, agentAccess, protocolId, expiresInHours } = body;
+    const { targetEmail, targetName, agentAccess, protocolId, expiresInHours, mode } = body;
 
-    if (!targetEmail || typeof targetEmail !== "string") {
-      return NextResponse.json({ error: "Target email is required" }, { status: 400 });
+    // mode: "link" (share link, no email needed) or "document" (tracked, email required)
+    const isShareLink = mode === "link";
+
+    if (!isShareLink && (!targetEmail || typeof targetEmail !== "string")) {
+      return NextResponse.json({ error: "Team member email is required" }, { status: 400 });
     }
 
     if (!agentAccess || !Array.isArray(agentAccess) || agentAccess.length === 0) {
@@ -92,13 +95,13 @@ export async function POST(request: NextRequest) {
       inviteCode = generateInviteCode();
     }
 
-    // Create invite in DB (no OTP generation here)
+    // Create invite in DB
     const invite = await db.protocolInvite.create({
       data: {
         protocolId: targetProtocolId,
         inviteCode,
-        targetEmail: targetEmail.toLowerCase(),
-        targetName: targetName || null,
+        targetEmail: isShareLink ? "share-link" : (targetEmail as string).toLowerCase(),
+        targetName: isShareLink ? "Share Link" : (targetName || null),
         agentAccess: JSON.stringify(resolvedAccess),
         expiresAt,
         createdBy: token.id as string,
@@ -106,10 +109,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const shareUrl = isShareLink
+      ? `https://trishulhub.com/protocol/view/${inviteCode}`
+      : null;
+
     return NextResponse.json({
       inviteCode,
       expiresAt: expiresAt.toISOString(),
       inviteId: invite.id,
+      shareUrl,
+      mode: isShareLink ? "link" : "document",
     }, { status: 201 });
   } catch (error: any) {
     console.error("[protocol/invites] POST error:", error);
