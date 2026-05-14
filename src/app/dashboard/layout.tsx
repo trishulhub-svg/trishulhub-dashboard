@@ -317,6 +317,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [status, router, userRole]);
 
+  // Auto-collapse sidebar when navigating to workspace landing page
+  useEffect(() => {
+    if (pathname === "/dashboard/agents") {
+      setCollapsed(true);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     if (session) {
       fetchNotifications();
