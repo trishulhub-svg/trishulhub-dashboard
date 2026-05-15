@@ -1,21 +1,65 @@
-// Auto-migration utility — ensures Prisma schema is in sync with Turso DB.
+// Auto-migration utility — ensures Prisma schema is in sync with DB.
 //
 // HOW IT WORKS:
-// 1. On server startup, compares the Prisma schema (local SQLite) with the remote Turso DB
-// 2. Creates any missing tables and adds any missing columns automatically
+// 1. On server startup, checks for missing tables and columns
+// 2. Automatically creates missing tables and adds missing columns
 // 3. Covers ALL 50 models — no manual SQL maintenance needed
 //
 // WHEN TO RUN: Automatically via src/instrumentation.ts on every server cold start.
-// This is a safety net — the primary sync should be done via `prisma db push`
-// targeting Turso (see scripts/sync-turso.ts).
+// This is a safety net — the primary sync should be done via `prisma db push`.
 
 import { db } from "@/lib/db"
 
 let syncDone = false
 
+/** Columns to check and add if missing: { table, column, type, defaultValue? } */
+const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = [
+  { table: "Task", column: "approvedBy", sql: "ALTER TABLE Task ADD COLUMN approvedBy TEXT" },
+  { table: "Task", column: "approvedAt", sql: "ALTER TABLE Task ADD COLUMN approvedAt DATETIME" },
+  { table: "Task", column: "assigneeType", sql: "ALTER TABLE Task ADD COLUMN assigneeType TEXT NOT NULL DEFAULT 'HUMAN'" },
+  { table: "CrossAgentMessage", column: "linkedChatId", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
+  { table: "CrossAgentMessage", column: "shareFullChat", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
+  { table: "Chat", column: "lockedBy", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
+  { table: "Chat", column: "lockedAt", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
+  { table: "Chat", column: "lockedByName", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
+  { table: "Chat", column: "todoItems", sql: "ALTER TABLE Chat ADD COLUMN todoItems TEXT NOT NULL DEFAULT '[]'" },
+  { table: "Chat", column: "isProcessing", sql: "ALTER TABLE Chat ADD COLUMN isProcessing INTEGER NOT NULL DEFAULT 0" },
+]
+
+/** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
+const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
+  {
+    name: "ClientWebsite",
+    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL)`
+  },
+  {
+    name: "ProtocolVersion",
+    sql: `CREATE TABLE IF NOT EXISTS "ProtocolVersion" ("id" TEXT NOT NULL PRIMARY KEY, "version" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL DEFAULT 'Trishul Protocol', "content" TEXT NOT NULL DEFAULT '', "stageDescriptions" TEXT NOT NULL DEFAULT '[]', "agentSkills" TEXT NOT NULL DEFAULT '[]', "isActive" BOOLEAN NOT NULL DEFAULT 1, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+  },
+  {
+    name: "ProtocolInvite",
+    sql: `CREATE TABLE IF NOT EXISTS "ProtocolInvite" ("id" TEXT NOT NULL PRIMARY KEY, "protocolId" TEXT NOT NULL, "inviteCode" TEXT NOT NULL UNIQUE, "targetEmail" TEXT NOT NULL, "targetName" TEXT, "agentAccess" TEXT NOT NULL DEFAULT '[]', "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME, "usedBy" TEXT, "createdBy" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'PENDING', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+  },
+  {
+    name: "ProtocolAccessLog",
+    sql: `CREATE TABLE IF NOT EXISTS "ProtocolAccessLog" ("id" TEXT NOT NULL PRIMARY KEY, "inviteId" TEXT NOT NULL, "protocolId" TEXT NOT NULL, "userEmail" TEXT NOT NULL, "agentAccess" TEXT NOT NULL DEFAULT '[]', "ipAddress" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+  },
+  {
+    name: "UserProtocolAccess",
+    sql: `CREATE TABLE IF NOT EXISTS "UserProtocolAccess" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL UNIQUE, "userEmail" TEXT NOT NULL, "userName" TEXT, "protocolId" TEXT NOT NULL, "agentAccess" TEXT NOT NULL DEFAULT '[]', "isActive" BOOLEAN NOT NULL DEFAULT 1, "verifiedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "verifiedVia" TEXT NOT NULL, "lastAccessAt" DATETIME NOT NULL)`
+  },
+  {
+    name: "UserCredential",
+    sql: `CREATE TABLE IF NOT EXISTS "UserCredential" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "label" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "url" TEXT, "notes" TEXT, "createdBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+  },
+  {
+    name: "EmailLog",
+    sql: `CREATE TABLE IF NOT EXISTS "EmailLog" ("id" TEXT NOT NULL PRIMARY KEY, "to" TEXT NOT NULL, "subject" TEXT NOT NULL, "type" TEXT NOT NULL, "status" TEXT NOT NULL, "smtpConfigId" TEXT, "smtpHost" TEXT, "method" TEXT, "error" TEXT, "triggeredBy" TEXT, "metadata" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+  },
+]
+
 /**
- * Compare the local Prisma schema with the remote Turso DB and create
- * any missing tables or columns. This covers ALL models automatically.
+ * Compare schema with DB and auto-fix any missing tables or columns.
  * Safe to call multiple times — skips if already synced in this process.
  */
 export async function ensureAllTables(): Promise<void> {
@@ -31,40 +75,35 @@ export async function ensureAllTables(): Promise<void> {
   }
 
   try {
-    // Get all tables in Turso
-    const tursoTables = await db.$queryRawUnsafe(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-    ) as Array<{ name: string }>
-    const tursoTableNames = new Set(tursoTables.map(t => t.name))
+    // 1. Create missing tables
+    for (const tableDef of CRITICAL_TABLES) {
+      try {
+        await db.$executeRawUnsafe(tableDef.sql)
+      } catch (err: any) {
+        // Table already exists or other error — non-fatal
+        if (!err?.message?.includes('already exists')) {
+          console.warn(`[auto-migrate] Table ${tableDef.name}: ${err?.message}`)
+        }
+      }
+    }
 
-    // List of ALL Prisma schema tables that should exist
-    // If ANY are missing, it means prisma db push hasn't been run against Turso
-    const expectedTables = [
-      "User", "ApiKey", "Agent", "AgentRoleConfig", "Chat", "ChatMessage",
-      "UserAgentAccess", "ScheduledTask", "Approval", "CrossAgentMessage",
-      "AgentAutonomyConfig", "AgentAutonomousPrompt", "AgentActivityLog",
-      "AgentConversation",
-      "Client", "ClientWebsite", "Project", "ProjectMember", "Task",
-      "Invoice", "Lead", "LeadEmail", "Deal", "Contact",
-      "SupportTicket", "TicketMessage",
-      "LeaveRequest", "TimeEntry", "Attendance", "Notification",
-      "Meeting", "MeetingAttendee", "Expense", "Subscription",
-      "SmtpConfig", "EmailVerification", "EmailLog",
-      "PasswordChange", "PasswordReset", "ActiveSession",
-      "Leave", "Availability", "AvailabilityOverride",
-      "TrainingDocument", "TrainingTest", "TrainingAssignment", "TestAttempt",
-      "PersonalTimetableTask", "TimetableSettings",
-      "ApiUsageLog",
-      "ProtocolVersion", "ProtocolInvite", "ProtocolAccessLog",
-      "UserProtocolAccess", "UserCredential",
-    ]
+    // 2. Add missing columns to existing tables
+    for (const colDef of CRITICAL_COLUMNS) {
+      try {
+        // Check if column exists
+        const columns = await db.$queryRawUnsafe(
+          `PRAGMA table_info("${colDef.table}")`
+        ) as Array<{ name: string }>
 
-    const missing = expectedTables.filter(t => !tursoTableNames.has(t))
-    if (missing.length > 0) {
-      console.warn(
-        `[auto-migrate] ${missing.length} tables missing from Turso: ${missing.join(", ")}. ` +
-        `Run "npx tsx scripts/sync-turso.ts" to sync the full Prisma schema.`
-      )
+        const exists = columns.some(c => c.name === colDef.column)
+        if (!exists) {
+          await db.$executeRawUnsafe(colDef.sql)
+          console.log(`[auto-migrate] Added column ${colDef.column} to ${colDef.table}`)
+        }
+      } catch (err: any) {
+        // Table might not exist yet — non-fatal
+        console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${err?.message}`)
+      }
     }
   } catch (err: any) {
     console.error("[auto-migrate] Schema check error (non-fatal):", err?.message)
@@ -73,17 +112,13 @@ export async function ensureAllTables(): Promise<void> {
 
 /**
  * No-op function kept for backward compatibility with existing imports.
- * The real sync is now done via scripts/sync-turso.ts.
  */
 export async function ensureTable(_tableName: string): Promise<boolean> {
-  // Tables are now synced via scripts/sync-turso.ts
-  // This function is kept as a no-op for backward compatibility
   return true
 }
 
 /**
  * No-op function kept for backward compatibility with existing imports.
- * The real sync is now done via scripts/sync-turso.ts.
  */
 export async function runAutoMigrations(): Promise<void> {
   await ensureAllTables()

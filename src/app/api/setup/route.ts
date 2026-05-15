@@ -97,6 +97,10 @@ export async function PATCH() {
       { table: "Chat", column: "lockedBy", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
       { table: "Chat", column: "lockedAt", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
       { table: "Chat", column: "lockedByName", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
+      // Task approval columns (added in task approval system)
+      { table: "Task", column: "approvedBy", type: "TEXT", sql: "ALTER TABLE Task ADD COLUMN approvedBy TEXT" },
+      { table: "Task", column: "approvedAt", type: "DATETIME", sql: "ALTER TABLE Task ADD COLUMN approvedAt DATETIME" },
+      { table: "Task", column: "assigneeType", type: "TEXT", sql: "ALTER TABLE Task ADD COLUMN assigneeType TEXT NOT NULL DEFAULT 'HUMAN'" },
     ]
 
     for (const migration of migrations) {
@@ -146,6 +150,93 @@ export async function PATCH() {
           expiresAt DATETIME NOT NULL,
           createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE
+        )`
+      },
+      // Task approval & protocol tables
+      {
+        name: "ClientWebsite",
+        sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "url" TEXT NOT NULL,
+          "label" TEXT,
+          "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "clientId" TEXT NOT NULL
+        )`
+      },
+      {
+        name: "ProtocolVersion",
+        sql: `CREATE TABLE IF NOT EXISTS "ProtocolVersion" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "version" TEXT NOT NULL,
+          "title" TEXT NOT NULL DEFAULT 'Trishul Protocol',
+          "content" TEXT NOT NULL DEFAULT '',
+          "stageDescriptions" TEXT NOT NULL DEFAULT '[]',
+          "agentSkills" TEXT NOT NULL DEFAULT '[]',
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "createdBy" TEXT NOT NULL,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL
+        )`
+      },
+      {
+        name: "ProtocolInvite",
+        sql: `CREATE TABLE IF NOT EXISTS "ProtocolInvite" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "protocolId" TEXT NOT NULL,
+          "inviteCode" TEXT NOT NULL,
+          "targetEmail" TEXT NOT NULL,
+          "targetName" TEXT,
+          "agentAccess" TEXT NOT NULL DEFAULT '[]',
+          "expiresAt" DATETIME NOT NULL,
+          "usedAt" DATETIME,
+          "usedBy" TEXT,
+          "createdBy" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL
+        )`
+      },
+      {
+        name: "ProtocolAccessLog",
+        sql: `CREATE TABLE IF NOT EXISTS "ProtocolAccessLog" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "inviteId" TEXT NOT NULL,
+          "protocolId" TEXT NOT NULL,
+          "userEmail" TEXT NOT NULL,
+          "agentAccess" TEXT NOT NULL DEFAULT '[]',
+          "ipAddress" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: "UserProtocolAccess",
+        sql: `CREATE TABLE IF NOT EXISTS "UserProtocolAccess" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "userId" TEXT NOT NULL,
+          "userEmail" TEXT NOT NULL,
+          "userName" TEXT,
+          "protocolId" TEXT NOT NULL,
+          "agentAccess" TEXT NOT NULL DEFAULT '[]',
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "verifiedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "verifiedVia" TEXT NOT NULL,
+          "lastAccessAt" DATETIME NOT NULL
+        )`
+      },
+      {
+        name: "UserCredential",
+        sql: `CREATE TABLE IF NOT EXISTS "UserCredential" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "userId" TEXT NOT NULL,
+          "label" TEXT NOT NULL,
+          "username" TEXT NOT NULL,
+          "password" TEXT NOT NULL,
+          "url" TEXT,
+          "notes" TEXT,
+          "createdBy" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL
         )`
       },
     ]
