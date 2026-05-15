@@ -272,6 +272,7 @@ export default function TrishulWorkspacePage() {
         .nx-mesh {
           position: fixed; inset: 0; z-index: 0;
           overflow: hidden;
+          pointer-events: none;
         }
         .nx-mesh-blob {
           position: absolute;
@@ -422,6 +423,7 @@ export default function TrishulWorkspacePage() {
           padding: 1rem 2rem;
           opacity: 0; transform: translateY(-20px);
           transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+          pointer-events: none;
         }
         .nx-topbar--visible { opacity: 1; transform: translateY(0); }
 
@@ -897,6 +899,7 @@ export default function TrishulWorkspacePage() {
           padding: 1.25rem 2rem;
           opacity: 0;
           transition: opacity 0.8s ease 1.5s;
+          pointer-events: none;
         }
         .nx-footer--visible { opacity: 1; }
 
