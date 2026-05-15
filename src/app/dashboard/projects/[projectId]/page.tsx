@@ -585,7 +585,7 @@ export default function ProjectDetailPage() {
                     {dtAssigneeType === "AI" ? (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground"><Bot className="h-3 w-3" /> AI Agent</span>
                     ) : (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" /> {safeText(dtAssignedTo) || "Unassigned"}</span>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
                     )}
                     {dtDeadline && (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
@@ -599,7 +599,7 @@ export default function ProjectDetailPage() {
                       <div className="text-xs">
                         <p className="font-medium text-green-700 dark:text-green-300">Approved</p>
                         <p className="text-green-600/70 dark:text-green-400/70">
-                          Approved by {safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
+                          Approved by {extractStr(selectedTask, "approvedByName", "") || safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
                         </p>
                       </div>
                     </div>
@@ -745,7 +745,8 @@ export default function ProjectDetailPage() {
                   const tAssigneeType = extractStr(task, "assigneeType", "HUMAN");
                   const tDeadline = extractStr(task, "deadline", "");
                   const tAssignedTo = extractStr(task, "assignedTo", "");
-                  const tAssignedName = tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned";
+                  const tAssignedToName = extractStr(task, "assignedToName", "");
+                  const tAssignedName = tAssignedToName || (tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned");
                   const tApprovedBy = extractStr(task, "approvedBy", "");
                   const isThisAwaiting = statusStr === "AWAITING_APPROVAL";
                   const canApproveThis = isAdminUser && isThisAwaiting && !(userRole === "ADMIN" && tAssignedTo === userId);
@@ -786,7 +787,7 @@ export default function ProjectDetailPage() {
                         {statusStr === "DONE" && tApprovedBy && (
                           <div className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
                             <ShieldCheck className="h-3 w-3" />
-                            <span>Approved by {safeText(tApprovedBy)}</span>
+                            <span>Approved by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
                           </div>
                         )}
                         <div className="flex gap-1 flex-wrap">

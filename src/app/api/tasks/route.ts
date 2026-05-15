@@ -55,12 +55,32 @@ export async function GET(req: NextRequest) {
     where.projectId = projectId
   }
 
-  // No includes — scalar fields only.
   const tasks = await db.task.findMany({
     where,
     orderBy: { createdAt: "desc" }
   })
-  return NextResponse.json(JSON.parse(JSON.stringify(tasks)))
+
+  // Resolve userIds to names for assignee and approver
+  const userIds = new Set<string>()
+  for (const t of tasks) {
+    if (t.assignedTo) userIds.add(t.assignedTo)
+    if (t.approvedBy) userIds.add(t.approvedBy)
+  }
+  let userMap: Record<string, string> = {}
+  if (userIds.size > 0) {
+    const users = await db.user.findMany({
+      where: { id: { in: Array.from(userIds) } },
+      select: { id: true, name: true }
+    })
+    for (const u of users) userMap[u.id] = u.name
+  }
+
+  const enriched = tasks.map(t => ({
+    ...JSON.parse(JSON.stringify(t)),
+    assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
+    approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
+  }))
+  return NextResponse.json(enriched)
   } catch (error: any) {
     console.error("[tasks] GET error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -321,14 +341,14 @@ export async function PATCH(req: NextRequest) {
         admin.id,
         "Task Pending Approval",
         `${assigneeName} submitted "${existingTask.title}" for your review.`,
-        "TASK",
+        "APPROVAL",
         taskLink
       )
     }
   }
 
   // Task approved → notify the assignee
-  if (finalStatus === "DONE" && data.approvedBy && existingTask.assignedTo) {
+  if (finalStatus === "DONE" && data.approvedBy && existingTask.assignedTo && existingTask.assignedTo !== userId) {
     const taskLink = `/dashboard/projects/${existingTask.projectId}`
     await sendNotification(
       existingTask.assignedTo,
