@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag, CheckCircle2, ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ const taskStatusColors: Record<string, string> = {
   TODO: "bg-gray-100 dark:bg-gray-800/50",
   IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
   REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
+  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
   DONE: "bg-green-50 dark:bg-green-900/20",
 };
 
@@ -95,7 +96,9 @@ export default function ProjectDetailPage() {
       : "";
 
   const userRole = session?.user?.role || "DEVELOPER";
+  const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isSuperAdmin = userRole === "SUPER_ADMIN";
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -187,8 +190,22 @@ export default function ProjectDetailPage() {
   const handleMoveTask = async (taskId: string, newStatus: string) => {
     try {
       const res = await fetch("/api/tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: taskId, status: newStatus }) });
-      if (res.ok) { toast.success(`Task moved to ${newStatus.replace("_", " ")}`); fetchData(); }
-      else { if (handle401(res)) return; toast.error("Failed to move task"); }
+      if (res.ok) {
+        const updated = await res.json().catch(() => null);
+        const finalStatus = updated?.status || newStatus;
+        if (finalStatus === "AWAITING_APPROVAL" && newStatus === "DONE") {
+          toast.success("Task submitted for approval");
+        } else if (finalStatus === "DONE" && newStatus === "DONE") {
+          toast.success("Task approved and marked as done");
+        } else {
+          toast.success(`Task moved to ${finalStatus.replace("_", " ")}`);
+        }
+        fetchData();
+      } else {
+        if (handle401(res)) return;
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to move task");
+      }
     } catch { toast.error("Failed to move task"); }
   };
 
@@ -542,6 +559,12 @@ export default function ProjectDetailPage() {
             const dtCreatedAt = extractStr(selectedTask, "createdAt", "");
             const dtUpdatedAt = extractStr(selectedTask, "updatedAt", "");
             const dtCompletedAt = extractStr(selectedTask, "completedAt", "");
+            const dtApprovedBy = extractStr(selectedTask, "approvedBy", "");
+            const dtApprovedAt = extractStr(selectedTask, "approvedAt", "");
+            const isAwaitingApproval = dtStatus === "AWAITING_APPROVAL";
+            const isDone = dtStatus === "DONE";
+            // Self-approval check: ADMIN cannot approve their own tasks
+            const canApprove = isAdminUser && isAwaitingApproval && !(userRole === "ADMIN" && dtAssignedTo === userId);
             return (
               <>
                 <DialogHeader>
@@ -568,6 +591,27 @@ export default function ProjectDetailPage() {
                       <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
                     )}
                   </div>
+
+                  {/* Approval Info */}
+                  {isDone && dtApprovedBy && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-900/30">
+                      <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                      <div className="text-xs">
+                        <p className="font-medium text-green-700 dark:text-green-300">Approved</p>
+                        <p className="text-green-600/70 dark:text-green-400/70">
+                          Approved by {safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {isAwaitingApproval && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-900/30">
+                      <Clock className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
+                      <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
+                        Pending approval from admin/superadmin
+                      </p>
+                    </div>
+                  )}
 
                   {/* Description */}
                   <div>
@@ -597,29 +641,64 @@ export default function ProjectDetailPage() {
                         <p>{safeDate(dtCompletedAt, "N/A")}</p>
                       </div>
                     )}
+                    {dtApprovedAt && (
+                      <div>
+                        <p className="font-medium">Approved</p>
+                        <p>{safeDate(dtApprovedAt, "N/A")}</p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Move Task */}
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Move to</p>
-                    <div className="flex flex-wrap gap-2">
-                      {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
-                        <Button
-                          key={String(s)}
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => {
-                            handleMoveTask(dtId, String(s));
-                            setTaskDetailOpen(false);
-                          }}
-                        >
-                          <Tag className="h-3 w-3 mr-1" />
-                          {String(s).replace("_", " ")}
-                        </Button>
-                      ))}
+                  {/* Approve / Reject Actions (for admin/superadmin) */}
+                  {canApprove && (
+                    <div className="flex gap-2 p-3 rounded-lg border bg-muted/30">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => {
+                          handleMoveTask(dtId, "DONE");
+                          setTaskDetailOpen(false);
+                        }}
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => {
+                          handleMoveTask(dtId, "REVIEW");
+                          setTaskDetailOpen(false);
+                        }}
+                      >
+                        <X className="h-4 w-4 mr-1" /> Send Back
+                      </Button>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Move Task (hide Done when awaiting approval — use Approve instead) */}
+                  {!isAwaitingApproval && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Move to</p>
+                      <div className="flex flex-wrap gap-2">
+                        {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
+                          <Button
+                            key={String(s)}
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              handleMoveTask(dtId, String(s));
+                              setTaskDetailOpen(false);
+                            }}
+                          >
+                            <Tag className="h-3 w-3 mr-1" />
+                            {String(s).replace("_", " ")}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Delete */}
                   <div className="flex justify-end pt-2 border-t">
@@ -665,9 +744,11 @@ export default function ProjectDetailPage() {
                   const tPriority = extractStr(task, "priority", "MEDIUM");
                   const tAssigneeType = extractStr(task, "assigneeType", "HUMAN");
                   const tDeadline = extractStr(task, "deadline", "");
-                  // Task no longer has include relations, so just show "Unassigned"
                   const tAssignedTo = extractStr(task, "assignedTo", "");
                   const tAssignedName = tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned";
+                  const tApprovedBy = extractStr(task, "approvedBy", "");
+                  const isThisAwaiting = statusStr === "AWAITING_APPROVAL";
+                  const canApproveThis = isAdminUser && isThisAwaiting && !(userRole === "ADMIN" && tAssignedTo === userId);
 
                   return (
                     <Card
@@ -701,18 +782,54 @@ export default function ProjectDetailPage() {
                             </span>
                           )}
                         </div>
-                        <div className="flex gap-1">
-                          {TASK_COLUMNS.filter((s) => String(s) !== statusStr).map((s) => (
-                            <Button
-                              key={String(s)}
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-[10px] px-2"
-                              onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, String(s)); }}
-                            >
-                              {String(s).replace("_", " ").slice(0, 3)}
-                            </Button>
-                          ))}
+                        {/* Approved by badge on DONE tasks */}
+                        {statusStr === "DONE" && tApprovedBy && (
+                          <div className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                            <ShieldCheck className="h-3 w-3" />
+                            <span>Approved by {safeText(tApprovedBy)}</span>
+                          </div>
+                        )}
+                        <div className="flex gap-1 flex-wrap">
+                          {/* AWAITING_APPROVAL: show Approve/Reject for admins, or a waiting indicator */}
+                          {isThisAwaiting ? (
+                            canApproveThis ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "DONE"); }}
+                                >
+                                  <CheckCircle2 className="h-3 w-3 mr-0.5" /> Approve
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "REVIEW"); }}
+                                >
+                                  <X className="h-3 w-3 mr-0.5" /> Reject
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-orange-500 flex items-center gap-0.5 px-1">
+                                <Clock className="h-2.5 w-2.5" /> Waiting for approval
+                              </span>
+                            )
+                          ) : (
+                            /* Normal columns: show move buttons */
+                            TASK_COLUMNS.filter((s) => String(s) !== statusStr).map((s) => (
+                              <Button
+                                key={String(s)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-[10px] px-2"
+                                onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, String(s)); }}
+                              >
+                                {String(s).replace("_", " ").slice(0, 3)}
+                              </Button>
+                            ))
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"

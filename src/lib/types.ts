@@ -11,7 +11,7 @@ export type AgentType =
 
 export type AgentStatus = "IDLE" | "RUNNING" | "WAITING_APPROVAL" | "ERROR";
 
-export type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "AWAITING_APPROVAL" | "DONE";
 export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export type ProjectStatus =
@@ -121,7 +121,7 @@ export const LEAD_COLUMNS: LeadStatus[] = [
   "LOST",
 ];
 
-export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"];
+export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
 
 // ━━ Department Options ━━
 export const DEPARTMENTS = [

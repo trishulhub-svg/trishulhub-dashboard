@@ -5,8 +5,19 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"]
+const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+
+// ── Helper: send notification to a user ──
+async function sendNotification(userId: string, title: string, message: string, type: string, link: string | null) {
+  try {
+    await db.notification.create({
+      data: { userId, title, message, type, link, isRead: false }
+    })
+  } catch (err) {
+    console.error("[tasks] Failed to send notification:", err)
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -44,13 +55,11 @@ export async function GET(req: NextRequest) {
     where.projectId = projectId
   }
 
-  // ZAI FIX #310: No includes — scalar fields only.
-  // The detail page fetches project data separately from /api/projects.
+  // No includes — scalar fields only.
   const tasks = await db.task.findMany({
     where,
     orderBy: { createdAt: "desc" }
   })
-  // Layer 0: JSON round-trip to strip Date objects → ISO strings
   return NextResponse.json(JSON.parse(JSON.stringify(tasks)))
   } catch (error: any) {
     console.error("[tasks] GET error:", error?.message)
@@ -158,21 +167,20 @@ export async function PATCH(req: NextRequest) {
 
   const userRole = session.user.role
   const userId = session.user.id
+  const userName = session.user.name || "User"
   const body = await req.json()
   const id = body.id
 
   if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
 
+  // Fetch existing task early — needed for approval logic
+  const existingTask = await db.task.findUnique({ where: { id } })
+  if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data: Parameters<typeof db.task.update>[0]["data"] = {}
   if (body.title !== undefined) data.title = body.title
   if (body.description !== undefined) data.description = body.description
-  if (body.status !== undefined) {
-    if (!VALID_TASK_STATUSES.includes(body.status)) {
-      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
-    }
-    data.status = body.status
-  }
   if (body.priority !== undefined) {
     if (!VALID_TASK_PRIORITIES.includes(body.priority)) {
       return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
@@ -183,7 +191,57 @@ export async function PATCH(req: NextRequest) {
   if (body.assigneeType !== undefined) data.assigneeType = body.assigneeType
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(body.deadline) : null
 
-  // Only admins can change projectId on a task (prevents developers from moving tasks between projects)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // APPROVAL FLOW — status change logic
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (body.status !== undefined) {
+    if (!VALID_TASK_STATUSES.includes(body.status)) {
+      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
+    }
+
+    const newStatus = body.status as string
+    const currentStatus = existingTask.status
+
+    // ── CASE 1: User is trying to mark task as DONE ──
+    if (newStatus === "DONE") {
+      // If task is already AWAITING_APPROVAL, this is an approval action
+      if (currentStatus === "AWAITING_APPROVAL") {
+        // Only admin/superadmin can approve
+        if (!isAdmin(userRole)) {
+          return NextResponse.json({ error: "Forbidden: Only admin or superadmin can approve tasks" }, { status: 403 })
+        }
+
+        // Self-approval prevention: ADMIN cannot approve tasks assigned to themselves
+        if (userRole === "ADMIN" && existingTask.assignedTo === userId) {
+          return NextResponse.json({ error: "Forbidden: You cannot approve your own task. Only superadmin can approve your tasks." }, { status: 403 })
+        }
+
+        // APPROVE — set status, approvedBy, approvedAt, completedAt
+        data.status = "DONE"
+        data.approvedBy = userId
+        data.approvedAt = new Date()
+        data.completedAt = new Date()
+
+      } else {
+        // Task is NOT currently AWAITING_APPROVAL — user wants to "complete" it
+        // SUPERADMIN can directly mark as DONE (no approval needed for their own actions)
+        if (userRole === "SUPER_ADMIN") {
+          data.status = "DONE"
+          data.approvedBy = userId
+          data.approvedAt = new Date()
+          data.completedAt = new Date()
+        } else {
+          // All other users (DEVELOPER, ADMIN) → goes to AWAITING_APPROVAL
+          data.status = "AWAITING_APPROVAL"
+        }
+      }
+    } else {
+      // Regular status change (not DONE)
+      data.status = newStatus
+    }
+  }
+
+  // Only admins can change projectId on a task
   if (body.projectId !== undefined) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Only admins can move tasks between projects" }, { status: 403 })
@@ -193,9 +251,6 @@ export async function PATCH(req: NextRequest) {
 
   // Developers can only update tasks in projects they're assigned to
   if (!isAdmin(userRole)) {
-    const existingTask = await db.task.findUnique({ where: { id } })
-    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
-
     const membership = await db.projectMember.findFirst({
       where: { userId, projectId: existingTask.projectId }
     })
@@ -216,9 +271,7 @@ export async function PATCH(req: NextRequest) {
         startDate: { lte: taskDeadline },
         endDate: { gte: new Date() },
       },
-      include: {
-        user: { select: { name: true } },
-      },
+      include: { user: { select: { name: true } } },
     })
     if (assigneeLeave) {
       return NextResponse.json({
@@ -228,37 +281,79 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Also check if only assignedTo is being changed (with existing deadline)
-  if (assignedUserId && !taskDeadline) {
-    const existingTask = await db.task.findUnique({ where: { id } })
-    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
-    if (existingTask?.deadline) {
-      const assigneeLeave = await db.leave.findFirst({
-        where: {
-          userId: assignedUserId,
-          status: "APPROVED",
-          startDate: { lte: existingTask.deadline },
-          endDate: { gte: new Date() },
-        },
-        include: {
-          user: { select: { name: true } },
-        },
-      })
-      if (assigneeLeave) {
-        return NextResponse.json({
-          error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
-        }, { status: 400 })
-        }
+  if (assignedUserId && !taskDeadline && existingTask?.deadline) {
+    const assigneeLeave = await db.leave.findFirst({
+      where: {
+        userId: assignedUserId,
+        status: "APPROVED",
+        startDate: { lte: existingTask.deadline },
+        endDate: { gte: new Date() },
+      },
+      include: { user: { select: { name: true } } },
+    })
+    if (assigneeLeave) {
+      return NextResponse.json({
+        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+      }, { status: 400 })
     }
   }
 
-  // Ensure task exists before updating (admins skip the earlier findUnique)
-  if (isAdmin(userRole)) {
-    const existingTask = await db.task.findUnique({ where: { id } })
-    if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+  // Update the task
+  const updatedTask = await db.task.update({ where: { id }, data })
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // NOTIFICATIONS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const finalStatus = data.status as string | undefined
+
+  // Task sent for approval → notify all admin/superadmin
+  if (finalStatus === "AWAITING_APPROVAL") {
+    const admins = await db.user.findMany({
+      where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+      select: { id: true }
+    })
+    const taskLink = `/dashboard/projects/${existingTask.projectId}`
+    const assigneeName = existingTask.assignedTo ? (await db.user.findUnique({ where: { id: existingTask.assignedTo }, select: { name: true } }))?.name || "Someone" : "Someone"
+
+    for (const admin of admins) {
+      await sendNotification(
+        admin.id,
+        "Task Pending Approval",
+        `${assigneeName} submitted "${existingTask.title}" for your review.`,
+        "TASK",
+        taskLink
+      )
+    }
   }
 
-  const task = await db.task.update({ where: { id }, data })
-  return NextResponse.json(JSON.parse(JSON.stringify(task)))
+  // Task approved → notify the assignee
+  if (finalStatus === "DONE" && data.approvedBy && existingTask.assignedTo) {
+    const taskLink = `/dashboard/projects/${existingTask.projectId}`
+    await sendNotification(
+      existingTask.assignedTo,
+      "Task Approved",
+      `Your task "${existingTask.title}" has been approved by ${userName}.`,
+      "SUCCESS",
+      taskLink
+    )
+  }
+
+  // Task rejected (sent back) → notify the assignee
+  if (finalStatus && finalStatus !== "AWAITING_APPROVAL" && finalStatus !== "DONE" && existingTask.status === "AWAITING_APPROVAL") {
+    if (existingTask.assignedTo) {
+      const taskLink = `/dashboard/projects/${existingTask.projectId}`
+      await sendNotification(
+        existingTask.assignedTo,
+        "Task Revision Needed",
+        `Your task "${existingTask.title}" was sent back by ${userName}. Status: ${finalStatus.replace("_", " ")}.`,
+        "WARNING",
+        taskLink
+      )
+    }
+  }
+
+  return NextResponse.json(JSON.parse(JSON.stringify(updatedTask)))
   } catch (error: any) {
     console.error("[tasks] PATCH error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

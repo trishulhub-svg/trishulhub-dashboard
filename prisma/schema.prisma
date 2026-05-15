@@ -401,10 +401,12 @@ model Task {
   projectId   String
   assignedTo  String?  // userId or agentId
   assigneeType String  @default("HUMAN") // HUMAN, AI
-  status      String   @default("TODO") // TODO, IN_PROGRESS, REVIEW, DONE
+  status      String   @default("TODO") // TODO, IN_PROGRESS, REVIEW, AWAITING_APPROVAL, DONE
   priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
   deadline    DateTime?
   completedAt DateTime?
+  approvedBy  String?  // userId of admin/superadmin who approved
+  approvedAt  DateTime? // when the task was approved
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
