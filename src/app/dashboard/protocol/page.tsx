@@ -4,211 +4,165 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  Shield, Save, Download, Upload, Loader2,
-  Clock, AlertTriangle, Copy, Check,
+  FileText, Upload, Download, Trash2, Loader2,
+  FileUp, CheckCircle2, AlertCircle, Clock,
 } from "lucide-react";
-import { safeText, safeDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { DEFAULT_PROTOCOL_CONTENT } from "@/lib/default-protocol";
+import { safeText, safeDate } from "@/lib/utils";
 
-// ── Types ──
-interface ProtocolVersion {
+interface ProtocolFile {
   id: string;
-  version: string;
-  title: string;
-  content: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string;
+  uploadedBy: string;
 }
 
 export default function ProtocolPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const isAdmin = session?.user?.role === "SUPER_ADMIN";
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Protocol state
-  const [protocolId, setProtocolId] = useState<string | null>(null);
-  const [protocolVersion, setProtocolVersion] = useState("");
-  const [protocolTitle, setProtocolTitle] = useState("Trishul Protocol");
-  const [protocolContent, setProtocolContent] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [protocol, setProtocol] = useState<ProtocolFile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const protocolFileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
-  // ── Fetch protocol ──
+  // ── Fetch current protocol PDF ──
   const fetchProtocol = useCallback(async () => {
     try {
-      const res = await fetch("/api/protocol?active=true");
+      const res = await fetch("/api/protocol");
       if (res.ok) {
         const data = await res.json();
-        const active = Array.isArray(data) ? data.find((p: ProtocolVersion) => p.isActive) : data;
-        if (active) {
-          setProtocolId(active.id);
-          setProtocolVersion(active.version || "");
-          setProtocolTitle(active.title || "Trishul Protocol");
-          setProtocolContent(active.content || "");
-          setLastSaved(active.updatedAt || active.createdAt);
-        } else if (isAdmin) {
-          // No protocol exists yet — load default
-          setProtocolContent(DEFAULT_PROTOCOL_CONTENT);
-          setProtocolTitle("Trishul Protocol");
-        }
+        if (data?.id) setProtocol(data);
+        else setProtocol(null);
       }
-    } catch (err) {
-      console.error("Failed to fetch protocol:", err);
+    } catch {
+      console.error("Failed to fetch protocol");
     }
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     if (status === "authenticated") {
       setLoading(true);
-      fetchProtocol();
-      setLoading(false);
+      fetchProtocol().finally(() => setLoading(false));
     }
   }, [status, fetchProtocol]);
 
-  // ── Save protocol ──
-  const saveProtocol = async () => {
-    setSaving(true);
+  // ── Upload PDF ──
+  const handleUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Only PDF files are allowed");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large (max 10MB)");
+      return;
+    }
+
+    setUploading(true);
     try {
-      const body: Record<string, string> = {
-        title: protocolTitle.trim() || "Trishul Protocol",
-        content: protocolContent,
-      };
+      // Convert to base64
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ""
+        )
+      );
 
-      let res: Response;
-      let targetId = protocolId;
-
-      if (!targetId) {
-        try {
-          const checkRes = await fetch("/api/protocol?active=true");
-          if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            const existing = Array.isArray(checkData) ? checkData.find((p: ProtocolVersion) => p.isActive) : checkData;
-            if (existing?.id) {
-              targetId = existing.id;
-              setProtocolId(existing.id);
-            }
-          }
-        } catch { /* fall through to POST */ }
-      }
-
-      if (targetId) {
-        res = await fetch("/api/protocol", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: targetId, ...body }),
-        });
-      } else {
-        body.version = "6.0";
-        res = await fetch("/api/protocol", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      }
+      const res = await fetch("/api/protocol", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || "application/pdf",
+          data: base64,
+        }),
+      });
 
       if (res.ok) {
-        toast.success("Protocol saved successfully");
-        const data = await res.json();
-        if (!protocolId && data.id) setProtocolId(data.id);
-        setLastSaved(new Date().toISOString());
+        toast.success("Protocol PDF uploaded successfully");
         await fetchProtocol();
       } else {
         const data = await res.json();
-        toast.error(safeText(data.error, "Failed to save"));
-      }
-    } catch {
-      toast.error("Failed to save protocol");
-    }
-    setSaving(false);
-  };
-
-  // ── Upload file ──
-  const handleFileUpload = async (file: File) => {
-    const allowedExt = [".txt", ".md", ".pdf", ".doc", ".docx"];
-    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-    if (!allowedExt.includes(ext)) {
-      toast.error("Use .txt, .md, .pdf, .doc, or .docx");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("File too large (max 5MB)");
-      return;
-    }
-    if (ext === ".txt" || ext === ".md") {
-      try {
-        const text = await file.text();
-        setProtocolContent(text);
-        toast.success(`Loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
-      } catch {
-        toast.error("Failed to read file");
-      }
-      return;
-    }
-    setLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/protocol/upload-document", { method: "POST", body: formData });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.content) {
-          setProtocolContent(data.content);
-          toast.success(`Loaded ${file.name} (${(data.content.length / 1024).toFixed(1)} KB)`);
-        } else {
-          toast.error("Could not extract text from this file");
-        }
-      } else {
-        const data = await res.json();
-        toast.error(safeText(data.error, "Failed to process file"));
+        toast.error(safeText(data.error, "Upload failed"));
       }
     } catch {
       toast.error("Failed to upload file");
     }
-    setLoading(false);
+    setUploading(false);
   };
 
-  // ── Download as .txt ──
-  const downloadProtocol = () => {
-    if (!protocolContent.trim()) {
-      toast.error("No protocol content to download");
-      return;
-    }
-    const blob = new Blob([protocolContent], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `trishul-protocol-v${protocolVersion || "6.0"}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success("Protocol downloaded");
-  };
-
-  // ── Copy to clipboard ──
-  const copyProtocol = async () => {
-    if (!protocolContent.trim()) {
-      toast.error("No protocol content to copy");
-      return;
-    }
+  // ── Download PDF ──
+  const handleDownload = useCallback(async () => {
+    if (!protocol) return;
     try {
-      await navigator.clipboard.writeText(protocolContent);
-      setCopied(true);
-      toast.success("Protocol copied to clipboard — paste it into GLM chat");
-      setTimeout(() => setCopied(false), 2000);
+      const res = await fetch("/api/protocol?download=true");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data) {
+          const binary = atob(data.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const blob = new Blob([bytes], { type: protocol.mimeType });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = protocol.fileName || "trishul-protocol.pdf";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          toast.success("Download started");
+        } else {
+          toast.error("No PDF data found");
+        }
+      } else {
+        toast.error("Failed to download protocol");
+      }
     } catch {
-      toast.error("Failed to copy");
+      toast.error("Download failed");
     }
+  }, [protocol]);
+
+  // ── Delete PDF ──
+  const handleDelete = async () => {
+    if (!protocol) return;
+    if (!confirm("Are you sure you want to delete this protocol PDF?")) return;
+    try {
+      const res = await fetch("/api/protocol", { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Protocol PDF deleted");
+        setProtocol(null);
+      } else {
+        toast.error("Failed to delete");
+      }
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  // ── Drag & Drop handlers ──
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
+  const onDragLeave = () => setDragOver(false);
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleUpload(file);
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   // ── Loading ──
@@ -222,131 +176,167 @@ export default function ProtocolPage() {
   if (!session) return null;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-2xl">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {isAdmin ? "Protocol Management" : "Trishul Protocol"}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isAdmin
-              ? "Upload, edit, and manage the master protocol. Your team downloads it from here."
-              : "View and download the Trishul Protocol. Paste it into GLM workspace to activate."}
-          </p>
-        </div>
-        {lastSaved && (
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            <Clock className="h-3 w-3" /> Saved: {safeDate(lastSaved)}
-          </span>
-        )}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
+          <FileText className="h-6 w-6 text-primary" />
+          Protocol
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {isAdmin
+            ? "Upload and manage your protocol PDF. Team members can download it."
+            : "Download the latest TrishulHub protocol PDF."}
+        </p>
       </div>
 
-      {/* Protocol Card */}
+      {/* Current Protocol Card */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="h-4 w-4 text-primary" />
-                {protocolVersion ? `Version ${safeText(protocolVersion)}` : "Trishul Protocol"}
-              </CardTitle>
-              <CardDescription className="mt-1">
-                {isAdmin
-                  ? "Edit the protocol below or upload a document. Changes are saved to the database."
-                  : "This is your team's operational protocol. Download it or copy to clipboard."}
-              </CardDescription>
-            </div>
-            {protocolContent.length > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                {(protocolContent.length / 1024).toFixed(1)} KB
-              </Badge>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Title — ADMIN only */}
-          {isAdmin && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Protocol Title</label>
-              <Input
-                value={protocolTitle}
-                onChange={(e) => setProtocolTitle(e.target.value)}
-                placeholder="Trishul Protocol"
-                className="max-w-md"
-              />
-            </div>
-          )}
-
-          {/* Content — ADMIN: editable. Team: read-only */}
-          {isAdmin ? (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-sm font-medium">Protocol Content</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={protocolFileRef}
-                    type="file"
-                    accept=".txt,.md,.pdf,.doc,.docx"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleFileUpload(file);
-                      e.target.value = "";
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => protocolFileRef.current?.click()}
-                  >
-                    <Upload className="h-3.5 w-3.5 mr-1" /> Upload Document
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {protocolContent.length.toLocaleString()} chars
-                  </span>
+        <CardContent className="p-6">
+          {protocol ? (
+            /* ── Protocol exists ── */
+            <div className="space-y-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+                    <FileText className="h-5 w-5 text-red-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {safeText(protocol.fileName)}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="secondary" className="text-xs">
+                        PDF
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatSize(protocol.fileSize)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+                <Badge variant="outline" className="text-xs flex items-center gap-1 flex-shrink-0">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                  Active
+                </Badge>
               </div>
-              <Textarea
-                placeholder="Write or paste your Trishul Protocol here..."
-                className="min-h-[550px] font-mono text-sm leading-relaxed"
-                value={protocolContent}
-                onChange={(e) => setProtocolContent(e.target.value)}
-              />
+
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Clock className="h-3 w-3" />
+                Uploaded: {safeDate(protocol.uploadedAt)}
+                {protocol.uploadedBy && (
+                  <> &middot; by {safeText(protocol.uploadedBy)}</>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-3 border-t">
+                <Button onClick={handleDownload} className="flex-1">
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
+                </Button>
+                {isAdmin && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Replace
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleDelete}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           ) : (
-            <div className="border rounded-lg p-4 bg-muted/20">
-              <pre className="text-sm leading-relaxed whitespace-pre-wrap break-words font-mono max-h-[600px] overflow-y-auto">
-                {protocolContent || "No protocol available. Contact your administrator."}
-              </pre>
-            </div>
-          )}
+            /* ── No protocol uploaded ── */
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center">
+                  <AlertCircle className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">No protocol uploaded</p>
+                  <p className="text-xs text-muted-foreground">
+                    {isAdmin
+                      ? "Upload your protocol PDF to get started."
+                      : "No protocol is available yet. Contact your admin."}
+                  </p>
+                </div>
+              </div>
 
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-2 border-t">
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" />
-              Confidential — do not share outside the team
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={copyProtocol} disabled={!protocolContent.trim()}>
-                {copied ? <Check className="h-4 w-4 mr-1.5" /> : <Copy className="h-4 w-4 mr-1.5" />}
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-              <Button onClick={downloadProtocol} disabled={!protocolContent.trim()}>
-                <Download className="h-4 w-4 mr-1.5" /> Download .txt
-              </Button>
               {isAdmin && (
-                <Button onClick={saveProtocol} disabled={saving || !protocolContent.trim()}>
-                  {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
-                  Save
-                </Button>
+                <>
+                  {/* Drop zone */}
+                  <div
+                    onDragOver={onDragOver}
+                    onDragLeave={onDragLeave}
+                    onDrop={onDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`
+                      relative flex flex-col items-center justify-center gap-3
+                      rounded-xl border-2 border-dashed p-8 cursor-pointer
+                      transition-all duration-200
+                      ${dragOver
+                        ? "border-primary bg-primary/5 scale-[1.01]"
+                        : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50"
+                      }
+                    `}
+                  >
+                    <div className={`
+                      w-12 h-12 rounded-full flex items-center justify-center
+                      transition-colors duration-200
+                      ${dragOver ? "bg-primary/10" : "bg-muted"}
+                    `}>
+                      <FileUp className={`h-5 w-5 transition-colors duration-200 ${dragOver ? "text-primary" : "text-muted-foreground"}`} />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium">
+                        {dragOver ? "Drop your PDF here" : "Click to upload or drag & drop"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        PDF files only, max 10MB
+                      </p>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleUpload(file);
+          e.target.value = "";
+        }}
+      />
+
+      {/* Upload overlay spinner */}
+      {uploading && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-background rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Uploading protocol...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
