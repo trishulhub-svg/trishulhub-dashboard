@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X,
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -113,6 +113,8 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
+  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     if (!projectId) { setLoading(false); return; }
@@ -525,6 +527,121 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
+      {/* Task Detail Dialog */}
+      <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>
+        <DialogContent className="max-w-lg">
+          {selectedTask && (() => {
+            const dtId = extractStr(selectedTask, "id", "");
+            const dtTitle = extractStr(selectedTask, "title", "Untitled");
+            const dtDesc = extractStr(selectedTask, "description", "");
+            const dtPriority = extractStr(selectedTask, "priority", "MEDIUM");
+            const dtStatus = extractStr(selectedTask, "status", "TODO");
+            const dtAssigneeType = extractStr(selectedTask, "assigneeType", "HUMAN");
+            const dtAssignedTo = extractStr(selectedTask, "assignedTo", "");
+            const dtDeadline = extractStr(selectedTask, "deadline", "");
+            const dtCreatedAt = extractStr(selectedTask, "createdAt", "");
+            const dtUpdatedAt = extractStr(selectedTask, "updatedAt", "");
+            const dtCompletedAt = extractStr(selectedTask, "completedAt", "");
+            return (
+              <>
+                <DialogHeader>
+                  <div className="flex items-center justify-between pr-6">
+                    <DialogTitle className="text-lg">{safeText(dtTitle, "Untitled")}</DialogTitle>
+                    <Badge className={`shrink-0 ${priorityColors[dtPriority] || ""}`}>
+                      {safeText(dtPriority, "MEDIUM")}
+                    </Badge>
+                  </div>
+                  <DialogDescription className="text-xs text-muted-foreground">
+                    {safeText(dtStatus, "TODO").replace("_", " ")} · Created {dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-2">
+                  {/* Status & Meta */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-xs`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
+                    {dtAssigneeType === "AI" ? (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><Bot className="h-3 w-3" /> AI Agent</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" /> {safeText(dtAssignedTo) || "Unassigned"}</span>
+                    )}
+                    {dtDeadline && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Description</p>
+                    {dtDesc ? (
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap bg-muted/50 rounded-lg p-3 border">
+                        {safeText(dtDesc)}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No description provided.</p>
+                    )}
+                  </div>
+
+                  {/* Timestamps */}
+                  <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                    <div>
+                      <p className="font-medium">Created</p>
+                      <p>{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Last Updated</p>
+                      <p>{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
+                    </div>
+                    {dtCompletedAt && (
+                      <div>
+                        <p className="font-medium">Completed</p>
+                        <p>{safeDate(dtCompletedAt, "N/A")}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Move Task */}
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Move to</p>
+                    <div className="flex flex-wrap gap-2">
+                      {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
+                        <Button
+                          key={String(s)}
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            handleMoveTask(dtId, String(s));
+                            setTaskDetailOpen(false);
+                          }}
+                        >
+                          <Tag className="h-3 w-3 mr-1" />
+                          {String(s).replace("_", " ")}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Delete */}
+                  <div className="flex justify-end pt-2 border-t">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={() => {
+                        handleDeleteTask(dtId);
+                        setTaskDetailOpen(false);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Task
+                    </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
       {/* Task Columns */}
       <div className="flex gap-3 overflow-x-auto pb-4">
         {TASK_COLUMNS.map((status) => {
@@ -553,7 +670,11 @@ export default function ProjectDetailPage() {
                   const tAssignedName = tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned";
 
                   return (
-                    <Card key={tId} className="hover:shadow-md transition-shadow">
+                    <Card
+                      key={tId}
+                      className="hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
+                    >
                       <CardContent className="p-3 space-y-2">
                         <div className="flex items-start justify-between">
                           <p className="text-sm font-medium">{safeText(tTitle, "Untitled")}</p>
@@ -587,7 +708,7 @@ export default function ProjectDetailPage() {
                               variant="ghost"
                               size="sm"
                               className="h-6 text-[10px] px-2"
-                              onClick={() => handleMoveTask(tId, String(s))}
+                              onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, String(s)); }}
                             >
                               {String(s).replace("_", " ").slice(0, 3)}
                             </Button>
@@ -596,7 +717,7 @@ export default function ProjectDetailPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 text-red-500 px-2"
-                            onClick={() => handleDeleteTask(tId)}
+                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(tId); }}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
