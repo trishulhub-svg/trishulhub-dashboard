@@ -47,6 +47,9 @@ export async function GET(
       select: { id: true, url: true, label: true, isPrimary: true, createdAt: true },
       orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
     },
+    projectMethod: {
+      select: { id: true, name: true },
+    },
     projects: {
       select: {
         id: true,

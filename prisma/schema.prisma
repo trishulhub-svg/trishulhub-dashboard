@@ -311,6 +311,15 @@ model AgentActivityLog {
   @@index([configId, createdAt])
 }
 
+// ━━ Project Method ━━
+model ProjectMethod {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  clients   Client[]
+}
+
 // ━━ Clients ━━
 model Client {
   id              String   @id @default(cuid())
@@ -324,6 +333,7 @@ model Client {
   userId          String?  // linked portal user
   notes           String?
   projectType     String?              // ENGINEERING, MEDICAL, RETAIL, REAL_ESTATE, FINANCE, EDUCATION, LEGAL, FOOD_BEVERAGE, MANUFACTURING, IT_SERVICES, OTHER
+  projectMethodId String?              // Method of Project (JAVA, PHP, HTML, Other, etc.)
   projectStartDate DateTime?            // When engagement started
   deliveryDate    DateTime?            // Expected delivery date
   mediatorName    String?              // Mediator/agent/broker name
@@ -332,12 +342,13 @@ model Client {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  projects  Project[]
-  invoices  Invoice[]
-  leads     Lead[]
-  deals     Deal[]
-  contacts  Contact[]
-  tickets   SupportTicket[]
+  projects       Project[]
+  invoices       Invoice[]
+  leads          Lead[]
+  deals          Deal[]
+  contacts       Contact[]
+  tickets        SupportTicket[]
+  projectMethod  ProjectMethod?  @relation(fields: [projectMethodId], references: [id])
 }
 
 // ━━ Client Websites (one-to-many) ━━
@@ -375,6 +386,8 @@ model Project {
   expenses     Expense[]
   subscriptions Subscription[]
   members      ProjectMember[]
+  attachments  ProjectAttachment[]
+  credentials  ProjectCredential[]
 }
 
 // ━━ Project Members (RBAC) ━━
@@ -431,6 +444,12 @@ model Invoice {
 
   client        Client   @relation(fields: [clientId], references: [id])
   project       Project? @relation(fields: [projectId], references: [id])
+  paymentMethod  String?   // UPI, CREDIT_DEBIT_CARD, BANK_TRANSFER, OTHER
+  gst            Float?    // GST amount in INR
+  gstPercent     Float?    // GST percentage (e.g., 18)
+  notes          String?   // Additional notes
+  paymentStatus  String    @default("UNPAID") // PAID, UNPAID, DUE
+
   sentBy        User?    @relation(fields: [sentById], references: [id])
   sentById      String?
 }
@@ -1059,6 +1078,37 @@ model UserProtocolAccess {
 
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+}
+
+// ━━ Project Attachments (PDF files) ━━
+model ProjectAttachment {
+  id        String   @id @default(cuid())
+  projectId String
+  fileName  String
+  fileData  String   // base64 encoded PDF content (for SQLite storage)
+  fileSize  Int      // bytes
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ━━ Project Credentials (encrypted ID/password storage) ━━
+model ProjectCredential {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String   // e.g., "Hosting Login", "Client Portal", "Database"
+  username  String
+  password  String   // encrypted with AES-256-GCM
+  iv        String   // initialization vector (base64)
+  tag       String   // auth tag (base64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 // ━━ User Credentials (ID & Password Management) ━━

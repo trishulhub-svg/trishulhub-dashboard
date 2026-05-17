@@ -59,13 +59,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; [key: string]: unknown }
+  let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; paymentMethod?: string; gst?: number; gstPercent?: number; notes?: string; paymentStatus?: string; [key: string]: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
-  const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate } = body
+  const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = body
 
   if (!clientId) {
     return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
@@ -92,6 +92,11 @@ export async function POST(req: NextRequest) {
         // SECURITY: Always create as DRAFT — ignore client-provided status
         status: "DRAFT",
         dueDate: dueDate ? new Date(dueDate) : null,
+        paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : null,
+        gst: typeof gst === 'number' ? gst : null,
+        gstPercent: typeof gstPercent === 'number' ? gstPercent : null,
+        notes: typeof notes === 'string' ? notes : null,
+        paymentStatus: typeof paymentStatus === 'string' ? paymentStatus : "UNPAID",
         // SECURITY: Auto-set sentById from session — ignore client-provided value
         sentById: session.user.id,
       },
@@ -156,7 +161,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Sanitize update fields — sentById removed to prevent spoofing
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt"]
+  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
   const sanitizedData: Record<string, unknown> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
@@ -173,6 +178,10 @@ export async function PATCH(req: NextRequest) {
   // If marking as PAID, set paidAt automatically
   if (data.status === "PAID" && !data.paidAt) {
     sanitizedData.paidAt = new Date()
+  }
+  // If marking as PAID, also set paymentStatus
+  if (data.status === "PAID") {
+    sanitizedData.paymentStatus = "PAID"
   }
 
   try {
@@ -241,7 +250,7 @@ export async function PUT(req: NextRequest) {
   }
 
   // SECURITY: Apply same allowed fields whitelist as PATCH handler — sentById removed to prevent spoofing
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt"]
+  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
   const sanitizedData: Record<string, unknown> = {}
   for (const key of allowedFields) {
     if (data[key] !== undefined) {
@@ -258,6 +267,10 @@ export async function PUT(req: NextRequest) {
   // If marking as PAID, set paidAt automatically
   if (data.status === "PAID" && !data.paidAt) {
     sanitizedData.paidAt = new Date()
+  }
+  // If marking as PAID, also set paymentStatus
+  if (data.status === "PAID") {
+    sanitizedData.paymentStatus = "PAID"
   }
 
   try {

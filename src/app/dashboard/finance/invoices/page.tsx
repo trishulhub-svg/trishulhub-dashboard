@@ -33,6 +33,20 @@ const invoiceStatusColors: Record<string, string> = {
   OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+const paymentStatusColors: Record<string, string> = {
+  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  UNPAID: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  DUE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+};
+
+// ━━ Line Item Type ━━
+interface LineItem {
+  description: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
 export default function InvoicesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -56,6 +70,17 @@ export default function InvoicesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [previewInvoice, setPreviewInvoice] = useState<Record<string, unknown> | null>(null);
+
+  // Feature 4: Line items state
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    { description: "Web Development", quantity: 1, rate: 50000, amount: 50000 },
+  ]);
+
+  // Feature 5: New invoice fields
+  const [gstPercent, setGstPercent] = useState<number>(18);
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [paymentStatus, setPaymentStatus] = useState<string>("UNPAID");
+  const [invoiceNotes, setInvoiceNotes] = useState<string>("");
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -94,31 +119,76 @@ export default function InvoicesPage() {
     return () => controller.abort();
   }, [fetchData]);
 
+  // ━━ Line item helpers ━━
+  const addLineItem = () => {
+    setLineItems([...lineItems, { description: "", quantity: 1, rate: 0, amount: 0 }]);
+  };
+
+  const removeLineItem = (index: number) => {
+    if (lineItems.length <= 1) return;
+    setLineItems(lineItems.filter((_, i) => i !== index));
+  };
+
+  const updateLineItem = (index: number, field: keyof LineItem, value: string | number) => {
+    const updated = [...lineItems];
+    updated[index] = { ...updated[index], [field]: value };
+    if (field === "quantity" || field === "rate") {
+      updated[index].amount = updated[index].quantity * updated[index].rate;
+    }
+    setLineItems(updated);
+  };
+
+  const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
+  const gstAmount = subtotal * (gstPercent / 100);
+  const totalAmount = subtotal + gstAmount;
+
+  const resetInvoiceForm = () => {
+    setLineItems([{ description: "Web Development", quantity: 1, rate: 50000, amount: 50000 }]);
+    setGstPercent(18);
+    setPaymentMethod("");
+    setPaymentStatus("UNPAID");
+    setInvoiceNotes("");
+  };
+
   const handleCreateInvoice = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const itemsStr = form.get("items") as string;
+    const clientId = form.get("clientId") as string;
+
+    if (!clientId) {
+      toast.error("Please select a client");
+      return;
+    }
+
+    const validItems = lineItems.filter((item) => item.description.trim() && item.quantity > 0 && item.rate >= 0);
+    if (validItems.length === 0) {
+      toast.error("At least one line item with a description is required");
+      return;
+    }
+
+    const items = validItems.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      rate: item.rate,
+      amount: item.amount,
+    }));
+
+    const data = {
+      clientId,
+      projectId: (form.get("projectId") as string) === "NONE" ? null : (form.get("projectId") as string) || null,
+      items: JSON.stringify(items),
+      subtotal,
+      tax: gstAmount,
+      total: totalAmount,
+      dueDate: form.get("dueDate") as string || null,
+      gstPercent,
+      gst: gstAmount,
+      paymentMethod: paymentMethod || null,
+      paymentStatus,
+      notes: invoiceNotes || null,
+    };
 
     try {
-      const items = JSON.parse(itemsStr || "[]");
-      if (!Array.isArray(items) || items.length === 0) {
-        toast.error("At least one line item is required");
-        return;
-      }
-      const subtotal = items.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0);
-      const taxRate = parseFloat(form.get("taxRate") as string) || 18;
-      const tax = subtotal * (taxRate / 100);
-
-      const data = {
-        clientId: form.get("clientId") as string,
-        projectId: (form.get("projectId") as string) === "NONE" ? null : (form.get("projectId") as string) || null,
-        items: JSON.stringify(items),
-        subtotal,
-        tax,
-        total: subtotal + tax,
-        dueDate: form.get("dueDate") as string || null,
-      };
-
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -129,13 +199,14 @@ export default function InvoicesPage() {
       if (res.ok) {
         toast.success("Invoice created");
         setAddOpen(false);
+        resetInvoiceForm();
         fetchData();
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to create invoice");
       }
     } catch {
-      toast.error("Failed to create invoice. Check JSON format for items.");
+      toast.error("Failed to create invoice.");
     }
   };
 
@@ -211,55 +282,169 @@ export default function InvoicesPage() {
           <h1 className="text-2xl font-bold">Invoices</h1>
           <p className="text-muted-foreground text-sm">Create and manage invoices</p>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetInvoiceForm(); }}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Create Invoice</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Invoice</DialogTitle><DialogDescription>Create a new invoice for a client.</DialogDescription></DialogHeader>
-            <form onSubmit={handleCreateInvoice} className="space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Client *</Label>
-                <Select name="clientId" required>
-                  <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
-                  <SelectContent>
-                    {(clients as { id: string; name: string }[]).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Project</Label>
-                <Select name="projectId">
-                  <SelectTrigger><SelectValue placeholder="Select project (optional)" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NONE">No Project</SelectItem>
-                    {(projects as { id: string; name: string }[]).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Line Items (JSON)</Label>
-                <Textarea
-                  name="items"
-                  rows={4}
-                  defaultValue='[{"description":"Web Development","quantity":1,"rate":50000,"amount":50000}]'
-                  className="text-xs font-mono"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleCreateInvoice} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Tax Rate (%)</Label>
-                  <Input name="taxRate" type="number" defaultValue="18" />
+                  <Label className="text-xs">Client *</Label>
+                  <Select name="clientId" required>
+                    <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                    <SelectContent>
+                      {(clients as { id: string; name: string }[]).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Project</Label>
+                  <Select name="projectId">
+                    <SelectTrigger><SelectValue placeholder="Select project (optional)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NONE">No Project</SelectItem>
+                      {(projects as { id: string; name: string }[]).map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Feature 4: Dynamic Line Items */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">Line Items</Label>
+                  <Button type="button" variant="ghost" size="sm" className="h-6 text-xs" onClick={addLineItem}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Item
+                  </Button>
+                </div>
+                <div className="border rounded-md overflow-hidden">
+                  <div className="grid grid-cols-12 gap-1 p-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                    <div className="col-span-5">Description</div>
+                    <div className="col-span-2 text-right">Qty</div>
+                    <div className="col-span-2 text-right">Rate (₹)</div>
+                    <div className="col-span-2 text-right">Amount</div>
+                    <div className="col-span-1"></div>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {lineItems.map((item, idx) => (
+                      <div key={idx} className="grid grid-cols-12 gap-1 p-2 border-t">
+                        <input
+                          className="col-span-5 border rounded px-2 py-1 text-sm bg-background"
+                          placeholder="Description"
+                          value={item.description}
+                          onChange={(e) => updateLineItem(idx, "description", e.target.value)}
+                        />
+                        <input
+                          className="col-span-2 border rounded px-2 py-1 text-sm bg-background text-right"
+                          type="number"
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => updateLineItem(idx, "quantity", parseInt(e.target.value) || 0)}
+                        />
+                        <input
+                          className="col-span-2 border rounded px-2 py-1 text-sm bg-background text-right"
+                          type="number"
+                          min={0}
+                          value={item.rate}
+                          onChange={(e) => updateLineItem(idx, "rate", parseFloat(e.target.value) || 0)}
+                        />
+                        <div className="col-span-2 flex items-center justify-end text-sm font-medium pr-2">
+                          {formatCurrency(item.amount)}
+                        </div>
+                        <button
+                          type="button"
+                          className="col-span-1 flex items-center justify-center text-muted-foreground hover:text-red-500 transition-colors"
+                          onClick={() => removeLineItem(idx)}
+                          disabled={lineItems.length <= 1}
+                          title="Remove item"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="border rounded-md p-3 space-y-1 text-sm bg-muted/30">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium">{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">GST</span>
+                    <input
+                      className="w-16 border rounded px-2 py-0.5 text-xs bg-background text-right"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={gstPercent}
+                      onChange={(e) => setGstPercent(parseFloat(e.target.value) || 0)}
+                    />
+                    <span className="text-xs text-muted-foreground">%</span>
+                  </div>
+                  <span className="font-medium">{formatCurrency(gstAmount)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                  <span>Total</span>
+                  <span>{formatCurrency(totalAmount)}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Payment Method</Label>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="border rounded px-3 py-2 text-sm bg-background w-full"
+                  >
+                    <option value="">None</option>
+                    <option value="UPI">UPI</option>
+                    <option value="CREDIT_DEBIT_CARD">Credit/Debit Card</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="OTHER">Other</option>
+                  </select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Due Date</Label>
                   <Input name="dueDate" type="date" />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Payment Status</Label>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    className="border rounded px-3 py-2 text-sm bg-background w-full"
+                  >
+                    <option value="UNPAID">Unpaid</option>
+                    <option value="PAID">Paid</option>
+                    <option value="DUE">Due</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Notes</Label>
+                <Textarea
+                  value={invoiceNotes}
+                  onChange={(e) => setInvoiceNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Additional notes (optional)"
+                />
+              </div>
+
               <Button type="submit" className="w-full">Create Invoice</Button>
             </form>
           </DialogContent>
@@ -275,7 +460,7 @@ export default function InvoicesPage() {
       </div>
 
       <div className="space-y-3">
-        {(filtered as { id: string; invoiceNumber: string; status: string; total: number; subtotal: number; tax: number; client: { name: string }; project?: { name: string }; dueDate: string; paidAt?: string; items: string }[]).map((inv) => (
+        {(filtered as { id: string; invoiceNumber: string; status: string; total: number; subtotal: number; tax: number; client: { name: string }; project?: { name: string }; dueDate: string; paidAt?: string; items: string; paymentMethod?: string; paymentStatus?: string; gst?: number; gstPercent?: number; notes?: string }[]).map((inv) => (
           <Card key={inv.id}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -291,7 +476,12 @@ export default function InvoicesPage() {
                     <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
                     <p className="text-xs text-muted-foreground">Due: {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "N/A"}</p>
                   </div>
-                  <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
+                  <div className="flex flex-col gap-0.5">
+                    <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
+                    {inv.paymentStatus && inv.paymentStatus !== "UNPAID" && (
+                      <Badge className={`text-[10px] ${paymentStatusColors[inv.paymentStatus] || ""}`}>{inv.paymentStatus}</Badge>
+                    )}
+                  </div>
                   <div className="flex gap-1">
                     {inv.status === "DRAFT" && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteInvoice(inv.id)} aria-label="Delete invoice">
@@ -344,6 +534,9 @@ export default function InvoicesPage() {
                 <div className="border-t pt-4">
                   <p className="text-sm font-medium">Bill To: {(previewInvoice as { client?: { name: string } }).client?.name || "Client"}</p>
                   <p className="text-xs text-muted-foreground">Due: {(previewInvoice as { dueDate: string }).dueDate ? new Date((previewInvoice as { dueDate: string }).dueDate).toLocaleDateString() : "N/A"}</p>
+                  {(previewInvoice as { paymentMethod?: string }).paymentMethod && (
+                    <p className="text-xs text-muted-foreground">Payment: {(previewInvoice as { paymentMethod: string }).paymentMethod}</p>
+                  )}
                 </div>
                 <div className="border-t pt-4">
                   <table className="w-full text-sm">
@@ -369,9 +562,19 @@ export default function InvoicesPage() {
                 </div>
                 <div className="border-t pt-4 space-y-1 text-sm">
                   <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency((previewInvoice as { subtotal: number }).subtotal)}</span></div>
-                  <div className="flex justify-between"><span>Tax</span><span>{formatCurrency((previewInvoice as { tax: number }).tax)}</span></div>
+                  {(previewInvoice as { gst?: number; gstPercent?: number }).gstPercent ? (
+                    <div className="flex justify-between"><span>GST ({(previewInvoice as { gstPercent: number }).gstPercent}%)</span><span>{formatCurrency((previewInvoice as { gst: number }).gst || 0)}</span></div>
+                  ) : (
+                    <div className="flex justify-between"><span>Tax</span><span>{formatCurrency((previewInvoice as { tax: number }).tax)}</span></div>
+                  )}
                   <div className="flex justify-between font-bold text-lg pt-2 border-t"><span>Total</span><span>{formatCurrency((previewInvoice as { total: number }).total)}</span></div>
                 </div>
+                {(previewInvoice as { notes?: string }).notes && (
+                  <div className="border-t pt-4">
+                    <p className="text-xs text-muted-foreground font-medium">Notes:</p>
+                    <p className="text-sm">{(previewInvoice as { notes: string }).notes}</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

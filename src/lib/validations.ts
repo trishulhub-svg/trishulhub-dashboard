@@ -30,6 +30,7 @@ export const createClientSchema = z.object({
   userId: z.string().optional(),
   notes: z.string().optional(),
   projectType: z.string().max(100).optional(),
+  projectMethodId: z.string().max(100).optional(),
   projectStartDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date" }),
   deliveryDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date" }),
   websites: z.array(z.object({
@@ -68,6 +69,7 @@ export const updateClientSchema = z.object({
   userId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   projectType: z.string().max(100).nullable().optional(),
+  projectMethodId: z.string().max(100).nullable().optional(),
   projectStartDate: z.string().nullable().optional(),
   deliveryDate: z.string().nullable().optional(),
   websites: z.array(z.object({

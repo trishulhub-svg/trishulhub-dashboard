@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Plus, Search, FolderKanban, ArrowRight, Pencil, Trash2, MoreHorizontal,
+  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // NOTE: Radix Select removed — replaced with native <select> to prevent React #310
-// Radix SelectValue + React 19 has rendering edge cases that produce #310 errors
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -39,6 +40,19 @@ const statusColors: Record<string, string> = {
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
+// ━━ Credential form type ━━
+interface CredentialForm {
+  title: string;
+  username: string;
+  password: string;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -53,6 +67,16 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+
+  // Feature 3: Attachments & Credentials state
+  const [attachments, setAttachments] = useState<{ id: string; fileName: string; fileSize: number; createdAt: string }[]>([]);
+  const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
+  const [editEditOpen, setEditEditOpen] = useState(false);
+  const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+  const [editingCredId, setEditingCredId] = useState<string | null>(null);
+  const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -70,7 +94,6 @@ export default function ProjectsPage() {
       ]);
       if (projRes.ok) {
         const projData = await projRes.json();
-        // ZAI FIX #310: Deep sanitize all project data to strip any non-serializable values
         const raw = Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []);
         setProjects(deepSanitize(raw));
       } else {
@@ -94,6 +117,32 @@ export default function ProjectsPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ━━ Fetch attachments for a project ━━
+  const fetchAttachments = useCallback(async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/attachments?projectId=${projectId}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAttachments(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  // ━━ Fetch credentials for a project ━━
+  const fetchCredentials = useCallback(async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/credentials?projectId=${projectId}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setCredentials(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // silently fail
+    }
+  }, []);
 
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -144,6 +193,7 @@ export default function ProjectsPage() {
       name: form.get("name") as string,
       description: form.get("description") as string || null,
       status: form.get("status") as string,
+      clientId: form.get("clientId") as string || null,
       budget: parseFloat(form.get("budget") as string) || null,
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
@@ -197,11 +247,163 @@ export default function ProjectsPage() {
     e.stopPropagation();
     setEditProject(project);
     setEditOpen(true);
+    // Fetch attachments and credentials for this project
+    fetchAttachments(safeText(project.id, ""));
+    fetchCredentials(safeText(project.id, ""));
+    setShowPasswords({});
+    setNewCred({ title: "", username: "", password: "" });
+    setEditingCredId(null);
   };
 
   const openDeleteDialog = (projectId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeleteId(projectId);
+  };
+
+  // ━━ File upload handler ━━
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!editProject || !e.target.files?.length) return;
+    const file = e.target.files[0];
+    if (file.type !== "application/pdf") {
+      toast.error("Only PDF files are allowed");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size must be under 10MB");
+      return;
+    }
+
+    setUploadingFile(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(",")[1]; // Remove data:application/pdf;base64, prefix
+        const res = await fetch("/api/projects/attachments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            projectId: editProject.id,
+            fileName: file.name,
+            fileData: base64,
+            fileSize: file.size,
+          }),
+        });
+        if (res.ok) {
+          toast.success("File uploaded");
+          fetchAttachments(safeText(editProject.id, ""));
+        } else {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error || "Failed to upload");
+        }
+        setUploadingFile(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      toast.error("Failed to read file");
+      setUploadingFile(false);
+    }
+    e.target.value = "";
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    try {
+      const res = await fetch(`/api/projects/attachments?id=${attachmentId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Attachment removed");
+        if (editProject) fetchAttachments(safeText(editProject.id, ""));
+      }
+    } catch {
+      toast.error("Failed to delete attachment");
+    }
+  };
+
+  const handleDownloadAttachment = async (attachmentId: string) => {
+    try {
+      const res = await fetch(`/api/projects/attachments?id=${attachmentId}`, {
+        method: "PUT",
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const link = document.createElement("a");
+        link.href = `data:application/pdf;base64,${data.fileData}`;
+        link.download = data.fileName;
+        link.click();
+      }
+    } catch {
+      toast.error("Failed to download");
+    }
+  };
+
+  // ━━ Credential handlers ━━
+  const handleAddCredential = async () => {
+    if (!editProject || !newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()) {
+      toast.error("All credential fields are required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/projects/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ projectId: editProject.id, ...newCred }),
+      });
+      if (res.ok) {
+        toast.success("Credential added");
+        setNewCred({ title: "", username: "", password: "" });
+        fetchCredentials(safeText(editProject.id, ""));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to add credential");
+      }
+    } catch {
+      toast.error("Failed to add credential");
+    }
+  };
+
+  const handleUpdateCredential = async () => {
+    if (!editingCredId || !editingCred.title.trim() || !editingCred.username.trim()) {
+      toast.error("Title and username are required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/projects/credentials", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: editingCredId, ...editingCred }),
+      });
+      if (res.ok) {
+        toast.success("Credential updated");
+        setEditingCredId(null);
+        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update credential");
+      }
+    } catch {
+      toast.error("Failed to update credential");
+    }
+  };
+
+  const handleDeleteCredential = async (credId: string) => {
+    if (!confirm("Delete this credential?")) return;
+    try {
+      const res = await fetch(`/api/projects/credentials?id=${credId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Credential removed");
+        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+      }
+    } catch {
+      toast.error("Failed to delete credential");
+    }
   };
 
   const filtered = (projects as Record<string, unknown>[]).filter((p) => {
@@ -374,49 +576,183 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {/* Edit Project Dialog */}
+      {/* Edit Project Dialog with Tabs */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details.</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, and credentials.</DialogDescription></DialogHeader>
           {editProject && (
-            <form onSubmit={handleEditProject} className="space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Project Name *</Label>
-                <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Description</Label>
-                <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Status</Label>
-                  <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
-                    {VALID_STATUSES.map((s) => (
-                      <option key={s} value={s}>{s.replace("_", " ")}</option>
+            <Tabs defaultValue="details">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="details">Details</TabsTrigger>
+                <TabsTrigger value="attachments" className="gap-1">
+                  <Paperclip className="h-3 w-3" /> Attachments
+                </TabsTrigger>
+                <TabsTrigger value="credentials" className="gap-1">
+                  <Key className="h-3 w-3" /> Credentials
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Details Tab */}
+              <TabsContent value="details">
+                <form onSubmit={handleEditProject} className="space-y-3 mt-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Project Name *</Label>
+                    <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Description</Label>
+                    <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
+                  </div>
+                  {/* Feature 2: Client selector in edit form */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Client</Label>
+                    <select
+                      name="clientId"
+                      defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
+                      className="border rounded px-3 py-2 text-sm bg-background w-full"
+                    >
+                      <option value="">Select client</option>
+                      {(clients as { id: string; name: string; company?: string }[]).map((c) => (
+                        <option key={c.id} value={c.id}>{c.company || c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Status</Label>
+                      <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
+                        {VALID_STATUSES.map((s) => (
+                          <option key={s} value={s}>{s.replace("_", " ")}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Progress (%)</Label>
+                      <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Budget (₹)</Label>
+                      <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Deadline</Label>
+                      <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
+                    <Button type="submit" className="flex-1">Save Changes</Button>
+                  </div>
+                </form>
+              </TabsContent>
+
+              {/* Attachments Tab */}
+              <TabsContent value="attachments">
+                <div className="space-y-4 mt-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Upload PDF files for this project</p>
+                    <label className="cursor-pointer">
+                      <div className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                        {uploadingFile ? "Uploading..." : <><Upload className="h-4 w-4" /> Upload PDF</>}
+                      </div>
+                      <input type="file" accept="application/pdf" className="hidden" onChange={handleFileUpload} disabled={uploadingFile} />
+                    </label>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {attachments.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-6">No attachments yet</p>
+                    )}
+                    {attachments.map((att) => (
+                      <div key={att.id} className="flex items-center gap-2 p-2 border rounded-md">
+                        <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{att.fileName}</p>
+                          <p className="text-xs text-muted-foreground">{formatFileSize(att.fileSize)}</p>
+                        </div>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download">
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttachment(att.id)} title="Delete">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     ))}
-                  </select>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Progress (%)</Label>
-                  <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+              </TabsContent>
+
+              {/* Credentials Tab */}
+              <TabsContent value="credentials">
+                <div className="space-y-4 mt-4">
+                  {/* Add new credential */}
+                  <div className="border rounded-md p-3 space-y-2">
+                    <p className="text-xs font-medium">Add New Credential</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <Input placeholder="Title (e.g., Hosting Login)" value={newCred.title} onChange={(e) => setNewCred({ ...newCred, title: e.target.value })} className="h-8 text-sm" />
+                      <Input placeholder="Username / Email" value={newCred.username} onChange={(e) => setNewCred({ ...newCred, username: e.target.value })} className="h-8 text-sm" />
+                      <Input placeholder="Password" type="password" value={newCred.password} onChange={(e) => setNewCred({ ...newCred, password: e.target.value })} className="h-8 text-sm" />
+                    </div>
+                    <Button type="button" size="sm" onClick={handleAddCredential} disabled={!newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()} className="h-8">
+                      <Plus className="h-3 w-3 mr-1" /> Add Credential
+                    </Button>
+                  </div>
+
+                  {/* Existing credentials */}
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {credentials.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-6">No credentials stored</p>
+                    )}
+                    {credentials.map((cred) => (
+                      <div key={cred.id} className="border rounded-md p-3 space-y-2">
+                        {editingCredId === cred.id ? (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <Input value={editingCred.title} onChange={(e) => setEditingCred({ ...editingCred, title: e.target.value })} className="h-8 text-sm" />
+                              <Input value={editingCred.username} onChange={(e) => setEditingCred({ ...editingCred, username: e.target.value })} className="h-8 text-sm" />
+                              <Input value={editingCred.password} onChange={(e) => setEditingCred({ ...editingCred, password: e.target.value })} className="h-8 text-sm" />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button type="button" size="sm" className="h-7" onClick={handleUpdateCredential}>Save</Button>
+                              <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setEditingCredId(null)}>Cancel</Button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-sm font-medium">{cred.title}</span>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: cred.password }); }} title="Edit">
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteCredential(cred.id)} title="Delete">
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
+                              <span className="mx-1">•</span>
+                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "••••••••"}</span></span>
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"}>
+                                {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={() => { navigator.clipboard.writeText(cred.password); toast.success("Password copied"); }} title="Copy">
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Budget (₹)</Label>
-                  <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Deadline</Label>
-                  <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
-                <Button type="submit" className="flex-1">Save Changes</Button>
-              </div>
-            </form>
+              </TabsContent>
+            </Tabs>
           )}
         </DialogContent>
       </Dialog>

@@ -126,6 +126,9 @@ export async function GET(req: NextRequest) {
           take: 1,
           orderBy: { isPrimary: "desc" },
         },
+        projectMethod: {
+          select: { id: true, name: true },
+        },
       },
       orderBy,
       skip: offset,
@@ -137,10 +140,12 @@ export async function GET(req: NextRequest) {
   // Compute aggregated revenue per client
   let enriched = clients.map((client) => {
     const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
-    const { invoices, websites, ...rest } = client
+    const { invoices, websites, projectMethod, ...rest } = client
     return {
       ...rest,
       primaryWebsite: websites.length > 0 ? websites[0] : null,
+      projectMethodId: projectMethod?.id || null,
+      projectMethod,
       // Hide revenue for developers
       revenue: isAdmin(role) ? revenue : undefined,
     }
@@ -248,6 +253,7 @@ export async function POST(req: NextRequest) {
     userId: data.userId || null,
     notes: data.notes || null,
     projectType: data.projectType || null,
+    projectMethodId: data.projectMethodId || null,
     projectStartDate: data.projectStartDate ? new Date(data.projectStartDate) : null,
     deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
     mediatorName: data.mediatorName || null,

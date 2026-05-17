@@ -8,6 +8,7 @@ import {
   Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
   FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
   ChevronLeft, ChevronRight, X, Calendar, Link2, UserCircle, ChevronDown, ChevronUp,
+  Settings, Eye, EyeOff,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,8 @@ interface ClientRow {
   userId: string | null;
   notes: string | null;
   projectType: string | null;
+  projectMethodId: string | null;
+  projectMethod?: { id: string; name: string } | null;
   projectStartDate: string | null;
   deliveryDate: string | null;
   mediatorName: string | null;
@@ -363,6 +366,7 @@ export default function ClientsPage() {
     websites: [] as string[],
     status: "ACTIVE" as ClientStatus,
     projectType: "",
+    projectMethodId: "",
     projectStartDate: "",
     deliveryDate: "",
     mediatorName: "",
@@ -374,6 +378,13 @@ export default function ClientsPage() {
 
   const [showMediator, setShowMediator] = useState(false);
 
+  // Feature 1: Project methods state
+  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
+  const [manageMethodsOpen, setManageMethodsOpen] = useState(false);
+  const [newMethodName, setNewMethodName] = useState("");
+  const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
+  const [editingMethodName, setEditingMethodName] = useState("");
+
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
     if (res.status === 401) {
@@ -383,12 +394,58 @@ export default function ClientsPage() {
     return false;
   }, [router]);
 
+  // ━━ Fetch project methods ━━
+  const fetchProjectMethods = useCallback(async () => {
+    try {
+      const res = await fetch("/api/project-methods", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setProjectMethods(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  // Seed default project methods if empty
+  const seedDefaultMethods = useCallback(async () => {
+    try {
+      const res = await fetch("/api/project-methods", { credentials: "include" });
+      if (res.ok) {
+        const existing: { id: string; name: string }[] = await res.json();
+        if (!Array.isArray(existing) || existing.length === 0) {
+          const defaults = ["JAVA", "PHP", "HTML", "Other"];
+          for (const name of defaults) {
+            await fetch("/api/project-methods", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ name }),
+            });
+          }
+          fetchProjectMethods();
+        } else {
+          setProjectMethods(existing);
+        }
+      }
+    } catch {
+      // silently fail
+    }
+  }, [fetchProjectMethods]);
+
   // Redirect non-admin users away from this page
   useEffect(() => {
     if (status === "authenticated" && !isAdminUser) {
       router.push("/dashboard");
     }
   }, [status, router, isAdminUser]);
+
+  // Fetch project methods on mount
+  useEffect(() => {
+    if (status === "authenticated" && isAdminUser) {
+      seedDefaultMethods();
+    }
+  }, [status, isAdminUser, seedDefaultMethods]);
 
   // ━━ Fetch clients ━━
   const fetchClients = useCallback(async (signal?: AbortSignal, page: number = 1) => {
@@ -453,6 +510,7 @@ export default function ClientsPage() {
       websites: [""],
       status: "ACTIVE",
       projectType: "",
+      projectMethodId: "",
       projectStartDate: "",
       deliveryDate: "",
       mediatorName: "", mediatorPhone: "", mediatorEmail: "",
@@ -480,6 +538,7 @@ export default function ClientsPage() {
       websites: parsedWebsites,
       status: (client.status as ClientStatus) || "ACTIVE",
       projectType: client.projectType || "",
+      projectMethodId: client.projectMethodId || "",
       projectStartDate: client.projectStartDate ? client.projectStartDate.split("T")[0] : "",
       deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
       mediatorName: client.mediatorName || "",
@@ -537,6 +596,7 @@ export default function ClientsPage() {
             status: formData.status,
             notes: formData.notes || null,
             projectType: formData.projectType || null,
+            projectMethodId: formData.projectMethodId || null,
             projectStartDate: formData.projectStartDate || null,
             deliveryDate: formData.deliveryDate || null,
             // Transform string array to API-expected object array
@@ -575,6 +635,7 @@ export default function ClientsPage() {
           status: formData.status,
           notes: formData.notes || undefined,
           projectType: formData.projectType || undefined,
+          projectMethodId: formData.projectMethodId || undefined,
           projectStartDate: formData.projectStartDate || undefined,
           deliveryDate: formData.deliveryDate || undefined,
           // Transform string array to API-expected object array
@@ -1142,6 +1203,28 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="client-project-method" className="text-xs font-medium">Method of Project</Label>
+                  {isAdminUser && (
+                    <Button type="button" variant="ghost" size="sm" className="h-6 text-xs gap-1 text-muted-foreground"
+                      onClick={() => setManageMethodsOpen(true)}>
+                      <Settings className="h-3 w-3" /> Manage
+                    </Button>
+                  )}
+                </div>
+                <select
+                  id="client-project-method"
+                  value={formData.projectMethodId}
+                  onChange={(e) => setFormData({ ...formData, projectMethodId: e.target.value })}
+                  className="border rounded px-3 py-2 text-sm bg-background w-full"
+                >
+                  <option value="">Select method...</option>
+                  {projectMethods.map((pm) => (
+                    <option key={pm.id} value={pm.id}>{pm.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Dates */}
@@ -1264,6 +1347,155 @@ export default function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* ━━ Manage Project Methods Dialog ━━ */}
+      <Dialog open={manageMethodsOpen} onOpenChange={setManageMethodsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manage Project Methods</DialogTitle>
+            <DialogDescription>Add, edit, or remove project method options.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Add New */}
+            <div className="flex gap-2">
+              <Input
+                placeholder="New method name..."
+                value={newMethodName}
+                onChange={(e) => setNewMethodName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (!newMethodName.trim()) return;
+                    fetch("/api/project-methods", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ name: newMethodName.trim() }),
+                    })
+                      .then((res) => {
+                        if (res.ok) {
+                          setNewMethodName("");
+                          fetchProjectMethods();
+                        } else return res.json();
+                      })
+                      .then((data) => { if (data?.error) toast.error(data.error); })
+                      .catch(() => toast.error("Failed to add method"));
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={!newMethodName.trim()}
+                onClick={() => {
+                  if (!newMethodName.trim()) return;
+                  fetch("/api/project-methods", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ name: newMethodName.trim() }),
+                  })
+                    .then((res) => {
+                      if (res.ok) {
+                        setNewMethodName("");
+                        fetchProjectMethods();
+                      } else return res.json();
+                    })
+                    .then((data) => { if (data?.error) toast.error(data.error); })
+                    .catch(() => toast.error("Failed to add method"));
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Existing Methods */}
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {projectMethods.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No methods defined</p>
+              )}
+              {projectMethods.map((pm) => (
+                <div key={pm.id} className="flex items-center gap-2">
+                  {editingMethodId === pm.id ? (
+                    <>
+                      <Input
+                        className="h-8 text-sm"
+                        value={editingMethodName}
+                        onChange={(e) => setEditingMethodName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            fetch("/api/project-methods", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              credentials: "include",
+                              body: JSON.stringify({ id: pm.id, name: editingMethodName.trim() }),
+                            })
+                              .then((res) => {
+                                if (res.ok) {
+                                  setEditingMethodId(null);
+                                  fetchProjectMethods();
+                                } else return res.json();
+                              })
+                              .then((data) => { if (data?.error) toast.error(data.error); })
+                              .catch(() => toast.error("Failed to update"));
+                          }
+                          if (e.key === "Escape") setEditingMethodId(null);
+                        }}
+                      />
+                      <Button type="button" variant="ghost" size="sm" className="h-8"
+                        onClick={() => {
+                          fetch("/api/project-methods", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ id: pm.id, name: editingMethodName.trim() }),
+                          })
+                            .then((res) => {
+                              if (res.ok) {
+                                setEditingMethodId(null);
+                                fetchProjectMethods();
+                              } else return res.json();
+                            })
+                            .then((data) => { if (data?.error) toast.error(data.error); })
+                            .catch(() => toast.error("Failed to update"));
+                        }}>
+                        ✓
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8"
+                        onClick={() => setEditingMethodId(null)}>
+                        ✕
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm">{pm.name}</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7"
+                        onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500"
+                        onClick={() => {
+                          if (!confirm(`Delete "${pm.name}"?`)) return;
+                          fetch(`/api/project-methods?id=${pm.id}`, {
+                            method: "DELETE",
+                            credentials: "include",
+                          })
+                            .then((res) => {
+                              if (res.ok) fetchProjectMethods();
+                            })
+                            .catch(() => toast.error("Failed to delete"));
+                        }}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ━━ Client Detail Drawer ━━ */}
       <Sheet
         open={!!detailClient}
@@ -1341,6 +1573,13 @@ export default function ClientsPage() {
                     <div className="flex items-center gap-1.5">
                       <Badge className={`text-[10px] ${projectTypeBadgeColors[detailClient.projectType] || defaultBadgeColor}`}>
                         {projectTypeOptions.find(p => p.value === detailClient.projectType)?.label || safeText(detailClient.projectType)}
+                      </Badge>
+                    </div>
+                  )}
+                  {detailClient.projectMethod && (
+                    <div className="flex items-center gap-1.5">
+                      <Badge className="text-[10px] bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300">
+                        {safeText(detailClient.projectMethod.name)}
                       </Badge>
                     </div>
                   )}
