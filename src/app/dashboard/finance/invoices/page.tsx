@@ -39,6 +39,13 @@ const paymentStatusColors: Record<string, string> = {
   DUE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
 };
 
+const paymentMethodLabels: Record<string, string> = {
+  UPI: "UPI",
+  CREDIT_DEBIT_CARD: "Credit/Debit Card",
+  BANK_TRANSFER: "Bank Transfer",
+  OTHER: "Other",
+};
+
 // ━━ Line Item Type ━━
 interface LineItem {
   description: string;
@@ -229,11 +236,14 @@ export default function InvoicesPage() {
 
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
+      const body: Record<string, string> = { id, status };
+      // When marking invoice as PAID, also set paymentStatus to PAID
+      if (status === "PAID") body.paymentStatus = "PAID";
       const res = await fetch("/api/invoices", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: 'include',
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify(body),
       });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -245,6 +255,28 @@ export default function InvoicesPage() {
       }
     } catch {
       toast.error("Failed to update invoice");
+    }
+  };
+
+  const handleUpdatePaymentStatus = async (id: string, paymentStatus: string) => {
+    const label = paymentStatus === "UNPAID" ? "Unpaid" : paymentStatus === "PAID" ? "Paid" : paymentStatus === "DUE" ? "Due" : paymentStatus;
+    try {
+      const res = await fetch("/api/invoices", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify({ id, paymentStatus }),
+      });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        toast.success(`Payment status updated to ${label}`);
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update payment status");
+      }
+    } catch {
+      toast.error("Failed to update payment status");
     }
   };
 
@@ -478,8 +510,8 @@ export default function InvoicesPage() {
                   </div>
                   <div className="flex flex-col gap-0.5">
                     <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
-                    {inv.paymentStatus && inv.paymentStatus !== "UNPAID" && (
-                      <Badge className={`text-[10px] ${paymentStatusColors[inv.paymentStatus] || ""}`}>{inv.paymentStatus}</Badge>
+                    {inv.paymentStatus && (
+                      <Badge className={`text-[10px] ${paymentStatusColors[inv.paymentStatus] || ""}`}>{inv.paymentStatus === "UNPAID" ? "Unpaid" : inv.paymentStatus === "PAID" ? "Paid" : inv.paymentStatus === "DUE" ? "Due" : inv.paymentStatus}</Badge>
                     )}
                   </div>
                   <div className="flex gap-1">
@@ -499,6 +531,14 @@ export default function InvoicesPage() {
                     {inv.status === "SENT" && (
                       <Button variant="ghost" size="sm" className="text-green-600" onClick={() => handleUpdateStatus(inv.id, "PAID")}>
                         <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Paid
+                      </Button>
+                    )}
+                    {(inv.status === "SENT" || inv.status === "PAID") && (
+                      <Button variant="ghost" size="sm" onClick={() => {
+                        const newPaymentStatus = inv.paymentStatus === "UNPAID" ? "DUE" : inv.paymentStatus === "DUE" ? "PAID" : "UNPAID";
+                        handleUpdatePaymentStatus(inv.id, newPaymentStatus);
+                      }} title="Toggle payment status">
+                        <span className="text-[10px]">Payment: {inv.paymentStatus === "UNPAID" ? "Unpaid" : inv.paymentStatus === "DUE" ? "Due" : inv.paymentStatus === "PAID" ? "Paid" : inv.paymentStatus}</span>
                       </Button>
                     )}
                   </div>
@@ -535,7 +575,10 @@ export default function InvoicesPage() {
                   <p className="text-sm font-medium">Bill To: {(previewInvoice as { client?: { name: string } }).client?.name || "Client"}</p>
                   <p className="text-xs text-muted-foreground">Due: {(previewInvoice as { dueDate: string }).dueDate ? new Date((previewInvoice as { dueDate: string }).dueDate).toLocaleDateString() : "N/A"}</p>
                   {(previewInvoice as { paymentMethod?: string }).paymentMethod && (
-                    <p className="text-xs text-muted-foreground">Payment: {(previewInvoice as { paymentMethod: string }).paymentMethod}</p>
+                    <p className="text-xs text-muted-foreground">Payment: {paymentMethodLabels[(previewInvoice as { paymentMethod: string }).paymentMethod] || (previewInvoice as { paymentMethod: string }).paymentMethod}</p>
+                  )}
+                  {(previewInvoice as { paymentStatus?: string }).paymentStatus && (
+                    <p className="text-xs text-muted-foreground">Payment Status: {(previewInvoice as { paymentStatus: string }).paymentStatus === "UNPAID" ? "Unpaid" : (previewInvoice as { paymentStatus: string }).paymentStatus === "PAID" ? "Paid" : (previewInvoice as { paymentStatus: string }).paymentStatus === "DUE" ? "Due" : (previewInvoice as { paymentStatus: string }).paymentStatus}</p>
                   )}
                 </div>
                 <div className="border-t pt-4">
