@@ -473,7 +473,7 @@ model Invoice {
 model Lead {
   id          String   @id @default(cuid())
   name        String
-  email       String
+  email       String   @unique
   company     String?
   website     String?
   phone       String?
@@ -539,7 +539,7 @@ model Contact {
   id        String   @id @default(cuid())
   firstName String
   lastName  String?
-  email     String
+  email     String   @unique
   phone     String?
   jobTitle  String?
   clientId  String?
@@ -554,7 +554,6 @@ model Contact {
 
   @@index([clientId])
   @@index([leadId])
-  @@index([email])
 }
 
 // ━━ Agent Conversations (Legacy - kept for migration) ━━

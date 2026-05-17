@@ -5,36 +5,66 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, validateRequest } from "@/lib/validations"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET(req: NextRequest) {
   try {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    await ensureAllTables()
 
-  const userId = session.user.id
-  const { success: rateOk } = rateLimit(`invoices-get:${userId}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
-  if (!rateOk) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const userRole = session.user.role
-  const { searchParams } = new URL(req.url)
-  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
-  const offset = (page - 1) * limit
-  const status = searchParams.get("status") || ""
+    const userId = session.user.id
+    const { success: rateOk } = rateLimit(`invoices-get:${userId}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+    if (!rateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
 
-  // CLIENT users can only see their own invoices
-  if (userRole === "CLIENT") {
-    const client = await db.client.findFirst({ where: { userId } })
-    const where: Record<string, unknown> = client ? { clientId: client.id } : { clientId: "__none__" }
+    const userRole = session.user.role
+    const { searchParams } = new URL(req.url)
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const offset = (page - 1) * limit
+    const status = searchParams.get("status") || ""
+
+    // CLIENT users can only see their own invoices
+    if (userRole === "CLIENT") {
+      const client = await db.client.findFirst({ where: { userId } })
+      const where: Record<string, unknown> = client ? { clientId: client.id } : { clientId: "__none__" }
+      if (status && status !== "ALL") where.status = status
+
+      const [invoices, total] = await Promise.all([
+        db.invoice.findMany({
+          where,
+          include: { client: true, project: true },
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit,
+        }),
+        db.invoice.count({ where }),
+      ])
+      return NextResponse.json(JSON.parse(JSON.stringify({
+        data: invoices,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      })))
+    }
+
+    // DEVELOPER users only see invoices from their assigned projects' clients
+    const assignedClientIds = await getAssignedClientIds(userId, userRole)
+    const where: Record<string, unknown> = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     if (status && status !== "ALL") where.status = status
 
     const [invoices, total] = await Promise.all([
       db.invoice.findMany({
         where,
-        include: { client: true, project: true },
+        include: {
+          client: { select: { id: true, name: true, company: true } },
+          project: { select: { id: true, name: true } },
+        },
         orderBy: { createdAt: "desc" },
         skip: offset,
         take: limit,
@@ -48,33 +78,6 @@ export async function GET(req: NextRequest) {
       limit,
       totalPages: Math.ceil(total / limit),
     })))
-  }
-
-  // DEVELOPER users only see invoices from their assigned projects' clients
-  const assignedClientIds = await getAssignedClientIds(userId, userRole)
-  const where: Record<string, unknown> = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
-  if (status && status !== "ALL") where.status = status
-
-  const [invoices, total] = await Promise.all([
-    db.invoice.findMany({
-      where,
-      include: {
-        client: { select: { id: true, name: true, company: true } },
-        project: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      skip: offset,
-      take: limit,
-    }),
-    db.invoice.count({ where }),
-  ])
-  return NextResponse.json(JSON.parse(JSON.stringify({
-    data: invoices,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  })))
   } catch (error: unknown) {
     console.error("[invoices] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load invoices" }, { status: 500 })

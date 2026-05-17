@@ -3,15 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateContactSchema, validateRequest } from "@/lib/validations"
+import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // ━━ Shared constants ━━
 const ALLOWED_FIELDS = ["firstName", "lastName", "email", "phone", "jobTitle", "clientId", "leadId", "notes", "isPrimary"] as const
-
-// ━━ Admin check helper ━━
-function isAdmin(role: string | undefined): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN"
-}
 
 // GET /api/contacts/[id] - Single contact detail with relations
 export async function GET(
@@ -19,6 +16,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -52,81 +51,83 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  if (!isAdmin(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  // Rate limit
-  const rl = rateLimit(`crm-contacts-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  const { id } = await params
-
-  let body: unknown
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    await ensureAllTables()
 
-  const validation = validateRequest(updateContactSchema, { ...(body as Record<string, unknown>), id })
-  if (!validation.success) {
-    return NextResponse.json({ error: validation.error }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const data = validation.data
-
-  // If email is being updated, check for duplicates (excluding current contact)
-  if (data.email) {
-    const existing = await db.contact.findFirst({
-      where: { email: data.email, NOT: { id } },
-    })
-    if (existing) {
-      return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-  }
 
-  // Remove id from update data and sanitize
-  const { id: _id, ...updateData } = data
-
-  const sanitizedData: Record<string, unknown> = {}
-  for (const key of ALLOWED_FIELDS) {
-    if (updateData[key] !== undefined) {
-      sanitizedData[key] = updateData[key] === "" ? null : updateData[key]
+    // Rate limit
+    const rl = rateLimit(`crm-contacts-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
-  }
 
-  // If isPrimary is being set to true, unset other primary contacts for same client/lead (transactional)
-  if (sanitizedData.isPrimary === true) {
-    // Get current contact to find client/lead
-    const current = await db.contact.findUnique({ where: { id } })
-    if (current) {
-      const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
-      const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
+    const { id } = await params
 
-      await db.$transaction(async (tx) => {
-        if (targetClientId) {
-          await tx.contact.updateMany({
-            where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
-            data: { isPrimary: false },
-          })
-        }
-        if (targetLeadId) {
-          await tx.contact.updateMany({
-            where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
-            data: { isPrimary: false },
-          })
-        }
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    const validation = validateRequest(updateContactSchema, { ...(body as Record<string, unknown>), id })
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+
+    const data = validation.data
+
+    // If email is being updated, check for duplicates (excluding current contact)
+    if (data.email) {
+      const existing = await db.contact.findFirst({
+        where: { email: data.email, NOT: { id } },
       })
+      if (existing) {
+        return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+      }
     }
-  }
 
-  try {
+    // Remove id from update data and sanitize
+    const { id: _id, ...updateData } = data
+
+    const sanitizedData: Record<string, unknown> = {}
+    for (const key of ALLOWED_FIELDS) {
+      if (updateData[key] !== undefined) {
+        sanitizedData[key] = updateData[key] === "" ? null : updateData[key]
+      }
+    }
+
+    // If isPrimary is being set to true, unset other primary contacts for same client/lead (transactional)
+    if (sanitizedData.isPrimary === true) {
+      // Get current contact to find client/lead
+      const current = await db.contact.findUnique({ where: { id } })
+      if (current) {
+        const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
+        const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
+
+        await db.$transaction(async (tx) => {
+          if (targetClientId) {
+            await tx.contact.updateMany({
+              where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
+              data: { isPrimary: false },
+            })
+          }
+          if (targetLeadId) {
+            await tx.contact.updateMany({
+              where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
+              data: { isPrimary: false },
+            })
+          }
+        })
+      }
+    }
+
     const contact = await db.contact.update({
       where: { id },
       data: sanitizedData,
@@ -151,16 +152,24 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  if (!isAdmin(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  const { id } = await params
-
   try {
+    await ensureAllTables()
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    // Rate limit
+    const rl = rateLimit(`crm-contacts-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    const { id } = await params
+
     // Check if contact exists first
     const existing = await db.contact.findUnique({ where: { id }, select: { id: true } })
     if (!existing) {

@@ -551,7 +551,7 @@ export default function ClientsPage() {
       params.set("sortOrder", sortOrder);
       // CLI-036: Pagination
       params.set("page", String(page));
-      params.set("pageSize", String(PAGE_SIZE));
+      params.set("limit", String(PAGE_SIZE));
       // CLI-032: Date range params
       if (parsed.dateFrom) params.set("dateFrom", toDateString(parsed.dateFrom));
       if (parsed.dateTo) params.set("dateTo", toDateString(parsed.dateTo));
