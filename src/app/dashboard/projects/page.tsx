@@ -71,12 +71,14 @@ export default function ProjectsPage() {
   // Feature 3: Attachments & Credentials state
   const [attachments, setAttachments] = useState<{ id: string; fileName: string; fileSize: number; createdAt: string }[]>([]);
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
-  const [editEditOpen, setEditEditOpen] = useState(false);
+  // L-PRJ-2 FIX: Removed unused editEditOpen state
   const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [editingCredId, setEditingCredId] = useState<string | null>(null);
   const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [uploadingFile, setUploadingFile] = useState(false);
+  // L-PRJ-6 FIX: State for credential delete confirmation dialog
+  const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -390,10 +392,11 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleDeleteCredential = async (credId: string) => {
-    if (!confirm("Delete this credential?")) return;
+  // L-PRJ-6 FIX: Replaced confirm() with AlertDialog
+  const handleDeleteCredential = async () => {
+    if (!deleteCredId) return;
     try {
-      const res = await fetch(`/api/projects/credentials?id=${credId}`, {
+      const res = await fetch(`/api/projects/credentials?id=${deleteCredId}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -403,6 +406,8 @@ export default function ProjectsPage() {
       }
     } catch {
       toast.error("Failed to delete credential");
+    } finally {
+      setDeleteCredId(null);
     }
   };
 
@@ -416,18 +421,8 @@ export default function ProjectsPage() {
     return matchesFilter && matchesSearch;
   });
 
-  if (sessionStatus === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48 rounded-lg" />)}
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
+  // L-PRJ-5 FIX: Merged duplicate loading skeleton blocks
+  if (sessionStatus === "loading" || loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -492,7 +487,8 @@ export default function ProjectsPage() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-48" aria-label="Search projects" />
         </div>
-        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "COMPLETED"].map((s) => (
+        {/* M-PRJ-5 FIX: Added missing APPROVAL and DEPLOYED filter buttons */}
+        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
           <Button key={s} variant={filter === s ? "default" : "outline"} size="sm" onClick={() => setFilter(s)}>
             {s === "ALL" ? "All" : s.replace("_", " ")}
           </Button>
@@ -671,10 +667,10 @@ export default function ProjectsPage() {
                           <p className="text-sm font-medium truncate">{att.fileName}</p>
                           <p className="text-xs text-muted-foreground">{formatFileSize(att.fileSize)}</p>
                         </div>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download">
+                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download" aria-label="Download attachment">
                           <Download className="h-3.5 w-3.5" />
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttachment(att.id)} title="Delete">
+                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttachment(att.id)} title="Delete" aria-label="Delete attachment">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -729,7 +725,8 @@ export default function ProjectsPage() {
                                 <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: cred.password }); }} title="Edit">
                                   <Pencil className="h-3 w-3" />
                                 </Button>
-                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteCredential(cred.id)} title="Delete">
+                                {/* L-PRJ-6 FIX: Use AlertDialog instead of confirm() */}
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteCredId(cred.id)} title="Delete">
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
                               </div>
@@ -738,10 +735,11 @@ export default function ProjectsPage() {
                               <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
                               <span className="mx-1">•</span>
                               <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "••••••••"}</span></span>
-                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"}>
+                              {/* L-PRJ-7 FIX: Added aria-labels for accessibility */}
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
                                 {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={() => { navigator.clipboard.writeText(cred.password); toast.success("Password copied"); }} title="Copy">
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={() => { navigator.clipboard.writeText(cred.password); toast.success("Password copied"); }} title="Copy" aria-label="Copy password">
                                 <Copy className="h-3 w-3" />
                               </Button>
                             </div>
@@ -770,6 +768,24 @@ export default function ProjectsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteProject} className="bg-red-600 hover:bg-red-700">
               Delete Project
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* L-PRJ-6 FIX: Credential Delete Confirmation (replaces native confirm()) */}
+      <AlertDialog open={!!deleteCredId} onOpenChange={() => setDeleteCredId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Credential</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this credential. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteCredential} className="bg-red-600 hover:bg-red-700">
+              Delete Credential
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

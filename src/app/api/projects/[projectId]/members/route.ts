@@ -18,6 +18,10 @@ export async function GET(
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const { projectId } = await params
+    // M-PRJ-7 FIX: Validate projectId format to prevent malformed ID database errors
+    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+      return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
     const userRole = session.user.role
     const userId = session.user.id
 
@@ -65,6 +69,10 @@ export async function POST(
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const { projectId } = await params
+    // M-PRJ-7 FIX: Validate projectId format
+    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+      return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
     let parsedBody: { userId?: string; role?: string }
     try {
       parsedBody = await req.json()
@@ -75,6 +83,12 @@ export async function POST(
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
+    }
+
+    // H-PRJ-4 FIX: Validate member role — only MEMBER and LEAD are allowed
+    const VALID_MEMBER_ROLES = ["MEMBER", "LEAD"]
+    if (memberRole && !VALID_MEMBER_ROLES.includes(memberRole)) {
+      return NextResponse.json({ error: `Invalid role. Must be one of: ${VALID_MEMBER_ROLES.join(", ")}` }, { status: 400 })
     }
 
     // Verify project exists
@@ -140,6 +154,10 @@ export async function DELETE(
     }
 
     const { projectId } = await params
+    // M-PRJ-7 FIX: Validate projectId format
+    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+      return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
     const { searchParams } = new URL(req.url)
     const userId = searchParams.get("userId")
 

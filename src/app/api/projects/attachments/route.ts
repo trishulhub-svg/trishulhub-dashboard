@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
       const client = await db.client.findFirst({ where: { userId: session.user.id } })
       if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     } else {
+      // C-PRJ-2 FIX: Check project membership for DEVELOPER/VIEWER too
       const member = await db.projectMember.findFirst({ where: { projectId, userId: session.user.id } })
       if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
@@ -62,9 +63,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "projectId, fileName, and fileData are required" }, { status: 400 })
   }
 
-  // Validate file is a PDF
+  // Validate file is a PDF by extension
   if (!fileName.toLowerCase().endsWith('.pdf')) {
     return NextResponse.json({ error: "Only PDF files are allowed" }, { status: 400 })
+  }
+
+  // M-PRJ-10 FIX: Validate file content starts with PDF magic bytes (%PDF-)
+  try {
+    const decodedStart = Buffer.from(fileData.slice(0, 40), 'base64').toString('utf8')
+    if (!decodedStart.startsWith('%PDF-')) {
+      return NextResponse.json({ error: "Invalid PDF content — file does not appear to be a valid PDF" }, { status: 400 })
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid file data" }, { status: 400 })
   }
 
   // Verify project exists
@@ -107,6 +118,10 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Attachment ID is required" }, { status: 400 })
 
   try {
+    // H-PRJ-1 FIX: Verify attachment exists before deleting
+    const attachment = await db.projectAttachment.findUnique({ where: { id } })
+    if (!attachment) return NextResponse.json({ error: "Attachment not found" }, { status: 404 })
+
     await db.projectAttachment.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch {
@@ -130,12 +145,19 @@ export async function PUT(req: NextRequest) {
   const attachment = await db.projectAttachment.findUnique({ where: { id } })
   if (!attachment) return NextResponse.json({ error: "Attachment not found" }, { status: 404 })
 
-  // Check project access for non-admin
+  // C-PRJ-2 FIX: Check project access for ALL non-admin roles
+  // Previously only checked CLIENT, leaving DEVELOPER/VIEWER with full access
   if (!isAdmin(session.user.role)) {
     const project = await db.project.findUnique({ where: { id: attachment.projectId } })
-    if (project && session.user.role === "CLIENT") {
-      const client = await db.client.findFirst({ where: { userId: session.user.id } })
-      if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (project) {
+      if (session.user.role === "CLIENT") {
+        const client = await db.client.findFirst({ where: { userId: session.user.id } })
+        if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      } else {
+        // DEVELOPER, VIEWER: must be a project member to download
+        const member = await db.projectMember.findFirst({ where: { projectId: attachment.projectId, userId: session.user.id } })
+        if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
     }
   }
 

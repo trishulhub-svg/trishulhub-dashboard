@@ -8,6 +8,12 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
+// M-PRJ-3, M-PRJ-4: Server-side input sanitization — strip HTML tags and enforce length
+function sanitizeInput(str: string, maxLength: number): string {
+  const stripped = str.replace(/<[^>]*>/g, "").trim()
+  return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped
+}
+
 export async function GET(req: NextRequest) {
   try {
     // Auto-migrate: ensure all tables/columns exist before querying (Turso)
@@ -28,6 +34,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get("projectId")
 
+    // M-PRJ-2: Pagination limit (cap at 200, default 100)
+    const limit = Math.min(Number(searchParams.get("limit")) || 100, 200)
+
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
       const client = await db.client.findFirst({ where: { userId } })
@@ -40,7 +49,8 @@ export async function GET(req: NextRequest) {
           ...(projectId ? { id: projectId } : {}),
         },
         include: { ...(projectId ? {} : { client: true, tasks: true }) },
-        orderBy: { createdAt: "desc" }
+        orderBy: { createdAt: "desc" },
+        take: limit,
       })
       // Layer 0: JSON round-trip to ensure Date objects are ISO strings
       return NextResponse.json(JSON.parse(JSON.stringify(projects)))
@@ -76,7 +86,8 @@ export async function GET(req: NextRequest) {
         ...(projectId ? {} : { tasks: true }),
         ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
+      take: limit,
     })
 
     // For developers: hide budget and client financial details
@@ -98,33 +109,35 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// C-PRJ-1 FIX: Entire handler wrapped in try/catch to prevent stack trace leaks
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  // Rate limit
-  const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  // Only admins can create projects
-  const userRole = session.user.role
-  if (!isAdmin(userRole)) {
-    return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-  }
-
-  let data: Record<string, unknown>
   try {
-    data = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  try {
+    // Rate limit
+    const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    // Only admins can create projects
+    const userRole = session.user.role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    let data: Record<string, unknown>
+    try {
+      data = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
     // SECURITY: Sanitize project creation data (whitelist allowed fields)
-    const name = typeof data.name === 'string' ? data.name : undefined
-    const description = typeof data.description === 'string' ? data.description : undefined
+    // M-PRJ-3, M-PRJ-4: Sanitize inputs (strip HTML tags, enforce length)
+    const name = typeof data.name === 'string' ? sanitizeInput(data.name, 500) : undefined
+    const description = typeof data.description === 'string' ? sanitizeInput(data.description, 5000) : undefined
     const status = typeof data.status === 'string' ? data.status : undefined
     const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
     const budget = typeof data.budget === 'number' ? data.budget : undefined
@@ -159,7 +172,8 @@ export async function POST(req: NextRequest) {
         description: description || null,
         status: projectStatus,
         clientId,
-        budget: budget || null,
+        // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
+        budget: budget ?? null,
         deadline: deadline ? new Date(deadline) : null,
       },
     })
@@ -170,37 +184,38 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// C-PRJ-1 FIX: Entire handler wrapped in try/catch to prevent stack trace leaks
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  // Rate limit
-  const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  // Only admins can update projects
-  const userRole = session.user.role
-  if (!isAdmin(userRole)) {
-    return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-  }
-
-  let body: Record<string, unknown>
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { id, ...data } = body as { id?: string; [key: string]: unknown }
-  const projectId = typeof id === 'string' ? id : ''
+    // Rate limit
+    const rl = rateLimit(`projects-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
 
-  if (!projectId) {
-    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
-  }
+    // Only admins can update projects
+    const userRole = session.user.role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
 
-  try {
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    const { id, ...data } = body as { id?: string; [key: string]: unknown }
+    const projectId = typeof id === 'string' ? id : ''
+
+    if (!projectId) {
+      return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+    }
+
     // Verify project exists
     const existing = await db.project.findUnique({ where: { id: projectId } })
     if (!existing) {
@@ -230,6 +245,12 @@ export async function PUT(req: NextRequest) {
             return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
           }
           sanitizedData[key] = data[key]
+        } else if (key === "name") {
+          // M-PRJ-3, M-PRJ-4: Sanitize name
+          sanitizedData[key] = typeof data[key] === 'string' ? sanitizeInput(data[key] as string, 500) : data[key]
+        } else if (key === "description") {
+          // M-PRJ-3, M-PRJ-4: Sanitize description
+          sanitizedData[key] = typeof data[key] === 'string' ? sanitizeInput(data[key] as string, 5000) : data[key]
         } else {
           sanitizedData[key] = data[key]
         }
@@ -271,6 +292,9 @@ export async function DELETE(req: NextRequest) {
 
     // C4: Use $transaction for atomic deletion of all related records
     await db.$transaction(async (tx) => {
+      // M-PRJ-9 FIX: Explicitly delete attachments and credentials before project
+      await tx.projectAttachment.deleteMany({ where: { projectId: id } })
+      await tx.projectCredential.deleteMany({ where: { projectId: id } })
       // Delete project members
       await tx.projectMember.deleteMany({ where: { projectId: id } })
       // Delete tasks

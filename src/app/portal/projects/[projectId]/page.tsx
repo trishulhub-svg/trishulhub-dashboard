@@ -137,8 +137,9 @@ export default function PortalProjectDetailPage() {
                 <span className="text-sm">{safeText(task.title, "Untitled")}</span>
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                {/* L-PRJ-4 FIX: Show actual assignee name instead of hardcoded "Unassigned" */}
                 {safeText(task.assigneeType, "HUMAN") === "AI" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                <span>Unassigned</span>
+                <span>{safeText(task.assignedToName) || (safeText(task.assignedTo) ? safeText(task.assignedTo).slice(0, 8) + "..." : "Unassigned")}</span>
               </div>
             </CardContent>
           </Card>

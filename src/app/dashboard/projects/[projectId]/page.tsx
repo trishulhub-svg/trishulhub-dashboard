@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -98,7 +98,7 @@ export default function ProjectDetailPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  const isSuperAdmin = userRole === "SUPER_ADMIN";
+  // L-PRJ-8 FIX: Removed unused isSuperAdmin variable
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -118,6 +118,9 @@ export default function ProjectDetailPage() {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+
+  // M-PRJ-6 FIX: Debounce timer ref for progress input
+  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     if (!projectId) { setLoading(false); return; }
@@ -168,6 +171,13 @@ export default function ProjectDetailPage() {
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
+
+  // M-PRJ-6 FIX: Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+    };
+  }, []);
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -341,7 +351,11 @@ export default function ProjectDetailPage() {
                   value={safeNumber(projectProgress)}
                   onChange={(e) => {
                     const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                    handleUpdateProject({ progress: val });
+                    // M-PRJ-6 FIX: Debounce progress updates (500ms) to avoid excessive API calls
+                    if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+                    progressTimerRef.current = setTimeout(() => {
+                      handleUpdateProject({ progress: val });
+                    }, 500);
                   }}
                   className="h-7 w-14 text-xs text-center"
                 />

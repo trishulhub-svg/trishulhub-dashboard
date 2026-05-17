@@ -116,6 +116,10 @@ export async function PATCH(req: NextRequest) {
   const existing = await db.projectCredential.findUnique({ where: { id: body.id } })
   if (!existing) return NextResponse.json({ error: "Credential not found" }, { status: 404 })
 
+  // H-PRJ-2 FIX: Verify the associated project exists
+  const project = await db.project.findUnique({ where: { id: existing.projectId } })
+  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
   try {
     const data: Record<string, unknown> = {}
     if (body.title) data.title = body.title.trim()
@@ -151,6 +155,10 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Credential ID is required" }, { status: 400 })
 
   try {
+    // H-PRJ-3 FIX: Verify credential exists before deleting
+    const existing = await db.projectCredential.findUnique({ where: { id } })
+    if (!existing) return NextResponse.json({ error: "Credential not found" }, { status: 404 })
+
     await db.projectCredential.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch {

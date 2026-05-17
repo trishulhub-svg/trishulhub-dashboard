@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { safeText, safeNumber, safeDate } from "@/lib/utils";
 
 export default function PortalProjectsPage() {
   const router = useRouter();
@@ -58,11 +59,12 @@ export default function PortalProjectsPage() {
     );
   }
 
+  // M-PRJ-8 FIX: Replaced unsafe `as` type assertions with safe extractors
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">My Projects</h1>
 
-      {(projects as { id: string; name: string; description?: string; status: string; progress: number; deadline?: string; client: { name: string } }[]).length === 0 ? (
+      {projects.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <FolderKanban className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -72,31 +74,40 @@ export default function PortalProjectsPage() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {(projects as { id: string; name: string; description?: string; status: string; progress: number; deadline?: string; client: { name: string } }[]).map((project) => (
-            <Card
-              key={project.id}
-              className="cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => router.push(`/portal/projects/${project.id}`)}
-            >
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">{project.name}</h3>
-                  <Badge variant="secondary">{project.status.replace("_", " ")}</Badge>
-                </div>
-                {project.description && <p className="text-sm text-muted-foreground">{project.description}</p>}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span>Progress</span>
-                    <span>{project.progress}%</span>
+          {(projects as Record<string, unknown>[]).map((project) => {
+            const pId = safeText(project.id, "");
+            const pName = safeText(project.name, "Untitled");
+            const pDesc = safeText(project.description, "");
+            const pStatus = safeText(project.status, "PLANNING");
+            const pProgress = safeNumber(project.progress, 0);
+            const pDeadline = safeText(project.deadline, "");
+            return (
+              <Card
+                key={pId}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => router.push(`/portal/projects/${pId}`)}
+              >
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">{pName}</h3>
+                    <Badge variant="secondary">{pStatus.replace("_", " ")}</Badge>
                   </div>
-                  <Progress value={project.progress} className="h-2" />
-                </div>
-                {project.deadline && (
-                  <p className="text-xs text-muted-foreground">Deadline: {new Date(project.deadline).toLocaleDateString()}</p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  {pDesc && <p className="text-sm text-muted-foreground">{pDesc}</p>}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span>Progress</span>
+                      <span>{pProgress}%</span>
+                    </div>
+                    <Progress value={pProgress} className="h-2" />
+                  </div>
+                  {/* L-PRJ-9 FIX: Use safeDate for consistent formatting */}
+                  {pDeadline && (
+                    <p className="text-xs text-muted-foreground">Deadline: {safeDate(pDeadline, "No deadline")}</p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

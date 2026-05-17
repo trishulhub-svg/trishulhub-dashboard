@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw, ArrowLeft, Bug } from "lucide-react";
 
@@ -12,6 +13,8 @@ export default function ProjectDetailError({
   reset: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const { data: session } = useSession();
+  const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
   // FIX v4: Capture ALL error info including type-specific details
   const [errorDetails, setErrorDetails] = useState<string>("");
@@ -22,7 +25,6 @@ export default function ProjectDetailError({
     console.error("Error message:", error?.message);
     console.error("Error stack:", error?.stack);
     console.error("Error digest:", error?.digest);
-    // Log all enumerable properties on the error object
     if (error) {
       try {
         Object.keys(error).forEach((key) => {
@@ -37,12 +39,10 @@ export default function ProjectDetailError({
     }
     console.groupEnd();
 
-    // Build a detailed error summary for display
     const details: string[] = [];
     if (error) {
       details.push("Name: " + String(error.name ?? "unknown"));
       details.push("Message: " + String(error.message ?? "no message"));
-      // Try to extract info from error object properties
       try {
         const errObj = error as unknown as Record<string, unknown>;
         for (const key of Object.keys(errObj)) {
@@ -59,19 +59,41 @@ export default function ProjectDetailError({
     setErrorDetails(details.join("\n"));
   }, [error]);
 
-  // Safely extract error info — NEVER render raw objects
   const errorName = typeof error?.name === "string" ? error.name : "UnknownError";
   const errorMessage = typeof error?.message === "string" ? error.message : "An unexpected error occurred";
   const errorDigest = typeof error?.digest === "string" ? error.digest : "";
   const errorStack = typeof error?.stack === "string" ? error.stack : "";
 
-  // Parse React #310 message to extract the object keys
-  // React #310: "Objects are not valid as a React child (found: object with keys {key1, key2, ...})"
   const keyMatch = errorMessage.match(/object with keys?\s*\{([^}]+)\}/);
   const objectKeys = keyMatch ? keyMatch[1].trim() : null;
 
-  // Try to extract component stack from React error
   const componentStack = (error as Error & { componentStack?: string })?.componentStack || "";
+
+  // L-PRJ-3 FIX: Render admin-only diagnostic details via a render function
+  // to avoid TSX parsing issues with conditional expressions in error boundaries
+  const renderAdminOnlyDetails = () => {
+    if (!isAdminUser) return null;
+    return (
+      <>
+        {errorDetails && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 font-semibold mb-1">Diagnostic Details</p>
+            <pre className="text-xs font-mono text-blue-700 dark:text-blue-300 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+              {errorDetails}
+            </pre>
+          </div>
+        )}
+        {errorStack && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Stack Trace</p>
+            <pre className="text-xs font-mono text-red-600 dark:text-red-400 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-32 whitespace-pre-wrap">
+              {errorStack}
+            </pre>
+          </div>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-6">
@@ -89,7 +111,6 @@ export default function ProjectDetailError({
           </p>
         </div>
 
-        {/* ── FULL ERROR DETAILS (always visible) ── */}
         <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -106,32 +127,21 @@ export default function ProjectDetailError({
             </Button>
           </div>
 
-          {expanded && (
+          {expanded ? (
             <div className="space-y-2">
-              {/* Error type */}
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Type</p>
                 <p className="text-sm font-mono text-red-700 dark:text-red-300">{errorName}</p>
               </div>
 
-              {/* Error message */}
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Message</p>
                 <p className="text-sm font-mono text-red-700 dark:text-red-300 break-all">{errorMessage}</p>
               </div>
 
-              {/* Additional error details (v4 diagnostic) */}
-              {errorDetails && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 font-semibold mb-1">Diagnostic Details</p>
-                  <pre className="text-xs font-mono text-blue-700 dark:text-blue-300 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
-                    {errorDetails}
-                  </pre>
-                </div>
-              )}
+              {renderAdminOnlyDetails()}
 
-              {/* If React #310, show the object keys prominently */}
-              {objectKeys && (
+              {objectKeys ? (
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-orange-500 dark:text-orange-400 font-semibold mb-1">
                     Object Keys Found (React #310)
@@ -147,37 +157,24 @@ export default function ProjectDetailError({
                     One of these object keys contains a value being rendered as a React child.
                   </p>
                 </div>
-              )}
+              ) : null}
 
-              {/* Component stack (if available) */}
-              {componentStack && (
+              {componentStack ? (
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Component Stack</p>
                   <pre className="text-xs font-mono text-red-600 dark:text-red-400 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-32 whitespace-pre-wrap">
                     {componentStack}
                   </pre>
                 </div>
-              )}
+              ) : null}
 
-              {/* Error stack */}
-              {errorStack && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Stack Trace</p>
-                  <pre className="text-xs font-mono text-red-600 dark:text-red-400 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-32 whitespace-pre-wrap">
-                    {errorStack}
-                  </pre>
-                </div>
-              )}
-
-              {/* Digest */}
-              {errorDigest && (
+              {errorDigest ? (
                 <p className="text-xs text-muted-foreground">Digest: {errorDigest}</p>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3 justify-center">
           <Button onClick={reset} className="gap-2">
             <RefreshCw className="h-4 w-4" /> Try Again
