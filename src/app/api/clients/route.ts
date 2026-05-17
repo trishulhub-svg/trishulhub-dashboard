@@ -290,13 +290,24 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    const client = await db.client.create({
-      data: createData,
-      include: { websites: true },
+    const client = await db.$transaction(async (tx) => {
+      // Re-check duplicate email inside transaction to prevent TOCTOU race
+      const dup = await tx.client.findFirst({ where: { email: data.email } })
+      if (dup) {
+        throw { code: "DUPLICATE_EMAIL", status: 409 } as any
+      }
+      return tx.client.create({
+        data: createData,
+        include: { websites: true },
+      })
     })
     return NextResponse.json(client, { status: 201 })
   } catch (error: any) {
     console.error("[clients] POST error:", error?.message)
+    // Safety net for Prisma unique constraint error
+    if (error?.code === "P2002" || error?.code === "DUPLICATE_EMAIL") {
+      return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
+    }
     return NextResponse.json({ error: "Failed to create client" }, { status: 500 })
   }
 }

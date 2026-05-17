@@ -274,13 +274,13 @@ export async function DELETE(
 
   const { id } = await params
 
-  // Check if lead exists first
-  const existing = await db.lead.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) {
-    return NextResponse.json({ error: "Lead not found" }, { status: 404 })
-  }
-
   try {
+    // Check if lead exists first
+    const existing = await db.lead.findUnique({ where: { id }, select: { id: true } })
+    if (!existing) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+    }
+
     // Delete associated LeadEmail records first (cascade if not set in Prisma)
     await db.leadEmail.deleteMany({ where: { leadId: id } })
 

@@ -4,9 +4,11 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { createInvoiceSchema, validateRequest } from "@/lib/validations"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -73,6 +75,10 @@ export async function GET(req: NextRequest) {
     limit,
     totalPages: Math.ceil(total / limit),
   })))
+  } catch (error: unknown) {
+    console.error("[invoices] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load invoices" }, { status: 500 })
+  }
 }
 
 // POST /api/invoices - Create invoice (ADMIN/SUPER_ADMIN only)
@@ -97,6 +103,13 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
+
+  // Zod validation as an additional layer
+  const validation = validateRequest(createInvoiceSchema, body)
+  if (!validation.success) {
+    return NextResponse.json({ error: validation.error }, { status: 400 })
+  }
+
   const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = body
 
   if (!clientId) {

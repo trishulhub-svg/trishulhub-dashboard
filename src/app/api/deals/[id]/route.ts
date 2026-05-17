@@ -155,13 +155,13 @@ export async function DELETE(
 
   const { id } = await params
 
-  // Check if deal exists first
-  const existing = await db.deal.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) {
-    return NextResponse.json({ error: "Deal not found" }, { status: 404 })
-  }
-
   try {
+    // Check if deal exists first
+    const existing = await db.deal.findUnique({ where: { id }, select: { id: true } })
+    if (!existing) {
+      return NextResponse.json({ error: "Deal not found" }, { status: 404 })
+    }
+
     await db.deal.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {

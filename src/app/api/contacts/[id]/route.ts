@@ -101,7 +101,7 @@ export async function PATCH(
     }
   }
 
-  // If isPrimary is being set to true, unset other primary contacts for same client/lead
+  // If isPrimary is being set to true, unset other primary contacts for same client/lead (transactional)
   if (sanitizedData.isPrimary === true) {
     // Get current contact to find client/lead
     const current = await db.contact.findUnique({ where: { id } })
@@ -109,18 +109,20 @@ export async function PATCH(
       const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
       const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
 
-      if (targetClientId) {
-        await db.contact.updateMany({
-          where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
-          data: { isPrimary: false },
-        })
-      }
-      if (targetLeadId) {
-        await db.contact.updateMany({
-          where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
-          data: { isPrimary: false },
-        })
-      }
+      await db.$transaction(async (tx) => {
+        if (targetClientId) {
+          await tx.contact.updateMany({
+            where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
+            data: { isPrimary: false },
+          })
+        }
+        if (targetLeadId) {
+          await tx.contact.updateMany({
+            where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
+            data: { isPrimary: false },
+          })
+        }
+      })
     }
   }
 
@@ -158,13 +160,13 @@ export async function DELETE(
 
   const { id } = await params
 
-  // Check if contact exists first
-  const existing = await db.contact.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 })
-  }
-
   try {
+    // Check if contact exists first
+    const existing = await db.contact.findUnique({ where: { id }, select: { id: true } })
+    if (!existing) {
+      return NextResponse.json({ error: "Contact not found" }, { status: 404 })
+    }
+
     await db.contact.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {

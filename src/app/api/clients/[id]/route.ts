@@ -251,6 +251,10 @@ export async function PATCH(
     return NextResponse.json(JSON.parse(JSON.stringify(client)))
   } catch (updateErr: any) {
     console.error("[clients/[id]] PATCH update error:", updateErr?.message)
+    // Check for Prisma unique constraint error (duplicate email)
+    if (updateErr?.code === "P2002") {
+      return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
+    }
     return NextResponse.json({ error: "Client not found or update failed" }, { status: 404 })
   }
   } catch (error: any) {

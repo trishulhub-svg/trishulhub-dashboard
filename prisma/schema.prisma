@@ -504,7 +504,7 @@ model LeadEmail {
   sentAt    DateTime?
   createdAt DateTime @default(now())
 
-  lead      Lead     @relation(fields: [leadId], references: [id])
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
 }
 
 // ━━ CRM Deals ━━

@@ -717,7 +717,7 @@ export default function ClientsPage() {
     // L4: Validate additional websites
     if (formData.websites && formData.websites.length > 0) {
       for (const w of formData.websites) {
-        if (w && w.trim() && !w.trim().match(/^https?:\/\/.+/)) {
+        if (w && w.trim() && !w.trim().match(/^https?:\/\/.+\..+/)) {
           toast.error(`Invalid website URL: ${w}`);
           return false;
         }
@@ -1486,7 +1486,7 @@ export default function ClientsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate Client</AlertDialogTitle>
             <AlertDialogDescription>
-              This will set &quot;{safeText(deleteTarget?.name)}&quot; to INACTIVE status. You can reactivate them later.
+              This will deactivate &quot;{safeText(deleteTarget?.name)}&quot; (mark as churned). This is a terminal status and cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

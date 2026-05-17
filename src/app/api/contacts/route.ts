@@ -142,20 +142,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If isPrimary is set, unset any other primary contact for the same client/lead
+  // If isPrimary is set, unset any other primary contact for the same client/lead (transactional)
   if (data.isPrimary) {
-    if (data.clientId) {
-      await db.contact.updateMany({
-        where: { clientId: data.clientId, isPrimary: true },
-        data: { isPrimary: false },
-      })
-    }
-    if (data.leadId) {
-      await db.contact.updateMany({
-        where: { leadId: data.leadId, isPrimary: true },
-        data: { isPrimary: false },
-      })
-    }
+    await db.$transaction(async (tx) => {
+      if (data.clientId) {
+        await tx.contact.updateMany({
+          where: { clientId: data.clientId, isPrimary: true },
+          data: { isPrimary: false },
+        })
+      }
+      if (data.leadId) {
+        await tx.contact.updateMany({
+          where: { leadId: data.leadId, isPrimary: true },
+          data: { isPrimary: false },
+        })
+      }
+    })
   }
 
   try {
