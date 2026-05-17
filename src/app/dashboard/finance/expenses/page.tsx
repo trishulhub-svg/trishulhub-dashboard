@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { handleFetchError } from "@/lib/fetch-utils";
 import { Plus, Trash2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,11 +18,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-
-function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
-  if (res.status === 401) { router.push("/login"); return true; }
-  return false;
-}
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const categoryColors: Record<string, string> = {
   HOSTING: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
@@ -47,6 +47,15 @@ export default function ExpensesPage() {
     }
   }, [status, router, isAdminUser]);
 
+  if (status === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+      </div>
+    );
+  }
+
   if (status !== "authenticated" || !isAdminUser) return null;
 
   const [expenses, setExpenses] = useState<unknown[]>([]);
@@ -54,6 +63,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -119,20 +129,18 @@ export default function ExpensesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this expense? This action cannot be undone.")) return;
+    setPendingDelete(id);
+  };
+
+  const executeDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch(`/api/expenses?id=${pendingDelete}`, { method: "DELETE", credentials: 'include' });
       if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        toast.success("Expense deleted");
-        fetchExpenses();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete expense");
-      }
-    } catch {
-      toast.error("Failed to delete expense");
-    }
+      if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); }
+      else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
+    } catch { toast.error("Failed to delete expense"); }
+    setPendingDelete(null);
   };
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -258,7 +266,7 @@ export default function ExpensesPage() {
                   </Badge>
                   <div>
                     <p className="text-sm font-medium">{expense.description}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(expense.date).toLocaleDateString()}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(expense.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -272,6 +280,22 @@ export default function ExpensesPage() {
           </Card>
         ))}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This expense record will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

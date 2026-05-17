@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { createInvoiceSchema, validateRequest } from "@/lib/validations"
+import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
+import { deepSanitize } from "@/lib/utils"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = body
+    const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = validation.data
 
     if (!clientId) {
       return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
@@ -131,9 +132,15 @@ export async function POST(req: NextRequest) {
     // Generate invoice number if not provided
     const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
 
+    // H-FIN-4: Uniqueness check on invoiceNumber
+    const existingInvoice = await db.invoice.findFirst({ where: { invoiceNumber: autoInvoiceNumber } })
+    if (existingInvoice) {
+      return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 })
+    }
+
     const invoice = await db.invoice.create({
       data: {
-        invoiceNumber: autoInvoiceNumber,
+        invoiceNumber: deepSanitize(autoInvoiceNumber),
         clientId,
         projectId: projectId || null,
         items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : "[]",
@@ -146,7 +153,7 @@ export async function POST(req: NextRequest) {
         paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : null,
         gst: typeof gst === 'number' ? gst : null,
         gstPercent: typeof gstPercent === 'number' ? gstPercent : null,
-        notes: typeof notes === 'string' ? notes : null,
+        notes: typeof notes === 'string' ? deepSanitize(notes) : null,
         paymentStatus: typeof paymentStatus === 'string' ? paymentStatus : "UNPAID",
         // SECURITY: Auto-set sentById from session — ignore client-provided value
         sentById: session.user.id,
@@ -178,13 +185,19 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; subtotal?: number; gst?: number; paymentStatus?: string; [key: string]: unknown }
+    let body: unknown
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
-    const { id, ...data } = body
+
+    // M-FIN-11: Zod validation for PATCH
+    const validation = validateRequest(updateInvoiceSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+    const { id, ...data } = validation.data
 
     if (!id) {
       return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
@@ -221,16 +234,24 @@ export async function PATCH(req: NextRequest) {
     if (data.paymentStatus === "PAID" && data.status !== "PAID" && existing.status !== "PAID") {
       return NextResponse.json({ error: "Cannot set payment to PAID when invoice status is not PAID" }, { status: 400 })
     }
+    // M-FIN-4: Block setting paymentStatus to UNPAID when invoice status is PAID
+    if (data.paymentStatus === "UNPAID" && (data.status === "PAID" || existing.status === "PAID")) {
+      return NextResponse.json({ error: "Cannot set payment to UNPAID when invoice status is PAID" }, { status: 400 })
+    }
 
-    // Sanitize update fields — sentById removed to prevent spoofing
-    const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
+    // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
     const sanitizedData: Record<string, unknown> = {}
+    const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "items" && typeof data[key] !== "string") {
           sanitizedData[key] = JSON.stringify(data[key])
         } else if (key === "dueDate" || key === "paidAt") {
           sanitizedData[key] = data[key] ? new Date(data[key] as string) : null
+        } else if (key === "notes") {
+          sanitizedData[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]
+        } else if (key === "invoiceNumber") {
+          sanitizedData[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]
         } else {
           sanitizedData[key] = data[key]
         }
@@ -283,8 +304,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    const { searchParams } = new URL(req.url)
-    const id = searchParams.get("id")
+    // H-FIN-1: Accept ID from JSON body instead of query params
+    let delBody: { id?: string }
+    try {
+      delBody = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { id } = delBody
 
     if (!id) {
       return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })

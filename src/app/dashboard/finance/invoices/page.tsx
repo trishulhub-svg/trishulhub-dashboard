@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { handleFetchError } from "@/lib/fetch-utils";
 import {
-  Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2,
+  Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,11 +21,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-
-function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
-  if (res.status === 401) { router.push("/login"); return true; }
-  return false;
-}
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
@@ -93,6 +93,7 @@ export default function InvoicesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [previewInvoice, setPreviewInvoice] = useState<Record<string, unknown> | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Feature 4: Line items state
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -234,20 +235,18 @@ export default function InvoicesPage() {
   };
 
   const handleDeleteInvoice = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this DRAFT invoice? This action cannot be undone.")) return;
+    setPendingDelete(id);
+  };
+
+  const executeDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      const res = await fetch(`/api/invoices?id=${id}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch(`/api/invoices?id=${pendingDelete}`, { method: "DELETE", credentials: 'include' });
       if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        toast.success("Invoice deleted");
-        fetchData();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete invoice");
-      }
-    } catch {
-      toast.error("Failed to delete invoice");
-    }
+      if (res.ok) { toast.success("Invoice deleted"); fetchData(); }
+      else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete invoice"); }
+    } catch { toast.error("Failed to delete invoice"); }
+    setPendingDelete(null);
   };
 
   const handleUpdateStatus = async (id: string, status: string) => {
@@ -572,7 +571,9 @@ export default function InvoicesPage() {
             <div className="p-6 space-y-6">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold">Invoice Preview</h2>
-                <Button variant="ghost" onClick={() => setPreviewInvoice(null)}>✕</Button>
+                <Button variant="ghost" size="icon" onClick={() => setPreviewInvoice(null)} aria-label="Close preview">
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
               <div className="border rounded-lg p-6 space-y-4">
                 <div className="flex justify-between">
@@ -639,6 +640,21 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Invoice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This DRAFT invoice will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

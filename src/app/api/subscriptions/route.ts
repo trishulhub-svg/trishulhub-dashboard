@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // Currency conversion rates to INR (approximate)
 const CURRENCY_TO_INR: Record<string, number> = {
@@ -22,6 +23,8 @@ function getMonthlyINR(rate: number, currency: string, frequency: string): numbe
 // GET /api/subscriptions - List subscriptions with filters
 export async function GET(req: NextRequest) {
   try {
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -39,14 +42,24 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status")
 
-  const where: Record<string, any> = {}
+  // M-FIN-8: Pagination support
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "100")), 200)
+  const offset = (page - 1) * limit
+
+  const where: Record<string, unknown> = {}
   if (status) where.status = status
 
-  const subscriptions = await db.subscription.findMany({
-    where,
-    include: { project: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  })
+  const [subscriptions, total] = await Promise.all([
+    db.subscription.findMany({
+      where,
+      include: { project: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: offset,
+      take: limit,
+    }),
+    db.subscription.count({ where }),
+  ])
 
   // Compute monthly INR for each subscription
   const enriched = subscriptions.map((sub) => ({
@@ -59,7 +72,7 @@ export async function GET(req: NextRequest) {
     .filter((s) => s.status === "ACTIVE")
     .reduce((sum, s) => sum + s.monthlyINR, 0)
 
-  return NextResponse.json(JSON.parse(JSON.stringify({ subscriptions: enriched, totalMonthlyCost })))
+  return NextResponse.json(JSON.parse(JSON.stringify({ subscriptions: enriched, totalMonthlyCost, total, page, limit, totalPages: Math.ceil(total / limit) })))
   } catch (error: unknown) {
     console.error("[subscriptions] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -69,6 +82,8 @@ export async function GET(req: NextRequest) {
 // POST /api/subscriptions - Create subscription (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -104,6 +119,15 @@ export async function POST(req: NextRequest) {
   }
   if (data.endDate && isNaN(new Date(data.endDate).getTime())) {
     return NextResponse.json({ error: "Invalid end date" }, { status: 400 })
+  }
+
+  // H-FIN-5: Validate endDate > startDate
+  if (data.startDate && data.endDate) {
+    const start = new Date(data.startDate).getTime()
+    const end = new Date(data.endDate).getTime()
+    if (end <= start) {
+      return NextResponse.json({ error: "End date must be after start date" }, { status: 400 })
+    }
   }
 
   const subscription = await db.subscription.create({

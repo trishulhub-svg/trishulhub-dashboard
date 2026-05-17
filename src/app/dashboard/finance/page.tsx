@@ -3,12 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-
-// Shared 401 handler
-function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
-  if (res.status === 401) { router.push("/login"); return true; }
-  return false;
-}
+import { handleFetchError } from "@/lib/fetch-utils";
+import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
@@ -29,6 +25,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -175,6 +175,7 @@ export default function FinancePage() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
 
   // ─── Fetch dashboard data (existing) ────
   const fetchData = useCallback(async (signal?: AbortSignal) => {
@@ -182,7 +183,8 @@ export default function FinancePage() {
       const res = await fetch("/api/dashboard", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
-        setData(await res.json().catch(() => null));
+        const raw = await res.json().catch(() => null);
+        setData(deepSanitize<DashboardData | null>(raw));
       } else {
         setError("Failed to load dashboard data. Please refresh the page.");
       }
@@ -202,7 +204,8 @@ export default function FinancePage() {
       const res = await fetch("/api/subscriptions", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
-        const json = await res.json();
+        const raw = await res.json();
+        const json = deepSanitize<{ subscriptions?: Subscription[]; totalMonthlyCost?: number }>(raw);
         setSubscriptions(json.subscriptions || []);
         setSubTotalMonthly(json.totalMonthlyCost || 0);
       }
@@ -226,8 +229,8 @@ export default function FinancePage() {
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
-        const expData = await res.json();
-        setExpenses(Array.isArray(expData) ? expData : []);
+        const raw = await res.json();
+        setExpenses(deepSanitize<ExpenseWithProject[]>(Array.isArray(raw) ? raw : []));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -367,40 +370,30 @@ export default function FinancePage() {
   };
 
   const handleDeleteSubscription = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this subscription? This action cannot be undone.")) return;
-    try {
-      const res = await fetch(`/api/subscriptions/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Subscription deleted");
-        fetchSubscriptions();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete subscription");
-      }
-    } catch {
-      toast.error("Failed to delete subscription");
-    }
+    setPendingDelete({ type: "subscription", id });
   };
 
   // ─── Expense delete handler ────
   const handleDeleteExpense = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this expense? This action cannot be undone.")) return;
-    try {
-      const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) {
-        toast.success("Expense deleted");
-        fetchExpenses();
-        fetchStats();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete expense");
-      }
-    } catch {
-      toast.error("Failed to delete expense");
+    setPendingDelete({ type: "expense", id });
+  };
+
+  const executeDelete = async () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === "subscription") {
+      try {
+        const res = await fetch(`/api/subscriptions/${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
+        if (res.ok) { toast.success("Subscription deleted"); fetchSubscriptions(); }
+        else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete subscription"); }
+      } catch { toast.error("Failed to delete subscription"); }
+    } else if (pendingDelete.type === "expense") {
+      try {
+        const res = await fetch(`/api/expenses?id=${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
+        if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); }
+        else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
+      } catch { toast.error("Failed to delete expense"); }
     }
+    setPendingDelete(null);
   };
 
   // ─── Role guard (useEffect-based to avoid hydration flash) ────
@@ -552,7 +545,7 @@ export default function FinancePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Revenue</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(safeNumber(totalRevenue))}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <TrendingUp className="h-5 w-5 text-green-600" />
@@ -565,7 +558,7 @@ export default function FinancePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Manual Expenses</p>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(totalManualExpenses)}</p>
+                <p className="text-2xl font-bold text-red-600">{formatCurrency(safeNumber(totalManualExpenses))}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                 <DollarSign className="h-5 w-5 text-red-600" />
@@ -578,7 +571,7 @@ export default function FinancePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Auto Subscriptions</p>
-                <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalSubscriptionMonthly)}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(totalSubscriptionMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
               </div>
               <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
                 <CreditCard className="h-5 w-5 text-orange-600" />
@@ -592,7 +585,7 @@ export default function FinancePage() {
               <div>
                 <p className="text-sm text-muted-foreground">Net Profit (est.)</p>
                 <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {formatCurrency(netProfit)}
+                  {formatCurrency(safeNumber(netProfit))}
                 </p>
               </div>
               <div className={`h-10 w-10 rounded-full flex items-center justify-center ${netProfit >= 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
@@ -622,7 +615,7 @@ export default function FinancePage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Pending Payments</p>
-                    <p className="text-2xl font-bold text-amber-600">{formatCurrency(stats.pendingAmount)}</p>
+                    <p className="text-2xl font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
                     <Clock className="h-5 w-5 text-amber-600" />
@@ -635,7 +628,7 @@ export default function FinancePage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Overdue</p>
-                    <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.overdueAmount)}</p>
+                    <p className="text-2xl font-bold text-red-600">{formatCurrency(safeNumber(stats.overdueAmount))}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                     <AlertCircle className="h-5 w-5 text-red-600" />
@@ -648,7 +641,7 @@ export default function FinancePage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">API Spend</p>
-                    <p className="text-2xl font-bold">{formatCurrency(stats.totalApiSpend)}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(safeNumber(stats.totalApiSpend))}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
                     <DollarSign className="h-5 w-5 text-muted-foreground" />
@@ -660,6 +653,7 @@ export default function FinancePage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             {/* Revenue Chart */}
+            {/* Note: Revenue chart displays in INR as invoices are denominated in INR */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Revenue Trend</CardTitle>
@@ -726,13 +720,13 @@ export default function FinancePage() {
                       <div className="flex items-center gap-3">
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                         <div>
-                          <p className="text-sm font-medium">{inv.invoiceNumber}</p>
-                          <p className="text-xs text-muted-foreground">{inv.client?.name}</p>
+                          <p className="text-sm font-medium">{safeText(inv.invoiceNumber, "")}</p>
+                          <p className="text-xs text-muted-foreground">{inv.client ? safeText(inv.client.name, "") : ""}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
-                        <Badge className={`text-[10px] ${INVOICE_STATUS_COLORS[inv.status] || ""}`}>{inv.status}</Badge>
+                        <span className="text-sm font-medium">{formatCurrency(safeNumber(inv.total))}</span>
+                        <Badge className={`text-[10px] ${INVOICE_STATUS_COLORS[inv.status] || ""}`}>{safeText(inv.status, "")}</Badge>
                       </div>
                     </div>
                   ))
@@ -819,15 +813,15 @@ export default function FinancePage() {
                   <TableBody>
                     {expenses.map((exp) => (
                       <TableRow key={exp.id}>
-                        <TableCell className="text-xs">{formatDate(exp.date)}</TableCell>
+                        <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
                         <TableCell>
                           <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
-                            {exp.category.replace("_", " ")}
+                            {safeText(exp.category, "").replace("_", " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm">{exp.project?.name || "—"}</TableCell>
-                        <TableCell className="text-sm max-w-[200px] truncate">{exp.description}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(exp.amount)}</TableCell>
+                        <TableCell className="text-sm">{exp.project ? safeText(exp.project.name, "—") : "—"}</TableCell>
+                        <TableCell className="text-sm max-w-[200px] truncate">{safeText(exp.description, "")}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)} aria-label="Delete expense">
                             <Trash2 className="h-3.5 w-3.5" />
@@ -887,21 +881,21 @@ export default function FinancePage() {
                       <TableRow key={sub.id}>
                         <TableCell>
                           <div>
-                            <p className="text-sm font-medium">{sub.service}</p>
-                            {sub.category && <p className="text-xs text-muted-foreground">{sub.category}</p>}
-                            {sub.project && <p className="text-xs text-muted-foreground">{sub.project.name}</p>}
+                            <p className="text-sm font-medium">{safeText(sub.service, "")}</p>
+                            {sub.category && <p className="text-xs text-muted-foreground">{safeText(sub.category, "")}</p>}
+                            {sub.project && <p className="text-xs text-muted-foreground">{safeText(sub.project.name, "")}</p>}
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">
                           {CURRENCY_SYMBOLS[sub.currency] || sub.currency}{sub.rate.toLocaleString()}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-[10px]">{sub.frequency}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{safeText(sub.frequency, "")}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{sub.status}</Badge>
+                          <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
                         </TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(sub.monthlyINR)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(safeNumber(sub.monthlyINR))}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button
@@ -948,7 +942,7 @@ export default function FinancePage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">Total Active Monthly Cost</p>
-                  <p className="text-xl font-bold text-orange-600">{formatCurrency(subTotalMonthly)}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                  <p className="text-xl font-bold text-orange-600">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
                 </div>
               </CardContent>
             </Card>
@@ -958,7 +952,7 @@ export default function FinancePage() {
         {/* ─── By Category Tab ──── */}
         <TabsContent value="category" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">{categoryStats.length} categories • Total: {formatCurrency(statsTotal)}</p>
+            <p className="text-sm text-muted-foreground">{categoryStats.length} categories • Total: {formatCurrency(safeNumber(statsTotal))}</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {categoryStats.length === 0 ? (
@@ -971,10 +965,10 @@ export default function FinancePage() {
                 <Card key={cat.category} className={`border-l-4 ${CATEGORY_COLORS[cat.category] || "border-l-gray-500"}`}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold text-sm">{cat.category.replace(/_/g, " ")}</h3>
-                      <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[cat.category] || ""}`}>{cat.count}</Badge>
+                      <h3 className="font-semibold text-sm">{safeText(cat.category, "").replace(/_/g, " ")}</h3>
+                      <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[cat.category] || ""}`}>{safeNumber(cat.count)}</Badge>
                     </div>
-                    <p className="text-2xl font-bold">{formatCurrency(cat.total)}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(safeNumber(cat.total))}</p>
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>% of total</span>
@@ -992,7 +986,7 @@ export default function FinancePage() {
         {/* ─── By Project Tab ──── */}
         <TabsContent value="project" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">{projectStats.length} project(s) • Total: {formatCurrency(statsTotal)}</p>
+            <p className="text-sm text-muted-foreground">{projectStats.length} project(s) • Total: {formatCurrency(safeNumber(statsTotal))}</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projectStats.length === 0 ? (
@@ -1008,19 +1002,19 @@ export default function FinancePage() {
                   <Card key={proj.projectId || "unassigned"} className={`border-l-4 ${isOverBudget ? "border-l-red-500" : "border-l-emerald-500"}`}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-sm truncate max-w-[180px]">{proj.projectName}</h3>
-                        <Badge variant="outline" className="text-[10px]">{proj.count} entries</Badge>
+                        <h3 className="font-semibold text-sm truncate max-w-[180px]">{safeText(proj.projectName, "")}</h3>
+                        <Badge variant="outline" className="text-[10px]">{safeNumber(proj.count)} entries</Badge>
                       </div>
-                      <p className="text-2xl font-bold">{formatCurrency(proj.total)}</p>
+                      <p className="text-2xl font-bold">{formatCurrency(safeNumber(proj.total))}</p>
                       {proj.budget ? (
                         <div className="mt-2">
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>Budget: {formatCurrency(proj.budget)}</span>
+                            <span>Budget: {formatCurrency(safeNumber(proj.budget))}</span>
                             <span className={isOverBudget ? "text-red-500 font-medium" : ""}>{budgetPct.toFixed(0)}%</span>
                           </div>
                           <Progress value={budgetPct} className={`mt-1 h-1.5 ${isOverBudget ? "[&>div]:bg-red-500" : ""}`} />
                           {isOverBudget && (
-                            <p className="text-xs text-red-500 mt-1">Over budget by {formatCurrency(proj.total - (proj.budget || 0))}</p>
+                            <p className="text-xs text-red-500 mt-1">Over budget by {formatCurrency(safeNumber(proj.total) - safeNumber(proj.budget))}</p>
                           )}
                         </div>
                       ) : (
@@ -1126,6 +1120,23 @@ export default function FinancePage() {
           </form>
         </DialogContent>
       </Dialog>
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.type === "subscription"
+                ? "This subscription will be permanently deleted. This action cannot be undone."
+                : "This expense record will be permanently deleted. This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
