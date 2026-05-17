@@ -144,9 +144,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If isPrimary is set, unset any other primary contact for the same client/lead (transactional)
-    if (data.isPrimary) {
-      await db.$transaction(async (tx) => {
+    // Pre-check for duplicate email (M-05)
+    const existing = await db.contact.findFirst({ where: { email: data.email } })
+    if (existing) {
+      return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+    }
+
+    // Merge isPrimary unset + create into a single transaction to fix TOCTOU race (M-06)
+    const contact = await db.$transaction(async (tx) => {
+      if (data.isPrimary) {
         if (data.clientId) {
           await tx.contact.updateMany({
             where: { clientId: data.clientId, isPrimary: true },
@@ -159,28 +165,31 @@ export async function POST(req: NextRequest) {
             data: { isPrimary: false },
           })
         }
+      }
+      return tx.contact.create({
+        data: {
+          firstName: data.firstName,
+          lastName: data.lastName || null,
+          email: data.email,
+          phone: data.phone || null,
+          jobTitle: data.jobTitle || null,
+          clientId: data.clientId || null,
+          leadId: data.leadId || null,
+          notes: data.notes || null,
+          isPrimary: data.isPrimary ?? false,
+        },
+        include: {
+          client: { select: { id: true, name: true } },
+          lead: { select: { id: true, name: true } },
+        },
       })
-    }
-
-    const contact = await db.contact.create({
-      data: {
-        firstName: data.firstName,
-        lastName: data.lastName || null,
-        email: data.email,
-        phone: data.phone || null,
-        jobTitle: data.jobTitle || null,
-        clientId: data.clientId || null,
-        leadId: data.leadId || null,
-        notes: data.notes || null,
-        isPrimary: data.isPrimary ?? false,
-      },
-      include: {
-        client: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true } },
-      },
     })
     return NextResponse.json(contact, { status: 201 })
   } catch (error: unknown) {
+    // Handle Prisma unique constraint violation as fallback for the pre-check (M-06)
+    if (error instanceof Error && "code" in error && (error as any).code === "P2002") {
+      return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+    }
     console.error("Error creating contact:", error)
     return NextResponse.json({ error: "Failed to create contact" }, { status: 500 })
   }

@@ -137,6 +137,24 @@ export async function POST(req: NextRequest) {
 
     const data = validation.data
 
+    // Defense-in-depth: validate stage
+    if (data.stage !== undefined && !VALID_STAGES.includes(data.stage)) {
+      return NextResponse.json({ error: `Invalid stage. Must be one of: ${VALID_STAGES.join(", ")}` }, { status: 400 })
+    }
+
+    // Defense-in-depth: validate currency
+    if (data.currency !== undefined && !VALID_CURRENCIES.includes(data.currency)) {
+      return NextResponse.json({ error: `Invalid currency. Must be one of: ${VALID_CURRENCIES.join(", ")}` }, { status: 400 })
+    }
+
+    // Defense-in-depth: validate probability range
+    if (data.probability !== undefined) {
+      const prob = Number(data.probability)
+      if (isNaN(prob) || prob < 0 || prob > 100) {
+        return NextResponse.json({ error: "Probability must be between 0 and 100" }, { status: 400 })
+      }
+    }
+
     // Verify clientId exists if provided
     if (data.clientId) {
       const client = await db.client.findUnique({ where: { id: data.clientId } })

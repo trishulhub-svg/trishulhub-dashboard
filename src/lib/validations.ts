@@ -95,6 +95,12 @@ export const createInvoiceSchema = z.object({
   total: z.number().min(0).optional(),
   status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE"]).optional(),
   dueDate: z.string().optional(),
+  paymentMethod: z.enum(["UPI", "CREDIT_DEBIT_CARD", "BANK_TRANSFER", "OTHER"]).nullable().optional(),
+  gst: z.number().min(0).optional(),
+  gstPercent: z.number().min(0).max(100).optional(),
+  notes: z.string().max(5000).nullable().optional(),
+  paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
+  invoiceNumber: z.string().max(50).optional(),
 })
 
 export const createLeadSchema = z.object({

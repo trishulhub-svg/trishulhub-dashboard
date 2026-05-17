@@ -86,51 +86,52 @@ export async function GET(req: NextRequest) {
 
 // POST /api/invoices - Create invoice (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  const userId = session.user.id
-  const { success: rateOk } = rateLimit(`invoices-post:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rateOk) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
-  let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; paymentMethod?: string; gst?: number; gstPercent?: number; notes?: string; paymentStatus?: string; [key: string]: unknown }
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Zod validation as an additional layer
-  const validation = validateRequest(createInvoiceSchema, body)
-  if (!validation.success) {
-    return NextResponse.json({ error: validation.error }, { status: 400 })
-  }
+    const userRole = session.user.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
-  const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = body
+    await ensureAllTables()
 
-  if (!clientId) {
-    return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
-  }
+    const userId = session.user.id
+    const { success: rateOk } = rateLimit(`invoices-post:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
 
-  // Negative amount validation
-  if (total !== undefined && total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
-  if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
-  if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
-  if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+    let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; paymentMethod?: string; gst?: number; gstPercent?: number; notes?: string; paymentStatus?: string; [key: string]: unknown }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
-  // Generate invoice number if not provided
-  const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
+    // Zod validation as an additional layer
+    const validation = validateRequest(createInvoiceSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
 
-  let invoice
-  try {
-    invoice = await db.invoice.create({
+    const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = body
+
+    if (!clientId) {
+      return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
+    }
+
+    // Negative amount validation
+    if (total !== undefined && total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
+    if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+    if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
+    if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+
+    // Generate invoice number if not provided
+    const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
+
+    const invoice = await db.invoice.create({
       data: {
         invoiceNumber: autoInvoiceNumber,
         clientId,
@@ -151,92 +152,100 @@ export async function POST(req: NextRequest) {
         sentById: session.user.id,
       },
     })
-  } catch {
+    return NextResponse.json(invoice, { status: 201 })
+  } catch (error: unknown) {
+    console.error("[invoices] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create invoice" }, { status: 500 })
   }
-  return NextResponse.json(invoice, { status: 201 })
 }
 
 // PATCH /api/invoices - Update invoice status/details
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  const userId = session.user.id
-  const { success: rateOk } = rateLimit(`invoices-patch:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rateOk) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
-  let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; subtotal?: number; gst?: number; [key: string]: unknown }
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
-  const { id, ...data } = body
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!id) {
-    return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
-  }
-
-  // Negative amount validation
-  if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
-  if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
-  if (data.subtotal !== undefined && data.subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
-  if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
-
-  // Fetch existing invoice for status transition validation
-  const existing = await db.invoice.findUnique({ where: { id } })
-  if (!existing) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  }
-
-  // Validate status transitions
-  if (data.status) {
-    const validTransitions: Record<string, string[]> = {
-      DRAFT: ["SENT", "OVERDUE"],
-      SENT: ["PAID", "OVERDUE", "DRAFT"],
-      OVERDUE: ["PAID", "SENT", "DRAFT"],
-      PAID: [], // No transitions from PAID (locked)
+    const userRole = session.user.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-    const currentStatus = existing.status
-    const allowed = validTransitions[currentStatus] || []
-    if (!allowed.includes(data.status)) {
-      return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
-    }
-  }
 
-  // Sanitize update fields — sentById removed to prevent spoofing
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
-  const sanitizedData: Record<string, unknown> = {}
-  for (const key of allowedFields) {
-    if (data[key] !== undefined) {
-      if (key === "items" && typeof data[key] !== "string") {
-        sanitizedData[key] = JSON.stringify(data[key])
-      } else if (key === "dueDate" || key === "paidAt") {
-        sanitizedData[key] = data[key] ? new Date(data[key] as string) : null
-      } else {
-        sanitizedData[key] = data[key]
+    await ensureAllTables()
+
+    const userId = session.user.id
+    const { success: rateOk } = rateLimit(`invoices-patch:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; subtotal?: number; gst?: number; paymentStatus?: string; [key: string]: unknown }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { id, ...data } = body
+
+    if (!id) {
+      return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
+    }
+
+    // Negative amount validation
+    if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
+    if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+    if (data.subtotal !== undefined && data.subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
+    if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+
+    // Fetch existing invoice for status transition validation
+    const existing = await db.invoice.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+    }
+
+    // Validate status transitions
+    if (data.status) {
+      const validTransitions: Record<string, string[]> = {
+        DRAFT: ["SENT", "OVERDUE"],
+        SENT: ["PAID", "OVERDUE", "DRAFT"],
+        OVERDUE: ["PAID", "SENT", "DRAFT"],
+        PAID: [], // No transitions from PAID (locked)
+      }
+      const currentStatus = existing.status
+      const allowed = validTransitions[currentStatus] || []
+      if (!allowed.includes(data.status)) {
+        return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
       }
     }
-  }
 
-  // If marking as PAID, set paidAt automatically
-  if (data.status === "PAID" && !data.paidAt) {
-    sanitizedData.paidAt = new Date()
-  }
-  // If marking as PAID, also set paymentStatus
-  if (data.status === "PAID") {
-    sanitizedData.paymentStatus = "PAID"
-  }
+    // Guard: paymentStatus PAID requires status PAID
+    if (data.paymentStatus === "PAID" && data.status !== "PAID" && existing.status !== "PAID") {
+      return NextResponse.json({ error: "Cannot set payment to PAID when invoice status is not PAID" }, { status: 400 })
+    }
 
-  try {
+    // Sanitize update fields — sentById removed to prevent spoofing
+    const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
+    const sanitizedData: Record<string, unknown> = {}
+    for (const key of allowedFields) {
+      if (data[key] !== undefined) {
+        if (key === "items" && typeof data[key] !== "string") {
+          sanitizedData[key] = JSON.stringify(data[key])
+        } else if (key === "dueDate" || key === "paidAt") {
+          sanitizedData[key] = data[key] ? new Date(data[key] as string) : null
+        } else {
+          sanitizedData[key] = data[key]
+        }
+      }
+    }
+
+    // If marking as PAID, set paidAt automatically
+    if (data.status === "PAID" && !data.paidAt) {
+      sanitizedData.paidAt = new Date()
+    }
+    // If marking as PAID, also set paymentStatus
+    if (data.status === "PAID") {
+      sanitizedData.paymentStatus = "PAID"
+    }
+
     const invoice = await db.invoice.update({
       where: { id },
       data: sanitizedData,
@@ -244,7 +253,8 @@ export async function PATCH(req: NextRequest) {
     })
     return NextResponse.json(invoice)
   } catch (error: unknown) {
-    return NextResponse.json({ error: "Invoice not found or update failed" }, { status: 404 })
+    console.error("[invoices] PATCH error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Invoice update failed" }, { status: 500 })
   }
 }
 
@@ -256,29 +266,31 @@ export async function PUT(req: NextRequest) {
 
 // DELETE /api/invoices - Delete DRAFT invoices only
 export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const userRole = session.user.role
-  if (!isAdmin(userRole)) {
-    return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
-  }
-
-  const userId = session.user.id
-  const { success: rateOk } = rateLimit(`invoices-delete:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rateOk) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
-  const { searchParams } = new URL(req.url)
-  const id = searchParams.get("id")
-
-  if (!id) {
-    return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
-  }
-
-  // Only allow deleting DRAFT invoices — use $transaction to prevent TOCTOU race
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const userRole = session.user.role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
+    }
+
+    await ensureAllTables()
+
+    const userId = session.user.id
+    const { success: rateOk } = rateLimit(`invoices-delete:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+
+    if (!id) {
+      return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
+    }
+
+    // Only allow deleting DRAFT invoices — use $transaction to prevent TOCTOU race
     const result = await db.$transaction(async (tx) => {
       const existing = await tx.invoice.findUnique({ where: { id } })
       if (!existing) return "NOT_FOUND" as const
@@ -293,7 +305,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Only DRAFT invoices can be deleted" }, { status: 400 })
     }
     return NextResponse.json({ success: true })
-  } catch {
+  } catch (error: unknown) {
+    console.error("[invoices] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to delete invoice" }, { status: 500 })
   }
 }
