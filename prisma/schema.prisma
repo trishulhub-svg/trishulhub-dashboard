@@ -54,6 +54,7 @@ model User {
   protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
   protocolAccess      UserProtocolAccess?
   userCredentials     UserCredential[]
+  linkedClients        Client[]            @relation("ClientLinkedUser")
 }
 
 // ━━ API Keys ━━
@@ -316,8 +317,9 @@ model ProjectMethod {
   id        String   @id @default(cuid())
   name      String   @unique
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  clients   Client[]
+  clients   Client[]  @relation("ClientProjectMethod")
 }
 
 // ━━ Clients ━━
@@ -331,6 +333,7 @@ model Client {
   websites        ClientWebsite[]
   status          String   @default("ACTIVE") // ACTIVE, INACTIVE, ONBOARDING, PAUSED, COMPLETED, CHURNED
   userId          String?  // linked portal user
+  user            User?    @relation("ClientLinkedUser", fields: [userId], references: [id])
   notes           String?
   projectType     String?              // ENGINEERING, MEDICAL, RETAIL, REAL_ESTATE, FINANCE, EDUCATION, LEGAL, FOOD_BEVERAGE, MANUFACTURING, IT_SERVICES, OTHER
   projectMethodId String?              // Method of Project (JAVA, PHP, HTML, Other, etc.)
@@ -348,7 +351,11 @@ model Client {
   deals          Deal[]
   contacts       Contact[]
   tickets        SupportTicket[]
-  projectMethod  ProjectMethod?  @relation(fields: [projectMethodId], references: [id])
+  projectMethod  ProjectMethod?  @relation("ClientProjectMethod", fields: [projectMethodId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([email])
 }
 
 // ━━ Client Websites (one-to-many) ━━
@@ -388,6 +395,10 @@ model Project {
   members      ProjectMember[]
   attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([deadline])
 }
 
 // ━━ Project Members (RBAC) ━━
@@ -452,6 +463,10 @@ model Invoice {
 
   sentBy        User?    @relation(fields: [sentById], references: [id])
   sentById      String?
+
+  @@index([clientId])
+  @@index([status])
+  @@index([paymentStatus])
 }
 
 // ━━ CRM / Leads ━━

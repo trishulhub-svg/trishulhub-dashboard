@@ -311,6 +311,8 @@ function SortIcon({ field, sortBy, sortOrder }: { field: "name" | "createdAt" | 
 }
 
 // ━━ Main Component ━━
+const PAGE_SIZE = 50;
+
 export default function ClientsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -384,6 +386,8 @@ export default function ClientsPage() {
   const [newMethodName, setNewMethodName] = useState("");
   const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
   const [editingMethodName, setEditingMethodName] = useState("");
+  const [deleteMethodTarget, setDeleteMethodTarget] = useState<{id: string, name: string} | null>(null);
+  const [methodSaving, setMethodSaving] = useState(false);
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -393,6 +397,30 @@ export default function ClientsPage() {
     }
     return false;
   }, [router]);
+
+  // ━━ Delete method handler (L2) ━━
+  const handleDeleteMethod = async () => {
+    if (!deleteMethodTarget) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch(`/api/project-methods?id=${deleteMethodTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Method deleted successfully");
+        fetchProjectMethods();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete method");
+      }
+    } catch {
+      toast.error("Failed to delete method");
+    } finally {
+      setMethodSaving(false);
+      setDeleteMethodTarget(null);
+    }
+  };
 
   // ━━ Fetch project methods ━━
   const fetchProjectMethods = useCallback(async () => {
@@ -459,6 +487,7 @@ export default function ClientsPage() {
       params.set("sortOrder", sortOrder);
       // CLI-036: Pagination
       params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
       // CLI-032: Date range params
       if (parsed.dateFrom) params.set("dateFrom", toDateString(parsed.dateFrom));
       if (parsed.dateTo) params.set("dateTo", toDateString(parsed.dateTo));
@@ -567,6 +596,15 @@ export default function ClientsPage() {
       today.setHours(23, 59, 59, 999);
       if (createdDate > today) {
         errors.createdAt = "Created date cannot be in the future";
+      }
+    }
+    // L4: Validate additional websites
+    if (formData.websites && formData.websites.length > 0) {
+      for (const w of formData.websites) {
+        if (w && w.trim() && !w.trim().match(/^https?:\/\/.+/)) {
+          toast.error(`Invalid website URL: ${w}`);
+          return false;
+        }
       }
     }
     setFormErrors(errors);
@@ -1110,7 +1148,7 @@ export default function ClientsPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * 50 + 1} to {Math.min(currentPage * 50, totalResults)} of {totalResults}
+            Showing {(currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, totalResults)} of {totalResults}
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -1166,7 +1204,7 @@ export default function ClientsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="client-phone" className="text-xs font-medium">Phone</Label>
-                <Input id="client-phone" placeholder="+1 (555) 123-4567" value={formData.phone}
+                <Input id="client-phone" placeholder="+91 98765 43210" value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
               </div>
               <div className="space-y-2">
@@ -1286,7 +1324,7 @@ export default function ClientsPage() {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="mediator-phone" className="text-xs">Mediator Phone</Label>
-                      <Input id="mediator-phone" placeholder="+1 (555) 000-0000" value={formData.mediatorPhone}
+                      <Input id="mediator-phone" placeholder="+91 98765 43210" value={formData.mediatorPhone}
                         onChange={(e) => setFormData({ ...formData, mediatorPhone: e.target.value })} />
                     </div>
                   </div>
@@ -1365,6 +1403,7 @@ export default function ClientsPage() {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     if (!newMethodName.trim()) return;
+                    setMethodSaving(true);
                     fetch("/api/project-methods", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
@@ -1378,16 +1417,18 @@ export default function ClientsPage() {
                         } else return res.json();
                       })
                       .then((data) => { if (data?.error) toast.error(data.error); })
-                      .catch(() => toast.error("Failed to add method"));
+                      .catch(() => toast.error("Failed to add method"))
+                      .finally(() => setMethodSaving(false));
                   }
                 }}
               />
               <Button
                 type="button"
                 size="sm"
-                disabled={!newMethodName.trim()}
+                disabled={!newMethodName.trim() || methodSaving}
                 onClick={() => {
                   if (!newMethodName.trim()) return;
+                  setMethodSaving(true);
                   fetch("/api/project-methods", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -1401,7 +1442,8 @@ export default function ClientsPage() {
                       } else return res.json();
                     })
                     .then((data) => { if (data?.error) toast.error(data.error); })
-                    .catch(() => toast.error("Failed to add method"));
+                    .catch(() => toast.error("Failed to add method"))
+                    .finally(() => setMethodSaving(false));
                 }}
               >
                 <Plus className="h-4 w-4" />
@@ -1424,6 +1466,7 @@ export default function ClientsPage() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
+                            setMethodSaving(true);
                             fetch("/api/project-methods", {
                               method: "PATCH",
                               headers: { "Content-Type": "application/json" },
@@ -1437,13 +1480,16 @@ export default function ClientsPage() {
                                 } else return res.json();
                               })
                               .then((data) => { if (data?.error) toast.error(data.error); })
-                              .catch(() => toast.error("Failed to update"));
+                              .catch(() => toast.error("Failed to update"))
+                              .finally(() => setMethodSaving(false));
                           }
                           if (e.key === "Escape") setEditingMethodId(null);
                         }}
                       />
                       <Button type="button" variant="ghost" size="sm" className="h-8"
+                        disabled={methodSaving}
                         onClick={() => {
+                          setMethodSaving(true);
                           fetch("/api/project-methods", {
                             method: "PATCH",
                             headers: { "Content-Type": "application/json" },
@@ -1457,7 +1503,8 @@ export default function ClientsPage() {
                               } else return res.json();
                             })
                             .then((data) => { if (data?.error) toast.error(data.error); })
-                            .catch(() => toast.error("Failed to update"));
+                            .catch(() => toast.error("Failed to update"))
+                            .finally(() => setMethodSaving(false));
                         }}>
                         ✓
                       </Button>
@@ -1474,17 +1521,7 @@ export default function ClientsPage() {
                         <Pencil className="h-3 w-3" />
                       </Button>
                       <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500"
-                        onClick={() => {
-                          if (!confirm(`Delete "${pm.name}"?`)) return;
-                          fetch(`/api/project-methods?id=${pm.id}`, {
-                            method: "DELETE",
-                            credentials: "include",
-                          })
-                            .then((res) => {
-                              if (res.ok) fetchProjectMethods();
-                            })
-                            .catch(() => toast.error("Failed to delete"));
-                        }}>
+                        onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </>
@@ -1495,6 +1532,24 @@ export default function ClientsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ━━ Delete Method Confirmation (L2) ━━ */}
+      <AlertDialog open={!!deleteMethodTarget} onOpenChange={(open) => !open && setDeleteMethodTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Project Method</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{safeText(deleteMethodTarget?.name)}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={methodSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteMethod} className="bg-red-600 hover:bg-red-700" disabled={methodSaving}>
+              {methodSaving ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ━━ Client Detail Drawer ━━ */}
       <Sheet

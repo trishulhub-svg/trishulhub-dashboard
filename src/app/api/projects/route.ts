@@ -121,43 +121,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  // SECURITY: Sanitize project creation data (whitelist allowed fields)
-  const name = typeof data.name === 'string' ? data.name : undefined
-  const description = typeof data.description === 'string' ? data.description : undefined
-  const status = typeof data.status === 'string' ? data.status : undefined
-  const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
-  const budget = typeof data.budget === 'number' ? data.budget : undefined
-  const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
-  if (!name) {
-    return NextResponse.json({ error: "Project name is required" }, { status: 400 })
-  }
-  if (!clientId) {
-    return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
-  }
+  try {
+    // SECURITY: Sanitize project creation data (whitelist allowed fields)
+    const name = typeof data.name === 'string' ? data.name : undefined
+    const description = typeof data.description === 'string' ? data.description : undefined
+    const status = typeof data.status === 'string' ? data.status : undefined
+    const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
+    const budget = typeof data.budget === 'number' ? data.budget : undefined
+    const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
+    if (!name) {
+      return NextResponse.json({ error: "Project name is required" }, { status: 400 })
+    }
+    if (!clientId) {
+      return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
+    }
 
-  // Validate status
-  const projectStatus = status || "PLANNING"
-  if (!VALID_PROJECT_STATUSES.includes(projectStatus)) {
-    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
-  }
+    // H4: Validate budget is non-negative
+    if (budget !== undefined && budget < 0) {
+      return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
+    }
 
-  // Verify client exists
-  const clientExists = await db.client.findUnique({ where: { id: clientId } })
-  if (!clientExists) {
-    return NextResponse.json({ error: "Client not found" }, { status: 400 })
-  }
+    // Validate status
+    const projectStatus = status || "PLANNING"
+    if (!VALID_PROJECT_STATUSES.includes(projectStatus)) {
+      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
+    }
 
-  const project = await db.project.create({
-    data: {
-      name,
-      description: description || null,
-      status: projectStatus,
-      clientId,
-      budget: budget || null,
-      deadline: deadline ? new Date(deadline) : null,
-    },
-  })
-  return NextResponse.json(JSON.parse(JSON.stringify(project)), { status: 201 })
+    // Verify client exists
+    const clientExists = await db.client.findUnique({ where: { id: clientId } })
+    if (!clientExists) {
+      return NextResponse.json({ error: "Client not found" }, { status: 400 })
+    }
+
+    const project = await db.project.create({
+      data: {
+        name,
+        description: description || null,
+        status: projectStatus,
+        clientId,
+        budget: budget || null,
+        deadline: deadline ? new Date(deadline) : null,
+      },
+    })
+    return NextResponse.json(JSON.parse(JSON.stringify(project)), { status: 201 })
+  } catch (error: any) {
+    console.error("[projects] POST error:", error?.message)
+    return NextResponse.json({ error: "Failed to create project" }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {
@@ -190,38 +200,48 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
   }
 
-  // Verify project exists
-  const existing = await db.project.findUnique({ where: { id: projectId } })
-  if (!existing) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 })
-  }
+  try {
+    // Verify project exists
+    const existing = await db.project.findUnique({ where: { id: projectId } })
+    if (!existing) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    }
 
-  // SECURITY: Sanitize project update data (whitelist allowed fields)
-  const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
-  const sanitizedData: Record<string, unknown> = {}
-  for (const key of allowedFields) {
-    if (data[key] !== undefined) {
-      if (key === "deadline") {
-        sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
-      } else if (key === "status") {
-        if (typeof data[key] !== 'string' || !VALID_PROJECT_STATUSES.includes(data[key])) {
-          return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
+    // SECURITY: Sanitize project update data (whitelist allowed fields)
+    const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
+    const sanitizedData: Record<string, unknown> = {}
+    for (const key of allowedFields) {
+      if (data[key] !== undefined) {
+        if (key === "deadline") {
+          sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
+        } else if (key === "status") {
+          if (typeof data[key] !== 'string' || !VALID_PROJECT_STATUSES.includes(data[key])) {
+            return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
+          }
+          sanitizedData[key] = data[key]
+        } else if (key === "progress") {
+          const progressVal = Number(data[key])
+          if (isNaN(progressVal) || progressVal < 0 || progressVal > 100) {
+            return NextResponse.json({ error: "Progress must be between 0 and 100" }, { status: 400 })
+          }
+          sanitizedData[key] = progressVal
+        } else if (key === "budget") {
+          if (typeof data[key] === 'number' && (data[key] as number) < 0) {
+            return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
+          }
+          sanitizedData[key] = data[key]
+        } else {
+          sanitizedData[key] = data[key]
         }
-        sanitizedData[key] = data[key]
-      } else if (key === "progress") {
-        const progressVal = Number(data[key])
-        if (isNaN(progressVal) || progressVal < 0 || progressVal > 100) {
-          return NextResponse.json({ error: "Progress must be between 0 and 100" }, { status: 400 })
-        }
-        sanitizedData[key] = progressVal
-      } else {
-        sanitizedData[key] = data[key]
       }
     }
-  }
 
-  const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
-  return NextResponse.json(JSON.parse(JSON.stringify(project)))
+    const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
+    return NextResponse.json(JSON.parse(JSON.stringify(project)))
+  } catch (error: any) {
+    console.error("[projects] PUT error:", error?.message)
+    return NextResponse.json({ error: "Failed to update project" }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -249,35 +269,28 @@ export async function DELETE(req: NextRequest) {
     const existing = await db.project.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
-    // Delete related records in correct order (respect FK constraints)
-    // 1. Delete task-dependent records first
-    const tasks = await db.task.findMany({ where: { projectId: id }, select: { id: true } })
-
-    // 2. Delete project members
-    await db.projectMember.deleteMany({ where: { projectId: id } })
-
-    // 3. Delete tasks
-    await db.task.deleteMany({ where: { projectId: id } })
-
-    // 4. Delete time entries
-    await db.timeEntry.deleteMany({ where: { projectId: id } })
-
-    // 5. Delete meetings linked to project
-    const meetings = await db.meeting.findMany({ where: { projectId: id }, select: { id: true } })
-    for (const meeting of meetings) {
-      await db.meetingAttendee.deleteMany({ where: { meetingId: meeting.id } })
-    }
-    await db.meeting.deleteMany({ where: { projectId: id } })
-
-    // 6. Delete expenses and subscriptions
-    await db.expense.deleteMany({ where: { projectId: id } })
-    await db.subscription.deleteMany({ where: { projectId: id } })
-
-    // 7. Delete invoices linked to project
-    await db.invoice.deleteMany({ where: { projectId: id } })
-
-    // 8. Delete the project itself
-    await db.project.delete({ where: { id } })
+    // C4: Use $transaction for atomic deletion of all related records
+    await db.$transaction(async (tx) => {
+      // Delete project members
+      await tx.projectMember.deleteMany({ where: { projectId: id } })
+      // Delete tasks
+      await tx.task.deleteMany({ where: { projectId: id } })
+      // Delete time entries
+      await tx.timeEntry.deleteMany({ where: { projectId: id } })
+      // Delete meetings + attendees
+      const meetings = await tx.meeting.findMany({ where: { projectId: id }, select: { id: true } })
+      for (const meeting of meetings) {
+        await tx.meetingAttendee.deleteMany({ where: { meetingId: meeting.id } })
+      }
+      await tx.meeting.deleteMany({ where: { projectId: id } })
+      // Delete expenses and subscriptions
+      await tx.expense.deleteMany({ where: { projectId: id } })
+      await tx.subscription.deleteMany({ where: { projectId: id } })
+      // Delete invoices
+      await tx.invoice.deleteMany({ where: { projectId: id } })
+      // Delete the project itself
+      await tx.project.delete({ where: { id } })
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

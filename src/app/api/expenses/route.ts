@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("endDate")
     const category = searchParams.get("category")
     const projectId = searchParams.get("projectId")
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const offset = (page - 1) * limit
 
     const where: Record<string, unknown> = {}
 
@@ -48,13 +51,18 @@ export async function GET(req: NextRequest) {
       where.description = { contains: search }
     }
 
-    const expenses = await db.expense.findMany({
-      where,
-      include: { project: { select: { id: true, name: true } } },
-      orderBy: { date: "desc" },
-    })
+    const [expenses, total] = await Promise.all([
+      db.expense.findMany({
+        where,
+        include: { project: { select: { id: true, name: true } } },
+        orderBy: { date: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      db.expense.count({ where }),
+    ])
 
-    // If search includes project name, filter in-memory since Prisma SQLite doesn't support relation filters well
+    // If search includes project name or category, filter in-memory since Prisma SQLite doesn't support relation filters well
     let filtered = expenses
     if (search) {
       const searchLower = search.toLowerCase()
@@ -67,7 +75,13 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
+    return NextResponse.json(JSON.parse(JSON.stringify({
+      data: filtered,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })))
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

@@ -6,7 +6,7 @@ import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -17,30 +17,62 @@ export async function GET() {
   }
 
   const userRole = session.user.role
+  const { searchParams } = new URL(req.url)
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+  const offset = (page - 1) * limit
+  const status = searchParams.get("status") || ""
 
   // CLIENT users can only see their own invoices
   if (userRole === "CLIENT") {
     const client = await db.client.findFirst({ where: { userId } })
-    const invoices = client
-      ? await db.invoice.findMany({
-          where: { clientId: client.id },
-          include: { client: true, project: true },
-          orderBy: { createdAt: "desc" },
-        })
-      : []
-    return NextResponse.json(JSON.parse(JSON.stringify(invoices)))
+    const where: Record<string, unknown> = client ? { clientId: client.id } : { clientId: "__none__" }
+    if (status && status !== "ALL") where.status = status
+
+    const [invoices, total] = await Promise.all([
+      db.invoice.findMany({
+        where,
+        include: { client: true, project: true },
+        orderBy: { createdAt: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      db.invoice.count({ where }),
+    ])
+    return NextResponse.json(JSON.parse(JSON.stringify({
+      data: invoices,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })))
   }
 
   // DEVELOPER users only see invoices from their assigned projects' clients
   const assignedClientIds = await getAssignedClientIds(userId, userRole)
-  const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+  const where: Record<string, unknown> = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+  if (status && status !== "ALL") where.status = status
 
-  const invoices = await db.invoice.findMany({
-    where: invoiceWhere,
-    include: { client: true, project: true },
-    orderBy: { createdAt: "desc" },
-  })
-  return NextResponse.json(JSON.parse(JSON.stringify(invoices)))
+  const [invoices, total] = await Promise.all([
+    db.invoice.findMany({
+      where,
+      include: {
+        client: { select: { id: true, name: true, company: true } },
+        project: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: offset,
+      take: limit,
+    }),
+    db.invoice.count({ where }),
+  ])
+  return NextResponse.json(JSON.parse(JSON.stringify({
+    data: invoices,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  })))
 }
 
 // POST /api/invoices - Create invoice (ADMIN/SUPER_ADMIN only)
@@ -74,6 +106,8 @@ export async function POST(req: NextRequest) {
   // Negative amount validation
   if (total !== undefined && total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
   if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+  if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
+  if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
 
   // Generate invoice number if not provided
   const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
@@ -123,7 +157,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; [key: string]: unknown }
+  let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; subtotal?: number; gst?: number; [key: string]: unknown }
   try {
     body = await req.json()
   } catch {
@@ -138,6 +172,8 @@ export async function PATCH(req: NextRequest) {
   // Negative amount validation
   if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
   if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
+  if (data.subtotal !== undefined && data.subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
+  if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
 
   // Fetch existing invoice for status transition validation
   const existing = await db.invoice.findUnique({ where: { id } })
@@ -198,91 +234,8 @@ export async function PATCH(req: NextRequest) {
 
 // PUT /api/invoices - Full update (kept for backward compat)
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  const userId = session.user.id
-  const { success: rateOk } = rateLimit(`invoices-put:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rateOk) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
-  let body: { id?: string; status?: string; total?: number; tax?: number; paidAt?: unknown; items?: unknown; dueDate?: unknown; [key: string]: unknown }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
-  const { id, ...data } = body
-
-  if (!id) {
-    return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
-  }
-
-  // Negative amount validation
-  if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
-  if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
-
-  // Fetch existing invoice for status transition validation
-  const existing = await db.invoice.findUnique({ where: { id } })
-  if (!existing) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  }
-
-  // Validate status transitions
-  if (data.status) {
-    const validTransitions: Record<string, string[]> = {
-      DRAFT: ["SENT", "OVERDUE"],
-      SENT: ["PAID", "OVERDUE", "DRAFT"],
-      OVERDUE: ["PAID", "SENT", "DRAFT"],
-      PAID: [], // No transitions from PAID (locked)
-    }
-    const currentStatus = existing.status
-    const allowed = validTransitions[currentStatus] || []
-    if (!allowed.includes(data.status)) {
-      return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
-    }
-  }
-
-  // SECURITY: Apply same allowed fields whitelist as PATCH handler — sentById removed to prevent spoofing
-  const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
-  const sanitizedData: Record<string, unknown> = {}
-  for (const key of allowedFields) {
-    if (data[key] !== undefined) {
-      if (key === "items" && typeof data[key] !== "string") {
-        sanitizedData[key] = JSON.stringify(data[key])
-      } else if (key === "dueDate" || key === "paidAt") {
-        sanitizedData[key] = data[key] ? new Date(data[key] as string) : null
-      } else {
-        sanitizedData[key] = data[key]
-      }
-    }
-  }
-
-  // If marking as PAID, set paidAt automatically
-  if (data.status === "PAID" && !data.paidAt) {
-    sanitizedData.paidAt = new Date()
-  }
-  // If marking as PAID, also set paymentStatus
-  if (data.status === "PAID") {
-    sanitizedData.paymentStatus = "PAID"
-  }
-
-  try {
-    const invoice = await db.invoice.update({
-      where: { id },
-      data: sanitizedData,
-      include: { client: true, project: true },
-    })
-    return NextResponse.json(invoice)
-  } catch (error: unknown) {
-    return NextResponse.json({ error: "Invoice not found or update failed" }, { status: 404 })
-  }
+  // PUT is identical to PATCH for invoices — delegate
+  return PATCH(req)
 }
 
 // DELETE /api/invoices - Delete DRAFT invoices only

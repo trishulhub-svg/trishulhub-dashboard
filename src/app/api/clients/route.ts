@@ -231,51 +231,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  const data = validation.data
-
-  // Check for duplicate email
-  const existing = await db.client.findFirst({ where: { email: data.email } })
-  if (existing) {
-    return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
-  }
-
-  // Build create data
-  const websitesData = data.websites || []
-  const primaryWebsite = websitesData.find((w) => w.isPrimary) || websitesData[0]
-
-  const createData = {
-    name: data.name,
-    email: data.email,
-    phone: data.phone || null,
-    company: data.company || null,
-    website: primaryWebsite?.url || data.website || null, // keep legacy field in sync
-    status: data.status || "ACTIVE",
-    userId: data.userId || null,
-    notes: data.notes || null,
-    projectType: data.projectType || null,
-    projectMethodId: data.projectMethodId || null,
-    projectStartDate: data.projectStartDate ? new Date(data.projectStartDate) : null,
-    deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
-    mediatorName: data.mediatorName || null,
-    mediatorPhone: data.mediatorPhone || null,
-    mediatorEmail: data.mediatorEmail || null,
-    createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-    websites: {
-      create: websitesData.map((w, idx) => ({
-        url: w.url,
-        label: w.label || null,
-        isPrimary: w.isPrimary ?? (idx === 0),
-      })),
-    },
-  }
-
   try {
+    const data = validation.data
+
+    // Check for duplicate email
+    const existing = await db.client.findFirst({ where: { email: data.email } })
+    if (existing) {
+      return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
+    }
+
+    // Build create data
+    const websitesData = data.websites || []
+    const primaryWebsite = websitesData.find((w) => w.isPrimary) || websitesData[0]
+
+    const createData = {
+      name: data.name,
+      email: data.email,
+      phone: data.phone || null,
+      company: data.company || null,
+      website: primaryWebsite?.url || data.website || null, // keep legacy field in sync
+      status: data.status || "ACTIVE",
+      userId: data.userId || null,
+      notes: data.notes || null,
+      projectType: data.projectType || null,
+      projectMethodId: data.projectMethodId || null,
+      projectStartDate: data.projectStartDate ? new Date(data.projectStartDate) : null,
+      deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
+      mediatorName: data.mediatorName || null,
+      mediatorPhone: data.mediatorPhone || null,
+      mediatorEmail: data.mediatorEmail || null,
+      createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
+      websites: {
+        create: websitesData.map((w, idx) => ({
+          url: w.url,
+          label: w.label || null,
+          isPrimary: w.isPrimary ?? (idx === 0),
+        })),
+      },
+    }
+
     const client = await db.client.create({
       data: createData,
       include: { websites: true },
     })
     return NextResponse.json(client, { status: 201 })
-  } catch {
+  } catch (error: any) {
+    console.error("[clients] POST error:", error?.message)
     return NextResponse.json({ error: "Failed to create client" }, { status: 500 })
   }
 }

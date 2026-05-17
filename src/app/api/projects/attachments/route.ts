@@ -62,13 +62,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "projectId, fileName, and fileData are required" }, { status: 400 })
   }
 
+  // Validate file is a PDF
+  if (!fileName.toLowerCase().endsWith('.pdf')) {
+    return NextResponse.json({ error: "Only PDF files are allowed" }, { status: 400 })
+  }
+
   // Verify project exists
   const project = await db.project.findUnique({ where: { id: projectId } })
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 400 })
 
-  // Max file size: 10MB for SQLite
-  const maxSize = 10 * 1024 * 1024
-  if (fileSize && fileSize > maxSize) {
+  // Calculate actual file size from base64 (server-side, can't be spoofed)
+  const actualSize = Buffer.byteLength(fileData, 'base64')
+  const maxSize = 10 * 1024 * 1024 // 10MB
+  if (actualSize > maxSize) {
     return NextResponse.json({ error: "File size exceeds 10MB limit" }, { status: 400 })
   }
 
@@ -78,7 +84,7 @@ export async function POST(req: NextRequest) {
         projectId,
         fileName,
         fileData, // base64 encoded
-        fileSize: fileSize || 0,
+        fileSize: actualSize,
       },
     })
     return NextResponse.json({ id: attachment.id, fileName: attachment.fileName, fileSize: attachment.fileSize }, { status: 201 })

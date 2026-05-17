@@ -31,6 +31,14 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
     }
   }
 
+  // H5: Email uniqueness check on update
+  if (data.email !== undefined && typeof data.email === 'string') {
+    const existing = await db.lead.findFirst({ where: { email: data.email, NOT: { id } } })
+    if (existing) {
+      return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
+    }
+  }
+
   // Only allow updating specific fields
   const sanitizedData: Record<string, unknown> = {}
   for (const key of ALLOWED_FIELDS) {
@@ -169,27 +177,32 @@ export async function POST(req: NextRequest) {
 
   const data = validation.data
 
-  // API-006: Duplicate email check before creating
-  const existing = await db.lead.findFirst({ where: { email: data.email } })
-  if (existing) {
-    return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
-  }
+  try {
+    // API-006: Duplicate email check before creating
+    const existing = await db.lead.findFirst({ where: { email: data.email } })
+    if (existing) {
+      return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
+    }
 
-  const lead = await db.lead.create({
-    data: {
-      name: data.name,
-      email: data.email,
-      company: data.company || null,
-      website: data.website || null,
-      phone: data.phone || null,
-      source: data.source || "MANUAL",
-      score: data.score ?? 0,
-      status: data.status || "NEW",
-      notes: data.notes || null,
-      clientId: data.clientId || null,
-    },
-  })
-  return NextResponse.json(lead)
+    const lead = await db.lead.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        company: data.company || null,
+        website: data.website || null,
+        phone: data.phone || null,
+        source: data.source || "MANUAL",
+        score: data.score ?? 0,
+        status: data.status || "NEW",
+        notes: data.notes || null,
+        clientId: data.clientId || null,
+      },
+    })
+    return NextResponse.json(lead)
+  } catch (error: any) {
+    console.error("[leads] POST error:", error?.message)
+    return NextResponse.json({ error: "Failed to create lead" }, { status: 500 })
+  }
 }
 
 // PATCH /api/leads - Update lead (for drag-and-drop status change, etc.)
