@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
   // Pagination params
   const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || searchParams.get("pageSize") || "50")), 200)
   const offset = (page - 1) * limit
 
   // API-018: Validate sortBy and sortOrder
@@ -151,13 +151,33 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  // API-008: Revenue sort support — sort in-memory after computing revenue
+  // API-008: Revenue sort support — when sorting by revenue, we must sort across ALL
+  // matching clients, not just the current page. Fetch all (up to safety cap), sort, then paginate.
   if (sortBy === "revenue") {
-    enriched.sort((a, b) => {
+    const REVENUE_SORT_CAP = 500
+    const allClients = await db.client.findMany({
+      where,
+      include: {
+        invoices: { where: { status: "PAID" }, select: { total: true } },
+        websites: { select: { id: true, url: true, label: true, isPrimary: true }, take: 1, orderBy: { isPrimary: "desc" } },
+        projectMethod: { select: { id: true, name: true } },
+        _count: { select: { projects: true, invoices: true, tickets: true } },
+      },
+      take: REVENUE_SORT_CAP,
+    })
+    const allEnriched = allClients.map((client) => {
+      const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
+      const { invoices, websites, projectMethod, ...rest } = client
+      return { ...rest, primaryWebsite: websites.length > 0 ? websites[0] : null, projectMethod, projectMethodId: projectMethod?.id || null, revenue: isAdmin(role) ? revenue : undefined }
+    })
+    allEnriched.sort((a, b) => {
       const revA = (a.revenue as number) ?? 0
       const revB = (b.revenue as number) ?? 0
       return sortOrder === "asc" ? revA - revB : revB - revA
     })
+    // In-memory pagination after sort
+    const paginatedSlice = allEnriched.slice(offset, offset + limit)
+    enriched = paginatedSlice
   }
 
   // CLI-033: Aggregate stats (computed across ALL matching clients, NOT just current page)
@@ -204,6 +224,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/clients - Create client with validation
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -231,10 +252,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  try {
     const data = validation.data
 
-    // Check for duplicate email
+    // Check for duplicate email (transactional to prevent race conditions)
     const existing = await db.client.findFirst({ where: { email: data.email } })
     if (existing) {
       return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })

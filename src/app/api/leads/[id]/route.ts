@@ -77,38 +77,47 @@ export async function POST(
     return NextResponse.json({ error: "Lead not found" }, { status: 404 })
   }
 
-  // Already converted?
-  if (lead.clientId && lead.client) {
-    return NextResponse.json({ error: "Lead is already converted to a client", client: lead.client }, { status: 409 })
-  }
+  // Already converted? (checked inside transaction below to prevent race conditions)
 
-  // Check for duplicate email in clients
-  const existingClient = await db.client.findFirst({ where: { email: lead.email } })
-  if (existingClient) {
-    // Link the lead to the existing client instead of creating a new one
-    await db.lead.update({
-      where: { id },
-      data: { clientId: existingClient.id, status: "WON" },
-    })
-    return NextResponse.json({
-      message: "Lead linked to existing client (email already exists)",
-      client: existingClient,
-      linked: true,
-    })
-  }
-
-  // Create a new client from the lead data (transactional)
+  // Create/link client inside a single transaction to prevent race conditions
+  // where two concurrent requests both pass the "already converted" check.
   try {
     const result = await db.$transaction(async (tx) => {
+      // Re-check lead status inside transaction
+      const freshLead = await tx.lead.findUnique({
+        where: { id },
+        include: { client: true },
+      })
+
+      if (!freshLead) {
+        throw new Error("Lead not found")
+      }
+
+      // Already converted?
+      if (freshLead.clientId && freshLead.client) {
+        throw new Error("ALREADY_CONVERTED")
+      }
+
+      // Check for duplicate email in clients
+      const existingClient = await tx.client.findFirst({ where: { email: freshLead.email } })
+      if (existingClient) {
+        await tx.lead.update({
+          where: { id },
+          data: { clientId: existingClient.id, status: "WON" },
+        })
+        return { client: existingClient, linked: true }
+      }
+
+      // Create a new client from the lead data
       const newClient = await tx.client.create({
         data: {
-          name: lead.name,
-          email: lead.email,
-          phone: lead.phone || null,
-          company: lead.company || null,
-          website: lead.website || null,
+          name: freshLead.name,
+          email: freshLead.email,
+          phone: freshLead.phone || null,
+          company: freshLead.company || null,
+          website: freshLead.website || null,
           status: "ACTIVE",
-          notes: lead.notes ? `Converted from lead. Original notes: ${lead.notes}` : "Converted from lead",
+          notes: freshLead.notes ? `Converted from lead. Original notes: ${freshLead.notes}` : "Converted from lead",
         },
       })
 
@@ -118,15 +127,32 @@ export async function POST(
         data: { clientId: newClient.id, status: "WON" },
       })
 
-      return newClient
+      return { client: newClient, linked: false }
     })
+
+    if (result.linked) {
+      return NextResponse.json({
+        message: "Lead linked to existing client (email already exists)",
+        client: result.client,
+        linked: true,
+      })
+    }
 
     return NextResponse.json({
       message: "Lead converted to client successfully",
-      client: result,
+      client: result.client,
       linked: false,
     }, { status: 201 })
   } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg === "ALREADY_CONVERTED") {
+      // Fetch the linked client for the response
+      const leadWithClient = await db.lead.findUnique({ where: { id }, include: { client: true } })
+      return NextResponse.json({ error: "Lead is already converted to a client", client: leadWithClient?.client }, { status: 409 })
+    }
+    if (msg === "Lead not found") {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+    }
     console.error("Error converting lead to client:", error)
     return NextResponse.json({ error: "Failed to convert lead to client" }, { status: 500 })
   }

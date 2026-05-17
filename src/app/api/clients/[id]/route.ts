@@ -264,37 +264,38 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const role = session.user.role
-  if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  // Rate limit
-  const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  const { id } = await params
-
-  const existing = await db.client.findUnique({ where: { id }, select: { status: true } })
-  if (!existing) {
-    return NextResponse.json({ error: "Client not found" }, { status: 404 })
-  }
-  if (existing.status === "CHURNED") {
-    return NextResponse.json({ error: "Client is already deactivated (churned)", client: existing }, { status: 409 })
-  }
-
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const role = session.user.role
+    if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    // Rate limit
+    const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    const { id } = await params
+
+    const existing = await db.client.findUnique({ where: { id }, select: { status: true } })
+    if (!existing) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 })
+    }
+    if (existing.status === "CHURNED") {
+      return NextResponse.json({ error: "Client is already deactivated (churned)", client: existing }, { status: 409 })
+    }
+
     const client = await db.client.update({
       where: { id },
       data: { status: "CHURNED" },
     })
     return NextResponse.json({ success: true, client })
-  } catch {
-    return NextResponse.json({ error: "Client not found" }, { status: 404 })
+  } catch (error: any) {
+    console.error("[clients/[id]] DELETE error:", error?.message)
+    return NextResponse.json({ error: "Failed to deactivate client" }, { status: 500 })
   }
 }

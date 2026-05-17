@@ -127,6 +127,38 @@ const statusLabels: Record<string, string> = {
   CHURNED: "Churned",
 };
 
+// M-CLI-7 + L-CLI-3: Status label mappings for detail drawer
+const invoiceStatusLabels: Record<string, string> = {
+  DRAFT: "Draft",
+  SENT: "Sent",
+  PAID: "Paid",
+  OVERDUE: "Overdue",
+  UNPAID: "Unpaid",
+};
+
+const projectStatusLabels: Record<string, string> = {
+  PLANNING: "Planning",
+  IN_PROGRESS: "In Progress",
+  REVIEW: "Review",
+  APPROVAL: "Approval",
+  DEPLOYED: "Deployed",
+  COMPLETED: "Completed",
+};
+
+const leadStatusLabelMap: Record<string, string> = {
+  NEW: "New",
+  CONTACTED: "Contacted",
+  QUALIFIED: "Qualified",
+  LOST: "Lost",
+};
+
+const ticketStatusLabelMap: Record<string, string> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In Progress",
+  RESOLVED: "Resolved",
+  CLOSED: "Closed",
+};
+
 const projectTypeOptions = [
   { value: "ENGINEERING", label: "Engineering" },
   { value: "MEDICAL", label: "Medical / Healthcare" },
@@ -169,6 +201,7 @@ const invoiceStatusColors: Record<string, string> = {
   SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  UNPAID: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
 };
 
 const leadStatusColors: Record<string, string> = {
@@ -349,6 +382,9 @@ export default function ClientsPage() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<ClientRow | null>(null);
 
+  // Unsaved notes warning (H-CLI-5 + L-CLI-8)
+  const [unsavedNotesClient, setUnsavedNotesClient] = useState<ClientRow | null>(null);
+
   // CLI-007: submitting state to prevent double-submit
   const [submitting, setSubmitting] = useState(false);
 
@@ -388,6 +424,7 @@ export default function ClientsPage() {
   const [editingMethodName, setEditingMethodName] = useState("");
   const [deleteMethodTarget, setDeleteMethodTarget] = useState<{id: string, name: string} | null>(null);
   const [methodSaving, setMethodSaving] = useState(false);
+  const [methodLoading, setMethodLoading] = useState(false);
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -424,6 +461,7 @@ export default function ClientsPage() {
 
   // ━━ Fetch project methods ━━
   const fetchProjectMethods = useCallback(async () => {
+    setMethodLoading(true);
     try {
       const res = await fetch("/api/project-methods", { credentials: "include" });
       if (res.ok) {
@@ -432,10 +470,12 @@ export default function ClientsPage() {
       }
     } catch {
       // silently fail
+    } finally {
+      setMethodLoading(false);
     }
   }, []);
 
-  // Seed default project methods if empty
+  // Seed default project methods if empty (M-CLI-5: Promise.all)
   const seedDefaultMethods = useCallback(async () => {
     try {
       const res = await fetch("/api/project-methods", { credentials: "include" });
@@ -443,14 +483,14 @@ export default function ClientsPage() {
         const existing: { id: string; name: string }[] = await res.json();
         if (!Array.isArray(existing) || existing.length === 0) {
           const defaults = ["JAVA", "PHP", "HTML", "Other"];
-          for (const name of defaults) {
-            await fetch("/api/project-methods", {
+          await Promise.all(defaults.map((name) =>
+            fetch("/api/project-methods", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
               body: JSON.stringify({ name }),
-            });
-          }
+            })
+          ));
           fetchProjectMethods();
         } else {
           setProjectMethods(existing);
@@ -518,6 +558,7 @@ export default function ClientsPage() {
   }, [debouncedSearch, statusFilter, sortBy, sortOrder, handleFetchError]);
 
   useEffect(() => {
+    setCurrentPage(1);
     const controller = new AbortController();
     fetchClients(controller.signal);
     return () => controller.abort();
@@ -528,6 +569,55 @@ export default function ClientsPage() {
     const controller = new AbortController();
     fetchClients(controller.signal, page);
   };
+
+  // Shared handlers for method CRUD (M-CLI-9 + L-CLI-7)
+  const handleSaveNewMethod = useCallback(async () => {
+    if (!newMethodName.trim() || methodSaving) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch("/api/project-methods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: newMethodName.trim() }),
+      });
+      if (res.ok) {
+        setNewMethodName("");
+        fetchProjectMethods();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to add method");
+      }
+    } catch {
+      toast.error("Failed to add method");
+    } finally {
+      setMethodSaving(false);
+    }
+  }, [newMethodName, methodSaving, fetchProjectMethods]);
+
+  const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
+    if (!name.trim() || methodSaving) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch("/api/project-methods", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: methodId, name: name.trim() }),
+      });
+      if (res.ok) {
+        setEditingMethodId(null);
+        fetchProjectMethods();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update method");
+      }
+    } catch {
+      toast.error("Failed to update method");
+    } finally {
+      setMethodSaving(false);
+    }
+  }, [methodSaving, fetchProjectMethods]);
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -549,13 +639,15 @@ export default function ClientsPage() {
   };
 
   // ━━ Open edit dialog ━━
-  const handleEdit = (client: ClientRow) => {
+  const handleEdit = (client: ClientRow | ClientDetail) => {
     setEditingClient(client);
     setFormErrors({});
     setShowMediator(!!(client.mediatorName || client.mediatorPhone));
-    // Read websites from primaryWebsite relation object (not legacy JSON string)
+    // Read websites — prefer full websites array from ClientDetail (H-CLI-3 + L-CLI-4)
     let parsedWebsites: string[] = [""];
-    if (client.primaryWebsite) {
+    if ('websites' in client && Array.isArray(client.websites) && client.websites.length > 0) {
+      parsedWebsites = client.websites.map((w: ClientWebsite) => w.url);
+    } else if (client.primaryWebsite) {
       parsedWebsites = [client.primaryWebsite.url];
     } else if (client.website) {
       parsedWebsites = [client.website];
@@ -771,10 +863,10 @@ export default function ClientsPage() {
 
   // ━━ Open detail drawer ━━
   const handleRowClick = (client: ClientRow) => {
-    // CLI-011: warn about unsaved notes before switching clients
+    // H-CLI-5 + L-CLI-8: warn about unsaved notes using AlertDialog
     if (notesDirty) {
-      const confirmed = window.confirm("You have unsaved notes. Discard changes and switch client?");
-      if (!confirmed) return;
+      setUnsavedNotesClient(client);
+      return;
     }
     fetchDetail(client.id);
   };
@@ -1251,17 +1343,14 @@ export default function ClientsPage() {
                     </Button>
                   )}
                 </div>
-                <select
-                  id="client-project-method"
-                  value={formData.projectMethodId}
-                  onChange={(e) => setFormData({ ...formData, projectMethodId: e.target.value })}
-                  className="border rounded px-3 py-2 text-sm bg-background w-full"
-                >
-                  <option value="">Select method...</option>
-                  {projectMethods.map((pm) => (
-                    <option key={pm.id} value={pm.id}>{pm.name}</option>
-                  ))}
-                </select>
+                <Select value={formData.projectMethodId} onValueChange={(v) => setFormData({ ...formData, projectMethodId: v })}>
+                  <SelectTrigger id="client-project-method"><SelectValue placeholder="Select method..." /></SelectTrigger>
+                  <SelectContent>
+                    {projectMethods.map((pm) => (
+                      <SelectItem key={pm.id} value={pm.id}>{pm.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -1385,6 +1474,31 @@ export default function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Unsaved Notes Warning (H-CLI-5 + L-CLI-8) */}
+      <AlertDialog open={!!unsavedNotesClient} onOpenChange={(open) => {
+        if (!open) setUnsavedNotesClient(null);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved notes. Discard changes and switch client?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={false}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const client = unsavedNotesClient;
+              setUnsavedNotesClient(null);
+              setNotesDirty(false);
+              if (client) fetchDetail(client.id);
+            }}>
+              Discard &amp; Switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* ━━ Manage Project Methods Dialog ━━ */}
       <Dialog open={manageMethodsOpen} onOpenChange={setManageMethodsOpen}>
         <DialogContent className="max-w-md">
@@ -1402,23 +1516,7 @@ export default function ClientsPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    if (!newMethodName.trim()) return;
-                    setMethodSaving(true);
-                    fetch("/api/project-methods", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      credentials: "include",
-                      body: JSON.stringify({ name: newMethodName.trim() }),
-                    })
-                      .then((res) => {
-                        if (res.ok) {
-                          setNewMethodName("");
-                          fetchProjectMethods();
-                        } else return res.json();
-                      })
-                      .then((data) => { if (data?.error) toast.error(data.error); })
-                      .catch(() => toast.error("Failed to add method"))
-                      .finally(() => setMethodSaving(false));
+                    handleSaveNewMethod();
                   }
                 }}
               />
@@ -1426,25 +1524,7 @@ export default function ClientsPage() {
                 type="button"
                 size="sm"
                 disabled={!newMethodName.trim() || methodSaving}
-                onClick={() => {
-                  if (!newMethodName.trim()) return;
-                  setMethodSaving(true);
-                  fetch("/api/project-methods", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({ name: newMethodName.trim() }),
-                  })
-                    .then((res) => {
-                      if (res.ok) {
-                        setNewMethodName("");
-                        fetchProjectMethods();
-                      } else return res.json();
-                    })
-                    .then((data) => { if (data?.error) toast.error(data.error); })
-                    .catch(() => toast.error("Failed to add method"))
-                    .finally(() => setMethodSaving(false));
-                }}
+                onClick={handleSaveNewMethod}
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -1452,82 +1532,57 @@ export default function ClientsPage() {
 
             {/* Existing Methods */}
             <div className="max-h-64 overflow-y-auto space-y-2">
-              {projectMethods.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">No methods defined</p>
-              )}
-              {projectMethods.map((pm) => (
-                <div key={pm.id} className="flex items-center gap-2">
-                  {editingMethodId === pm.id ? (
-                    <>
-                      <Input
-                        className="h-8 text-sm"
-                        value={editingMethodName}
-                        onChange={(e) => setEditingMethodName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            setMethodSaving(true);
-                            fetch("/api/project-methods", {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              credentials: "include",
-                              body: JSON.stringify({ id: pm.id, name: editingMethodName.trim() }),
-                            })
-                              .then((res) => {
-                                if (res.ok) {
-                                  setEditingMethodId(null);
-                                  fetchProjectMethods();
-                                } else return res.json();
-                              })
-                              .then((data) => { if (data?.error) toast.error(data.error); })
-                              .catch(() => toast.error("Failed to update"))
-                              .finally(() => setMethodSaving(false));
-                          }
-                          if (e.key === "Escape") setEditingMethodId(null);
-                        }}
-                      />
-                      <Button type="button" variant="ghost" size="sm" className="h-8"
-                        disabled={methodSaving}
-                        onClick={() => {
-                          setMethodSaving(true);
-                          fetch("/api/project-methods", {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: "include",
-                            body: JSON.stringify({ id: pm.id, name: editingMethodName.trim() }),
-                          })
-                            .then((res) => {
-                              if (res.ok) {
-                                setEditingMethodId(null);
-                                fetchProjectMethods();
-                              } else return res.json();
-                            })
-                            .then((data) => { if (data?.error) toast.error(data.error); })
-                            .catch(() => toast.error("Failed to update"))
-                            .finally(() => setMethodSaving(false));
-                        }}>
-                        ✓
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-8"
-                        onClick={() => setEditingMethodId(null)}>
-                        ✕
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 text-sm">{pm.name}</span>
-                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7"
-                        onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500"
-                        onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </>
-                  )}
+              {methodLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-8 bg-muted/50 animate-pulse rounded" />
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <>
+                  {projectMethods.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">No methods defined</p>
+                  )}
+                  {projectMethods.map((pm) => (
+                    <div key={pm.id} className="flex items-center gap-2">
+                      {editingMethodId === pm.id ? (
+                        <>
+                          <Input
+                            className="h-8 text-sm"
+                            value={editingMethodName}
+                            onChange={(e) => setEditingMethodName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); handleSaveEditMethod(pm.id, editingMethodName); }
+                              if (e.key === "Escape") setEditingMethodId(null);
+                            }}
+                          />
+                          <Button type="button" variant="ghost" size="sm" className="h-8"
+                            disabled={methodSaving}
+                            onClick={() => handleSaveEditMethod(pm.id, editingMethodName)}>
+                            ✓
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8"
+                            onClick={() => setEditingMethodId(null)}>
+                            ✕
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-sm">{pm.name}</span>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 w-7"
+                            onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500"
+                            onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         </DialogContent>
@@ -1702,6 +1757,12 @@ export default function ClientsPage() {
                     <TabsTrigger value="tickets" className="flex-1 text-xs">
                       <HeadphonesIcon className="h-3 w-3 mr-1" /> Support
                     </TabsTrigger>
+                    <TabsTrigger value="deals" className="flex-1 text-xs">
+                      <DollarSign className="h-3 w-3 mr-1" /> Deals
+                    </TabsTrigger>
+                    <TabsTrigger value="contacts" className="flex-1 text-xs">
+                      <Users className="h-3 w-3 mr-1" /> Contacts
+                    </TabsTrigger>
                     <TabsTrigger value="notes" className="flex-1 text-xs">
                       <StickyNote className="h-3 w-3 mr-1" /> Notes
                     </TabsTrigger>
@@ -1725,7 +1786,7 @@ export default function ClientsPage() {
                                 </p>
                               </div>
                               <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || defaultBadgeColor}`}>
-                                {safeText(project.status)}
+                                {projectStatusLabels[project.status] || safeText(project.status)}
                               </Badge>
                             </div>
                             <div className="mt-2">
@@ -1766,7 +1827,7 @@ export default function ClientsPage() {
                               <div className="text-right shrink-0">
                                 <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
                                 <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || defaultBadgeColor}`}>
-                                  {safeText(inv.status)}
+                                  {invoiceStatusLabels[inv.status] || safeText(inv.status)}
                                 </Badge>
                               </div>
                             </div>
@@ -1791,7 +1852,7 @@ export default function ClientsPage() {
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <Badge className={`text-[10px] ${leadStatusColors[lead.status] || defaultBadgeColor}`}>
-                                  {safeText(lead.status)}
+                                  {leadStatusLabelMap[lead.status] || safeText(lead.status)}
                                 </Badge>
                                 <Badge variant="secondary" className="text-[10px]">
                                   Score: {safeNumber(lead.score)}
@@ -1822,8 +1883,56 @@ export default function ClientsPage() {
                                   {safeText(ticket.priority)}
                                 </Badge>
                                 <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || defaultBadgeColor}`}>
-                                  {safeText(ticket.status)}
+                                  {ticketStatusLabelMap[ticket.status] || safeText(ticket.status)}
                                 </Badge>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </TabsContent>
+
+                  {/* Deals Tab */}
+                  <TabsContent value="deals" className="mt-3 space-y-2">
+                    {detailClient.deals.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-6 text-center">No deals yet</p>
+                    ) : (
+                      detailClient.deals.map((deal) => (
+                        <Card key={deal.id} className="py-0">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{safeText(deal.title)}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {deal.value ? formatCurrency(deal.value) : "No value"} • Close: {formatDate(deal.expectedCloseDate)}
+                                </p>
+                              </div>
+                              <Badge className={`text-[10px] shrink-0 ${defaultBadgeColor}`}>
+                                {safeText(deal.stage)}
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </TabsContent>
+
+                  {/* Contacts Tab */}
+                  <TabsContent value="contacts" className="mt-3 space-y-2">
+                    {detailClient.contacts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-6 text-center">No contacts yet</p>
+                    ) : (
+                      detailClient.contacts.map((contact) => (
+                        <Card key={contact.id} className="py-0">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {safeText(contact.firstName)}{contact.lastName ? ` ${safeText(contact.lastName)}` : ""}
+                                  {contact.isPrimary && <Badge variant="secondary" className="text-[10px] ml-1.5">Primary</Badge>}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{safeText(contact.email)}</p>
                               </div>
                             </div>
                           </CardContent>
