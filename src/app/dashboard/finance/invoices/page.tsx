@@ -21,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -324,11 +325,7 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Invoices</h1>
-          <p className="text-muted-foreground text-sm">Create and manage invoices</p>
-        </div>
+      <PageHeader title="Invoices" description="Create and manage invoices">
         <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetInvoiceForm(); }}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Create Invoice</Button>
@@ -496,7 +493,7 @@ export default function InvoicesPage() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>
+      </PageHeader>
 
       <div className="flex gap-2 flex-wrap">
         {["ALL", "DRAFT", "SENT", "PAID", "OVERDUE"].map((s) => (

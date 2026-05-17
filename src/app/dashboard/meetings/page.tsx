@@ -41,6 +41,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn, safeArray } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 // ━━ Types ━━
 interface MeetingAttendee {
@@ -115,6 +116,25 @@ const rsvpConfig: Record<string, { label: string; color: string; bgColor: string
 };
 
 // ━━ Helpers ━━
+function calculateMeetingDuration(start: string, end: string): string {
+  const [startH, startM] = start.split(":").map(Number)
+  const [endH, endM] = end.split(":").map(Number)
+  let diffMinutes = (endH * 60 + endM) - (startH * 60 + startM)
+  if (diffMinutes < 0) diffMinutes += 24 * 60 // overnight
+  const hours = Math.floor(diffMinutes / 60)
+  const mins = diffMinutes % 60
+  if (hours === 0) return `${mins}m`
+  if (mins === 0) return `${hours}h`
+  return `${hours}h ${mins}m`
+}
+
+function isOvernightMeeting(start: string, end: string): boolean {
+  if (!start || !end) return false
+  const [startH, startM] = start.split(":").map(Number)
+  const [endH, endM] = end.split(":").map(Number)
+  return (endH * 60 + endM) <= (startH * 60 + startM)
+}
+
 function formatTime(time: string): string {
   if (!time) return "";
   const [h, m] = time.split(":");
@@ -524,14 +544,7 @@ export default function MeetingsPage() {
   return (
     <div className="space-y-6">
       {/* ━━ Header ━━ */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Video className="h-7 w-7 text-primary" />
-            Meetings
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">Schedule and manage team meetings</p>
-        </div>
+      <PageHeader title="Meetings" description="Schedule and manage team meetings">
         <div className="flex items-center gap-3">
           {/* View Toggle */}
           <div className="flex items-center border rounded-lg overflow-hidden">
@@ -558,7 +571,7 @@ export default function MeetingsPage() {
             </Button>
           )}
         </div>
-      </div>
+      </PageHeader>
 
       {/* ━━ Stats Cards ━━ */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -844,6 +857,11 @@ export default function MeetingsPage() {
                   onChange={(e) => setFormDate(e.target.value)}
                   className="mt-1"
                 />
+                {formDate && new Date(formDate) < new Date(new Date().toDateString()) && !editMode && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    You&apos;re scheduling a meeting in the past
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -851,7 +869,16 @@ export default function MeetingsPage() {
                   <Input
                     type="time"
                     value={formStartTime}
-                    onChange={(e) => setFormStartTime(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setFormStartTime(val)
+                      // Auto-fill end time as start + 1 hour (only when creating, not editing)
+                      if (!editMode && val) {
+                        const [h, m] = val.split(":").map(Number)
+                        const endH = (h + 1) % 24
+                        setFormEndTime(`${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}`)
+                      }
+                    }}
                     className="mt-1"
                   />
                 </div>
@@ -866,6 +893,20 @@ export default function MeetingsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Duration & Overnight hints */}
+            {formStartTime && formEndTime && (
+              <div className="flex flex-wrap gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Duration: {calculateMeetingDuration(formStartTime, formEndTime)}
+                </p>
+                {isOvernightMeeting(formStartTime, formEndTime) && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Spans overnight (ends next day)
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Meeting Type */}
             <div>
@@ -1059,6 +1100,14 @@ export default function MeetingsPage() {
                     <p className="text-sm text-muted-foreground">
                       {formatTime(selectedMeeting.startTime)}
                       {selectedMeeting.endTime && ` — ${formatTime(selectedMeeting.endTime)}`}
+                      {selectedMeeting.endTime && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">
+                          ({calculateMeetingDuration(selectedMeeting.startTime, selectedMeeting.endTime)})
+                        </span>
+                      )}
+                      {selectedMeeting.startTime && selectedMeeting.endTime && isOvernightMeeting(selectedMeeting.startTime, selectedMeeting.endTime) && (
+                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">overnight</span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1239,7 +1288,13 @@ function MeetingCard({
           <div className="sm:w-24 shrink-0 text-center sm:text-left">
             <p className="text-lg font-bold">{formatTime(meeting.startTime)}</p>
             {meeting.endTime && (
-              <p className="text-xs text-muted-foreground">{formatTime(meeting.endTime)}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatTime(meeting.endTime)}
+                <span className="ml-1">({calculateMeetingDuration(meeting.startTime, meeting.endTime)})</span>
+              </p>
+            )}
+            {meeting.startTime && meeting.endTime && isOvernightMeeting(meeting.startTime, meeting.endTime) && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">overnight</p>
             )}
           </div>
 

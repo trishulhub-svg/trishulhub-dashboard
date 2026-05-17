@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
 import { safeText, safeNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 // ━━ Types ━━
 interface ClientWebsite {
@@ -986,20 +987,11 @@ export default function ClientsPage() {
   return (
     <div className="space-y-6">
       {/* ━━ Header ━━ */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Briefcase className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Client Management</h1>
-            <p className="text-muted-foreground text-sm">Manage your clients and track relationships</p>
-          </div>
-        </div>
+      <PageHeader title="Client Management" description="Manage your clients and track relationships">
         <Button onClick={handleAdd}>
           <Plus className="h-4 w-4 mr-2" /> Add Client
         </Button>
-      </div>
+      </PageHeader>
 
       {/* ━━ Search & Filter ━━ */}
       <div className="flex flex-col sm:flex-row gap-3">

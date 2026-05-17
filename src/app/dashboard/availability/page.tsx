@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 
 interface AvailabilityEntry {
   id: string;
@@ -363,20 +364,14 @@ export default function AvailabilityPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Availability Management</h1>
-          <p className="text-muted-foreground text-sm">Manage employee weekly schedules and availability overrides</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
-            <CalendarDays className="h-4 w-4 mr-2" /> Add Override
-          </Button>
-          <Button onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" /> Add Availability
-          </Button>
-        </div>
-      </div>
+      <PageHeader title="Availability Management" description="Manage employee weekly schedules and availability overrides">
+        <Button variant="outline" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+          <CalendarDays className="h-4 w-4 mr-2" /> Add Override
+        </Button>
+        <Button onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
+          <Plus className="h-4 w-4 mr-2" /> Add Availability
+        </Button>
+      </PageHeader>
 
       {/* Weekly Schedule Grid */}
       <Card>

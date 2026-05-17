@@ -32,6 +32,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { PageHeader } from "@/components/page-header"
 
 interface TrainingDocument {
   id: string
@@ -250,16 +251,7 @@ export default function TrainingLibraryPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
-            <GraduationCap className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
-            Training Library
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Create and manage AI-generated training materials
-          </p>
-        </div>
+      <PageHeader title="Training Library" description="Create and manage AI-generated training materials">
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
@@ -294,7 +286,7 @@ export default function TrainingLibraryPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
+      </PageHeader>
 
       {/* Stats */}
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">

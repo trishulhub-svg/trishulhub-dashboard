@@ -76,6 +76,25 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     name: "ProjectCredential",
     sql: `CREATE TABLE IF NOT EXISTS "ProjectCredential" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "title" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "iv" TEXT NOT NULL, "tag" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
   },
+  {
+    name: "NotificationPreference",
+    sql: `CREATE TABLE IF NOT EXISTS "NotificationPreference" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "emailNotifications" BOOLEAN NOT NULL DEFAULT 1,
+      "budgetAlerts" BOOLEAN NOT NULL DEFAULT 1,
+      "meetingReminders" BOOLEAN NOT NULL DEFAULT 1,
+      "taskReminders" BOOLEAN NOT NULL DEFAULT 1,
+      "approvalAlerts" BOOLEAN NOT NULL DEFAULT 1,
+      "invoiceReminders" BOOLEAN NOT NULL DEFAULT 1,
+      "quietHoursEnabled" BOOLEAN NOT NULL DEFAULT 0,
+      "quietHoursStart" TEXT,
+      "quietHoursEnd" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
 ]
 
 /**
@@ -104,6 +123,15 @@ export async function ensureAllTables(): Promise<void> {
         if (!err?.message?.includes('already exists')) {
           console.warn(`[auto-migrate] Table ${tableDef.name}: ${err?.message}`)
         }
+      }
+    }
+
+    // 1b. Create missing unique indexes for NotificationPreference
+    try {
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "NotificationPreference_userId_key" ON "NotificationPreference"("userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] NotificationPreference_userId_key index: ${err?.message}`)
       }
     }
 

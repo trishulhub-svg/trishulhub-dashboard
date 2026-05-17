@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 
 // ── TypeScript Interfaces ── [FIX M3: Replace unknown[] with proper types]
 
@@ -289,11 +290,7 @@ export default function TeamPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Team Management</h1>
-          <p className="text-muted-foreground text-sm">Manage team members and leave requests</p>
-        </div>
+      <PageHeader title="Team Management" description="Manage team members and leave requests">
         <div className="flex gap-2">
           {/* [FIX M10: Add refresh button] */}
           <Button size="sm" variant="outline" onClick={() => { setLoading(true); fetchData(); }} disabled={loading}>
@@ -310,7 +307,7 @@ export default function TeamPage() {
             </Button>
           )}
         </div>
-      </div>
+      </PageHeader>
 
       <div className="flex gap-2 flex-wrap">
         {(["team", "leaves", "attendance"] as const).map((t) => (

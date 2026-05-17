@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
-  RefreshCw, AlertCircle, Loader2,
+  RefreshCw, AlertCircle, Loader2, UserCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 
 // ── Types ──
 interface TimeEntry {
@@ -51,7 +62,7 @@ interface TimeEntry {
   clockOut: string | null;
   totalHours: number | null;
   date: string;
-  user?: { id: string; name: string; email: string };
+  user?: { id: string; name: string; email: string; avatar?: string | null; role?: string };
   project?: { id: string; name: string } | null;
 }
 
@@ -83,7 +94,16 @@ function safeArray<T>(data: unknown): T[] {
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 0) return "0m"; // [FIX: handle negative elapsed]
+  if (ms < 0) return "00:00:00"; // [FIX: handle negative elapsed]
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDurationShort(ms: number): string {
+  if (ms < 0) return "0m";
   const totalMinutes = Math.floor(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -178,19 +198,33 @@ export default function TimeTrackingPage() {
   // Team users
   const [teamUsers, setTeamUsers] = useState<Array<{ id: string; name: string }>>([]);
 
+  // Clock-out dialog state
+  const [clockOutOpen, setClockOutOpen] = useState(false);
+  const [clockOutNotes, setClockOutNotes] = useState("");
+
+  // Active entries (who's online - admin only)
+  const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
+  const [activeElapsedMap, setActiveElapsedMap] = useState<Record<string, number>>({});
+  const activeElapsedRef = useRef<Record<string, number>>({});
+
   // ── Fetch entries ──
   const fetchEntries = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/time-tracking", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        // [FIX C1: safe array fallback]
-        const arr = safeArray<TimeEntry>(data);
+        // Handle both new shape { entries, activeEntries } and legacy array
+        let arr: TimeEntry[];
+        if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
+          arr = safeArray<TimeEntry>(data.entries);
+          setActiveEntries(safeArray<TimeEntry>(data.activeEntries));
+        } else {
+          arr = safeArray<TimeEntry>(data);
+        }
         setEntries(arr);
         const active = arr.find((e) => e.status === "ACTIVE");
         setActiveEntry(active || null);
       } else {
-        // [FIX H1: Show error toast for non-ok responses]
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to load time entries");
       }
@@ -268,6 +302,25 @@ export default function TimeTrackingPage() {
     };
   }, [activeEntry]);
 
+  // ── Active entries elapsed timer (admin - who's online) ──
+  useEffect(() => {
+    if (!isAdminUser || activeEntries.length === 0) {
+      setActiveElapsedMap({});
+      return;
+    }
+    const updateAll = () => {
+      const map: Record<string, number> = {};
+      for (const entry of activeEntries) {
+        map[entry.id] = Date.now() - new Date(entry.clockIn).getTime();
+      }
+      activeElapsedRef.current = map;
+      setActiveElapsedMap({ ...map });
+    };
+    updateAll();
+    const interval = setInterval(updateAll, 1000);
+    return () => clearInterval(interval);
+  }, [isAdminUser, activeEntries]);
+
   // ── Start timer ── [FIX M5: wrap in useCallback]
   const handleStart = useCallback(async () => {
     setStarting(true);
@@ -297,8 +350,15 @@ export default function TimeTrackingPage() {
     }
   }, [selectedProject, timerDescription, fetchEntries]);
 
-  // ── Stop timer ── [FIX M5: wrap in useCallback]
-  const handleStop = useCallback(async () => {
+  // ── Clock-out dialog handlers ──
+  const handleClockOutClick = useCallback(() => {
+    if (activeEntry) {
+      setClockOutNotes("");
+      setClockOutOpen(true);
+    }
+  }, [activeEntry]);
+
+  const executeClockOut = useCallback(async () => {
     if (!activeEntry) return;
     setStopping(true);
     try {
@@ -306,22 +366,24 @@ export default function TimeTrackingPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: activeEntry.id, status: "COMPLETED" }),
+        body: JSON.stringify({ id: activeEntry.id, status: "COMPLETED", description: clockOutNotes || undefined }),
       });
       if (res.ok) {
         setActiveEntry(null);
-        toast.success("Timer stopped!");
+        toast.success("Clocked out successfully!");
+        setClockOutOpen(false);
+        setClockOutNotes("");
         fetchEntries();
       } else {
         const err = await res.json();
-        toast.error(err.error || "Failed to stop timer");
+        toast.error(err.error || "Failed to clock out");
       }
     } catch {
-      toast.error("Failed to stop timer");
+      toast.error("Failed to clock out");
     } finally {
       setStopping(false);
     }
-  }, [activeEntry, fetchEntries]);
+  }, [activeEntry, clockOutNotes, fetchEntries]);
 
   // ── Fetch team logs ── (declared before handleDelete to avoid use-before-declaration)
   const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
@@ -345,7 +407,12 @@ export default function TimeTrackingPage() {
       const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        setTeamEntries(safeArray<TimeEntry>(data));
+        // Handle both new shape { entries } and legacy array
+        if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
+          setTeamEntries(safeArray<TimeEntry>(data.entries));
+        } else {
+          setTeamEntries(safeArray<TimeEntry>(data));
+        }
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to load team logs");
@@ -556,17 +623,7 @@ export default function TimeTrackingPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Clock className="h-6 w-6 text-primary" />
-            Time Tracking
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Track your work hours and manage time entries
-          </p>
-        </div>
-
+      <PageHeader title="Time Tracking" description="Track your work hours and manage time entries">
         <div className="flex items-center gap-2">
           {/* [FIX M7: Add refresh button] */}
           <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchEntries(); }}>
@@ -582,26 +639,26 @@ export default function TimeTrackingPage() {
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
                 </span>
                 <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                  Working on {activeEntry.project?.name || "General"}
+                  {activeEntry.project?.name || "Working"}
                 </span>
               </div>
-              <span className="text-lg font-bold text-green-700 dark:text-green-300 tabular-nums">
+              <span className="text-lg font-bold text-green-700 dark:text-green-300 tabular-nums tracking-wider">
                 {formatDuration(elapsed)}
               </span>
               <Button
                 size="sm"
                 variant="destructive"
                 className="h-8"
-                onClick={handleStop}
+                onClick={handleClockOutClick}
                 disabled={stopping}
               >
                 <Square className="h-3.5 w-3.5 mr-1.5" />
-                {stopping ? "Stopping..." : "STOP"}
+                {stopping ? "Stopping..." : "CLOCK OUT"}
               </Button>
             </div>
           )}
         </div>
-      </div>
+      </PageHeader>
 
       {/* Stats Cards */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -662,6 +719,49 @@ export default function TimeTrackingPage() {
         </Card>
       </div>
 
+      {/* Who's Online - Admin Only */}
+      {isAdminUser && activeEntries && activeEntries.length > 0 && (
+        <Card className="border-l-4 border-l-green-500">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-green-600" />
+                Currently Working
+              </CardTitle>
+              <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
+                {activeEntries.length} active
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {activeEntries.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={entry.user?.avatar || ""} alt={entry.user?.name || ""} />
+                      <AvatarFallback className="text-xs">
+                        {entry.user?.name?.charAt(0)?.toUpperCase() || "?"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-sm font-medium">{entry.user?.name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] tabular-nums font-mono shrink-0">
+                    {formatDuration(activeElapsedMap[entry.id] || 0)}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
@@ -684,31 +784,36 @@ export default function TimeTrackingPage() {
               {activeEntry ? (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-3">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                        </span>
                         <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
                           {activeEntry.project?.name || "No Project"}
                         </Badge>
-                        <span className="text-3xl font-bold tabular-nums text-green-600 dark:text-green-400">
-                          {formatDuration(elapsed)}
-                        </span>
                       </div>
+                      <p className="text-4xl font-bold tabular-nums text-green-600 dark:text-green-400 tracking-wide pl-5">
+                        {formatDuration(elapsed)}
+                      </p>
                       {activeEntry.description && (
-                        <p className="text-sm text-muted-foreground">{activeEntry.description}</p>
+                        <p className="text-sm text-muted-foreground pl-5">{activeEntry.description}</p>
                       )}
-                      <p className="text-xs text-muted-foreground">
-                        Started at {formatTime(activeEntry.clockIn)}
+                      <p className="text-xs text-muted-foreground pl-5">
+                        Started at {formatTime(activeEntry.clockIn)} &bull;{" "}
+                        {formatDurationShort(elapsed)} elapsed
                       </p>
                     </div>
                     <Button
                       size="lg"
                       variant="destructive"
                       className="h-12 px-8 text-base font-semibold"
-                      onClick={handleStop}
+                      onClick={handleClockOutClick}
                       disabled={stopping}
                     >
                       <StopCircle className="h-5 w-5 mr-2" />
-                      {stopping ? "Stopping..." : "STOP"}
+                      {stopping ? "Stopping..." : "CLOCK OUT"}
                     </Button>
                   </div>
                 </div>
@@ -1100,6 +1205,78 @@ export default function TimeTrackingPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Clock-Out Dialog */}
+      <Dialog open={clockOutOpen} onOpenChange={(open) => { setClockOutOpen(open); if (!open) setClockOutNotes(""); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <StopCircle className="h-5 w-5 text-destructive" />
+              Clock Out
+            </DialogTitle>
+            <DialogDescription>
+              {activeEntry ? (
+                <>
+                  You&apos;ve been working for{" "}
+                  <span className="font-semibold text-foreground">{formatDuration(elapsed)}</span>
+                  {activeEntry.project?.name && (
+                    <> on <span className="font-semibold text-foreground">{activeEntry.project.name}</span></>
+                  )}
+                  .
+                </>
+              ) : (
+                "Record your work summary for this session."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="clock-out-notes">
+                Work Summary / Notes
+                <span className="text-muted-foreground font-normal ml-1">(optional)</span>
+              </Label>
+              <Textarea
+                id="clock-out-notes"
+                value={clockOutNotes}
+                onChange={(e) => setClockOutNotes(e.target.value)}
+                placeholder="What did you work on during this session?"
+                rows={4}
+                className="resize-none"
+              />
+              <p className="text-xs text-muted-foreground">
+                Add a brief description of what you accomplished.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span>
+                Clock-out time:{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </span>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setClockOutOpen(false); setClockOutNotes(""); }}>
+              Cancel
+            </Button>
+            <Button onClick={executeClockOut} disabled={stopping}>
+              {stopping ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Stopping...
+                </>
+              ) : (
+                <>
+                  <StopCircle className="h-4 w-4 mr-2" />
+                  Clock Out
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>

@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 
 interface Approval {
   id: string;
@@ -151,15 +152,11 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Approval Queue</h1>
-          <p className="text-muted-foreground text-sm">Review and approve pending items. Provide feedback to guide improvements.</p>
-        </div>
+      <PageHeader title="Approval Queue" description="Review and approve pending items. Provide feedback to guide improvements.">
         <Button variant="outline" size="sm" onClick={() => fetchApprovals(activeTab === "ALL" ? undefined : activeTab)}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
         </Button>
-      </div>
+      </PageHeader>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

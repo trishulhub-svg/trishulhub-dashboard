@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 // CRM-028: 401 handling helper
 function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
@@ -732,11 +733,7 @@ export default function CRMPage() {
 
   return (
     <div className="space-y-4 h-full">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">CRM Pipeline</h1>
-          <p className="text-muted-foreground text-sm">Manage your leads and sales pipeline</p>
-        </div>
+      <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
         <div className="flex gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -851,7 +848,7 @@ export default function CRMPage() {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
+      </PageHeader>
 
       {/* CRM-S03: Date quick filter buttons + Clear All */}
       <div className="flex items-center gap-3 flex-wrap">

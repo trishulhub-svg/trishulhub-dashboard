@@ -82,13 +82,27 @@ export async function GET(req: NextRequest) {
           ],
         },
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
           project: { select: { id: true, name: true } },
         },
         orderBy: { clockIn: "desc" },
       })
 
-      return NextResponse.json(JSON.parse(JSON.stringify(entries)))
+      // For admin users, fetch all currently active entries across all users
+      let activeEntries: unknown[] = []
+      if (isAdminUser) {
+        const allActive = await db.timeEntry.findMany({
+          where: { status: "ACTIVE" },
+          include: {
+            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+            project: { select: { id: true, name: true } },
+          },
+          orderBy: { clockIn: "desc" },
+        })
+        activeEntries = JSON.parse(JSON.stringify(allActive))
+      }
+
+      return NextResponse.json({ entries: JSON.parse(JSON.stringify(entries)), activeEntries })
     }
 
     const entries = await db.timeEntry.findMany({
@@ -101,7 +115,21 @@ export async function GET(req: NextRequest) {
       take: 200,
     })
 
-    return NextResponse.json(JSON.parse(JSON.stringify(entries)))
+    // For admin users on filtered queries, also fetch active entries
+    let activeEntries: unknown[] = []
+    if (isAdminUser) {
+      const allActive = await db.timeEntry.findMany({
+        where: { status: "ACTIVE" },
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { clockIn: "desc" },
+      })
+      activeEntries = JSON.parse(JSON.stringify(allActive))
+    }
+
+    return NextResponse.json({ entries: JSON.parse(JSON.stringify(entries)), activeEntries })
   } catch (error: unknown) {
     console.error("[time-tracking] GET error")
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

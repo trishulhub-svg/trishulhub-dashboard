@@ -41,7 +41,7 @@ import {
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
 import { useTheme } from "next-themes";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 
 import { cn, safeArray, safeDateStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -167,7 +167,7 @@ function formatRelativeTime(dateStr: string): string {
   return safeDateStr(date);
 }
 
-function SidebarContent({
+const SidebarContent = React.memo(function SidebarContent({
   collapsed,
   userRole,
   userName,
@@ -275,7 +275,7 @@ function SidebarContent({
       </div>
     </div>
   );
-}
+});
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -292,7 +292,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const userEmail = session?.user?.email || "";
   const userId = session?.user?.id || "";
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -324,15 +324,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
+  // PERF: Defer notification fetch by 200ms so page data loads first.
+  // Notifications are non-critical UI — they should not compete with the
+  // page's own API calls for network bandwidth on navigation.
   useEffect(() => {
     if (session) {
-      fetchNotifications();
+      const timer = setTimeout(() => {
+        fetchNotifications();
+      }, 200);
       const interval = setInterval(fetchNotifications, 45000);
-      return () => clearInterval(interval);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
     }
   }, [session, fetchNotifications]);
 
-  const markAsRead = async (notifId: string) => {
+  const markAsRead = useCallback(async (notifId: string) => {
     try {
       await fetch("/api/notifications", {
         method: "PATCH",
@@ -346,9 +354,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
     }
-  };
+  }, []);
 
-  const markAllAsRead = async () => {
+  const markAllAsRead = useCallback(async () => {
     try {
       // PERF FIX: Single batch request instead of N parallel requests
       const res = await fetch("/api/notifications", {
@@ -363,9 +371,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } catch (err) {
       console.error("Failed to mark all notifications as read:", err);
     }
-  };
+  }, []);
 
-  const deleteNotification = async (notifId: string) => {
+  const deleteNotification = useCallback(async (notifId: string) => {
     try {
       await fetch(`/api/notifications?id=${notifId}`, {
         method: "DELETE",
@@ -375,7 +383,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } catch (err) {
       console.error("Failed to delete notification:", err);
     }
-  };
+  }, []);
 
   const handleNavigate = (href: string) => {
     router.push(href);

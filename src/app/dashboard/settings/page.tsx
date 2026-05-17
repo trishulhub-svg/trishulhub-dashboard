@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
 import {
   Table,
   TableBody,
@@ -134,10 +135,19 @@ export default function SettingsPage() {
   const { data: session, status, update: updateSession } = useSession();
   const { theme, setTheme } = useTheme();
   const [name, setName] = useState(session?.user?.name || "");
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [approvalRequired, setApprovalRequired] = useState(true);
-  const [budgetAlerts, setBudgetAlerts] = useState(true);
-  const [autoDowngradeThreshold, setAutoDowngradeThreshold] = useState("80");
+  const [prefs, setPrefs] = useState({
+    emailNotifications: true,
+    budgetAlerts: true,
+    meetingReminders: true,
+    taskReminders: true,
+    approvalAlerts: true,
+    invoiceReminders: true,
+    quietHoursEnabled: false,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "08:00",
+  });
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [prefsSaving, setPrefsSaving] = useState(false);
 
   // ── Change Password state (OTP flow) ──
   const [currentPassword, setCurrentPassword] = useState("");
@@ -249,6 +259,56 @@ export default function SettingsPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [name, session?.user?.name]);
+
+  // ── Fetch Notification Preferences ──
+  const fetchPrefs = useCallback(async () => {
+    try {
+      setPrefsLoading(true);
+      const res = await fetch("/api/notification-preferences", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setPrefs({
+          emailNotifications: data.emailNotifications ?? true,
+          budgetAlerts: data.budgetAlerts ?? true,
+          meetingReminders: data.meetingReminders ?? true,
+          taskReminders: data.taskReminders ?? true,
+          approvalAlerts: data.approvalAlerts ?? true,
+          invoiceReminders: data.invoiceReminders ?? true,
+          quietHoursEnabled: data.quietHoursEnabled ?? false,
+          quietHoursStart: data.quietHoursStart || "22:00",
+          quietHoursEnd: data.quietHoursEnd || "08:00",
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPrefsLoading(false);
+    }
+  }, []);
+
+  const savePrefs = useCallback(async (key: string, value: boolean | string | null) => {
+    setPrefs(prev => ({ ...prev, [key]: value }));
+    setPrefsSaving(true);
+    try {
+      const res = await fetch("/api/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!res.ok) {
+        toast.error("Failed to save preference");
+      }
+    } catch {
+      toast.error("Failed to save preference");
+    } finally {
+      setPrefsSaving(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPrefs();
+  }, [fetchPrefs]);
 
   // ── Fetch Team Members ──
   const fetchTeamMembers = useCallback(async () => {
@@ -881,10 +941,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground text-sm">Manage your account and application settings</p>
-      </div>
+      <PageHeader title="Settings" description="Manage your account and application settings" />
 
       {/* Profile */}
       <Card>
@@ -1144,31 +1201,89 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Notifications */}
+      {/* Notification Preferences */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Notifications</CardTitle>
+            <CardTitle className="text-base">Notification Preferences</CardTitle>
           </div>
-          <CardDescription>Configure how you receive notifications <span className="text-[10px] text-muted-foreground">(Coming soon — settings are not yet persisted)</span></CardDescription>
+          <CardDescription>Configure how you receive notifications</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Email Notifications</p>
-              <p className="text-xs text-muted-foreground">Receive email updates for important events</p>
+        <CardContent className="space-y-6">
+          {prefsLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
             </div>
-            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} disabled />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Budget Alerts</p>
-              <p className="text-xs text-muted-foreground">Get notified at 50%, 75%, and 90% budget usage</p>
-            </div>
-            <Switch checked={budgetAlerts} onCheckedChange={setBudgetAlerts} disabled />
-          </div>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium">Notification Types</h3>
+                {[
+                  { key: "emailNotifications", label: "Email Notifications", desc: "Receive email for important updates" },
+                  { key: "budgetAlerts", label: "Budget Alerts", desc: "Get notified when expenses approach budget limits" },
+                  { key: "meetingReminders", label: "Meeting Reminders", desc: "Reminders before scheduled meetings" },
+                  { key: "taskReminders", label: "Task Updates", desc: "Notifications when tasks are assigned or updated" },
+                  { key: "approvalAlerts", label: "Approval Requests", desc: "Alerts when approvals are pending" },
+                  { key: "invoiceReminders", label: "Invoice Updates", desc: "Notifications for invoice status changes" },
+                ].map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm">{label}</Label>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch
+                      checked={prefs[key as keyof typeof prefs] as boolean}
+                      onCheckedChange={(checked) => savePrefs(key, checked)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium">Quiet Hours</h3>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">Enable Quiet Hours</Label>
+                    <p className="text-xs text-muted-foreground">Pause notifications during specific hours</p>
+                  </div>
+                  <Switch
+                    checked={prefs.quietHoursEnabled}
+                    onCheckedChange={(checked) => savePrefs("quietHoursEnabled", checked)}
+                  />
+                </div>
+                {prefs.quietHoursEnabled && (
+                  <div className="flex items-center gap-4 ml-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">From</Label>
+                      <Input
+                        type="time"
+                        value={prefs.quietHoursStart}
+                        onChange={(e) => savePrefs("quietHoursStart", e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                    <span className="text-muted-foreground mt-5">to</span>
+                    <div className="space-y-1">
+                      <Label className="text-xs">To</Label>
+                      <Input
+                        type="time"
+                        value={prefs.quietHoursEnd}
+                        onChange={(e) => savePrefs("quietHoursEnd", e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {prefsSaving && (
+                <p className="text-xs text-muted-foreground">Saving...</p>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 

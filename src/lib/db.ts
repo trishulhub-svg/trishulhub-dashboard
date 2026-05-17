@@ -90,7 +90,9 @@ export async function ensureTimetableTables(): Promise<void> {
   }
 }
 
-// Graceful shutdown
-process.on('beforeExit', async () => {
-  await db.$disconnect()
-})
+// Graceful shutdown — only in long-running processes, not serverless/Vercel
+if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+  process.on('beforeExit', async () => {
+    await db.$disconnect()
+  })
+}

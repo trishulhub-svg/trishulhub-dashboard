@@ -198,7 +198,17 @@ export const createMeetingSchema = z.object({
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {
-    if (data.startTime && data.endTime) return data.endTime > data.startTime
+    if (data.startTime && data.endTime) {
+      const [startH, startM] = data.startTime.split(":").map(Number)
+      const [endH, endM] = data.endTime.split(":").map(Number)
+      const startMinutes = startH * 60 + startM
+      const endMinutes = endH * 60 + endM
+      // If end time is less than start time, it means the meeting goes past midnight (overnight)
+      if (endMinutes <= startMinutes) {
+        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
+      }
+      return true
+    }
     return true
   },
   { message: "End time must be after start time", path: ["endTime"] }
@@ -219,7 +229,17 @@ export const updateMeetingSchema = z.object({
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {
-    if (data.startTime && data.endTime) return data.endTime > data.startTime
+    if (data.startTime && data.endTime) {
+      const [startH, startM] = data.startTime.split(":").map(Number)
+      const [endH, endM] = data.endTime.split(":").map(Number)
+      const startMinutes = startH * 60 + startM
+      const endMinutes = endH * 60 + endM
+      // If end time is less than start time, it means the meeting goes past midnight (overnight)
+      if (endMinutes <= startMinutes) {
+        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
+      }
+      return true
+    }
     return true
   },
   { message: "End time must be after start time", path: ["endTime"] }

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -523,11 +524,7 @@ export default function FinancePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Finance Dashboard</h1>
-          <p className="text-muted-foreground text-sm">Track revenue, invoices, expenses & subscriptions</p>
-        </div>
+      <PageHeader title="Finance Dashboard" description="Track revenue, invoices, expenses & subscriptions">
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
             <FileText className="h-4 w-4 mr-1" /> Invoices
@@ -536,7 +533,7 @@ export default function FinancePage() {
             <Receipt className="h-4 w-4 mr-1" /> Full CRUD
           </Button>
         </div>
-      </div>
+      </PageHeader>
 
       {/* ─── Top Summary Cards ──── */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

@@ -39,6 +39,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 
 // ━━ Helpers ━━
 
@@ -371,15 +372,11 @@ export default function LeaveManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Leave Management</h1>
-          <p className="text-muted-foreground text-sm">Manage team leaves and availability blocking</p>
-        </div>
+      <PageHeader title="Leave Management" description="Manage team leaves and availability blocking">
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" /> Add Leave
         </Button>
-      </div>
+      </PageHeader>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">

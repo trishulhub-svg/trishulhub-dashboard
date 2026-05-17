@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 import { safeText, safeDate } from "@/lib/utils";
 
 interface ProtocolFile {
@@ -178,17 +179,12 @@ export default function ProtocolPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
-          <FileText className="h-6 w-6 text-primary" />
-          Protocol
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {isAdmin
-            ? "Upload and manage your protocol PDF. Team members can download it."
-            : "Download the latest TrishulHub protocol PDF."}
-        </p>
-      </div>
+      <PageHeader
+        title="Protocol"
+        description={isAdmin
+          ? "Upload and manage your protocol PDF. Team members can download it."
+          : "Download the latest TrishulHub protocol PDF."}
+      />
 
       {/* Current Protocol Card */}
       <Card>

@@ -28,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/page-header";
 import { AGENT_TYPES as AGENT_TYPE_CONFIG, type AgentType } from "@/lib/types";
 
 const statusColors: Record<string, string> = {
@@ -350,14 +351,7 @@ export default function ApiKeysPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Key className="h-6 w-6 text-primary" />
-            API Keys
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage API keys, budgets, failover, and health monitoring</p>
-        </div>
+      <PageHeader title="API Keys" description="Manage API keys, budgets, failover, and health monitoring">
         <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-1" /> Add Key</Button>
@@ -387,7 +381,7 @@ export default function ApiKeysPage() {
             />
           </DialogContent>
         </Dialog>
-      </div>
+      </PageHeader>
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
