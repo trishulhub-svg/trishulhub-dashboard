@@ -99,10 +99,10 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { clockIn: "desc" },
         })
-        activeEntries = JSON.parse(JSON.stringify(allActive))
+        activeEntries = structuredClone(allActive)
       }
 
-      return NextResponse.json({ entries: JSON.parse(JSON.stringify(entries)), activeEntries })
+      return NextResponse.json({ entries: structuredClone(entries), activeEntries })
     }
 
     const entries = await db.timeEntry.findMany({
@@ -126,12 +126,12 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { clockIn: "desc" },
       })
-      activeEntries = JSON.parse(JSON.stringify(allActive))
+      activeEntries = structuredClone(allActive)
     }
 
-    return NextResponse.json({ entries: JSON.parse(JSON.stringify(entries)), activeEntries })
+    return NextResponse.json({ entries: structuredClone(entries), activeEntries })
   } catch (error: unknown) {
-    console.error("[time-tracking] GET error")
+    console.error("[time-tracking] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(entry, { status: 201 })
   } catch (error: unknown) {
-    console.error("[time-tracking] POST error")
+    console.error("[time-tracking] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

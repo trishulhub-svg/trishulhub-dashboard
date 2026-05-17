@@ -201,6 +201,7 @@ export default function TimeTrackingPage() {
   // Clock-out dialog state
   const [clockOutOpen, setClockOutOpen] = useState(false);
   const [clockOutNotes, setClockOutNotes] = useState("");
+  const clockOutNotesRef = useRef("");
 
   // Active entries (who's online - admin only)
   const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
@@ -360,13 +361,14 @@ export default function TimeTrackingPage() {
 
   const executeClockOut = useCallback(async () => {
     if (!activeEntry) return;
+    const notes = clockOutNotesRef.current;
     setStopping(true);
     try {
       const res = await fetch(`/api/time-tracking/${activeEntry.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: activeEntry.id, status: "COMPLETED", description: clockOutNotes || undefined }),
+        body: JSON.stringify({ id: activeEntry.id, status: "COMPLETED", description: notes || undefined }),
       });
       if (res.ok) {
         setActiveEntry(null);
@@ -383,7 +385,7 @@ export default function TimeTrackingPage() {
     } finally {
       setStopping(false);
     }
-  }, [activeEntry, clockOutNotes, fetchEntries]);
+  }, [activeEntry, fetchEntries]);
 
   // ── Fetch team logs ── (declared before handleDelete to avoid use-before-declaration)
   const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
@@ -1238,9 +1240,14 @@ export default function TimeTrackingPage() {
               <Textarea
                 id="clock-out-notes"
                 value={clockOutNotes}
-                onChange={(e) => setClockOutNotes(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.slice(0, 500)
+                  setClockOutNotes(val)
+                  clockOutNotesRef.current = val
+                }}
                 placeholder="What did you work on during this session?"
                 rows={4}
+                maxLength={500}
                 className="resize-none"
               />
               <p className="text-xs text-muted-foreground">

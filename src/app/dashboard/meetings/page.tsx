@@ -132,7 +132,7 @@ function isOvernightMeeting(start: string, end: string): boolean {
   if (!start || !end) return false
   const [startH, startM] = start.split(":").map(Number)
   const [endH, endM] = end.split(":").map(Number)
-  return (endH * 60 + endM) <= (startH * 60 + startM)
+  return (endH * 60 + endM) < (startH * 60 + startM) // strictly less (equal = same time = invalid, not overnight)
 }
 
 function formatTime(time: string): string {

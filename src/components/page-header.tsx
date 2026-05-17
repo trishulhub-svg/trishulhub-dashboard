@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { safeText } from "@/lib/utils"
 
 interface PageHeaderProps {
   title: string
@@ -31,9 +32,9 @@ export function PageHeader({ title, description, children, showBack = true }: Pa
           </Button>
         )}
         <div>
-          <h1 className="text-2xl font-bold">{title}</h1>
+          <h1 className="text-2xl font-bold">{safeText(title, "")}</h1>
           {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
+            <p className="text-muted-foreground text-sm">{safeText(description, "")}</p>
           )}
         </div>
       </div>
