@@ -19,29 +19,34 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!isAdmin(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const { id } = await params
+
+    const deal = await db.deal.findUnique({
+      where: { id },
+      include: {
+        client: { select: { id: true, name: true, email: true } },
+        lead: { select: { id: true, name: true, email: true, status: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+    })
+
+    if (!deal) {
+      return NextResponse.json({ error: "Deal not found" }, { status: 404 })
+    }
+
+    return NextResponse.json(deal)
+  } catch (error: unknown) {
+    console.error("[deals/[id]] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load deal details" }, { status: 500 })
   }
-
-  const { id } = await params
-
-  const deal = await db.deal.findUnique({
-    where: { id },
-    include: {
-      client: { select: { id: true, name: true, email: true } },
-      lead: { select: { id: true, name: true, email: true, status: true } },
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-  })
-
-  if (!deal) {
-    return NextResponse.json({ error: "Deal not found" }, { status: 404 })
-  }
-
-  return NextResponse.json(deal)
 }
 
 // PATCH /api/deals/[id] - Update deal

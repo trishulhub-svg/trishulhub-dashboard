@@ -148,7 +148,10 @@ const projectStatusLabels: Record<string, string> = {
 const leadStatusLabelMap: Record<string, string> = {
   NEW: "New",
   CONTACTED: "Contacted",
-  QUALIFIED: "Qualified",
+  INTERESTED: "Interested",
+  PROPOSAL: "Proposal",
+  NEGOTIATING: "Negotiating",
+  WON: "Won",
   LOST: "Lost",
 };
 
@@ -207,7 +210,10 @@ const invoiceStatusColors: Record<string, string> = {
 const leadStatusColors: Record<string, string> = {
   NEW: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   CONTACTED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  QUALIFIED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  INTERESTED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  PROPOSAL: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  NEGOTIATING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  WON: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   LOST: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
@@ -223,6 +229,24 @@ const priorityColors: Record<string, string> = {
   MEDIUM: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
   HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   URGENT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const dealStageColors: Record<string, string> = {
+  LEAD: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  QUALIFIED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  PROPOSAL: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  NEGOTIATION: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  CLOSED_WON: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  CLOSED_LOST: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const dealStageLabels: Record<string, string> = {
+  LEAD: "Lead",
+  QUALIFIED: "Qualified",
+  PROPOSAL: "Proposal",
+  NEGOTIATION: "Negotiation",
+  CLOSED_WON: "Closed Won",
+  CLOSED_LOST: "Closed Lost",
 };
 
 // CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
@@ -1296,7 +1320,7 @@ export default function ClientsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="client-phone" className="text-xs font-medium">Phone</Label>
-                <Input id="client-phone" placeholder="+91 98765 43210" value={formData.phone}
+                <Input id="client-phone" placeholder="+1 (555) 000-0000" value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
               </div>
               <div className="space-y-2">
@@ -1413,7 +1437,7 @@ export default function ClientsPage() {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="mediator-phone" className="text-xs">Mediator Phone</Label>
-                      <Input id="mediator-phone" placeholder="+91 98765 43210" value={formData.mediatorPhone}
+                      <Input id="mediator-phone" placeholder="+1 (555) 000-0000" value={formData.mediatorPhone}
                         onChange={(e) => setFormData({ ...formData, mediatorPhone: e.target.value })} />
                     </div>
                   </div>
@@ -1908,8 +1932,8 @@ export default function ClientsPage() {
                                   {deal.value ? formatCurrency(deal.value) : "No value"} • Close: {formatDate(deal.expectedCloseDate)}
                                 </p>
                               </div>
-                              <Badge className={`text-[10px] shrink-0 ${defaultBadgeColor}`}>
-                                {safeText(deal.stage)}
+                              <Badge className={`text-[10px] shrink-0 ${dealStageColors[deal.stage] || defaultBadgeColor}`}>
+                                {dealStageLabels[deal.stage] || safeText(deal.stage)}
                               </Badge>
                             </div>
                           </CardContent>

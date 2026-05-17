@@ -20,31 +20,36 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!isAdmin(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    // Rate limit
+    const rl = rateLimit(`crm-leads-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    const { id } = await params
+
+    const lead = await db.lead.findUnique({
+      where: { id },
+      include: { client: true, emails: true, deals: true, contacts: true },
+    })
+
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+    }
+
+    return NextResponse.json(lead)
+  } catch (error: unknown) {
+    console.error("[leads/[id]] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load lead details" }, { status: 500 })
   }
-
-  // Rate limit
-  const rl = rateLimit(`crm-leads-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  const { id } = await params
-
-  const lead = await db.lead.findUnique({
-    where: { id },
-    include: { client: true, emails: true, deals: true, contacts: true },
-  })
-
-  if (!lead) {
-    return NextResponse.json({ error: "Lead not found" }, { status: 404 })
-  }
-
-  return NextResponse.json(lead)
 }
 
 // POST /api/leads/[id] - Convert lead to client

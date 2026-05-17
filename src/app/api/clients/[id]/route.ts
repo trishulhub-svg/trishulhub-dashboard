@@ -19,135 +19,135 @@ export async function GET(
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const role = session.user.role
-  const userId = session.user.id
-  if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const role = session.user.role
+    const userId = session.user.id
+    if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Rate limit
-  const rl = rateLimit(`crm-clients-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
-  if (!rl.success) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
-  }
-
-  const { id } = await params
-
-  // SECURITY FIX: Developers can only view clients they are assigned to
-  if (!isAdmin(role)) {
-    const assignedClientIds = await getAssignedClientIds(userId, role)
-    if (assignedClientIds && !assignedClientIds.includes(id)) {
-      return NextResponse.json({ error: "Access denied: Client not in your assigned scope" }, { status: 403 })
+    // Rate limit
+    const rl = rateLimit(`crm-clients-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
-  }
 
-  // API-015: Conditionally build include object to skip unnecessary queries for developers
-  const adminOnly = isAdmin(role)
+    const { id } = await params
 
-  const includeObj: Record<string, unknown> = {
-    websites: {
-      select: { id: true, url: true, label: true, isPrimary: true, createdAt: true },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    },
-    projectMethod: {
-      select: { id: true, name: true },
-    },
-    projects: {
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        progress: true,
-        deadline: true,
-        budget: adminOnly, // SECURITY: Hide budget from developers
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    },
-    tickets: {
-      select: {
-        id: true,
-        subject: true,
-        status: true,
-        priority: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    },
-  }
-
-  // Only include invoices and leads for admin users (avoid fetching & discarding for developers)
-  if (adminOnly) {
-    includeObj.invoices = {
-      select: {
-        id: true,
-        invoiceNumber: true,
-        total: true,
-        status: true,
-        dueDate: true,
-        paidAt: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
+    // SECURITY FIX: Developers can only view clients they are assigned to
+    if (!isAdmin(role)) {
+      const assignedClientIds = await getAssignedClientIds(userId, role)
+      if (assignedClientIds && !assignedClientIds.includes(id)) {
+        return NextResponse.json({ error: "Access denied: Client not in your assigned scope" }, { status: 403 })
+      }
     }
-    includeObj.leads = {
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        score: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }
-    includeObj.deals = {
-      select: {
-        id: true,
-        title: true,
-        value: true,
-        stage: true,
-        expectedCloseDate: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }
-    includeObj.contacts = {
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        isPrimary: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }
-  }
 
-  const client = await db.client.findUnique({
-    where: { id },
-    include: includeObj as Parameters<typeof db.client.findUnique>[0]["include"],
-  })
+    // API-015: Conditionally build include object to skip unnecessary queries for developers
+    const adminOnly = isAdmin(role)
 
-  if (!client) {
-    return NextResponse.json({ error: "Client not found" }, { status: 404 })
-  }
+    const includeObj: Record<string, unknown> = {
+      websites: {
+        select: { id: true, url: true, label: true, isPrimary: true, createdAt: true },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      },
+      projectMethod: {
+        select: { id: true, name: true },
+      },
+      projects: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          progress: true,
+          deadline: true,
+          budget: adminOnly, // SECURITY: Hide budget from developers
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      tickets: {
+        select: {
+          id: true,
+          subject: true,
+          status: true,
+          priority: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    }
 
-  // If userId exists, fetch linked portal user info
-  let portalUser: { id: string; name: string; email: string; isActive: boolean } | null = null
-  if (client.userId) {
-    portalUser = await db.user.findUnique({
-      where: { id: client.userId },
-      select: { id: true, name: true, email: true, isActive: true },
+    // Only include invoices and leads for admin users (avoid fetching & discarding for developers)
+    if (adminOnly) {
+      includeObj.invoices = {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          total: true,
+          status: true,
+          dueDate: true,
+          paidAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }
+      includeObj.leads = {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          score: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }
+      includeObj.deals = {
+        select: {
+          id: true,
+          title: true,
+          value: true,
+          stage: true,
+          expectedCloseDate: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }
+      includeObj.contacts = {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          isPrimary: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }
+    }
+
+    const client = await db.client.findUnique({
+      where: { id },
+      include: includeObj as Parameters<typeof db.client.findUnique>[0]["include"],
     })
-  }
 
-  // API-016: Compute revenue from DB-level filtered PAID invoices instead of JS filter
-  let revenue = 0
-  if (adminOnly) {
-    const paidInvoiceSum = await db.invoice.aggregate({
-      where: { clientId: id, status: "PAID" },
-      _sum: { total: true },
-    })
-    revenue = paidInvoiceSum._sum.total ?? 0
-  }
+    if (!client) {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 })
+    }
+
+    // If userId exists, fetch linked portal user info
+    let portalUser: { id: string; name: string; email: string; isActive: boolean } | null = null
+    if (client.userId) {
+      portalUser = await db.user.findUnique({
+        where: { id: client.userId },
+        select: { id: true, name: true, email: true, isActive: true },
+      })
+    }
+
+    // API-016: Compute revenue from DB-level filtered PAID invoices instead of JS filter
+    let revenue = 0
+    if (adminOnly) {
+      const paidInvoiceSum = await db.invoice.aggregate({
+        where: { clientId: id, status: "PAID" },
+        _sum: { total: true },
+      })
+      revenue = paidInvoiceSum._sum.total ?? 0
+    }
 
     return NextResponse.json(JSON.parse(JSON.stringify({ ...client, portalUser, revenue })))
   } catch (error: any) {

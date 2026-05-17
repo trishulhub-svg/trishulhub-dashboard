@@ -18,28 +18,33 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!isAdmin(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const { id } = await params
+
+    const contact = await db.contact.findUnique({
+      where: { id },
+      include: {
+        client: { select: { id: true, name: true, email: true } },
+        lead: { select: { id: true, name: true, email: true, status: true } },
+      },
+    })
+
+    if (!contact) {
+      return NextResponse.json({ error: "Contact not found" }, { status: 404 })
+    }
+
+    return NextResponse.json(contact)
+  } catch (error: unknown) {
+    console.error("[contacts/[id]] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load contact details" }, { status: 500 })
   }
-
-  const { id } = await params
-
-  const contact = await db.contact.findUnique({
-    where: { id },
-    include: {
-      client: { select: { id: true, name: true, email: true } },
-      lead: { select: { id: true, name: true, email: true, status: true } },
-    },
-  })
-
-  if (!contact) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 })
-  }
-
-  return NextResponse.json(contact)
 }
 
 // PATCH /api/contacts/[id] - Update contact
