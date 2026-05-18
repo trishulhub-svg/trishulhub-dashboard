@@ -5,12 +5,10 @@ import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 
 // [T4/T6] Valid role values
 const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
-
-// [T5] Valid department values
-const VALID_DEPARTMENTS = ["DEV", "SALES", "FINANCE", "HR", "CONTENT", "SUPPORT", "MANAGEMENT", "Engineering", "Design", "Marketing", "Sales", "Finance", "Operations"]
 
 // GET /api/team - List team data
 export async function GET(req: NextRequest) {
@@ -58,10 +56,17 @@ export async function GET(req: NextRequest) {
       if (!isAdmin(userRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
+      // [FIX: Increased limit from 60 to 500, support date filtering]
+      const dateFrom = searchParams.get("from")
+      const dateTo = searchParams.get("to")
+      const whereClause: Record<string, unknown> = {}
+      if (dateFrom) whereClause.date = { ...(whereClause.date as Record<string, unknown> || {}), gte: new Date(dateFrom) }
+      if (dateTo) whereClause.date = { ...(whereClause.date as Record<string, unknown> || {}), lte: new Date(dateTo) }
       const records = await db.attendance.findMany({
-        include: { user: { select: { id: true, name: true, email: true, role: true } } },
+        where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+        include: { user: { select: { id: true, name: true, email: true, role: true, avatar: true } } },
         orderBy: { date: "desc" },
-        take: 60,
+        take: 500,
       })
       return NextResponse.json(JSON.parse(JSON.stringify(records)))
     }
@@ -322,7 +327,7 @@ export async function POST(req: NextRequest) {
       }
 
       // [T5] Validate department value (allow null/empty)
-      if (department && !VALID_DEPARTMENTS.includes(department as string)) {
+      if (department && !VALID_DEPARTMENT_VALUES.includes(department as string)) {
         return NextResponse.json({ error: "Invalid department" }, { status: 400 });
       }
 
@@ -415,14 +420,15 @@ export async function PATCH(req: NextRequest) {
         ? data.feedback.trim().slice(0, 500) || undefined
         : undefined
 
-      // SECURITY: Set approvedBy from session user, not request body
+      // SECURITY: Set approvedBy ONLY when status actually changes
+      const updatePayload: Record<string, unknown> = { feedback: sanitizedFeedback }
+      if (data.status && data.status !== "PENDING") {
+        updatePayload.status = data.status
+        updatePayload.approvedBy = session.user.id
+      }
       const leave = await db.leaveRequest.update({
         where: { id: id as string },
-        data: {
-          status: data.status as string | undefined,
-          approvedBy: session.user.id,
-          feedback: sanitizedFeedback,
-        },
+        data: updatePayload,
       })
 
       // Notify the user about leave decision (fire-and-forget — non-blocking)
@@ -518,7 +524,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // [T5] Validate department value on update (allow null/empty)
-    if (data.department && !VALID_DEPARTMENTS.includes(data.department as string)) {
+    if (data.department && !VALID_DEPARTMENT_VALUES.includes(data.department as string)) {
       return NextResponse.json({ error: "Invalid department" }, { status: 400 });
     }
 
@@ -579,6 +585,21 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       await db.userAgentAccess.delete({ where: { id } })
+      return NextResponse.json({ success: true })
+    }
+
+    if (type === "attendance") {
+      // SECURITY: Only admins can delete attendance records
+      const deleteAttRole = session.user.role
+      if (!isAdmin(deleteAttRole)) {
+        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      }
+      // Verify record exists before deleting
+      const record = await db.attendance.findUnique({ where: { id } })
+      if (!record) {
+        return NextResponse.json({ error: "Attendance record not found" }, { status: 404 })
+      }
+      await db.attendance.delete({ where: { id } })
       return NextResponse.json({ success: true })
     }
 

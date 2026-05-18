@@ -1,4 +1,4 @@
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "DEVELOPER" | "CLIENT";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "DEVELOPER" | "VIEWER" | "CLIENT";
 
 export type AgentType =
   | "DEV"
@@ -124,12 +124,20 @@ export const LEAD_COLUMNS: LeadStatus[] = [
 export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
 
 // ━━ Department Options ━━
+// Single source of truth — imported by API routes and UI components
 export const DEPARTMENTS = [
   { value: "MANAGEMENT", label: "Management" },
-  { value: "SALES", label: "Sales & Business Development" },
+  { value: "Engineering", label: "Engineering" },
+  { value: "Design", label: "Design" },
+  { value: "Marketing", label: "Marketing" },
+  { value: "Sales", label: "Sales" },
+  { value: "Finance", label: "Finance" },
+  { value: "Operations", label: "Operations" },
   { value: "DEV", label: "Development" },
-  { value: "FINANCE", label: "Finance" },
   { value: "HR", label: "Human Resources" },
-  { value: "CONTENT", label: "Content & Marketing" },
+  { value: "CONTENT", label: "Content" },
   { value: "SUPPORT", label: "Support" },
-];
+] as const;
+
+/** Flat array of valid department values for API validation */
+export const VALID_DEPARTMENT_VALUES: readonly string[] = DEPARTMENTS.map(d => d.value);
