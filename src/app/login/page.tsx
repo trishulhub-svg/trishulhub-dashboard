@@ -171,10 +171,10 @@ function LoginForm() {
             </div>
             <div>
               <h1 className="text-4xl font-black text-primary tracking-tight">TrishulHub</h1>
-              <p className="text-sm font-semibold text-muted-foreground mt-1">AI Agent Dashboard</p>
+              <p className="text-sm font-semibold text-muted-foreground mt-1">Project Management Dashboard</p>
             </div>
           </div>
-          <p className="text-muted-foreground text-xs">Sign in to manage your AI agents and projects</p>
+          <p className="text-muted-foreground text-xs">Sign in to manage your projects, team, and workflow</p>
         </div>
 
         {/* Show setup button if database is not ready */}
@@ -195,7 +195,7 @@ function LoginForm() {
                 {seeding ? "Setting up database..." : "Setup Database & Create Admin User"}
               </Button>
               <p className="text-xs text-orange-500 text-center">
-                Creates: database, all tables, 5 users, 7 AI agents, 3 clients, 3 projects, and sample data
+                Creates: database, all tables, 5 users, 3 clients, 3 projects, and sample data
               </p>
               {setupLogs.length > 0 && (
                 <div className="mt-2 p-2 bg-white/50 dark:bg-black/20 rounded text-xs font-mono max-h-40 overflow-y-auto space-y-1">

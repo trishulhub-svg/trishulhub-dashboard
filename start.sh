@@ -1,5 +1,5 @@
 #!/bin/bash
-# TrishulHub AI Agent Dashboard - Start Script
+# TrishulHub Dashboard - Start Script
 # Run this to start the production server with proper configuration
 
 cd /home/z/my-project

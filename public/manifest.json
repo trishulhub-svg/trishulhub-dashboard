@@ -1,7 +1,7 @@
 {
-  "name": "TrishulHub AI Agent Dashboard",
+  "name": "TrishulHub Dashboard",
   "short_name": "TrishulHub",
-  "description": "AI-powered agent management platform for web development SaaS",
+  "description": "Project management and team collaboration platform for web development SaaS",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#0a0a0a",

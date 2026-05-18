@@ -1,16 +1,14 @@
-# TrishulHub AI Agent Dashboard
+# TrishulHub Dashboard
 
-A comprehensive AI-powered agent management dashboard built with Next.js 16, React 19, Prisma, and SQLite.
+A comprehensive project management and team collaboration dashboard built with Next.js 16, React 19, Prisma, and SQLite.
 
 ## Features
 
-- **Agent Management** — Create, configure, and monitor AI agents with real-time status tracking
-- **Project Management** — Organize agents into projects with team collaboration
+- **Project Management** — Organize projects with tasks, deadlines, and team collaboration
 - **CRM Integration** — Client relationship management with contact tracking
 - **Finance Dashboard** — Revenue tracking, billing, and financial analytics
 - **Team Management** — Role-based access control (Super Admin, Admin, Developer, Client)
-- **API Key Management** — Secure API key generation and usage monitoring
-- **Approval Workflow** — Request and approval system for agent deployments
+- **Approval Workflow** — Request and approval system for tasks, leaves, and more
 - **Authentication** — NextAuth.js with credentials-based login and role-based access
 
 ## Tech Stack

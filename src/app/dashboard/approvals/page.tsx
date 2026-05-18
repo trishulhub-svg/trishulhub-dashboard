@@ -148,7 +148,7 @@ const sourceTypeConfig: Record<string, { label: string; color: string; icon: Rea
     icon: <ClipboardList className="h-4 w-4" />,
   },
   AI: {
-    label: "AI Agent",
+    label: "System",
     color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
     icon: <Bot className="h-4 w-4" />,
   },
@@ -262,7 +262,7 @@ export default function ApprovalsPage() {
       source: "AI" as const,
       title: a.title,
       description: a.description,
-      requesterName: a.agent?.name || (a.requesterType === "AI" ? "AI Agent" : "Team Member"),
+      requesterName: a.agent?.name || (a.requesterType === "AI" ? "System" : "Team Member"),
       requesterAvatar: null,
       createdAt: a.createdAt,
       raw: a,
@@ -959,7 +959,7 @@ export default function ApprovalsPage() {
       bg: "bg-amber-50 dark:bg-amber-900/20",
     },
     {
-      label: "AI Agent Requests",
+      label: "Approval Requests",
       value: counts.approvals,
       icon: <Bot className="h-5 w-5" />,
       color: "text-purple-600 dark:text-purple-400",
@@ -1066,16 +1066,7 @@ export default function ApprovalsPage() {
               </Badge>
             )}
           </TabsTrigger>
-          {isAdminUser && (
-          <TabsTrigger value="ai-agents">
-            AI Agent Requests
-            {counts.approvals > 0 && (
-              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
-                {counts.approvals}
-              </Badge>
-            )}
-          </TabsTrigger>
-          )}
+
           <TabsTrigger value="history">
             History
           </TabsTrigger>
@@ -1120,22 +1111,8 @@ export default function ApprovalsPage() {
           )}
         </TabsContent>
 
-        {/* ── Tab 4: AI Agent Requests (admin only) ── */}
-        {isAdminUser && (
-        <TabsContent value="ai-agents" className="mt-4">
-          {loading ? (
-            renderLoading()
-          ) : aiApprovals.length === 0 ? (
-            renderEmpty("No AI agent requests.")
-          ) : (
-            <div className="space-y-3">
-              {aiApprovals.map((item) => renderApprovalCard(item))}
-            </div>
-          )}
-        </TabsContent>
-        )}
 
-        {/* ── Tab 5: History ── */}
+        {/* ── Tab: History ── */}
         <TabsContent value="history" className="mt-4">
           {loading ? (
             renderLoading()

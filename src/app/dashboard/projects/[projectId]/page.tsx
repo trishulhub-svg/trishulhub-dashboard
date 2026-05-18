@@ -597,7 +597,7 @@ export default function ProjectDetailPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={`${taskStatusColors[dtStatus] || ""} text-xs`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
                     {dtAssigneeType === "AI" ? (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><Bot className="h-3 w-3" /> AI Agent</span>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><Bot className="h-3 w-3" /> System</span>
                     ) : (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
                     )}

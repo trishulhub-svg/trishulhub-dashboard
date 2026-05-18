@@ -28,11 +28,11 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "TrishulHub — AI Agent Dashboard",
+    default: "TrishulHub — Dashboard",
     template: "%s | TrishulHub",
   },
-  description: "AI-powered agent management platform for web development SaaS. Manage AI agents, projects, clients, and automate your workflow.",
-  keywords: ["TrishulHub", "AI Agents", "Web Development", "SaaS", "GLM", "Dashboard"],
+  description: "Project management and team collaboration platform. Manage projects, clients, finance, and automate your workflow.",
+  keywords: ["TrishulHub", "Project Management", "Web Development", "SaaS", "Dashboard"],
   authors: [{ name: "TrishulHub" }],
   creator: "TrishulHub",
   manifest: "/manifest.json",
@@ -54,8 +54,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "TrishulHub",
-    title: "TrishulHub — AI Agent Dashboard",
-    description: "AI-powered agent management platform",
+    title: "TrishulHub — Dashboard",
+    description: "Project management and team collaboration platform",
     images: [{ url: "/icon-512.png", width: 512, height: 512 }],
   },
 };
