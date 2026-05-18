@@ -4,6 +4,13 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { isAdmin } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+
+// [T4/T6] Valid role values
+const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
+
+// [T5] Valid department values
+const VALID_DEPARTMENTS = ["DEV", "SALES", "FINANCE", "HR", "CONTENT", "SUPPORT", "MANAGEMENT", "Engineering", "Design", "Marketing", "Sales", "Finance", "Operations"]
 
 // GET /api/team - List team data
 export async function GET(req: NextRequest) {
@@ -11,6 +18,12 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // [T1] Rate limiting
+    const rl = rateLimit('team-get-' + session.user.id, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
     const { searchParams } = new URL(req.url)
@@ -31,6 +44,7 @@ export async function GET(req: NextRequest) {
           role: true,
           department: true,
           isActive: true,
+          avatar: true, // [T7] Add avatar to user list
           createdAt: true,
         },
         orderBy: { name: "asc" },
@@ -109,8 +123,9 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
     })
     return NextResponse.json(JSON.parse(JSON.stringify(users)))
-  } catch (error: any) {
-    console.error("[team] GET error:", error.message)
+  } catch (error: unknown) {
+    // [T2] Fixed error: any → error: unknown
+    console.error("[team] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -123,7 +138,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await req.json()
+    // [T1] Rate limiting
+    const rl = rateLimit('team-post-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // [T3] try/catch on req.json()
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
     const { type, ...data } = body
 
     if (type === "leave") {
@@ -136,8 +163,8 @@ export async function POST(req: NextRequest) {
       if (!data.startDate || !data.endDate) {
         return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
       }
-      const parsedStart = new Date(data.startDate)
-      const parsedEnd = new Date(data.endDate)
+      const parsedStart = new Date(data.startDate as string)
+      const parsedEnd = new Date(data.endDate as string)
       if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
         return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
       }
@@ -145,20 +172,26 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
       }
 
+      // [T9] Limit leave duration to 30 days
+      const diffDays = Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      if (diffDays > 30) {
+        return NextResponse.json({ error: "Leave duration cannot exceed 30 days" }, { status: 400 })
+      }
+
       // [FIX H7: Validate leave type against allowed values]
       const validLeaveTypes = ["CASUAL", "SICK", "PAID"]
-      const leaveType = data.leaveType || "CASUAL"
+      const leaveType = (data.leaveType as string) || "CASUAL"
       if (!validLeaveTypes.includes(leaveType)) {
         return NextResponse.json({ error: "Invalid leave type. Must be CASUAL, SICK, or PAID" }, { status: 400 })
       }
 
       const leave = await db.leaveRequest.create({
         data: {
-          userId: leaveUserId,
+          userId: leaveUserId as string,
           type: leaveType,
           startDate: parsedStart,
           endDate: parsedEnd,
-          reason: data.reason || null,
+          reason: (data.reason as string) || null,
           status: "PENDING",
         },
       })
@@ -168,21 +201,22 @@ export async function POST(req: NextRequest) {
         const admins = await db.user.findMany({
           where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
         })
-        const user = await db.user.findUnique({ where: { id: leaveUserId } })
+        const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
         for (const admin of admins) {
           await db.notification.create({
             data: {
               userId: admin.id,
               title: "New Leave Request",
-              message: `${user?.name || "A team member"} requested ${data.leaveType || "casual"} leave from ${new Date(data.startDate).toLocaleDateString()} to ${new Date(data.endDate).toLocaleDateString()}`,
+              message: `${user?.name || "A team member"} requested ${leaveType} leave from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
               type: "INFO",
               link: "/dashboard/team",
               metadata: JSON.stringify({ leaveId: leave.id }),
             }
           })
         }
-      } catch (notifyErr: any) {
-        console.error("[team] leave notification error (non-blocking):", notifyErr?.message)
+      } catch (notifyErr: unknown) {
+        // [T2] Fixed error: any → error: unknown
+        console.error("[team] leave notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
       }
 
       return NextResponse.json(leave, { status: 201 })
@@ -197,20 +231,29 @@ export async function POST(req: NextRequest) {
       // [FIX H8: Validate attendance status against allowed values]
       const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE"]
       const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
-      if (attStatus && !validAttStatuses.includes(attStatus)) {
+      if (attStatus && !validAttStatuses.includes(attStatus as string)) {
         return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, or LEAVE" }, { status: 400 })
       }
       if (!date) {
         return NextResponse.json({ error: "Date is required" }, { status: 400 })
       }
+
+      // [T10] Validate userId exists before creating attendance record
+      if (attUserId) {
+        const targetUser = await db.user.findUnique({ where: { id: attUserId as string } })
+        if (!targetUser) {
+          return NextResponse.json({ error: "User not found" }, { status: 404 })
+        }
+      }
+
       const attendance = await db.attendance.create({
         data: {
-          date: new Date(date),
-          userId: attUserId || session.user.id,
-          ...(attStatus && { status: attStatus }),
-          ...(checkIn && { checkIn }),
-          ...(checkOut && { checkOut }),
-          ...(notes && { notes }),
+          date: new Date(date as string),
+          userId: (attUserId || session.user.id) as string,
+          ...(attStatus ? { status: attStatus as string } : {}),
+          ...(checkIn ? { checkIn: checkIn as string } : {}),
+          ...(checkOut ? { checkOut: checkOut as string } : {}),
+          ...(notes ? { notes: notes as string } : {}),
         },
       })
       return NextResponse.json(attendance, { status: 201 })
@@ -228,21 +271,21 @@ export async function POST(req: NextRequest) {
       }
 
       // Verify agent exists
-      const agentExists = await db.agent.findUnique({ where: { id: agentId } })
+      const agentExists = await db.agent.findUnique({ where: { id: agentId as string } })
       if (!agentExists) {
         return NextResponse.json({ error: "Agent not found. Please select a valid agent." }, { status: 400 })
       }
 
       // Verify user exists
-      const userExists = await db.user.findUnique({ where: { id: userId } })
+      const userExists = await db.user.findUnique({ where: { id: userId as string } })
       if (!userExists) {
         return NextResponse.json({ error: "User not found. Please select a valid team member." }, { status: 400 })
       }
 
       const access = await db.userAgentAccess.upsert({
-        where: { userId_agentId: { userId, agentId } },
-        create: { userId, agentId, canChat: canChat ?? true, canView: canView ?? true, canApprove: canApprove ?? false },
-        update: { canChat: canChat ?? true, canView: canView ?? true, canApprove: canApprove ?? false },
+        where: { userId_agentId: { userId: userId as string, agentId: agentId as string } },
+        create: { userId: userId as string, agentId: agentId as string, canChat: (canChat as boolean) ?? true, canView: (canView as boolean) ?? true, canApprove: (canApprove as boolean) ?? false },
+        update: { canChat: (canChat as boolean) ?? true, canView: (canView as boolean) ?? true, canApprove: (canApprove as boolean) ?? false },
         include: {
           user: { select: { id: true, name: true } },
           agent: { select: { id: true, name: true, type: true } },
@@ -264,13 +307,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
       }
 
-      if (password.length < 8) {
+      if ((password as string).length < 8) {
         return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
       }
 
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
+      if (!emailRegex.test(email as string)) {
         return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      }
+
+      // [T4/T6] Validate role value
+      if (role && !VALID_ROLES.includes(role as typeof VALID_ROLES[number])) {
+        return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+      }
+
+      // [T5] Validate department value (allow null/empty)
+      if (department && !VALID_DEPARTMENTS.includes(department as string)) {
+        return NextResponse.json({ error: "Invalid department" }, { status: 400 });
       }
 
       // Only SUPER_ADMIN can create other SUPER_ADMIN or ADMIN users
@@ -279,19 +332,19 @@ export async function POST(req: NextRequest) {
       }
 
       // Check if email already exists
-      const existing = await db.user.findUnique({ where: { email } })
+      const existing = await db.user.findUnique({ where: { email: email as string } })
       if (existing) {
         return NextResponse.json({ error: "Email already in use" }, { status: 409 })
       }
 
-      const hashedPassword = await bcrypt.hash(password, 12)
+      const hashedPassword = await bcrypt.hash(password as string, 12)
       const user = await db.user.create({
         data: {
-          name,
-          email,
+          name: name as string,
+          email: email as string,
           password: hashedPassword,
-          role: role || "DEVELOPER",
-          department: department || null,
+          role: (role as string) || "DEVELOPER",
+          department: (department as string) || null,
           isActive: true,
         }
       })
@@ -300,8 +353,9 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
-  } catch (error: any) {
-    console.error("[team] POST error:", error.message)
+  } catch (error: unknown) {
+    // [T2] Fixed error: any → error: unknown
+    console.error("[team] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -314,7 +368,19 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await req.json()
+    // [T1] Rate limiting
+    const rl = rateLimit('team-patch-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // [T3] try/catch on req.json()
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
     const { type, id, ...data } = body
 
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
@@ -322,7 +388,7 @@ export async function PATCH(req: NextRequest) {
     if (type === "leave") {
       // [FIX C5: Validate leave status against allowed values]
       const validLeaveStatuses = ["PENDING", "APPROVED", "REJECTED"]
-      if (data.status && !validLeaveStatuses.includes(data.status)) {
+      if (data.status && !validLeaveStatuses.includes(data.status as string)) {
         return NextResponse.json({ error: "Invalid leave status. Must be PENDING, APPROVED, or REJECTED" }, { status: 400 })
       }
       // SECURITY: Only admins can approve/reject leave requests
@@ -332,7 +398,7 @@ export async function PATCH(req: NextRequest) {
       }
       // [FIX H9: Prevent admin from approving their own leave]
       if (data.status === "APPROVED" || data.status === "REJECTED") {
-        const targetLeave = await db.leaveRequest.findUnique({ where: { id } })
+        const targetLeave = await db.leaveRequest.findUnique({ where: { id: id as string } })
         if (!targetLeave) {
           return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
         }
@@ -344,13 +410,18 @@ export async function PATCH(req: NextRequest) {
           return NextResponse.json({ error: `Leave request is already ${targetLeave.status.toLowerCase()}` }, { status: 400 })
         }
       }
+      // [T8] Sanitize and length-limit feedback (500 chars max)
+      const sanitizedFeedback = typeof data.feedback === 'string'
+        ? data.feedback.trim().slice(0, 500) || undefined
+        : undefined
+
       // SECURITY: Set approvedBy from session user, not request body
       const leave = await db.leaveRequest.update({
-        where: { id },
+        where: { id: id as string },
         data: {
-          status: data.status,
+          status: data.status as string | undefined,
           approvedBy: session.user.id,
-          feedback: data.feedback || undefined,
+          feedback: sanitizedFeedback,
         },
       })
 
@@ -360,14 +431,15 @@ export async function PATCH(req: NextRequest) {
           data: {
             userId: leave.userId,
             title: `Leave ${data.status}`,
-            message: `Your ${leave.type} leave request has been ${data.status.toLowerCase()}.${data.feedback ? ` Feedback: ${data.feedback}` : ""}`,
+            message: `Your ${leave.type} leave request has been ${(data.status as string)?.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
             type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
             link: "/dashboard/team",
             metadata: JSON.stringify({ leaveId: leave.id }),
           }
         })
-      } catch (notifyErr: any) {
-        console.error("[team] leave decision notification error (non-blocking):", notifyErr?.message)
+      } catch (notifyErr: unknown) {
+        // [T2] Fixed error: any → error: unknown
+        console.error("[team] leave decision notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
       }
 
       return NextResponse.json(leave)
@@ -381,12 +453,12 @@ export async function PATCH(req: NextRequest) {
       }
       // SECURITY: Sanitize attendance update data
       const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
-      const sanitizedAttData: Record<string, any> = {}
+      const sanitizedAttData: Record<string, unknown> = {}
       for (const key of allowedAttFields) {
         if (data[key] !== undefined) sanitizedAttData[key] = data[key]
       }
-      const attendance = await db.attendance.update({ where: { id }, data: sanitizedAttData })
-      return NextResponse.json(attendance)
+      const attendanceRecord = await db.attendance.update({ where: { id: id as string }, data: sanitizedAttData })
+      return NextResponse.json(attendanceRecord)
     }
 
     if (type === "agent-access") {
@@ -396,11 +468,11 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       const access = await db.userAgentAccess.update({
-        where: { id },
+        where: { id: id as string },
         data: {
-          ...(data.canChat !== undefined && { canChat: data.canChat }),
-          ...(data.canView !== undefined && { canView: data.canView }),
-          ...(data.canApprove !== undefined && { canApprove: data.canApprove }),
+          ...(data.canChat !== undefined && { canChat: data.canChat as boolean }),
+          ...(data.canView !== undefined && { canView: data.canView as boolean }),
+          ...(data.canApprove !== undefined && { canApprove: data.canApprove as boolean }),
         },
       })
       return NextResponse.json(access)
@@ -414,7 +486,7 @@ export async function PATCH(req: NextRequest) {
     // always use the session user's ID — don't trust the body `id`.
     // This prevents IDOR where an ADMIN could modify another user's name.
     const isSelfProfileUpdate = !data.role && data.isActive === undefined && !!data.name;
-    const effectiveId = isSelfProfileUpdate ? sessionUserId : id;
+    const effectiveId = isSelfProfileUpdate ? sessionUserId : (id as string);
 
     if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden: You can only update your own profile" }, { status: 403 });
@@ -428,7 +500,7 @@ export async function PATCH(req: NextRequest) {
       }
 
       // Prevent changing role of SUPER_ADMIN users
-      const targetUser = await db.user.findUnique({ where: { id } })
+      const targetUser = await db.user.findUnique({ where: { id: id as string } })
       if (!targetUser) {
         return NextResponse.json({ error: "User not found" }, { status: 404 })
       }
@@ -440,14 +512,24 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const updateData: any = {}
+    // [T4/T6] Validate role value on update
+    if (data.role && !VALID_ROLES.includes(data.role as typeof VALID_ROLES[number])) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+
+    // [T5] Validate department value on update (allow null/empty)
+    if (data.department && !VALID_DEPARTMENTS.includes(data.department as string)) {
+      return NextResponse.json({ error: "Invalid department" }, { status: 400 });
+    }
+
+    const updateData: Record<string, unknown> = {}
     if (data.name) {
       // Validate name: trim, length limit, no control characters
-      const trimmedName = data.name.trim()
+      const trimmedName = (data.name as string).trim()
       if (trimmedName.length < 1 || trimmedName.length > 100) {
         return NextResponse.json({ error: "Name must be between 1 and 100 characters" }, { status: 400 })
       }
-      if (/[ -]/.test(trimmedName)) {
+      if (/[\x00-\x1f\x7f]/.test(trimmedName)) {
         return NextResponse.json({ error: "Name cannot contain control characters" }, { status: 400 })
       }
       updateData.name = trimmedName
@@ -463,8 +545,9 @@ export async function PATCH(req: NextRequest) {
       select: { id: true, name: true, email: true, role: true, department: true, isActive: true },
     })
     return NextResponse.json(user)
-  } catch (error: any) {
-    console.error("[team] PATCH error:", error.message)
+  } catch (error: unknown) {
+    // [T2] Fixed error: any → error: unknown
+    console.error("[team] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -475,6 +558,12 @@ export async function DELETE(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // [T1] Rate limiting
+    const rl = rateLimit('team-del-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
     const { searchParams } = new URL(req.url)
@@ -494,8 +583,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
-  } catch (error: any) {
-    console.error("[team] DELETE error:", error.message)
+  } catch (error: unknown) {
+    // [T2] Fixed error: any → error: unknown
+    console.error("[team] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

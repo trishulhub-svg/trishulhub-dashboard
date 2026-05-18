@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, AlertCircle, RefreshCw, MessageSquare,
+  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, AlertCircle, RefreshCw, MessageSquare, Pencil,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,10 +57,12 @@ interface AttendanceRecord {
   user?: { id: string; name: string; email: string; role: string };
 }
 
+// [F4] Added VIEWER role color
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   DEVELOPER: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  VIEWER: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
   CLIENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
 };
 
@@ -69,26 +71,43 @@ function safeArray<T>(data: unknown): T[] {
   return Array.isArray(data) ? data : [];
 }
 
+// [F3] Helper to calculate leave days
+function getLeaveDays(start: string, end: string): number {
+  const diff = Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  return diff > 0 ? diff : 1;
+}
+
 export default function TeamPage() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"team" | "leaves" | "attendance">("team");
-  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
-  const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectingLeaveId, setRejectingLeaveId] = useState<string | null>(null);
-  const [rejectFeedback, setRejectFeedback] = useState("");
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
 
   // [FIX C2: Use sessionStatus to avoid redirecting during loading]
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  // [F7] Default tab based on role — non-admins default to "leaves"
+  const [tab, setTab] = useState<"team" | "leaves" | "attendance">(isAdminUser ? "team" : "leaves");
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectingLeaveId, setRejectingLeaveId] = useState<string | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState("");
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [mutating, setMutating] = useState(false); // [FIX H3: Global mutation loading guard]
+
+  // [F1] Edit user dialog state
+  const [editUserOpen, setEditUserOpen] = useState(false);
+  const [editUser, setEditUser] = useState<TeamUser | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", role: "", department: "", isActive: true });
+  const [editLoading, setEditLoading] = useState(false);
+
+  // [F6] Leave status filter
+  const [leaveFilter, setLeaveFilter] = useState<"all" | "PENDING" | "APPROVED" | "REJECTED">("all");
 
   // Leave form
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
@@ -99,34 +118,38 @@ export default function TeamPage() {
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [userRes, leaveRes, attendRes] = await Promise.all([
-        fetch("/api/team", { credentials: 'include', signal }),
+        isAdminUser
+          ? fetch("/api/team", { credentials: 'include', signal })
+          : Promise.resolve({ ok: true, json: async () => [] }),
         fetch("/api/team?type=leaves", { credentials: 'include', signal }),
-        fetch("/api/team?type=attendance", { credentials: 'include', signal }),
+        isAdminUser
+          ? fetch("/api/team?type=attendance", { credentials: 'include', signal })
+          : Promise.resolve({ ok: true, json: async () => [] }),
       ]);
 
       // [FIX C1: Safe array fallback for all responses]
       // [FIX H2: Show error toast for non-ok responses]
       if (userRes.ok) {
-        const userData = await userRes.json();
+        const userData = await (userRes as Response).json();
         setUsers(safeArray<TeamUser>(userData));
       } else {
-        const errData = await userRes.json().catch(() => null);
+        const errData = await (userRes as Response).json().catch(() => null);
         toast.error(errData?.error || "Failed to load team members");
       }
 
       if (leaveRes.ok) {
-        const leaveData = await leaveRes.json();
+        const leaveData = await (leaveRes as Response).json();
         setLeaves(safeArray<LeaveRecord>(leaveData));
       } else {
-        const errData = await leaveRes.json().catch(() => null);
+        const errData = await (leaveRes as Response).json().catch(() => null);
         toast.error(errData?.error || "Failed to load leave requests");
       }
 
       if (attendRes.ok) {
-        const attendData = await attendRes.json();
+        const attendData = await (attendRes as Response).json();
         setAttendance(safeArray<AttendanceRecord>(attendData));
       } else {
-        const errData = await attendRes.json().catch(() => null);
+        const errData = await (attendRes as Response).json().catch(() => null);
         toast.error(errData?.error || "Failed to load attendance data");
       }
     } catch (err) {
@@ -136,13 +159,53 @@ export default function TeamPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdminUser]);
 
   useEffect(() => {
     const controller = new AbortController();
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
+
+  // [F1] Edit user handler
+  const handleEditUser = useCallback(async () => {
+    if (!editUser) return;
+    setEditLoading(true);
+    try {
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id: editUser.id,
+          name: editForm.name,
+          role: editForm.role,
+          department: editForm.department || null,
+          isActive: editForm.isActive,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`${editForm.name} updated successfully`);
+        setEditUserOpen(false);
+        setEditUser(null);
+        fetchData();
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to update user");
+      }
+    } catch {
+      toast.error("Failed to update user");
+    } finally {
+      setEditLoading(false);
+    }
+  }, [editUser, editForm, fetchData]);
+
+  // [F1] Open edit dialog helper
+  const openEditDialog = useCallback((user: TeamUser) => {
+    setEditUser(user);
+    setEditForm({ name: user.name, role: user.role, department: user.department || "", isActive: user.isActive });
+    setEditUserOpen(true);
+  }, []);
 
   const handleLeaveAction = useCallback(async (id: string, status: string, feedback?: string) => {
     if (mutating) return; // [FIX H3: Prevent double-click]
@@ -258,12 +321,7 @@ export default function TeamPage() {
     );
   }
 
-  // Role guard — only redirect AFTER session is confirmed loaded and user is not admin
-  if (!isAdminUser) {
-    router.push("/dashboard");
-    return null;
-  }
-
+  // [F7] Non-admins can still see their own leaves — no longer redirect
   if (loading) {
     return (
       <div className="space-y-4">
@@ -285,21 +343,29 @@ export default function TeamPage() {
     );
   }
 
+  // [F6] Filtered leaves based on status filter
+  const filteredLeaves = leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter);
+
   // Tab counts for badges
   const pendingLeavesCount = leaves.filter(l => l.status === "PENDING").length;
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Team Management" description="Manage team members and leave requests">
+      <PageHeader title={isAdminUser ? "Team Management" : "My Leaves"} description={isAdminUser ? "Manage team members and leave requests" : "View and manage your leave requests"}>
         <div className="flex gap-2">
-          {/* [FIX M10: Add refresh button] */}
-          <Button size="sm" variant="outline" onClick={() => { setLoading(true); fetchData(); }} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-          {tab === "team" && (
-            <Button size="sm" onClick={() => setAddMemberOpen(true)} className="bg-primary hover:bg-primary/90">
-              <Plus className="h-4 w-4 mr-1" /> Add Member
-            </Button>
+          {/* [F7] Only show Refresh and Add Member for admins */}
+          {isAdminUser && (
+            <>
+              {/* [FIX M10: Add refresh button] */}
+              <Button size="sm" variant="outline" onClick={() => { setLoading(true); fetchData(); }} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              {tab === "team" && (
+                <Button size="sm" onClick={() => setAddMemberOpen(true)} className="bg-primary hover:bg-primary/90">
+                  <Plus className="h-4 w-4 mr-1" /> Add Member
+                </Button>
+              )}
+            </>
           )}
           {tab === "leaves" && (
             <Button size="sm" onClick={() => setLeaveDialogOpen(true)}>
@@ -309,27 +375,34 @@ export default function TeamPage() {
         </div>
       </PageHeader>
 
+      {/* [F7] Only show team and attendance tabs for admins */}
       <div className="flex gap-2 flex-wrap">
-        {(["team", "leaves", "attendance"] as const).map((t) => (
-          <Button key={t} variant={tab === t ? "default" : "outline"} size="sm" onClick={() => setTab(t)}>
-            {t === "team" ? `Team (${users.length})`
-              : t === "leaves" ? `Leave Requests${pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}`
-              : "Attendance"}
+        {isAdminUser && (
+          <Button key="team" variant={tab === "team" ? "default" : "outline"} size="sm" onClick={() => setTab("team")}>
+            Team ({users.length})
           </Button>
-        ))}
+        )}
+        <Button key="leaves" variant={tab === "leaves" ? "default" : "outline"} size="sm" onClick={() => setTab("leaves")}>
+          Leave Requests{pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
+        </Button>
+        {isAdminUser && (
+          <Button key="attendance" variant={tab === "attendance" ? "default" : "outline"} size="sm" onClick={() => setTab("attendance")}>
+            Attendance
+          </Button>
+        )}
       </div>
 
-      {tab === "team" && (
+      {tab === "team" && isAdminUser && (
         <div className="grid gap-4 md:grid-cols-2">
           {users.map((user) => (
             <Card key={user.id}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  {/* [FIX M8: Show user avatar if available] */}
+                  {/* [F2] Better avatar fallback with initials */}
                   <Avatar className="h-10 w-10">
                     <AvatarImage src={user.avatar || undefined} alt={user.name} />
-                    <AvatarFallback className="bg-muted">
-                      <User className="h-5 w-5 text-muted-foreground" />
+                    <AvatarFallback className="bg-muted text-xs font-medium">
+                      {user.name?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
@@ -344,6 +417,15 @@ export default function TeamPage() {
                     <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px]">
                       {user.isActive ? "Active" : "Inactive"}
                     </Badge>
+                    {/* [F1] Edit button on each user card */}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => openEditDialog(user)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -362,7 +444,17 @@ export default function TeamPage() {
 
       {tab === "leaves" && (
         <div className="space-y-3">
-          {leaves.map((leave) => (
+          {/* [F6] Leave status filter */}
+          <div className="flex gap-2 flex-wrap mb-4">
+            {(["all", "PENDING", "APPROVED", "REJECTED"] as const).map((s) => (
+              <Button key={s} size="sm" variant={leaveFilter === s ? "default" : "outline"} onClick={() => setLeaveFilter(s)}>
+                {s === "all" ? `All (${leaves.length})` : `${s.charAt(0) + s.slice(1).toLowerCase()} (${leaves.filter(l => l.status === s).length})`}
+              </Button>
+            ))}
+          </div>
+
+          {/* [F6] Use filteredLeaves instead of leaves */}
+          {filteredLeaves.map((leave) => (
             <Card key={leave.id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -372,6 +464,8 @@ export default function TeamPage() {
                       <p className="text-sm font-medium">{leave.user?.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {leave.type} leave: {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
+                        {/* [F3] Show leave day count */}
+                        <span className="ml-1.5 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)} day(s))</span>
                       </p>
                       {leave.reason && <p className="text-xs mt-1">{leave.reason}</p>}
                       {leave.feedback && (
@@ -383,7 +477,8 @@ export default function TeamPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">{leave.status}</Badge>
-                    {leave.status === "PENDING" && (
+                    {/* [F7] Only show approve/reject for admins */}
+                    {isAdminUser && leave.status === "PENDING" && (
                       <div className="flex gap-1">
                         <Button
                           size="sm"
@@ -411,13 +506,13 @@ export default function TeamPage() {
               </CardContent>
             </Card>
           ))}
-          {leaves.length === 0 && (
+          {filteredLeaves.length === 0 && (
             <p className="text-center py-8 text-muted-foreground">No leave requests</p>
           )}
         </div>
       )}
 
-      {tab === "attendance" && (
+      {tab === "attendance" && isAdminUser && (
         <div className="space-y-3">
           {attendance.map((record) => (
             <Card key={record.id}>
@@ -478,7 +573,7 @@ export default function TeamPage() {
                 <Input type="date" value={leaveForm.endDate} onChange={(e) => setLeaveForm(p => ({ ...p, endDate: e.target.value }))} />
               </div>
             </div>
-            {/* [FIX M7: Show date validation error] */}
+            {/* [FIX M7: Show date validation error */}
             {leaveForm.startDate && leaveForm.endDate && new Date(leaveForm.startDate) > new Date(leaveForm.endDate) && (
               <p className="text-xs text-destructive">End date must be on or after start date</p>
             )}
@@ -530,6 +625,75 @@ export default function TeamPage() {
         </DialogContent>
       </Dialog>
 
+      {/* [F1] Edit User Dialog */}
+      <Dialog open={editUserOpen} onOpenChange={(open) => {
+        setEditUserOpen(open);
+        if (!open) setEditUser(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Team Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Full Name</Label>
+              <Input
+                placeholder="e.g. John Smith"
+                value={editForm.name}
+                onChange={(e) => setEditForm(p => ({ ...p, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={editForm.role} onValueChange={(v) => setEditForm(p => ({ ...p, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DEVELOPER">Developer</SelectItem>
+                  <SelectItem value="VIEWER">Viewer</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Select value={editForm.department} onValueChange={(v) => setEditForm(p => ({ ...p, department: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Engineering">Engineering</SelectItem>
+                  <SelectItem value="Design">Design</SelectItem>
+                  <SelectItem value="Marketing">Marketing</SelectItem>
+                  <SelectItem value="Sales">Sales</SelectItem>
+                  <SelectItem value="Finance">Finance</SelectItem>
+                  <SelectItem value="Operations">Operations</SelectItem>
+                  <SelectItem value="DEV">Dev</SelectItem>
+                  <SelectItem value="HR">HR</SelectItem>
+                  <SelectItem value="CONTENT">Content</SelectItem>
+                  <SelectItem value="SUPPORT">Support</SelectItem>
+                  <SelectItem value="MANAGEMENT">Management</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="edit-active"
+                checked={editForm.isActive}
+                onChange={(e) => setEditForm(p => ({ ...p, isActive: e.target.checked }))}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <Label htmlFor="edit-active">Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditUserOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditUser} disabled={!editForm.name || editLoading}>
+              {editLoading ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Team Member Dialog */}
       <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
         <DialogContent>
@@ -551,9 +715,10 @@ export default function TeamPage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
+                  <SelectItem value="VIEWER">Viewer</SelectItem>
                   <SelectItem value="ADMIN">Admin</SelectItem>
                   <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
-                  <SelectItem value="CLIENT">Client</SelectItem>
+                  {/* [F5] Removed CLIENT role from Add Member dialog */}
                 </SelectContent>
               </Select>
             </div>
