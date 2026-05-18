@@ -78,22 +78,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         console.error("[leaves] PATCH notification error (non-blocking):", notifyErr.message)
       }
 
-      // Notify HR agent about leave approval/rejection for workload tracking (fire-and-forget)
-      try {
-        const hrAgent = await db.agent.findFirst({ where: { type: "HR" } })
-        if (hrAgent) {
-          await db.crossAgentMessage.create({
-            data: {
-              fromAgentId: hrAgent.id,
-              toAgentId: hrAgent.id,
-              message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.leaveType} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
-              type: "INFO",
-              status: "PROCESSED",
-            },
-          })
-        }
-      } catch (hrErr: any) {
-        console.error("[leaves] PATCH HR agent notification error (non-blocking):", hrErr.message)
       }
     }
 
