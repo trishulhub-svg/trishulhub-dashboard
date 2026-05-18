@@ -77,8 +77,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       } catch (notifyErr: any) {
         console.error("[leaves] PATCH notification error (non-blocking):", notifyErr.message)
       }
-
-      }
     }
 
     return NextResponse.json(leave)

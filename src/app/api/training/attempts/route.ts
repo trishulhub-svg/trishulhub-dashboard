@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    const passed = score >= 7 // 70% threshold
+    const passed = score >= Math.ceil(questions.length * 0.7) // 70% threshold
 
     // Create attempt
     const attempt = await db.testAttempt.create({

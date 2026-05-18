@@ -46,6 +46,7 @@ interface AssignmentData {
   status: string
   dueDate: string | null
   createdAt: string
+  updatedAt: string
   document: {
     id: string
     topic: string
@@ -178,8 +179,44 @@ export default function TrainingReaderPage() {
             const initAnswers = new Array(testQs.length).fill(null)
             setAnswers(initAnswers)
             answersRef.current = initAnswers
-            setTimeLeft(data.test.timeLimit * 60)
-            setTestStartTime(Date.now())
+            // Calculate remaining time from when test was started (updatedAt reflects status change)
+            const totalSeconds = data.test.timeLimit * 60
+            const elapsedSeconds = Math.floor((Date.now() - new Date(data.updatedAt).getTime()) / 1000)
+            const remaining = Math.max(0, totalSeconds - elapsedSeconds)
+            if (remaining <= 0) {
+              // Time already expired — auto-submit with empty answers
+              try {
+                const submitRes = await fetch("/api/training/attempts", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({ assignmentId, answers: new Array(testQs.length).fill(null), timeTaken: totalSeconds }),
+                })
+                if (submitRes.ok) {
+                  const result = await submitRes.json()
+                  setResults({
+                    score: result.score,
+                    total: result.total,
+                    passed: result.passed,
+                    percentage: Math.round((result.score / result.total) * 100),
+                    results: testQs.map((q) => ({
+                      question: q.question,
+                      options: q.options,
+                      correctAnswer: q.correctAnswer ?? 0,
+                      selectedAnswer: null,
+                      isCorrect: false,
+                      explanation: q.explanation || "",
+                    })),
+                  })
+                  setViewMode("results")
+                  return
+                }
+              } catch (e) {
+                console.error("Auto-submit on resume failed:", e)
+              }
+            }
+            setTimeLeft(remaining)
+            setTestStartTime(Date.now() - elapsedSeconds * 1000)
             setViewMode("test")
           }
         }
@@ -437,7 +474,7 @@ export default function TrainingReaderPage() {
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                 <span className="text-muted-foreground">Time Limit</span>
                 <span className="font-medium flex items-center gap-1">
-                  <Timer className="h-4 w-4" /> 20 minutes
+                  <Timer className="h-4 w-4" /> {assignment.test?.timeLimit || 20} minutes
                 </span>
               </div>
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">

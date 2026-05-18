@@ -133,7 +133,6 @@ export default function MyTrainingPage() {
     )
   }
 
-  const completedCount = assignments.filter((a) => a.status === "PASSED").length
   const inProgressCount = assignments.filter((a) => ["ASSIGNED", "READ", "TEST_STARTED"].includes(a.status)).length
   const passedCount = assignments.filter((a) => a.status === "PASSED").length
   const failedCount = assignments.filter((a) => a.status === "FAILED").length
