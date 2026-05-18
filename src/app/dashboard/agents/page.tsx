@@ -20,9 +20,10 @@ import {
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════
-   ORYZO — TrishulHub Workspace v4.0
-   Scroll-driven cinematic reveal. Each section fills the viewport
-   and animates in as the user scrolls, inspired by oryzo.ai.
+   ORYZO — TrishulHub Workspace v4.1
+   Scroll-driven cinematic reveal using natural page scroll
+   (no custom scroll container) so IntersectionObserver works
+   correctly inside the dashboard layout on all devices.
    ═══════════════════════════════════════════════════════════════ */
 
 const TRISHUL = "TrishulHub";
@@ -37,7 +38,7 @@ const SECTIONS = ["Hero", "Features", "Launch", "Welcome"];
 
 /* ── Intersection Observer Hook ── */
 function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
-  threshold = 0.25
+  threshold = 0.15
 ) {
   const ref = useRef<T>(null);
   const [visible, setVisible] = useState(false);
@@ -61,31 +62,47 @@ function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
   return { ref, visible };
 }
 
-/* ── Scroll Progress Hook ── */
-function useScrollProgress(containerRef: React.RefObject<HTMLDivElement | null>) {
+/* ── Window scroll progress ── */
+function useWindowScrollProgress() {
   const [progress, setProgress] = useState(0);
   const [activeSection, setActiveSection] = useState(0);
+  const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+
+  const registerRef = useCallback((index: number) => (el: HTMLElement | null) => {
+    sectionRefs.current[index] = el;
+  }, []);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
     const onScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const p = scrollHeight > clientHeight ? scrollTop / (scrollHeight - clientHeight) : 0;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const p = docHeight > 0 ? scrollTop / docHeight : 0;
       setProgress(Math.min(1, Math.max(0, p)));
 
-      const sectionH = clientHeight;
-      const idx = Math.min(SECTIONS.length - 1, Math.floor(scrollTop / sectionH));
-      setActiveSection(idx);
+      /* Determine active section based on viewport position */
+      const vh = window.innerHeight;
+      let best = 0;
+      for (let i = 0; i < sectionRefs.current.length; i++) {
+        const el = sectionRefs.current[i];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top < vh * 0.5) best = i;
+      }
+      setActiveSection(best);
     };
 
-    container.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => container.removeEventListener("scroll", onScroll);
-  }, [containerRef]);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
-  return { progress, activeSection };
+  const scrollToSection = useCallback((index: number) => {
+    const el = sectionRefs.current[index];
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  return { progress, activeSection, registerRef, scrollToSection };
 }
 
 export default function TrishulWorkspacePage() {
@@ -106,15 +123,14 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* ── Scroll container ref ── */
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { progress, activeSection } = useScrollProgress(scrollRef);
+  /* ── Scroll progress (uses window, not custom container) ── */
+  const { progress, activeSection, registerRef, scrollToSection } = useWindowScrollProgress();
 
   /* ── Section observers ── */
-  const hero = useScrollReveal<HTMLDivElement>(0.15);
-  const features = useScrollReveal<HTMLDivElement>(0.2);
-  const launch = useScrollReveal<HTMLDivElement>(0.2);
-  const welcome = useScrollReveal<HTMLDivElement>(0.2);
+  const hero = useScrollReveal<HTMLDivElement>(0.1);
+  const features = useScrollReveal<HTMLDivElement>(0.15);
+  const launch = useScrollReveal<HTMLDivElement>(0.15);
+  const welcome = useScrollReveal<HTMLDivElement>(0.15);
 
   /* ── Typewriter (triggers when hero is visible) ── */
   const tagline = "I am ready to cook.";
@@ -137,11 +153,13 @@ export default function TrishulWorkspacePage() {
     return () => clearInterval(iv);
   }, [hero.visible]);
 
-  /* ── Mouse-follow glow ── */
-  const [glowPos, setGlowPos] = useState({ x: 50, y: 50 });
-  const glowRef = useRef({ x: 50, y: 50 });
+  /* ── Mouse-follow glow (desktop only) ── */
+  const [glowPos, setGlowPos] = useState({ x: -500, y: -500 });
+  const glowRef = useRef({ x: -500, y: -500 });
 
   useEffect(() => {
+    /* Only on non-touch devices */
+    if (window.matchMedia("(pointer: coarse)").matches) return;
     const onMove = (e: MouseEvent) => {
       glowRef.current = { x: e.clientX, y: e.clientY };
     };
@@ -171,7 +189,7 @@ export default function TrishulWorkspacePage() {
     resize();
     window.addEventListener("resize", resize);
 
-    const dots = Array.from({ length: 40 }, () => ({
+    const dots = Array.from({ length: 35 }, () => ({
       x: Math.random() * c.width,
       y: Math.random() * c.height,
       vx: (Math.random() - 0.5) * 0.12,
@@ -217,6 +235,16 @@ export default function TrishulWorkspacePage() {
     [router]
   );
 
+  /* ── Merge section refs so both useScrollReveal and useWindowScrollProgress work ── */
+  const mergeRef = useCallback(
+    (index: number, revealRef: React.RefObject<HTMLDivElement | null>) =>
+      (el: HTMLDivElement | null) => {
+        (revealRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        registerRef(index)(el);
+      },
+    [registerRef]
+  );
+
   return (
     <>
       <div className={`oz-root oz-root--${mode}`}>
@@ -233,261 +261,224 @@ export default function TrishulWorkspacePage() {
         {/* ═══ NOISE ═══ */}
         <div className="oz-noise" aria-hidden />
 
-        {/* ═══ SCROLL CONTAINER ═══ */}
-        <div className="oz-scroll-container" ref={scrollRef}>
-          {/* ═══════════════════════════════════════
-              SECTION 1 — HERO
-              ═══════════════════════════════════════ */}
-          <section
-            className="oz-section oz-section--hero"
-            ref={hero.ref}
-          >
-            <div className="oz-section-inner">
-              {/* Logo mark */}
-              <div
-                className={`oz-logo-row ${hero.visible ? "oz-logo-row--vis" : ""}`}
-              >
-                <div className={`oz-logo-dot oz-logo-dot--${mode}`} />
-                <span className={`oz-logo-txt oz-logo-txt--${mode}`}>
-                  TrishulHub
-                </span>
-              </div>
-
-              {/* Tagline upper */}
-              <p
-                className={`oz-tag-upper oz-tag-upper--${mode} ${hero.visible ? "oz-reveal" : ""}`}
-              >
-                Your Personal
-              </p>
-
-              {/* Main Title — character reveal */}
-              <h1 className={`oz-title oz-title--${mode}`}>
-                {TRISHUL_CHARS.map((ch, i) => (
-                  <span
-                    key={i}
-                    className={`oz-char ${hero.visible ? "oz-char--in" : ""}`}
-                    style={{ transitionDelay: `${0.15 + i * 0.045}s` }}
-                  >
-                    {ch}
-                  </span>
-                ))}
-              </h1>
-
-              {/* Tagline lower */}
-              <p
-                className={`oz-tag-lower oz-tag-lower--${mode} ${hero.visible ? "oz-reveal" : ""}`}
-              >
-                Workspace
-              </p>
-
-              {/* Typewriter */}
-              <div
-                className={`oz-typewriter ${hero.visible ? "oz-typewriter--on" : ""}`}
-              >
-                <div className={`oz-type-dot oz-type-dot--${mode}`} />
-                <span className={`oz-type-text oz-type-text--${mode}`}>
-                  {typedText}
-                  <span
-                    className={`oz-type-cursor ${typingDone ? "oz-type-cursor--blink" : ""}`}
-                  />
-                </span>
-              </div>
-
-              {/* Scroll hint */}
-              <div
-                className={`oz-scroll-hint ${hero.visible ? "oz-scroll-hint--vis" : ""}`}
-              >
-                <div className={`oz-scroll-hint-line oz-scroll-hint-line--${mode}`} />
-                <span className={`oz-scroll-hint-text oz-scroll-hint-text--${mode}`}>
-                  Scroll to explore
-                </span>
-                <ChevronDown
-                  size={14}
-                  className={`oz-scroll-hint-icon oz-scroll-hint-icon--${mode}`}
-                />
-              </div>
+        {/* ═══════════════════════════════════════
+            SECTION 1 — HERO
+            ═══════════════════════════════════════ */}
+        <section
+          className="oz-section oz-section--hero"
+          ref={mergeRef(0, hero.ref)}
+        >
+          <div className="oz-section-inner">
+            {/* Logo mark */}
+            <div className={`oz-logo-row ${hero.visible ? "oz-logo-row--vis" : ""}`}>
+              <div className={`oz-logo-dot oz-logo-dot--${mode}`} />
+              <span className={`oz-logo-txt oz-logo-txt--${mode}`}>
+                TrishulHub
+              </span>
             </div>
-          </section>
 
-          {/* ═══════════════════════════════════════
-              SECTION 2 — FEATURES
-              ═══════════════════════════════════════ */}
-          <section
-            className="oz-section oz-section--features"
-            ref={features.ref}
-          >
-            <div className="oz-section-inner oz-section-inner--features">
-              {/* Section label */}
-              <div
-                className={`oz-section-label oz-section-label--${mode} ${features.visible ? "oz-reveal" : ""}`}
-              >
-                <div className="oz-section-label-line" />
-                <span>What makes it different</span>
-                <div className="oz-section-label-line" />
-              </div>
+            {/* Tagline upper */}
+            <p className={`oz-tag-upper oz-tag-upper--${mode} ${hero.visible ? "oz-reveal" : ""}`}>
+              Your Personal
+            </p>
 
-              {/* Feature cards */}
-              <div className="oz-features-grid">
-                {FEATURES.map((f, i) => (
-                  <div
-                    key={f.label}
-                    className={`oz-feature-card oz-feature-card--${mode} ${features.visible ? "oz-feature-card--in" : ""}`}
-                    style={{ transitionDelay: `${0.2 + i * 0.18}s` }}
-                  >
-                    <div
-                      className={`oz-feature-icon-wrap oz-feature-icon-wrap--${mode}`}
-                    >
-                      <f.icon
-                        size={22}
-                        strokeWidth={1.5}
-                        className={`oz-feature-icon oz-feature-icon--${mode}`}
-                      />
-                    </div>
-                    <span
-                      className={`oz-feature-name oz-feature-name--${mode}`}
-                    >
-                      {f.label}
-                    </span>
-                    <p className={`oz-feature-desc oz-feature-desc--${mode}`}>
-                      {f.label === "Secured"
-                        ? "Enterprise-grade security with end-to-end encryption and zero-trust architecture protecting every layer of your data."
-                        : f.label === "AI Powered"
-                        ? "Intelligent automation and machine learning models that adapt to your workflow and amplify productivity at every step."
-                        : "Built on cloud-native infrastructure with auto-scaling, global CDN, and 99.99% uptime guaranteed."}
-                    </p>
-                    <div
-                      className={`oz-feature-dash oz-feature-dash--${mode}`}
+            {/* Main Title — character reveal */}
+            <h1 className={`oz-title oz-title--${mode}`}>
+              {TRISHUL_CHARS.map((ch, i) => (
+                <span
+                  key={i}
+                  className={`oz-char ${hero.visible ? "oz-char--in" : ""}`}
+                  style={{ transitionDelay: `${0.15 + i * 0.045}s` }}
+                >
+                  {ch}
+                </span>
+              ))}
+            </h1>
+
+            {/* Tagline lower */}
+            <p className={`oz-tag-lower oz-tag-lower--${mode} ${hero.visible ? "oz-reveal" : ""}`}>
+              Workspace
+            </p>
+
+            {/* Typewriter */}
+            <div className={`oz-typewriter ${hero.visible ? "oz-typewriter--on" : ""}`}>
+              <div className={`oz-type-dot oz-type-dot--${mode}`} />
+              <span className={`oz-type-text oz-type-text--${mode}`}>
+                {typedText}
+                <span className={`oz-type-cursor ${typingDone ? "oz-type-cursor--blink" : ""}`} />
+              </span>
+            </div>
+
+            {/* Scroll hint */}
+            <div className={`oz-scroll-hint ${hero.visible ? "oz-scroll-hint--vis" : ""}`}>
+              <div className={`oz-scroll-hint-line oz-scroll-hint-line--${mode}`} />
+              <span className={`oz-scroll-hint-text oz-scroll-hint-text--${mode}`}>
+                Scroll to explore
+              </span>
+              <ChevronDown
+                size={14}
+                className={`oz-scroll-hint-icon oz-scroll-hint-icon--${mode}`}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════
+            SECTION 2 — FEATURES
+            ═══════════════════════════════════════ */}
+        <section
+          className="oz-section oz-section--features"
+          ref={mergeRef(1, features.ref)}
+        >
+          <div className="oz-section-inner oz-section-inner--features">
+            {/* Section label */}
+            <div className={`oz-section-label oz-section-label--${mode} ${features.visible ? "oz-reveal" : ""}`}>
+              <div className="oz-section-label-line" />
+              <span>What makes it different</span>
+              <div className="oz-section-label-line" />
+            </div>
+
+            {/* Feature cards */}
+            <div className="oz-features-grid">
+              {FEATURES.map((f, i) => (
+                <div
+                  key={f.label}
+                  className={`oz-feature-card oz-feature-card--${mode} ${features.visible ? "oz-feature-card--in" : ""}`}
+                  style={{ transitionDelay: `${0.2 + i * 0.18}s` }}
+                >
+                  <div className={`oz-feature-icon-wrap oz-feature-icon-wrap--${mode}`}>
+                    <f.icon
+                      size={22}
+                      strokeWidth={1.5}
+                      className={`oz-feature-icon oz-feature-icon--${mode}`}
                     />
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ═══════════════════════════════════════
-              SECTION 3 — LAUNCH / ACTIONS
-              ═══════════════════════════════════════ */}
-          <section
-            className="oz-section oz-section--launch"
-            ref={launch.ref}
-          >
-            <div className="oz-section-inner oz-section-inner--launch">
-              {/* Section label */}
-              <div
-                className={`oz-section-label oz-section-label--${mode} ${launch.visible ? "oz-reveal" : ""}`}
-              >
-                <div className="oz-section-label-line" />
-                <span>Ready to begin</span>
-                <div className="oz-section-label-line" />
-              </div>
-
-              {/* START Button */}
-              <div
-                className={`oz-launch-btn-wrap ${launch.visible ? "oz-launch-btn-wrap--in" : ""}`}
-              >
-                <button
-                  onClick={handleStart}
-                  className={`oz-launch-btn oz-launch-btn--${mode}`}
-                  type="button"
-                >
-                  <span className="oz-launch-btn-inner">
-                    <Zap size={18} strokeWidth={2.5} />
-                    <span>START</span>
-                    <ArrowUpRight size={16} />
+                  <span className={`oz-feature-name oz-feature-name--${mode}`}>
+                    {f.label}
                   </span>
-                  <span className="oz-launch-btn-glow" aria-hidden />
-                </button>
-                <p className={`oz-launch-hint oz-launch-hint--${mode}`}>
-                  Opens workspace in a new tab
-                </p>
-              </div>
+                  <p className={`oz-feature-desc oz-feature-desc--${mode}`}>
+                    {f.label === "Secured"
+                      ? "Enterprise-grade security with end-to-end encryption and zero-trust architecture protecting every layer of your data."
+                      : f.label === "AI Powered"
+                      ? "Intelligent automation and machine learning models that adapt to your workflow and amplify productivity at every step."
+                      : "Built on cloud-native infrastructure with auto-scaling, global CDN, and 99.99% uptime guaranteed."}
+                  </p>
+                  <div className={`oz-feature-dash oz-feature-dash--${mode}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-              {/* Dashed separator */}
-              <div
-                className={`oz-launch-sep oz-launch-sep--${mode} ${launch.visible ? "oz-reveal" : ""}`}
-              />
+        {/* ═══════════════════════════════════════
+            SECTION 3 — LAUNCH / ACTIONS
+            ═══════════════════════════════════════ */}
+        <section
+          className="oz-section oz-section--launch"
+          ref={mergeRef(2, launch.ref)}
+        >
+          <div className="oz-section-inner oz-section-inner--launch">
+            {/* Section label */}
+            <div className={`oz-section-label oz-section-label--${mode} ${launch.visible ? "oz-reveal" : ""}`}>
+              <div className="oz-section-label-line" />
+              <span>Ready to begin</span>
+              <div className="oz-section-label-line" />
+            </div>
 
-              {/* Credentials Card */}
+            {/* START Button */}
+            <div className={`oz-launch-btn-wrap ${launch.visible ? "oz-launch-btn-wrap--in" : ""}`}>
               <button
-                onClick={handleCredentials}
-                className={`oz-cred-card oz-cred-card--${mode} ${launch.visible ? "oz-cred-card--in" : ""}`}
+                onClick={handleStart}
+                className={`oz-launch-btn oz-launch-btn--${mode}`}
                 type="button"
               >
-                <div className="oz-cred-top">
-                  <div
-                    className={`oz-cred-icon oz-cred-icon--${mode}`}
-                  >
-                    <KeyRound size={18} />
-                  </div>
-                  <ArrowUpRight
-                    size={14}
-                    className={`oz-cred-arrow oz-cred-arrow--${mode}`}
-                  />
-                </div>
-                <div className="oz-cred-body">
-                  <span className={`oz-cred-title oz-cred-title--${mode}`}>
-                    Claim Credentials
-                  </span>
-                  <span className={`oz-cred-desc oz-cred-desc--${mode}`}>
-                    Get your ID & Password
-                  </span>
-                </div>
-                <div className={`oz-cred-dash oz-cred-dash--${mode}`} />
+                <span className="oz-launch-btn-inner">
+                  <Zap size={18} strokeWidth={2.5} />
+                  <span>START</span>
+                  <ArrowUpRight size={16} />
+                </span>
+                <span className="oz-launch-btn-glow" aria-hidden />
               </button>
-
-              {/* Status */}
-              <div
-                className={`oz-status ${launch.visible ? "oz-reveal" : ""}`}
-              >
-                <div className={`oz-status-dot oz-status-dot--${mode}`} />
-                <span className={`oz-status-text oz-status-text--${mode}`}>
-                  Protocol v5.0
-                </span>
-              </div>
+              <p className={`oz-launch-hint oz-launch-hint--${mode}`}>
+                Opens workspace in a new tab
+              </p>
             </div>
-          </section>
 
-          {/* ═══════════════════════════════════════
-              SECTION 4 — WELCOME
-              ═══════════════════════════════════════ */}
-          <section
-            className="oz-section oz-section--welcome"
-            ref={welcome.ref}
-          >
-            <div className="oz-section-inner oz-section-inner--welcome">
-              <div
-                className={`oz-welcome-card oz-welcome-card--${mode} ${welcome.visible ? "oz-welcome-card--in" : ""}`}
-              >
-                <div className="oz-welcome-glow" aria-hidden />
-                <p className={`oz-welcome-label oz-welcome-label--${mode}`}>
-                  Welcome back,
-                </p>
-                <h2 className={`oz-welcome-name oz-welcome-name--${mode}`}>
-                  {userName}
-                </h2>
-                <div className={`oz-welcome-role-wrap`}>
-                  <span className={`oz-welcome-role oz-welcome-role--${mode}`}>
-                    {userRole.toUpperCase()}
-                  </span>
+            {/* Dashed separator */}
+            <div className={`oz-launch-sep oz-launch-sep--${mode} ${launch.visible ? "oz-reveal" : ""}`} />
+
+            {/* Credentials Card */}
+            <button
+              onClick={handleCredentials}
+              className={`oz-cred-card oz-cred-card--${mode} ${launch.visible ? "oz-cred-card--in" : ""}`}
+              type="button"
+            >
+              <div className="oz-cred-top">
+                <div className={`oz-cred-icon oz-cred-icon--${mode}`}>
+                  <KeyRound size={18} />
                 </div>
-                <div className={`oz-welcome-dash oz-welcome-dash--${mode}`} />
-                <p className={`oz-welcome-msg oz-welcome-msg--${mode}`}>
-                  Your workspace is ready. Dive in and build something extraordinary today.
-                </p>
+                <ArrowUpRight
+                  size={14}
+                  className={`oz-cred-arrow oz-cred-arrow--${mode}`}
+                />
               </div>
-
-              {/* Footer dot */}
-              <div
-                className={`oz-footer-badge ${welcome.visible ? "oz-reveal" : ""}`}
-              >
-                <div className={`oz-footer-badge-dot oz-footer-badge-dot--${mode}`} />
-                <span className={`oz-footer-badge-text oz-footer-badge-text--${mode}`}>
-                  TRISHULHUB WORKSPACE v4.0
+              <div className="oz-cred-body">
+                <span className={`oz-cred-title oz-cred-title--${mode}`}>
+                  Claim Credentials
+                </span>
+                <span className={`oz-cred-desc oz-cred-desc--${mode}`}>
+                  Get your ID & Password
                 </span>
               </div>
+              <div className={`oz-cred-dash oz-cred-dash--${mode}`} />
+            </button>
+
+            {/* Status */}
+            <div className={`oz-status ${launch.visible ? "oz-reveal" : ""}`}>
+              <div className={`oz-status-dot oz-status-dot--${mode}`} />
+              <span className={`oz-status-text oz-status-text--${mode}`}>
+                Protocol v5.0
+              </span>
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════
+            SECTION 4 — WELCOME
+            ═══════════════════════════════════════ */}
+        <section
+          className="oz-section oz-section--welcome"
+          ref={mergeRef(3, welcome.ref)}
+        >
+          <div className="oz-section-inner oz-section-inner--welcome">
+            <div className={`oz-welcome-card oz-welcome-card--${mode} ${welcome.visible ? "oz-welcome-card--in" : ""}`}>
+              <div className="oz-welcome-glow" aria-hidden />
+              <p className={`oz-welcome-label oz-welcome-label--${mode}`}>
+                Welcome back,
+              </p>
+              <h2 className={`oz-welcome-name oz-welcome-name--${mode}`}>
+                {userName}
+              </h2>
+              <div className="oz-welcome-role-wrap">
+                <span className={`oz-welcome-role oz-welcome-role--${mode}`}>
+                  {userRole.toUpperCase()}
+                </span>
+              </div>
+              <div className={`oz-welcome-dash oz-welcome-dash--${mode}`} />
+              <p className={`oz-welcome-msg oz-welcome-msg--${mode}`}>
+                Your workspace is ready. Dive in and build something extraordinary today.
+              </p>
+            </div>
+
+            {/* Footer badge */}
+            <div className={`oz-footer-badge ${welcome.visible ? "oz-reveal" : ""}`}>
+              <div className={`oz-footer-badge-dot oz-footer-badge-dot--${mode}`} />
+              <span className={`oz-footer-badge-text oz-footer-badge-text--${mode}`}>
+                TRISHULHUB WORKSPACE v4.0
+              </span>
+            </div>
+          </div>
+        </section>
 
         {/* ═══ RIGHT EDGE — Scroll Progress + Section Labels ═══ */}
         <div className="oz-rail">
@@ -506,19 +497,9 @@ export default function TrishulWorkspacePage() {
                 key={label}
                 className={`oz-rail-label ${activeSection === i ? "oz-rail-label--active" : ""}`}
                 type="button"
-                onClick={() => {
-                  const container = scrollRef.current;
-                  if (container) {
-                    container.scrollTo({
-                      top: i * container.clientHeight,
-                      behavior: "smooth",
-                    });
-                  }
-                }}
+                onClick={() => scrollToSection(i)}
               >
-                <div
-                  className={`oz-rail-dot oz-rail-dot--${mode} ${activeSection >= i ? "oz-rail-dot--passed" : ""}`}
-                />
+                <div className={`oz-rail-dot oz-rail-dot--${mode} ${activeSection >= i ? "oz-rail-dot--passed" : ""}`} />
                 <span className={`oz-rail-label-text oz-rail-label-text--${mode}`}>
                   {label}
                 </span>
@@ -529,7 +510,7 @@ export default function TrishulWorkspacePage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════
-         STYLES — ORYZO v4.0
+         STYLES — ORYZO v4.1
          ═══════════════════════════════════════════════════════ */}
       <style jsx global>{`
         @media (pointer: coarse) {
@@ -537,12 +518,11 @@ export default function TrishulWorkspacePage() {
         }
 
         /* ═════════════════════════
-           ROOT
+           ROOT — NO custom scroll container,
+           let the page flow naturally.
            ═════════════════════════ */
         .oz-root {
           position: relative;
-          height: 100%;
-          overflow: hidden;
           margin: -1.25rem;
           margin-top: -1.25rem;
           background: #0c0906;
@@ -596,23 +576,12 @@ export default function TrishulWorkspacePage() {
         }
 
         /* ═════════════════════════
-           SCROLL CONTAINER
-           ═════════════════════════ */
-        .oz-scroll-container {
-          position: relative; z-index: 10;
-          height: 100%;
-          overflow-y: auto;
-          overflow-x: hidden;
-          scroll-behavior: auto;
-          -webkit-overflow-scrolling: touch;
-        }
-        .oz-scroll-container::-webkit-scrollbar { width: 0; display: none; }
-
-        /* ═════════════════════════
-           SECTIONS — Base
+           SECTIONS — Each fills 100vh
+           so user MUST scroll between them
            ═════════════════════════ */
         .oz-section {
           min-height: 100vh;
+          min-height: 100dvh;
           display: flex;
           align-items: center;
           justify-content: center;
