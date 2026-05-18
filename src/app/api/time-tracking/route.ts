@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { startTimeEntrySchema, validateRequest } from "@/lib/validations"
+import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/time-tracking - List time entries with filters
@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/time-tracking - Start a new timer (clock in)
+// POST /api/time-tracking - Start a new timer (clock in) OR admin manual entry creation
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -148,6 +148,9 @@ export async function POST(req: NextRequest) {
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userId = session.user.id
+    const userRole = session.user.role
+    const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+
     let body: Record<string, unknown>
     try {
       body = await req.json()
@@ -155,6 +158,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
+    // ── Admin manual entry creation path ──
+    if (isAdminUser && body.userId && typeof body.userId === "string" && body.clockIn) {
+      const validation = validateRequest(adminCreateTimeEntrySchema, body)
+      if (!validation.success) {
+        return NextResponse.json({ error: validation.error }, { status: 400 })
+      }
+
+      const { userId: targetUserId, projectId, description, clockIn, clockOut } = validation.data
+
+      // Validate the target user exists
+      const targetUser = await db.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, name: true, role: true },
+      })
+      if (!targetUser) {
+        return NextResponse.json({ error: "Target user not found" }, { status: 404 })
+      }
+
+      // Validate project exists if provided
+      if (projectId) {
+        const project = await db.project.findUnique({ where: { id: projectId } })
+        if (!project) {
+          return NextResponse.json({ error: "Project not found" }, { status: 404 })
+        }
+      }
+
+      const clockInDate = new Date(clockIn)
+      const entryStatus = clockOut ? "COMPLETED" : "ACTIVE"
+      const totalHours = clockOut
+        ? Math.round((new Date(clockOut).getTime() - clockInDate.getTime()) / (1000 * 60 * 60) * 100) / 100
+        : null
+
+      const entry = await db.timeEntry.create({
+        data: {
+          userId: targetUserId,
+          projectId: projectId || null,
+          description: description || null,
+          status: entryStatus,
+          clockIn: clockInDate,
+          clockOut: clockOut ? new Date(clockOut) : null,
+          totalHours,
+          date: clockInDate,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+          project: { select: { id: true, name: true } },
+        },
+      })
+
+      return NextResponse.json(entry, { status: 201 })
+    }
+
+    // ── Normal timer start path ──
     const validation = validateRequest(startTimeEntrySchema, body)
     if (!validation.success) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
@@ -163,10 +219,6 @@ export async function POST(req: NextRequest) {
     const { projectId, description } = validation.data
 
     // Check: user can only have ONE active timer at a time
-    // NOTE: SQLite/Prisma doesn't support unique partial indexes easily,
-    // so we use a double-check pattern. The first check catches the common case;
-    // the second check right before create catches race conditions between
-    // two concurrent POST requests.
     const activeEntry = await db.timeEntry.findFirst({
       where: { userId, status: "ACTIVE" },
     })
@@ -209,7 +261,7 @@ export async function POST(req: NextRequest) {
         date: now,
       },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
         project: { select: { id: true, name: true } },
       },
     })

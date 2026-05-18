@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
-  RefreshCw, AlertCircle, Loader2, UserCheck,
+  RefreshCw, AlertCircle, Loader2, UserCheck, Pencil, Plus, Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -147,6 +147,22 @@ function getDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Convert ISO string to datetime-local input format (YYYY-MM-DDTHH:MM)
+function toDatetimeLocal(isoStr: string): string {
+  const d = new Date(isoStr);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// Convert datetime-local input value to ISO string
+function fromDatetimeLocal(localStr: string): string {
+  return new Date(localStr).toISOString();
+}
+
 // [FIX M3: Proper CSV escaping]
 function escapeCSV(value: string): string {
   if (value.includes('"') || value.includes(",") || value.includes("\n") || value.includes("\r")) {
@@ -207,6 +223,26 @@ export default function TimeTrackingPage() {
   const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
   const [activeElapsedMap, setActiveElapsedMap] = useState<Record<string, number>>({});
   const activeElapsedRef = useRef<Record<string, number>>({});
+
+  // Admin: Add entry dialog
+  const [addEntryOpen, setAddEntryOpen] = useState(false);
+  const [addEntryUserId, setAddEntryUserId] = useState("");
+  const [addEntryProjectId, setAddEntryProjectId] = useState("");
+  const [addEntryDescription, setAddEntryDescription] = useState("");
+  const [addEntryClockIn, setAddEntryClockIn] = useState("");
+  const [addEntryClockOut, setAddEntryClockOut] = useState("");
+  const [addEntrySaving, setAddEntrySaving] = useState(false);
+
+  // Admin: Edit entry dialog
+  const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
+  const [editDescription, setEditDescription] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editClockIn, setEditClockIn] = useState("");
+  const [editClockOut, setEditClockOut] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  // View description dialog
+  const [viewDescriptionEntry, setViewDescriptionEntry] = useState<TimeEntry | null>(null);
 
   // ── Fetch entries ──
   const fetchEntries = useCallback(async (signal?: AbortSignal) => {
@@ -427,6 +463,96 @@ export default function TimeTrackingPage() {
     }
   }, [isAdminUser, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
 
+  // ── Admin: Add entry handler ──
+  const handleAdminAddEntry = useCallback(async () => {
+    if (!addEntryUserId || !addEntryClockIn) {
+      toast.error("Employee and clock-in time are required");
+      return;
+    }
+    setAddEntrySaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        userId: addEntryUserId,
+        clockIn: fromDatetimeLocal(addEntryClockIn),
+      };
+      if (addEntryProjectId && addEntryProjectId !== "none") payload.projectId = addEntryProjectId;
+      if (addEntryDescription) payload.description = addEntryDescription;
+      if (addEntryClockOut) payload.clockOut = fromDatetimeLocal(addEntryClockOut);
+
+      const res = await fetch("/api/time-tracking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        toast.success("Time entry created successfully");
+        setAddEntryOpen(false);
+        setAddEntryUserId("");
+        setAddEntryProjectId("");
+        setAddEntryDescription("");
+        setAddEntryClockIn("");
+        setAddEntryClockOut("");
+        fetchEntries();
+        if (activeTab === "team") fetchTeamLogs();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to create entry");
+      }
+    } catch {
+      toast.error("Failed to create entry");
+    } finally {
+      setAddEntrySaving(false);
+    }
+  }, [addEntryUserId, addEntryClockIn, addEntryProjectId, addEntryDescription, addEntryClockOut, activeTab, fetchEntries, fetchTeamLogs]);
+
+  // ── Admin: Edit entry handler ──
+  const openEditDialog = useCallback((entry: TimeEntry) => {
+    setEditEntry(entry);
+    setEditDescription(entry.description || "");
+    setEditProjectId(entry.projectId || "none");
+    setEditClockIn(toDatetimeLocal(entry.clockIn));
+    setEditClockOut(entry.clockOut ? toDatetimeLocal(entry.clockOut) : "");
+  }, []);
+
+  const handleAdminEditEntry = useCallback(async () => {
+    if (!editEntry) return;
+    setEditSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        id: editEntry.id,
+        description: editDescription || undefined,
+        projectId: editProjectId === "none" ? null : (editProjectId || undefined),
+        clockIn: fromDatetimeLocal(editClockIn),
+      };
+      if (editClockOut) {
+        payload.clockOut = fromDatetimeLocal(editClockOut);
+      } else {
+        payload.clockOut = null;
+      }
+
+      const res = await fetch(`/api/time-tracking/${editEntry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        toast.success("Entry updated successfully");
+        setEditEntry(null);
+        fetchEntries();
+        if (activeTab === "team") fetchTeamLogs();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to update entry");
+      }
+    } catch {
+      toast.error("Failed to update entry");
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editEntry, editDescription, editProjectId, editClockIn, editClockOut, activeTab, fetchEntries, fetchTeamLogs]);
+
   // ── Delete entry ──
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -627,6 +753,11 @@ export default function TimeTrackingPage() {
       {/* Header */}
       <PageHeader title="Time Tracking" description="Track your work hours and manage time entries">
         <div className="flex items-center gap-2">
+          {isAdminUser && (
+            <Button size="sm" onClick={() => setAddEntryOpen(true)} className="bg-green-600 hover:bg-green-700 text-white">
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Entry
+            </Button>
+          )}
           {/* [FIX M7: Add refresh button] */}
           <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchEntries(); }}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -928,7 +1059,7 @@ export default function TimeTrackingPage() {
                         <TableHead>Clock In</TableHead>
                         <TableHead>Clock Out</TableHead>
                         <TableHead>Duration</TableHead>
-                        <TableHead className="w-12"></TableHead>
+                        {isAdminUser && <TableHead className="w-20">Actions</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -939,7 +1070,10 @@ export default function TimeTrackingPage() {
                               {entry.project?.name || "No Project"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                          <TableCell
+                            className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
+                            onClick={() => entry.description && setViewDescriptionEntry(entry)}
+                          >
                             {entry.description || "\u2014"}
                           </TableCell>
                           <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
@@ -949,17 +1083,30 @@ export default function TimeTrackingPage() {
                           <TableCell className="text-sm font-medium tabular-nums">
                             {formatHours(entry.totalHours)}
                           </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => setDeleteId(entry.id)}
-                              aria-label="Delete time entry"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </TableCell>
+                          {isAdminUser && (
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  onClick={() => openEditDialog(entry)}
+                                  aria-label="Edit time entry"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteId(entry.id)}
+                                  aria-label="Delete time entry"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1041,10 +1188,22 @@ export default function TimeTrackingPage() {
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Team Time Logs</CardTitle>
-                  <Button variant="outline" size="sm" onClick={exportCSV} disabled={teamEntries.length === 0}>
-                    <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-                  </Button>
+                  <CardTitle className="text-base">
+                    Team Time Logs
+                    {teamEntries.length > 0 && (
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                        ({teamEntries.reduce((s, e) => s + (e.totalHours || 0), 0).toFixed(1)}h total)
+                      </span>
+                    )}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={() => setAddEntryOpen(true)} className="bg-green-600 hover:bg-green-700 text-white">
+                      <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Entry
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={exportCSV} disabled={teamEntries.length === 0}>
+                      <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1071,6 +1230,7 @@ export default function TimeTrackingPage() {
                           <TableHead>Clock In</TableHead>
                           <TableHead>Clock Out</TableHead>
                           <TableHead>Duration</TableHead>
+                          <TableHead className="w-20">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1084,7 +1244,10 @@ export default function TimeTrackingPage() {
                                 {entry.project?.name || "No Project"}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                            <TableCell
+                              className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
+                              onClick={() => entry.description && setViewDescriptionEntry(entry)}
+                            >
                               {entry.description || "\u2014"}
                             </TableCell>
                             <TableCell className="text-sm">{formatDate(entry.date)}</TableCell>
@@ -1094,6 +1257,28 @@ export default function TimeTrackingPage() {
                             </TableCell>
                             <TableCell className="text-sm font-medium tabular-nums">
                               {formatHours(entry.totalHours)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  onClick={() => openEditDialog(entry)}
+                                  aria-label="Edit time entry"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteId(entry.id)}
+                                  aria-label="Delete time entry"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1305,6 +1490,259 @@ export default function TimeTrackingPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* View Description Dialog */}
+      <Dialog open={!!viewDescriptionEntry} onOpenChange={(open) => !open && setViewDescriptionEntry(null)}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Entry Details
+            </DialogTitle>
+          </DialogHeader>
+          {viewDescriptionEntry && (
+            <div className="space-y-4">
+              {viewDescriptionEntry.user && (
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={viewDescriptionEntry.user.avatar || ""} alt={viewDescriptionEntry.user.name || ""} />
+                    <AvatarFallback className="text-xs">
+                      {viewDescriptionEntry.user.name?.charAt(0)?.toUpperCase() || "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-sm font-medium">{viewDescriptionEntry.user.name}</p>
+                    {viewDescriptionEntry.project && (
+                      <p className="text-xs text-muted-foreground">{viewDescriptionEntry.project.name}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Clock In</p>
+                  <p className="font-medium tabular-nums">{formatTime(viewDescriptionEntry.clockIn)}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Clock Out</p>
+                  <p className="font-medium tabular-nums">{viewDescriptionEntry.clockOut ? formatTime(viewDescriptionEntry.clockOut) : "Active"}</p>
+                </div>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground mb-1">Duration</p>
+                <p className="font-medium">{formatHours(viewDescriptionEntry.totalHours)}</p>
+              </div>
+              {viewDescriptionEntry.description && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1.5">Description</p>
+                  <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                    {viewDescriptionEntry.description}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDescriptionEntry(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Entry Dialog (Admin) */}
+      <Dialog open={!!editEntry} onOpenChange={(open) => { if (!open) setEditEntry(null); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Edit Time Entry
+            </DialogTitle>
+            <DialogDescription>Modify this time entry. Changes will recalculate duration automatically.</DialogDescription>
+          </DialogHeader>
+          {editEntry && (
+            <div className="space-y-4">
+              {/* User info (read-only) */}
+              <div className="flex items-center gap-3 bg-muted/30 rounded-lg p-3">
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={editEntry.user?.avatar || ""} alt={editEntry.user?.name || ""} />
+                  <AvatarFallback className="text-xs">
+                    {editEntry.user?.name?.charAt(0)?.toUpperCase() || "?"}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="text-sm font-medium">{editEntry.user?.name || "Unknown"}</p>
+                  <p className="text-xs text-muted-foreground">{formatDate(editEntry.date)}</p>
+                </div>
+              </div>
+
+              {/* Project */}
+              <div className="space-y-2">
+                <Label>Project</Label>
+                <Select value={editProjectId} onValueChange={setEditProjectId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select project..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Project</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value.slice(0, 1000))}
+                  placeholder="What was worked on..."
+                  rows={3}
+                  maxLength={1000}
+                  className="resize-none"
+                />
+              </div>
+
+              {/* Clock In / Clock Out */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Clock In</Label>
+                  <Input
+                    type="datetime-local"
+                    value={editClockIn}
+                    onChange={(e) => setEditClockIn(e.target.value)}
+                    className="tabular-nums"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Clock Out <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <Input
+                    type="datetime-local"
+                    value={editClockOut}
+                    onChange={(e) => setEditClockOut(e.target.value)}
+                    className="tabular-nums"
+                  />
+                </div>
+              </div>
+
+              {/* Preview calculated duration */}
+              {editClockIn && editClockOut && (
+                <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  Calculated duration:{" "}
+                  <span className="font-medium text-foreground">
+                    {(() => {
+                      const diff = new Date(editClockOut).getTime() - new Date(editClockIn).getTime();
+                      return diff > 0 ? formatHours(diff / (1000 * 60 * 60)) : "Invalid (clock-out before clock-in)";
+                    })()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEditEntry(null)}>Cancel</Button>
+            <Button onClick={handleAdminEditEntry} disabled={editSaving || !editClockIn}>
+              {editSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Entry Dialog (Admin) */}
+      <Dialog open={addEntryOpen} onOpenChange={(open) => { if (!open) setAddEntryOpen(false); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Add Time Entry
+            </DialogTitle>
+            <DialogDescription>Manually create a time entry for any team member.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Employee */}
+            <div className="space-y-2">
+              <Label>Employee <span className="text-destructive">*</span></Label>
+              <Select value={addEntryUserId} onValueChange={setAddEntryUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select employee..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Project */}
+            <div className="space-y-2">
+              <Label>Project</Label>
+              <Select value={addEntryProjectId} onValueChange={setAddEntryProjectId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select project..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={addEntryDescription}
+                onChange={(e) => setAddEntryDescription(e.target.value.slice(0, 1000))}
+                placeholder="What was worked on..."
+                rows={3}
+                maxLength={1000}
+                className="resize-none"
+              />
+            </div>
+
+            {/* Clock In / Clock Out */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Clock In <span className="text-destructive">*</span></Label>
+                <Input
+                  type="datetime-local"
+                  value={addEntryClockIn}
+                  onChange={(e) => setAddEntryClockIn(e.target.value)}
+                  className="tabular-nums"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Clock Out <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Input
+                  type="datetime-local"
+                  value={addEntryClockOut}
+                  onChange={(e) => setAddEntryClockOut(e.target.value)}
+                  className="tabular-nums"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {addEntryClockOut
+                ? "Entry will be created as completed with calculated duration."
+                : "Entry will be created as active (running timer) if no clock-out is set."}
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setAddEntryOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleAdminAddEntry}
+              disabled={addEntrySaving || !addEntryUserId || !addEntryClockIn}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {addEntrySaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <><Plus className="h-4 w-4 mr-2" />Create Entry</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

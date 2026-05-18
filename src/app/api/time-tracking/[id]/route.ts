@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { updateTimeEntrySchema, validateRequest } from "@/lib/validations"
+import { updateTimeEntrySchema, adminUpdateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // PATCH /api/time-tracking/[id] - Stop timer (clock out) or update entry
@@ -31,11 +31,6 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const validation = validateRequest(updateTimeEntrySchema, { ...body, id })
-    if (!validation.success) {
-      return NextResponse.json({ error: validation.error }, { status: 400 })
-    }
-
     // Check entry exists and user has access
     const existing = await db.timeEntry.findUnique({ where: { id } })
     if (!existing) {
@@ -44,6 +39,66 @@ export async function PATCH(
 
     if (!isAdmin && existing.userId !== userId) {
       return NextResponse.json({ error: "You can only update your own entries" }, { status: 403 })
+    }
+
+    // ── Admin edit path (can modify clockIn, clockOut, description, projectId) ──
+    if (isAdmin && (body.clockIn !== undefined || body.clockOut !== undefined || body.projectId !== undefined && body.status === undefined)) {
+      // Check if this is an admin edit request (has clockIn or clockOut fields)
+      const isAdminEdit = body.clockIn !== undefined || body.clockOut !== undefined
+      if (isAdminEdit) {
+        const validation = validateRequest(adminUpdateTimeEntrySchema, { ...body, id })
+        if (!validation.success) {
+          return NextResponse.json({ error: validation.error }, { status: 400 })
+        }
+
+        const { description, projectId, clockIn, clockOut } = validation.data
+        const updateData: Record<string, unknown> = {}
+
+        if (description !== undefined) updateData.description = description
+        if (projectId !== undefined) updateData.projectId = projectId || null
+
+        if (clockIn) {
+          updateData.clockIn = new Date(clockIn)
+          updateData.date = new Date(clockIn)
+        }
+
+        if (clockOut !== undefined) {
+          if (clockOut === null) {
+            // Admin clearing clockOut: set back to ACTIVE
+            updateData.clockOut = null
+            updateData.status = "ACTIVE"
+            updateData.totalHours = null
+          } else {
+            // Admin setting clockOut: calculate totalHours, set COMPLETED
+            updateData.clockOut = new Date(clockOut)
+            updateData.status = "COMPLETED"
+            const effectiveClockIn = clockIn ? new Date(clockIn) : new Date(existing.clockIn)
+            const diffMs = new Date(clockOut).getTime() - effectiveClockIn.getTime()
+            updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
+          }
+        } else if (clockIn && existing.clockOut) {
+          // clockIn changed but clockOut unchanged: recalculate totalHours
+          const diffMs = new Date(existing.clockOut).getTime() - new Date(clockIn).getTime()
+          updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
+        }
+
+        const entry = await db.timeEntry.update({
+          where: { id },
+          data: updateData,
+          include: {
+            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+            project: { select: { id: true, name: true } },
+          },
+        })
+
+        return NextResponse.json(entry)
+      }
+    }
+
+    // ── Normal update path ──
+    const validation = validateRequest(updateTimeEntrySchema, { ...body, id })
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
     const { description, projectId, status } = validation.data
@@ -73,7 +128,7 @@ export async function PATCH(
       where: { id },
       data: updateData,
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
         project: { select: { id: true, name: true } },
       },
     })

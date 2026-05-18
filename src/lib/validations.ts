@@ -341,3 +341,35 @@ export const updateContactSchema = z.object({
   notes: z.string().max(5000).optional(),
   isPrimary: z.boolean().optional(),
 })
+
+// Admin manual entry creation (can specify userId, clockIn, clockOut)
+export const adminCreateTimeEntrySchema = z.object({
+  userId: z.string().min(1, "User ID is required"),
+  projectId: z.string().optional(),
+  description: z.string().max(1000).optional(),
+  clockIn: z.string().min(1, "Clock-in time is required"), // ISO date string
+  clockOut: z.string().optional(), // ISO date string - if provided, entry is COMPLETED
+}).refine(data => {
+  if (data.clockOut) {
+    const clockIn = new Date(data.clockIn);
+    const clockOut = new Date(data.clockOut);
+    return clockOut > clockIn; // clockOut must be after clockIn
+  }
+  return true;
+}, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
+
+// Admin update entry (can edit clockIn, clockOut, description, projectId)
+export const adminUpdateTimeEntrySchema = z.object({
+  id: z.string().min(1),
+  description: z.string().max(1000).optional(),
+  projectId: z.string().nullable().optional(),
+  clockIn: z.string().optional(), // ISO date string
+  clockOut: z.string().nullable().optional(), // ISO date string (null to clear)
+}).refine(data => {
+  if (data.clockIn && data.clockOut) {
+    const clockIn = new Date(data.clockIn);
+    const clockOut = new Date(data.clockOut);
+    return clockOut > clockIn;
+  }
+  return true;
+}, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
