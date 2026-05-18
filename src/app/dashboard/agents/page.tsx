@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { ArrowUpRight, KeyRound, Zap, Shield, Globe } from "lucide-react";
+import { ArrowUpRight, KeyRound, Zap, Shield, Globe, Terminal } from "lucide-react";
 
-/* ══════════════════════════════════════════════════════
-   NEXUS — Original TrishulHub Workspace
-   ══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   NOVA — TrishulHub Immersive Workspace v2.0
+   Cinematic command-center experience with interactive parallax,
+   aurora waves, constellation network, and glassmorphism.
+   ═══════════════════════════════════════════════════════════════ */
 
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
@@ -28,14 +30,14 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* ── Entrance animation trigger ── */
+  /* ── Entrance animation ── */
   const [entered, setEntered] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setEntered(true), 100);
+    const t = setTimeout(() => setEntered(true), 80);
     return () => clearTimeout(t);
   }, []);
 
-  /* ── Typewriter effect for tagline ── */
+  /* ── Typewriter effect ── */
   const tagline = "I am ready to cook.";
   const [typedText, setTypedText] = useState("");
   const [typingDone, setTypingDone] = useState(false);
@@ -50,23 +52,124 @@ export default function TrishulWorkspacePage() {
         clearInterval(interval);
         setTypingDone(true);
       }
-    }, 55);
+    }, 50);
     return () => clearInterval(interval);
   }, [entered]);
 
-  /* ── Floating particles (pure CSS via refs) ── */
-  const particleCount = 30;
-  const particles = useRef(
-    Array.from({ length: particleCount }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 3 + 1,
-      duration: Math.random() * 20 + 15,
-      delay: Math.random() * 10,
-      opacity: Math.random() * 0.4 + 0.1,
-    }))
-  );
+  /* ── Interactive mouse parallax ── */
+  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight };
+    };
+    window.addEventListener("mousemove", handleMove, { passive: true });
+    const loop = () => {
+      setMousePos({ ...mouseRef.current });
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  const parallaxX = (mousePos.x - 0.5) * 2;
+  const parallaxY = (mousePos.y - 0.5) * 2;
+
+  /* ── Constellation particles (canvas-based for performance) ── */
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const constellationRef = useRef<{
+    particles: { x: number; y: number; vx: number; vy: number; size: number; opacity: number }[];
+  }>({ particles: [] });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const count = window.innerWidth < 768 ? 40 : 80;
+    const particles = Array.from({ length: count }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      size: Math.random() * 2 + 0.5,
+      opacity: Math.random() * 0.5 + 0.1,
+    }));
+    constellationRef.current = { particles };
+
+    const connectionDist = 120;
+    let animId: number;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const isLight = mode === "light";
+      const isBlue = mode === "bluelight";
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+
+        // Draw particle
+        const color = isLight
+          ? `rgba(30, 41, 59, ${p.opacity})`
+          : isBlue
+          ? `rgba(251, 191, 36, ${p.opacity * 0.6})`
+          : `rgba(148, 163, 184, ${p.opacity})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // Draw connections
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const dx = p.x - q.x;
+          const dy = p.y - q.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < connectionDist) {
+            const alpha = (1 - dist / connectionDist) * 0.15;
+            const lineColor = isLight
+              ? `rgba(30, 41, 59, ${alpha})`
+              : isBlue
+              ? `rgba(251, 191, 36, ${alpha * 0.4})`
+              : `rgba(148, 163, 184, ${alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(q.x, q.y);
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+      animId = requestAnimationFrame(draw);
+    };
+    animId = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", resize);
+    };
+  }, [mode]);
+
+  /* ── Pulse waves data ── */
+  const pulseWaves = useMemo(() => [0, 1, 2, 3, 4], []);
 
   /* ── Handlers ── */
   const handleStart = useCallback(() => {
@@ -78,334 +181,397 @@ export default function TrishulWorkspacePage() {
 
   return (
     <>
-      <div className={`nx-root nx-root--${mode}`}>
-        {/* ═══ ANIMATED BACKGROUND LAYERS ═══ */}
+      <div className={`nv-root nv-root--${mode}`}>
+        {/* ═══════════════════════════════════════
+            LAYER 0: Deep Background
+            ═══════════════════════════════════════ */}
+        <div className="nv-bg" aria-hidden />
 
-        {/* Mesh gradient — slow-moving color blobs */}
-        <div className="nx-mesh" aria-hidden>
-          <div className="nx-mesh-blob nx-mesh-blob--1" />
-          <div className="nx-mesh-blob nx-mesh-blob--2" />
-          <div className="nx-mesh-blob nx-mesh-blob--3" />
-          <div className="nx-mesh-blob nx-mesh-blob--4" />
+        {/* ═══════════════════════════════════════
+            LAYER 1: Aurora Waves
+            ═══════════════════════════════════════ */}
+        <div className="nv-aurora" aria-hidden>
+          <div
+            className="nv-aurora-field"
+            style={{
+              transform: `translate(${parallaxX * -15}px, ${parallaxY * -10}px)`,
+            }}
+          >
+            <div className="nv-aurora-wave nv-aurora-wave--1" />
+            <div className="nv-aurora-wave nv-aurora-wave--2" />
+            <div className="nv-aurora-wave nv-aurora-wave--3" />
+            <div className="nv-aurora-wave nv-aurora-wave--4" />
+          </div>
         </div>
 
-        {/* Dot grid overlay */}
-        <div className="nx-grid" aria-hidden />
+        {/* ═══════════════════════════════════════
+            LAYER 2: Constellation Canvas
+            ═══════════════════════════════════════ */}
+        <canvas
+          ref={canvasRef}
+          className="nv-constellation"
+          aria-hidden
+        />
 
-        {/* Floating particles */}
-        <div className="nx-particles" aria-hidden>
-          {particles.current.map((p) => (
-            <span
-              key={p.id}
-              className="nx-particle"
-              style={{
-                left: `${p.x}%`,
-                top: `${p.y}%`,
-                width: `${p.size}px`,
-                height: `${p.size}px`,
-                opacity: p.opacity,
-                animationDuration: `${p.duration}s`,
-                animationDelay: `${p.delay}s`,
-              }}
+        {/* ═══════════════════════════════════════
+            LAYER 3: Radial Pulse Waves
+            ═══════════════════════════════════════ */}
+        <div className="nv-pulses" aria-hidden>
+          {pulseWaves.map((i) => (
+            <div
+              key={i}
+              className={`nv-pulse nv-pulse--${mode} ${entered ? "nv-pulse--active" : ""}`}
+              style={{ animationDelay: `${i * 2.5}s` }}
             />
           ))}
         </div>
 
-        {/* Noise texture */}
-        <div className="nx-noise" aria-hidden />
+        {/* ═══════════════════════════════════════
+            LAYER 4: Vignette + Noise
+            ═══════════════════════════════════════ */}
+        <div className={`nv-vignette nv-vignette--${mode}`} aria-hidden />
+        <div className="nv-noise" aria-hidden />
 
-        {/* Vignette */}
-        <div className={`nx-vignette nx-vignette--${mode}`} aria-hidden />
+        {/* ═══════════════════════════════════════
+            CONTENT LAYER
+            ═══════════════════════════════════════ */}
+        <div className="nv-content">
 
-        {/* ═══ MAIN CONTENT ═══ */}
-        <div className="nx-content">
-          {/* ── Top bar ── */}
-          <div className={`nx-topbar ${entered ? "nx-topbar--visible" : ""}`}>
-            <div className="nx-topbar-left">
-              <div className={`nx-logo-dot nx-logo-dot--${mode}`} />
-              <span className={`nx-logo-text nx-logo-text--${mode}`}>TrishulHub</span>
+          {/* ── Top Bar ── */}
+          <div className={`nv-topbar ${entered ? "nv-topbar--visible" : ""}`}>
+            <div className="nv-topbar-left">
+              <div className={`nv-logo-glow nv-logo-glow--${mode}`} />
+              <Terminal size={14} className={`nv-logo-icon nv-logo-icon--${mode}`} />
+              <span className={`nv-logo-text nv-logo-text--${mode}`}>TrishulHub</span>
             </div>
-            <div className="nx-topbar-right">
-              <span className={`nx-badge nx-badge--${mode}`}>Protocol v5.0</span>
+            <div className="nv-topbar-right">
+              <span className={`nv-badge nv-badge--${mode}`}>Protocol v5.0</span>
             </div>
           </div>
 
-          {/* ── Hero Section ── */}
-          <section className="nx-hero">
-            {/* Central pulsing orb */}
-            <div className="nx-orb-wrap" aria-hidden>
-              <div className={`nx-orb nx-orb--${mode} ${entered ? "nx-orb--active" : ""}`}>
-                <div className={`nx-orb-ring nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-ring nx-orb-ring--2 nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-ring nx-orb-ring--3 nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-core nx-orb-core--${mode}`} />
+          {/* ── Hero ── */}
+          <section
+            className="nv-hero"
+            style={{
+              transform: `translate(${parallaxX * 8}px, ${parallaxY * 5}px)`,
+            }}
+          >
+            {/* Central pulsing core */}
+            <div className="nv-core-wrap" aria-hidden>
+              <div className={`nv-core nv-core--${mode} ${entered ? "nv-core--active" : ""}`}>
+                <div className="nv-core-inner" />
+                <div className={`nv-core-ring nv-core-ring--${mode}`} />
+                <div className={`nv-core-ring nv-core-ring--2 nv-core-ring--${mode}`} />
+                <div className={`nv-core-ring nv-core-ring--3 nv-core-ring--${mode}`} />
               </div>
             </div>
 
             {/* Title cluster */}
-            <div className="nx-title-cluster">
-              <h1 className={`nx-title nx-title--${mode} ${entered ? "nx-title--visible" : ""}`}>
+            <div className="nv-title-cluster">
+              <h1 className={`nv-title nv-title--${mode} ${entered ? "nv-title--visible" : ""}`}>
                 {"TrishulHub".split("").map((char, i) => (
                   <span
                     key={i}
-                    className="nx-char"
-                    style={{ animationDelay: `${0.3 + i * 0.06}s` }}
+                    className="nv-char"
+                    style={{ animationDelay: `${0.2 + i * 0.045}s` }}
                   >
                     {char}
                   </span>
                 ))}
               </h1>
 
-              <p className={`nx-subtitle nx-subtitle--${mode} ${entered ? "nx-subtitle--visible" : ""}`}>
+              <p className={`nv-subtitle nv-subtitle--${mode} ${entered ? "nv-subtitle--visible" : ""}`}>
                 Your Personal Workspace
               </p>
 
               {/* Typewriter tagline */}
-              <div className={`nx-tagline nx-tagline--${mode} ${entered ? "nx-tagline--visible" : ""}`}>
-                <span className="nx-tagline-line" />
-                <span className={`nx-tagline-text nx-tagline-text--${mode}`}>
+              <div className={`nv-tagline ${entered ? "nv-tagline--visible" : ""}`}>
+                <div className={`nv-tagline-bar nv-tagline-bar--${mode}`} />
+                <span className={`nv-tagline-text nv-tagline-text--${mode}`}>
                   {typedText}
-                  <span className={`nx-cursor nx-cursor--${mode} ${typingDone ? "nx-cursor--blink" : ""}`} />
+                  <span className={`nv-cursor ${typingDone ? "nv-cursor--blink" : ""}`} />
                 </span>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className={`nx-actions ${entered ? "nx-actions--visible" : ""}`}>
-              {/* START — primary CTA */}
+            <div className={`nv-actions ${entered ? "nv-actions--visible" : ""}`}>
+              {/* START — Primary CTA with animated gradient border */}
               <button
                 onClick={handleStart}
-                className={`nx-start-btn nx-start-btn--${mode}`}
+                className={`nv-start-btn nv-start-btn--${mode}`}
                 type="button"
               >
-                <span className="nx-start-ring" aria-hidden />
-                <span className="nx-start-icon" aria-hidden>
+                <span className="nv-start-glow" aria-hidden />
+                <span className="nv-start-border" aria-hidden />
+                <span className="nv-start-icon" aria-hidden>
                   <Zap size={18} strokeWidth={2.5} />
                 </span>
-                <span className="nx-start-label">START</span>
-                <span className="nx-start-arrow" aria-hidden>
+                <span className="nv-start-label">START</span>
+                <span className="nv-start-arrow" aria-hidden>
                   <ArrowUpRight size={16} />
                 </span>
               </button>
 
-              <p className={`nx-start-hint nx-start-hint--${mode}`}>
+              <p className={`nv-start-hint nv-start-hint--${mode}`}>
                 Opens workspace in a new tab
               </p>
 
-              {/* Credential card */}
+              {/* Credentials — Glass card */}
               <button
                 onClick={handleCredentials}
-                className={`nx-cred-btn nx-cred-btn--${mode}`}
+                className={`nv-cred-btn nv-cred-btn--${mode}`}
                 type="button"
               >
-                <div className="nx-cred-icon-wrap">
-                  <KeyRound className="nx-cred-icon" />
+                <div className={`nv-cred-icon-wrap nv-cred-icon-wrap--${mode}`}>
+                  <KeyRound className="nv-cred-icon" />
                 </div>
-                <div className="nx-cred-text">
-                  <span className={`nx-cred-title nx-cred-title--${mode}`}>Claim Credentials</span>
-                  <span className={`nx-cred-desc nx-cred-desc--${mode}`}>Get your ID & Password</span>
+                <div className="nv-cred-text">
+                  <span className={`nv-cred-title nv-cred-title--${mode}`}>Claim Credentials</span>
+                  <span className={`nv-cred-desc nv-cred-desc--${mode}`}>Get your ID & Password</span>
                 </div>
-                <ArrowUpRight size={16} className={`nx-cred-arrow nx-cred-arrow--${mode}`} />
+                <ArrowUpRight size={16} className={`nv-cred-arrow nv-cred-arrow--${mode}`} />
               </button>
             </div>
           </section>
 
-          {/* ── Feature pills ── */}
-          <div className={`nx-pills ${entered ? "nx-pills--visible" : ""}`}>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Shield size={14} />
+          {/* ── Feature Pills ── */}
+          <div className={`nv-pills ${entered ? "nv-pills--visible" : ""}`}>
+            <div className={`nv-pill nv-pill--${mode}`}>
+              <Shield size={13} strokeWidth={2} />
               <span>Secured</span>
             </div>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Zap size={14} />
+            <div className="nv-pill-sep" aria-hidden />
+            <div className={`nv-pill nv-pill--${mode}`}>
+              <Zap size={13} strokeWidth={2} />
               <span>AI Powered</span>
             </div>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Globe size={14} />
+            <div className="nv-pill-sep" aria-hidden />
+            <div className={`nv-pill nv-pill--${mode}`}>
+              <Globe size={13} strokeWidth={2} />
               <span>Cloud Native</span>
             </div>
           </div>
 
           {/* ── Footer ── */}
-          <footer className={`nx-footer ${entered ? "nx-footer--visible" : ""}`}>
-            <div className="nx-footer-inner">
-              <p className={`nx-footer-text nx-footer-text--${mode}`}>
-                Welcome back, <span className={`nx-footer-name nx-footer-name--${mode}`}>{userName}</span>
+          <footer className={`nv-footer ${entered ? "nv-footer--visible" : ""}`}>
+            <div className="nv-footer-inner">
+              <div className="nv-footer-glow" aria-hidden />
+              <p className={`nv-footer-text nv-footer-text--${mode}`}>
+                Welcome back,{" "}
+                <span className={`nv-footer-name nv-footer-name--${mode}`}>{userName}</span>
               </p>
-              <div className="nx-footer-divider" />
-              <span className={`nx-footer-role nx-footer-role--${mode}`}>{userRole}</span>
+              <div className={`nv-footer-dot nv-footer-dot--${mode}`} />
+              <span className={`nv-footer-role nv-footer-role--${mode}`}>{userRole}</span>
             </div>
           </footer>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════
-         STYLES — NEXUS ORIGINAL
-         ═══════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════
+         STYLES — NOVA v2.0
+         ═══════════════════════════════════════════════════════ */}
       <style jsx global>{`
-        /* ── Reset cursor on touch ── */
+        /* ── Touch device: disable cursor effects ── */
         @media (pointer: coarse) {
-          .nx-root, .nx-root * { cursor: auto !important; }
+          .nv-root, .nv-root * { cursor: auto !important; }
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            ROOT
-           ═══════════════════════ */
-        .nx-root {
+           ═════════════════════════ */
+        .nv-root {
           position: relative;
           min-height: 100vh;
-          overflow-x: hidden;
+          overflow: hidden;
           margin: -1.25rem;
           margin-top: -1.25rem;
-          background: #06060a;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #050508;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
         }
         @media (min-width: 768px) {
-          .nx-root { margin: -2rem; margin-top: -2rem; }
+          .nv-root { margin: -2rem; margin-top: -2rem; }
         }
-        .nx-root--light { background: #f4f5f8; }
-        .nx-root--bluelight { background: #0a0808; }
+        .nv-root--light { background: #f8f9fc; }
+        .nv-root--bluelight { background: #080606; }
 
-        /* ═══════════════════════
-           ANIMATED MESH GRADIENT
-           ═══════════════════════ */
-        .nx-mesh {
+        /* ═════════════════════════
+           DEEP BACKGROUND
+           ═════════════════════════ */
+        .nv-bg {
           position: fixed; inset: 0; z-index: 0;
-          overflow: hidden;
-          pointer-events: none;
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(6, 182, 212, 0.04) 0%, transparent 60%),
+            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.03) 0%, transparent 60%),
+            radial-gradient(ellipse 90% 70% at 50% 50%, rgba(6, 182, 212, 0.015) 0%, transparent 70%);
         }
-        .nx-mesh-blob {
+        .nv-root--light .nv-bg {
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(6, 182, 212, 0.06) 0%, transparent 60%),
+            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 60%);
+        }
+        .nv-root--bluelight .nv-bg {
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(251, 191, 36, 0.04) 0%, transparent 60%),
+            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(217, 119, 6, 0.03) 0%, transparent 60%);
+        }
+
+        /* ═════════════════════════
+           AURORA WAVES
+           ═════════════════════════ */
+        .nv-aurora {
+          position: fixed; inset: 0; z-index: 1;
+          overflow: hidden; pointer-events: none;
+        }
+        .nv-aurora-field {
+          position: absolute; inset: -20%;
+          transition: transform 0.3s ease-out;
+        }
+        .nv-aurora-wave {
           position: absolute;
           border-radius: 50%;
-          filter: blur(100px);
+          filter: blur(120px);
           will-change: transform;
+          mix-blend-mode: screen;
         }
-        /* Blob 1 — top left cyan */
-        .nx-mesh-blob--1 {
+        /* Wave 1 — top-left cyan */
+        .nv-aurora-wave--1 {
+          width: 700px; height: 700px;
+          top: -25%; left: -15%;
+          background: rgba(6, 182, 212, 0.08);
+          animation: nv-aurora-1 24s ease-in-out infinite;
+        }
+        /* Wave 2 — bottom-right violet */
+        .nv-aurora-wave--2 {
           width: 600px; height: 600px;
-          top: -20%; left: -10%;
-          background: rgba(6, 182, 212, 0.12);
-          animation: nx-float-1 18s ease-in-out infinite;
+          bottom: -20%; right: -10%;
+          background: rgba(139, 92, 246, 0.07);
+          animation: nv-aurora-2 28s ease-in-out infinite;
         }
-        /* Blob 2 — bottom right purple */
-        .nx-mesh-blob--2 {
+        /* Wave 3 — center-right pink */
+        .nv-aurora-wave--3 {
           width: 500px; height: 500px;
-          bottom: -15%; right: -8%;
-          background: rgba(139, 92, 246, 0.10);
-          animation: nx-float-2 22s ease-in-out infinite;
+          top: 20%; right: 10%;
+          background: rgba(236, 72, 153, 0.04);
+          animation: nv-aurora-3 32s ease-in-out infinite;
         }
-        /* Blob 3 — center-right pink */
-        .nx-mesh-blob--3 {
-          width: 400px; height: 400px;
-          top: 30%; right: 20%;
-          background: rgba(236, 72, 153, 0.06);
-          animation: nx-float-3 25s ease-in-out infinite;
-        }
-        /* Blob 4 — center-left blue */
-        .nx-mesh-blob--4 {
-          width: 350px; height: 350px;
-          top: 60%; left: 15%;
-          background: rgba(59, 130, 246, 0.07);
-          animation: nx-float-4 20s ease-in-out infinite;
+        /* Wave 4 — bottom-left blue */
+        .nv-aurora-wave--4 {
+          width: 450px; height: 450px;
+          bottom: 10%; left: 5%;
+          background: rgba(59, 130, 246, 0.05);
+          animation: nv-aurora-4 22s ease-in-out infinite;
         }
 
-        /* Light mode blobs */
-        .nx-root--light .nx-mesh-blob--1 { background: rgba(6, 182, 212, 0.08); }
-        .nx-root--light .nx-mesh-blob--2 { background: rgba(139, 92, 246, 0.06); }
-        .nx-root--light .nx-mesh-blob--3 { background: rgba(236, 72, 153, 0.04); }
-        .nx-root--light .nx-mesh-blob--4 { background: rgba(59, 130, 246, 0.05); }
+        /* Light mode aurora */
+        .nv-root--light .nv-aurora-wave--1 { background: rgba(6, 182, 212, 0.06); mix-blend-mode: multiply; }
+        .nv-root--light .nv-aurora-wave--2 { background: rgba(139, 92, 246, 0.05); mix-blend-mode: multiply; }
+        .nv-root--light .nv-aurora-wave--3 { background: rgba(236, 72, 153, 0.03); mix-blend-mode: multiply; }
+        .nv-root--light .nv-aurora-wave--4 { background: rgba(59, 130, 246, 0.04); mix-blend-mode: multiply; }
 
-        /* Bluelight blobs */
-        .nx-root--bluelight .nx-mesh-blob--1 { background: rgba(251, 191, 36, 0.10); }
-        .nx-root--bluelight .nx-mesh-blob--2 { background: rgba(217, 119, 6, 0.08); }
-        .nx-root--bluelight .nx-mesh-blob--3 { background: rgba(245, 158, 11, 0.05); }
-        .nx-root--bluelight .nx-mesh-blob--4 { background: rgba(180, 83, 9, 0.06); }
+        /* Bluelight aurora */
+        .nv-root--bluelight .nv-aurora-wave--1 { background: rgba(251, 191, 36, 0.07); }
+        .nv-root--bluelight .nv-aurora-wave--2 { background: rgba(217, 119, 6, 0.06); }
+        .nv-root--bluelight .nv-aurora-wave--3 { background: rgba(245, 158, 11, 0.03); }
+        .nv-root--bluelight .nv-aurora-wave--4 { background: rgba(180, 83, 9, 0.04); }
 
-        @keyframes nx-float-1 {
+        @keyframes nv-aurora-1 {
+          0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+          25% { transform: translate(100px, 80px) scale(1.15) rotate(5deg); }
+          50% { transform: translate(50px, 150px) scale(1.05) rotate(-3deg); }
+          75% { transform: translate(-30px, 60px) scale(0.95) rotate(2deg); }
+        }
+        @keyframes nv-aurora-2 {
           0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(80px, 60px) scale(1.1); }
-          66% { transform: translate(-40px, 100px) scale(0.95); }
+          33% { transform: translate(-80px, -60px) scale(1.1); }
+          66% { transform: translate(60px, -100px) scale(0.9); }
         }
-        @keyframes nx-float-2 {
+        @keyframes nv-aurora-3 {
           0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(-70px, -50px) scale(1.05); }
-          66% { transform: translate(50px, -80px) scale(0.9); }
+          50% { transform: translate(-70px, 50px) scale(1.2); }
         }
-        @keyframes nx-float-3 {
+        @keyframes nv-aurora-4 {
           0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(-60px, 40px) scale(1.15); }
-        }
-        @keyframes nx-float-4 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(40px, -60px) scale(1.1); }
+          33% { transform: translate(50px, -70px) scale(1.08); }
+          66% { transform: translate(-40px, 30px) scale(0.95); }
         }
 
-        /* ═══════════════════════
-           DOT GRID
-           ═══════════════════════ */
-        .nx-grid {
-          position: fixed; inset: 0; z-index: 1;
-          pointer-events: none;
-          background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
-          background-size: 40px 40px;
-          mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 0%, transparent 100%);
-          -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 0%, transparent 100%);
-        }
-        .nx-root--light .nx-grid {
-          background-image: radial-gradient(circle, rgba(0,0,0,0.04) 1px, transparent 1px);
-        }
-        .nx-root--bluelight .nx-grid {
-          background-image: radial-gradient(circle, rgba(251,191,36,0.025) 1px, transparent 1px);
-        }
-
-        /* ═══════════════════════
-           FLOATING PARTICLES
-           ═══════════════════════ */
-        .nx-particles {
+        /* ═════════════════════════
+           CONSTELLATION CANVAS
+           ═════════════════════════ */
+        .nv-constellation {
           position: fixed; inset: 0; z-index: 2;
           pointer-events: none;
+          opacity: 0.7;
         }
-        .nx-particle {
+        .nv-root--light .nv-constellation { opacity: 0.4; }
+        .nv-root--bluelight .nv-constellation { opacity: 0.5; }
+
+        /* ═════════════════════════
+           PULSE WAVES
+           ═════════════════════════ */
+        .nv-pulses {
+          position: fixed;
+          top: 50%; left: 50%;
+          transform: translate(-50%, -55%);
+          z-index: 3; pointer-events: none;
+        }
+        .nv-pulse {
           position: absolute;
+          top: 50%; left: 50%;
+          width: 10px; height: 10px;
+          margin: -5px;
           border-radius: 50%;
-          background: rgba(255,255,255,0.6);
-          animation: nx-particle-drift linear infinite;
+          border: 1px solid rgba(6, 182, 212, 0.2);
+          opacity: 0;
+          animation: nv-pulse-expand 12s ease-out infinite;
         }
-        .nx-root--light .nx-particle { background: rgba(0,0,0,0.3); }
-        .nx-root--bluelight .nx-particle { background: rgba(251,191,36,0.5); }
-
-        @keyframes nx-particle-drift {
-          0% { transform: translateY(0) translateX(0); opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { transform: translateY(-120px) translateX(40px); opacity: 0; }
+        .nv-pulse--light {
+          border-color: rgba(6, 182, 212, 0.12);
+        }
+        .nv-pulse--bluelight {
+          border-color: rgba(251, 191, 36, 0.15);
+        }
+        .nv-pulse--active {
+          opacity: 1;
         }
 
-        /* ═══════════════════════
-           NOISE & VIGNETTE
-           ═══════════════════════ */
-        .nx-noise {
+        @keyframes nv-pulse-expand {
+          0% {
+            transform: scale(1);
+            opacity: 0.6;
+          }
+          100% {
+            transform: scale(120);
+            opacity: 0;
+          }
+        }
+
+        /* ═════════════════════════
+           VIGNETTE & NOISE
+           ═════════════════════════ */
+        .nv-noise {
           position: fixed; inset: 0; z-index: 8000;
           pointer-events: none;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-repeat: repeat; background-size: 200px;
-          opacity: 0.025;
+          opacity: 0.02;
         }
-        .nx-vignette {
+        .nv-vignette {
           position: fixed; inset: 0; z-index: 7999;
           pointer-events: none;
         }
-        .nx-vignette--dark, .nx-vignette--bluelight {
-          background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, rgba(0,0,0,0.6) 100%);
+        .nv-vignette--dark, .nv-vignette--bluelight {
+          background: radial-gradient(ellipse 70% 60% at 50% 40%, transparent 0%, rgba(0,0,0,0.7) 100%);
         }
-        .nx-vignette--light {
-          background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, rgba(180,190,220,0.25) 100%);
+        .nv-vignette--light {
+          background: radial-gradient(ellipse 70% 60% at 50% 40%, transparent 0%, rgba(160,175,210,0.2) 100%);
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            CONTENT LAYOUT
-           ═══════════════════════ */
-        .nx-content {
+           ═════════════════════════ */
+        .nv-content {
           position: relative; z-index: 10;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
@@ -413,546 +579,672 @@ export default function TrishulWorkspacePage() {
           padding: 2rem 1.5rem;
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            TOP BAR
-           ═══════════════════════ */
-        .nx-topbar {
+           ═════════════════════════ */
+        .nv-topbar {
           position: fixed; top: 0; left: 0; right: 0;
           z-index: 100;
           display: flex; align-items: center; justify-content: space-between;
-          padding: 1rem 2rem;
-          opacity: 0; transform: translateY(-20px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+          padding: 1.1rem 2rem;
+          opacity: 0; transform: translateY(-15px);
+          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
           pointer-events: none;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
         }
-        .nx-topbar--visible { opacity: 1; transform: translateY(0); }
+        .nv-topbar--visible { opacity: 1; transform: translateY(0); }
 
-        .nx-topbar-left {
-          display: flex; align-items: center; gap: 0.6rem;
+        .nv-topbar-left {
+          display: flex; align-items: center; gap: 0.65rem;
         }
-        .nx-logo-dot {
-          width: 10px; height: 10px; border-radius: 50%;
-          background: linear-gradient(135deg, #06b6d4, #8b5cf6);
-          box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+        .nv-logo-glow {
+          position: absolute;
+          left: 2rem; top: 50%;
+          transform: translateY(-50%);
+          width: 200px; height: 40px;
+          border-radius: 20px;
+          filter: blur(30px);
+          opacity: 0.4;
         }
-        .nx-logo-dot--bluelight {
-          background: linear-gradient(135deg, #f59e0b, #d97706);
-          box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
-        }
-        .nx-logo-text {
-          font-size: 0.9rem; font-weight: 700;
-          letter-spacing: 0.5px;
-          color: rgba(255,255,255,0.7);
-        }
-        .nx-logo-text--light { color: rgba(0,0,0,0.6); }
-        .nx-logo-text--bluelight { color: rgba(251,191,36,0.7); }
+        .nv-logo-glow--dark { background: rgba(6, 182, 212, 0.15); }
+        .nv-logo-glow--light { background: rgba(6, 182, 212, 0.08); }
+        .nv-logo-glow--bluelight { background: rgba(251, 191, 36, 0.12); }
 
-        .nx-badge {
-          font-size: 0.65rem; font-weight: 600;
-          letter-spacing: 0.12em; text-transform: uppercase;
-          padding: 0.3rem 0.75rem;
+        .nv-logo-icon {
+          position: relative;
+          opacity: 0.6;
+        }
+        .nv-logo-icon--dark { color: rgba(6, 182, 212, 0.7); }
+        .nv-logo-icon--light { color: rgba(6, 182, 212, 0.6); }
+        .nv-logo-icon--bluelight { color: rgba(251, 191, 36, 0.6); }
+
+        .nv-logo-text {
+          font-size: 0.88rem; font-weight: 700;
+          letter-spacing: 0.6px;
+        }
+        .nv-logo-text--dark { color: rgba(255,255,255,0.65); }
+        .nv-logo-text--light { color: rgba(0,0,0,0.55); }
+        .nv-logo-text--bluelight { color: rgba(251,191,36,0.6); }
+
+        .nv-badge {
+          font-size: 0.62rem; font-weight: 600;
+          letter-spacing: 0.14em; text-transform: uppercase;
+          padding: 0.28rem 0.7rem;
           border-radius: 100px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.03);
-          color: rgba(255,255,255,0.35);
+          border: 1px solid rgba(255,255,255,0.06);
+          background: rgba(255,255,255,0.02);
+          color: rgba(255,255,255,0.3);
         }
-        .nx-badge--light {
-          border-color: rgba(0,0,0,0.08);
-          background: rgba(0,0,0,0.03);
-          color: rgba(0,0,0,0.35);
+        .nv-badge--light {
+          border-color: rgba(0,0,0,0.06);
+          background: rgba(0,0,0,0.02);
+          color: rgba(0,0,0,0.3);
         }
-        .nx-badge--bluelight {
-          border-color: rgba(251,191,36,0.12);
-          background: rgba(251,191,36,0.03);
-          color: rgba(251,191,36,0.4);
+        .nv-badge--bluelight {
+          border-color: rgba(251,191,36,0.1);
+          background: rgba(251,191,36,0.02);
+          color: rgba(251,191,36,0.35);
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            HERO SECTION
-           ═══════════════════════ */
-        .nx-hero {
+           ═════════════════════════ */
+        .nv-hero {
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
           gap: 0;
           text-align: center;
           position: relative;
+          transition: transform 0.15s ease-out;
         }
 
-        /* ── Central Orb ── */
-        .nx-orb-wrap {
+        /* ── Core Orb ── */
+        .nv-core-wrap {
           position: absolute;
           top: 50%; left: 50%;
           transform: translate(-50%, -50%);
           z-index: 0;
           pointer-events: none;
         }
-        .nx-orb {
+        .nv-core {
           position: relative;
-          width: 300px; height: 300px;
+          width: 280px; height: 280px;
           display: flex; align-items: center; justify-content: center;
           opacity: 0;
-          transition: opacity 1.2s ease;
+          transition: opacity 1.5s ease;
         }
-        .nx-orb--active { opacity: 1; }
+        .nv-core--active { opacity: 1; }
 
-        .nx-orb-ring {
+        .nv-core-inner {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: rgba(6, 182, 212, 0.8);
+          box-shadow:
+            0 0 20px rgba(6, 182, 212, 0.6),
+            0 0 60px rgba(6, 182, 212, 0.3),
+            0 0 120px rgba(139, 92, 246, 0.15);
+          animation: nv-core-breathe 4s ease-in-out infinite;
+        }
+        .nv-root--light .nv-core-inner {
+          background: rgba(6, 182, 212, 0.5);
+          box-shadow:
+            0 0 20px rgba(6, 182, 212, 0.3),
+            0 0 60px rgba(6, 182, 212, 0.15);
+        }
+        .nv-root--bluelight .nv-core-inner {
+          background: rgba(251, 191, 36, 0.7);
+          box-shadow:
+            0 0 20px rgba(251, 191, 36, 0.5),
+            0 0 60px rgba(251, 191, 36, 0.25),
+            0 0 120px rgba(217, 119, 6, 0.1);
+        }
+
+        @keyframes nv-core-breathe {
+          0%, 100% { transform: scale(1); opacity: 0.7; }
+          50% { transform: scale(1.8); opacity: 1; }
+        }
+
+        .nv-core-ring {
           position: absolute;
           border-radius: 50%;
-          border: 1px solid rgba(6, 182, 212, 0.15);
-          animation: nx-orb-spin 20s linear infinite;
+          border: 1px solid rgba(6, 182, 212, 0.1);
+          animation: nv-ring-rotate 25s linear infinite;
         }
-        .nx-orb-ring--2 {
-          inset: 20px;
-          border-color: rgba(139, 92, 246, 0.12);
-          animation-duration: 28s;
+        .nv-core-ring--2 {
+          inset: 25px;
+          border-color: rgba(139, 92, 246, 0.08);
+          animation-duration: 35s;
           animation-direction: reverse;
         }
-        .nx-orb-ring--3 {
-          inset: 50px;
-          border-color: rgba(236, 72, 153, 0.08);
-          animation-duration: 35s;
+        .nv-core-ring--3 {
+          inset: 55px;
+          border-color: rgba(236, 72, 153, 0.06);
+          animation-duration: 45s;
         }
+        .nv-core-ring--bluelight {
+          border-color: rgba(251, 191, 36, 0.08);
+        }
+        .nv-core-ring--2.nv-core-ring--bluelight {
+          border-color: rgba(217, 119, 6, 0.06);
+        }
+        .nv-core-ring--3.nv-core-ring--bluelight {
+          border-color: rgba(245, 158, 11, 0.04);
+        }
+        .nv-root--light .nv-core-ring { border-color: rgba(6, 182, 212, 0.08); }
+        .nv-root--light .nv-core-ring--2 { border-color: rgba(139, 92, 246, 0.06); }
 
-        .nx-orb-ring--bluelight {
-          border-color: rgba(251, 191, 36, 0.12);
-        }
-        .nx-orb-ring--2.nx-orb-ring--bluelight {
-          border-color: rgba(217, 119, 6, 0.10);
-        }
-        .nx-orb-ring--3.nx-orb-ring--bluelight {
-          border-color: rgba(245, 158, 11, 0.06);
-        }
-
-        .nx-orb-core {
-          width: 8px; height: 8px;
-          border-radius: 50%;
-          background: rgba(6, 182, 212, 0.6);
-          box-shadow: 0 0 40px rgba(6, 182, 212, 0.3), 0 0 80px rgba(139, 92, 246, 0.15);
-          animation: nx-orb-pulse 4s ease-in-out infinite;
-        }
-        .nx-orb-core--light {
-          background: rgba(6, 182, 212, 0.4);
-          box-shadow: 0 0 40px rgba(6, 182, 212, 0.15);
-        }
-        .nx-orb-core--bluelight {
-          background: rgba(251, 191, 36, 0.5);
-          box-shadow: 0 0 40px rgba(251, 191, 36, 0.25), 0 0 80px rgba(217, 119, 6, 0.1);
-        }
-
-        @keyframes nx-orb-spin {
+        @keyframes nv-ring-rotate {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        @keyframes nx-orb-pulse {
-          0%, 100% { transform: scale(1); opacity: 0.6; }
-          50% { transform: scale(1.5); opacity: 1; }
-        }
 
         /* ── Title ── */
-        .nx-title-cluster {
+        .nv-title-cluster {
           position: relative; z-index: 1;
           display: flex; flex-direction: column;
           align-items: center;
         }
 
-        .nx-title {
-          font-size: clamp(3rem, 10vw, 7rem);
+        .nv-title {
+          font-size: clamp(3.2rem, 10vw, 7.5rem);
           font-weight: 800;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.025em;
           line-height: 1;
           display: flex;
           justify-content: center;
           opacity: 0;
-          transform: translateY(30px);
-          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
+          transform: translateY(35px);
+          transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+          filter: drop-shadow(0 0 40px rgba(6, 182, 212, 0.08));
         }
-        .nx-title--visible { opacity: 1; transform: translateY(0); }
+        .nv-title--visible { opacity: 1; transform: translateY(0); }
 
-        .nx-title--dark {
+        .nv-title--dark {
           color: transparent;
-          background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 40%, #e2e8f0 80%);
+          background: linear-gradient(135deg, #f1f5f9 0%, #94a3b8 35%, #e2e8f0 65%, #cbd5e1 100%);
           -webkit-background-clip: text;
           background-clip: text;
         }
-        .nx-title--light {
+        .nv-title--light {
           color: transparent;
-          background: linear-gradient(135deg, #1e293b 0%, #475569 40%, #1e293b 80%);
+          background: linear-gradient(135deg, #0f172a 0%, #334155 35%, #1e293b 65%, #475569 100%);
           -webkit-background-clip: text;
           background-clip: text;
         }
-        .nx-title--bluelight {
+        .nv-title--bluelight {
           color: transparent;
-          background: linear-gradient(135deg, #fbbf24 0%, #d97706 40%, #fbbf24 80%);
+          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 35%, #fcd34d 65%, #d97706 100%);
           -webkit-background-clip: text;
           background-clip: text;
+          filter: drop-shadow(0 0 40px rgba(251, 191, 36, 0.1));
         }
 
-        .nx-char {
+        .nv-char {
           display: inline-block;
           opacity: 0;
-          transform: translateY(25px) scale(0.9);
-          animation: nx-char-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          transform: translateY(30px) scale(0.85) rotateX(20deg);
+          animation: nv-char-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
-        @keyframes nx-char-in {
-          to { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes nv-char-enter {
+          to { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); }
         }
 
-        .nx-subtitle {
-          font-size: clamp(0.9rem, 2.5vw, 1.15rem);
+        .nv-subtitle {
+          font-size: clamp(0.85rem, 2.5vw, 1.1rem);
           font-weight: 400;
-          letter-spacing: 0.15em;
+          letter-spacing: 0.2em;
           text-transform: uppercase;
-          margin-top: 0.75rem;
-          opacity: 0; transform: translateY(15px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s;
+          margin-top: 0.8rem;
+          opacity: 0; transform: translateY(18px);
+          transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.5s;
         }
-        .nx-subtitle--visible { opacity: 1; transform: translateY(0); }
+        .nv-subtitle--visible { opacity: 1; transform: translateY(0); }
 
-        .nx-subtitle--dark { color: rgba(255,255,255,0.35); }
-        .nx-subtitle--light { color: rgba(0,0,0,0.3); }
-        .nx-subtitle--bluelight { color: rgba(251,191,36,0.4); }
+        .nv-subtitle--dark { color: rgba(255,255,255,0.3); }
+        .nv-subtitle--light { color: rgba(0,0,0,0.25); }
+        .nv-subtitle--bluelight { color: rgba(251,191,36,0.35); }
 
         /* ── Typewriter Tagline ── */
-        .nx-tagline {
-          display: flex; align-items: center; gap: 0.75rem;
-          margin-top: 1.25rem;
-          opacity: 0; transform: translateY(10px);
-          transition: all 0.8s ease 0.8s;
+        .nv-tagline {
+          display: flex; align-items: center; gap: 0.8rem;
+          margin-top: 1.3rem;
+          opacity: 0; transform: translateY(12px);
+          transition: all 0.9s ease 1s;
         }
-        .nx-tagline--visible { opacity: 1; transform: translateY(0); }
+        .nv-tagline--visible { opacity: 1; transform: translateY(0); }
 
-        .nx-tagline-line {
-          width: 24px; height: 1px;
-          background: rgba(255,255,255,0.15);
+        .nv-tagline-bar {
+          width: 28px; height: 2px;
+          border-radius: 1px;
+          background: linear-gradient(90deg, rgba(6, 182, 212, 0.5), transparent);
           flex-shrink: 0;
         }
-        .nx-root--light .nx-tagline-line { background: rgba(0,0,0,0.12); }
-        .nx-root--bluelight .nx-tagline-line { background: rgba(251,191,36,0.2); }
+        .nv-root--light .nv-tagline-bar {
+          background: linear-gradient(90deg, rgba(6, 182, 212, 0.4), transparent);
+        }
+        .nv-root--bluelight .nv-tagline-bar {
+          background: linear-gradient(90deg, rgba(251, 191, 36, 0.5), transparent);
+        }
 
-        .nx-tagline-text {
+        .nv-tagline-text {
           font-size: clamp(0.85rem, 2vw, 1rem);
           font-weight: 300;
           letter-spacing: 0.02em;
           font-style: italic;
           display: inline;
         }
-        .nx-tagline-text--dark { color: rgba(255,255,255,0.5); }
-        .nx-tagline-text--light { color: rgba(0,0,0,0.4); }
-        .nx-tagline-text--bluelight { color: rgba(251,191,36,0.55); }
+        .nv-tagline-text--dark { color: rgba(255,255,255,0.45); }
+        .nv-tagline-text--light { color: rgba(0,0,0,0.35); }
+        .nv-tagline-text--bluelight { color: rgba(251,191,36,0.5); }
 
-        .nx-cursor {
+        .nv-cursor {
           display: inline-block;
           width: 2px; height: 1em;
           margin-left: 2px;
           vertical-align: text-bottom;
           background: currentColor;
         }
-        .nx-cursor--blink {
-          animation: nx-blink 1s step-end infinite;
+        .nv-cursor--blink {
+          animation: nv-cursor-blink 1s step-end infinite;
         }
-        @keyframes nx-blink {
+        @keyframes nv-cursor-blink {
           50% { opacity: 0; }
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            ACTION BUTTONS
-           ═══════════════════════ */
-        .nx-actions {
+           ═════════════════════════ */
+        .nv-actions {
           position: relative; z-index: 1;
           display: flex; flex-direction: column;
-          align-items: center; gap: 1rem;
+          align-items: center; gap: 0.9rem;
           margin-top: 3rem;
-          opacity: 0; transform: translateY(20px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s;
+          opacity: 0; transform: translateY(25px);
+          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1) 1.2s;
         }
-        .nx-actions--visible { opacity: 1; transform: translateY(0); }
+        .nv-actions--visible { opacity: 1; transform: translateY(0); }
 
-        /* START button */
-        .nx-start-btn {
+        /* ── START Button ── */
+        .nv-start-btn {
           position: relative;
-          display: flex; align-items: center; gap: 0.65rem;
-          padding: 0.9rem 2.2rem;
+          display: flex; align-items: center; gap: 0.7rem;
+          padding: 0.95rem 2.5rem;
           border-radius: 60px;
-          border: 1px solid rgba(6, 182, 212, 0.3);
-          background: rgba(6, 182, 212, 0.06);
+          border: 1px solid rgba(6, 182, 212, 0.25);
+          background: rgba(6, 182, 212, 0.04);
           color: #06b6d4;
-          font-size: 0.95rem; font-weight: 600;
-          letter-spacing: 0.15em;
+          font-size: 0.95rem; font-weight: 700;
+          letter-spacing: 0.18em;
           font-family: inherit;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
           overflow: hidden;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
         }
-        .nx-start-btn:hover {
-          border-color: rgba(6, 182, 212, 0.6);
-          background: rgba(6, 182, 212, 0.12);
-          box-shadow: 0 0 30px rgba(6, 182, 212, 0.15), inset 0 0 30px rgba(6, 182, 212, 0.05);
-          transform: scale(1.03);
+        .nv-start-btn:hover {
+          border-color: rgba(6, 182, 212, 0.5);
+          background: rgba(6, 182, 212, 0.1);
+          box-shadow:
+            0 0 40px rgba(6, 182, 212, 0.12),
+            0 0 80px rgba(6, 182, 212, 0.06),
+            inset 0 0 40px rgba(6, 182, 212, 0.04);
+          transform: scale(1.04) translateY(-1px);
         }
-        .nx-start-btn:active { transform: scale(0.98); }
+        .nv-start-btn:active { transform: scale(0.98); }
 
-        /* Light mode */
-        .nx-start-btn--light {
-          border-color: rgba(6, 182, 212, 0.4);
-          background: rgba(6, 182, 212, 0.08);
+        .nv-start-btn--light {
+          border-color: rgba(6, 182, 212, 0.35);
+          background: rgba(6, 182, 212, 0.06);
           color: #0891b2;
         }
-        .nx-start-btn--light:hover {
-          border-color: rgba(6, 182, 212, 0.7);
-          background: rgba(6, 182, 212, 0.14);
-          box-shadow: 0 0 30px rgba(6, 182, 212, 0.1);
+        .nv-start-btn--light:hover {
+          border-color: rgba(6, 182, 212, 0.6);
+          background: rgba(6, 182, 212, 0.12);
+          box-shadow: 0 0 40px rgba(6, 182, 212, 0.08);
         }
 
-        /* Bluelight mode */
-        .nx-start-btn--bluelight {
-          border-color: rgba(251, 191, 36, 0.3);
-          background: rgba(251, 191, 36, 0.06);
+        .nv-start-btn--bluelight {
+          border-color: rgba(251, 191, 36, 0.25);
+          background: rgba(251, 191, 36, 0.04);
           color: #f59e0b;
         }
-        .nx-start-btn--bluelight:hover {
-          border-color: rgba(251, 191, 36, 0.6);
-          background: rgba(251, 191, 36, 0.12);
-          box-shadow: 0 0 30px rgba(251, 191, 36, 0.15), inset 0 0 30px rgba(251, 191, 36, 0.05);
+        .nv-start-btn--bluelight:hover {
+          border-color: rgba(251, 191, 36, 0.5);
+          background: rgba(251, 191, 36, 0.1);
+          box-shadow:
+            0 0 40px rgba(251, 191, 36, 0.12),
+            0 0 80px rgba(251, 191, 36, 0.06),
+            inset 0 0 40px rgba(251, 191, 36, 0.04);
         }
 
-        /* Orbiting ring */
-        .nx-start-ring {
-          position: absolute;
-          inset: -4px;
-          border-radius: 60px;
+        /* Animated gradient border glow */
+        .nv-start-glow {
+          position: absolute; inset: -2px;
+          border-radius: 62px;
+          background: conic-gradient(
+            from var(--nv-angle, 0deg),
+            transparent 0%,
+            rgba(6, 182, 212, 0.3) 10%,
+            transparent 20%,
+            transparent 100%
+          );
+          z-index: -1;
+          animation: nv-glow-spin 4s linear infinite;
+          opacity: 0;
+          transition: opacity 0.4s;
+        }
+        .nv-start-btn:hover .nv-start-glow { opacity: 1; }
+        .nv-start-btn--bluelight .nv-start-glow {
+          background: conic-gradient(
+            from var(--nv-angle, 0deg),
+            transparent 0%,
+            rgba(251, 191, 36, 0.3) 10%,
+            transparent 20%,
+            transparent 100%
+          );
+        }
+
+        @keyframes nv-glow-spin {
+          to { --nv-angle: 360deg; }
+        }
+        @property --nv-angle {
+          syntax: '<angle>';
+          initial-value: 0deg;
+          inherits: false;
+        }
+
+        /* Static border ring */
+        .nv-start-border {
+          position: absolute; inset: -1px;
+          border-radius: 61px;
           border: 1.5px solid transparent;
-          border-top-color: rgba(6, 182, 212, 0.4);
-          animation: nx-ring-spin 3s linear infinite;
+          border-top-color: rgba(6, 182, 212, 0.35);
+          animation: nv-border-spin 3s linear infinite;
           pointer-events: none;
         }
-        .nx-start-btn--bluelight .nx-start-ring {
-          border-top-color: rgba(251, 191, 36, 0.4);
+        .nv-start-btn--bluelight .nv-start-border {
+          border-top-color: rgba(251, 191, 36, 0.35);
         }
-        @keyframes nx-ring-spin {
+        @keyframes nv-border-spin {
           to { transform: rotate(360deg); }
         }
 
-        .nx-start-icon {
+        .nv-start-icon {
           display: flex; align-items: center;
         }
-        .nx-start-arrow {
+        .nv-start-arrow {
           display: flex; align-items: center;
-          opacity: 0.5;
-          transition: opacity 0.3s, transform 0.3s;
+          opacity: 0.4;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nx-start-btn:hover .nx-start-arrow {
-          opacity: 1; transform: translate(2px, -2px);
+        .nv-start-btn:hover .nv-start-arrow {
+          opacity: 1; transform: translate(3px, -3px);
         }
 
-        .nx-start-hint {
-          font-size: 0.72rem;
-          letter-spacing: 0.05em;
-          margin-top: -0.25rem;
+        .nv-start-hint {
+          font-size: 0.7rem;
+          letter-spacing: 0.06em;
+          margin-top: -0.2rem;
         }
-        .nx-start-hint--dark { color: rgba(255,255,255,0.2); }
-        .nx-start-hint--light { color: rgba(0,0,0,0.25); }
-        .nx-start-hint--bluelight { color: rgba(251,191,36,0.25); }
+        .nv-start-hint--dark { color: rgba(255,255,255,0.18); }
+        .nv-start-hint--light { color: rgba(0,0,0,0.22); }
+        .nv-start-hint--bluelight { color: rgba(251,191,36,0.22); }
 
-        /* ── Credential Button ── */
-        .nx-cred-btn {
-          display: flex; align-items: center; gap: 0.85rem;
-          padding: 0.85rem 1.5rem;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.06);
+        /* ── Credentials Button (Glassmorphism) ── */
+        .nv-cred-btn {
+          display: flex; align-items: center; gap: 0.9rem;
+          padding: 0.9rem 1.6rem;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.05);
           background: rgba(255,255,255,0.02);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
           font-family: inherit;
-          transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-          margin-top: 0.25rem;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          margin-top: 0.3rem;
           text-align: left;
         }
-        .nx-cred-btn:hover {
-          border-color: rgba(255,255,255,0.12);
+        .nv-cred-btn:hover {
+          border-color: rgba(255,255,255,0.1);
           background: rgba(255,255,255,0.04);
-          transform: translateX(4px);
+          transform: translateX(6px);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
         }
-        .nx-root--light .nx-cred-btn {
-          border-color: rgba(0,0,0,0.06);
-          background: rgba(255,255,255,0.6);
+        .nv-root--light .nv-cred-btn {
+          border-color: rgba(0,0,0,0.05);
+          background: rgba(255,255,255,0.7);
+          backdrop-filter: blur(16px);
         }
-        .nx-root--light .nx-cred-btn:hover {
+        .nv-root--light .nv-cred-btn:hover {
           border-color: rgba(0,0,0,0.1);
-          background: rgba(255,255,255,0.85);
+          background: rgba(255,255,255,0.9);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
         }
-        .nx-root--bluelight .nx-cred-btn {
-          border-color: rgba(251,191,36,0.08);
+        .nv-root--bluelight .nv-cred-btn {
+          border-color: rgba(251,191,36,0.06);
           background: rgba(251,191,36,0.02);
         }
-        .nx-root--bluelight .nx-cred-btn:hover {
-          border-color: rgba(251,191,36,0.15);
+        .nv-root--bluelight .nv-cred-btn:hover {
+          border-color: rgba(251,191,36,0.12);
           background: rgba(251,191,36,0.04);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
         }
 
-        .nx-cred-icon-wrap {
-          width: 40px; height: 40px;
+        .nv-cred-icon-wrap {
+          width: 42px; height: 42px;
           display: flex; align-items: center; justify-content: center;
-          border-radius: 12px;
-          background: rgba(139, 92, 246, 0.08);
-          border: 1px solid rgba(139, 92, 246, 0.12);
+          border-radius: 14px;
+          background: rgba(139, 92, 246, 0.06);
+          border: 1px solid rgba(139, 92, 246, 0.1);
           flex-shrink: 0;
-          transition: all 0.3s;
+          transition: all 0.4s;
         }
-        .nx-cred-btn:hover .nx-cred-icon-wrap {
-          background: rgba(139, 92, 246, 0.12);
-          border-color: rgba(139, 92, 246, 0.2);
+        .nv-cred-btn:hover .nv-cred-icon-wrap {
+          background: rgba(139, 92, 246, 0.1);
+          border-color: rgba(139, 92, 246, 0.18);
+          transform: scale(1.05);
         }
-        .nx-root--bluelight .nx-cred-icon-wrap {
-          background: rgba(251,191,36,0.06);
-          border-color: rgba(251,191,36,0.1);
+        .nv-cred-icon-wrap--bluelight {
+          background: rgba(251,191,36,0.05);
+          border-color: rgba(251,191,36,0.08);
         }
-        .nx-root--bluelight .nx-cred-btn:hover .nx-cred-icon-wrap {
-          background: rgba(251,191,36,0.10);
-          border-color: rgba(251,191,36,0.18);
+        .nv-root--bluelight .nv-cred-btn:hover .nv-cred-icon-wrap {
+          background: rgba(251,191,36,0.08);
+          border-color: rgba(251,191,36,0.15);
         }
-        .nx-cred-icon {
+
+        .nv-cred-icon {
           width: 18px; height: 18px;
           color: #8b5cf6;
         }
-        .nx-root--bluelight .nx-cred-icon { color: #f59e0b; }
+        .nv-root--bluelight .nv-cred-icon { color: #f59e0b; }
 
-        .nx-cred-text {
+        .nv-cred-text {
           display: flex; flex-direction: column; gap: 0.15rem;
         }
-        .nx-cred-title {
+        .nv-cred-title {
           font-size: 0.85rem; font-weight: 600;
         }
-        .nx-cred-title--dark { color: rgba(255,255,255,0.8); }
-        .nx-cred-title--light { color: rgba(0,0,0,0.75); }
-        .nx-cred-title--bluelight { color: rgba(251,191,36,0.8); }
+        .nv-cred-title--dark { color: rgba(255,255,255,0.8); }
+        .nv-cred-title--light { color: rgba(0,0,0,0.75); }
+        .nv-cred-title--bluelight { color: rgba(251,191,36,0.8); }
 
-        .nx-cred-desc {
-          font-size: 0.72rem;
+        .nv-cred-desc {
+          font-size: 0.7rem;
         }
-        .nx-cred-desc--dark { color: rgba(255,255,255,0.3); }
-        .nx-cred-desc--light { color: rgba(0,0,0,0.35); }
-        .nx-cred-desc--bluelight { color: rgba(251,191,36,0.35); }
+        .nv-cred-desc--dark { color: rgba(255,255,255,0.28); }
+        .nv-cred-desc--light { color: rgba(0,0,0,0.35); }
+        .nv-cred-desc--bluelight { color: rgba(251,191,36,0.32); }
 
-        .nx-cred-arrow {
-          opacity: 0.3;
-          transition: all 0.3s;
+        .nv-cred-arrow {
+          opacity: 0.25;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
           flex-shrink: 0;
         }
-        .nx-cred-arrow--dark { color: #fff; }
-        .nx-cred-arrow--light { color: #000; }
-        .nx-cred-arrow--bluelight { color: #f59e0b; }
-        .nx-cred-btn:hover .nx-cred-arrow {
-          opacity: 0.7; transform: translate(2px, -2px);
+        .nv-cred-arrow--dark { color: #fff; }
+        .nv-cred-arrow--light { color: #000; }
+        .nv-cred-arrow--bluelight { color: #f59e0b; }
+        .nv-cred-btn:hover .nv-cred-arrow {
+          opacity: 0.6; transform: translate(3px, -3px);
         }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            FEATURE PILLS
-           ═══════════════════════ */
-        .nx-pills {
+           ═════════════════════════ */
+        .nv-pills {
           position: relative; z-index: 1;
-          display: flex; align-items: center; gap: 0.6rem;
-          margin-top: 2.5rem;
-          opacity: 0; transform: translateY(15px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.3s;
+          display: flex; align-items: center; gap: 0;
+          margin-top: 2.8rem;
+          opacity: 0; transform: translateY(18px);
+          transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 1.5s;
           flex-wrap: wrap; justify-content: center;
         }
-        .nx-pills--visible { opacity: 1; transform: translateY(0); }
+        .nv-pills--visible { opacity: 1; transform: translateY(0); }
 
-        .nx-pill {
+        .nv-pill {
           display: flex; align-items: center; gap: 0.4rem;
-          padding: 0.35rem 0.85rem;
-          border-radius: 100px;
-          font-size: 0.7rem; font-weight: 500;
-          letter-spacing: 0.04em;
-          border: 1px solid rgba(255,255,255,0.06);
+          padding: 0.38rem 1rem;
+          font-size: 0.68rem; font-weight: 500;
+          letter-spacing: 0.06em;
+          border: 1px solid rgba(255,255,255,0.05);
           background: rgba(255,255,255,0.02);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
           color: rgba(255,255,255,0.35);
-          transition: all 0.3s;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nx-pill:hover {
+        .nv-pill:hover {
           border-color: rgba(255,255,255,0.12);
-          color: rgba(255,255,255,0.6);
+          color: rgba(255,255,255,0.65);
+          background: rgba(255,255,255,0.04);
+          transform: translateY(-1px);
         }
-        .nx-pill--light {
-          border-color: rgba(0,0,0,0.06);
-          background: rgba(0,0,0,0.02);
-          color: rgba(0,0,0,0.35);
+        .nv-pill--light {
+          border-color: rgba(0,0,0,0.05);
+          background: rgba(255,255,255,0.5);
+          color: rgba(0,0,0,0.4);
         }
-        .nx-pill--light:hover {
+        .nv-pill--light:hover {
           border-color: rgba(0,0,0,0.1);
-          color: rgba(0,0,0,0.6);
+          color: rgba(0,0,0,0.65);
+          background: rgba(255,255,255,0.8);
         }
-        .nx-pill--bluelight {
-          border-color: rgba(251,191,36,0.08);
+        .nv-pill--bluelight {
+          border-color: rgba(251,191,36,0.06);
           background: rgba(251,191,36,0.02);
           color: rgba(251,191,36,0.35);
         }
-        .nx-pill--bluelight:hover {
+        .nv-pill--bluelight:hover {
           border-color: rgba(251,191,36,0.15);
-          color: rgba(251,191,36,0.6);
+          color: rgba(251,191,36,0.65);
+          background: rgba(251,191,36,0.04);
         }
 
-        /* ═══════════════════════
+        .nv-pill-sep {
+          width: 1px; height: 14px;
+          background: rgba(255,255,255,0.08);
+          margin: 0 0.5rem;
+        }
+        .nv-root--light .nv-pill-sep { background: rgba(0,0,0,0.08); }
+        .nv-root--bluelight .nv-pill-sep { background: rgba(251,191,36,0.1); }
+
+        /* ═════════════════════════
            FOOTER
-           ═══════════════════════ */
-        .nx-footer {
+           ═════════════════════════ */
+        .nv-footer {
           position: fixed; bottom: 0; left: 0; right: 0;
           z-index: 100;
           display: flex; justify-content: center;
-          padding: 1.25rem 2rem;
+          padding: 1.3rem 2rem;
           opacity: 0;
-          transition: opacity 0.8s ease 1.5s;
+          transition: opacity 1s ease 1.8s;
           pointer-events: none;
         }
-        .nx-footer--visible { opacity: 1; }
+        .nv-footer--visible { opacity: 1; }
 
-        .nx-footer-inner {
-          display: flex; align-items: center; gap: 1rem;
+        .nv-footer-inner {
+          display: flex; align-items: center; gap: 0.9rem;
+          position: relative;
+          padding: 0.5rem 1.2rem;
+          border-radius: 100px;
+          background: rgba(255,255,255,0.02);
+          border: 1px solid rgba(255,255,255,0.04);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
         }
-        .nx-footer-text {
-          font-size: 0.8rem;
+        .nv-root--light .nv-footer-inner {
+          background: rgba(255,255,255,0.6);
+          border-color: rgba(0,0,0,0.05);
         }
-        .nx-footer-text--dark { color: rgba(255,255,255,0.25); }
-        .nx-footer-text--light { color: rgba(0,0,0,0.3); }
-        .nx-footer-text--bluelight { color: rgba(251,191,36,0.3); }
+        .nv-root--bluelight .nv-footer-inner {
+          background: rgba(251,191,36,0.02);
+          border-color: rgba(251,191,36,0.06);
+        }
 
-        .nx-footer-name {
+        .nv-footer-glow {
+          position: absolute;
+          inset: -1px;
+          border-radius: 101px;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+        .nv-footer--visible .nv-footer-glow {
+          opacity: 1;
+          background: linear-gradient(135deg, rgba(6, 182, 212, 0.05), transparent 50%, rgba(139, 92, 246, 0.03));
+        }
+
+        .nv-footer-text {
+          font-size: 0.78rem;
+        }
+        .nv-footer-text--dark { color: rgba(255,255,255,0.22); }
+        .nv-footer-text--light { color: rgba(0,0,0,0.3); }
+        .nv-footer-text--bluelight { color: rgba(251,191,36,0.28); }
+
+        .nv-footer-name {
           font-weight: 600;
         }
-        .nx-footer-name--dark { color: rgba(255,255,255,0.5); }
-        .nx-footer-name--light { color: rgba(0,0,0,0.55); }
-        .nx-footer-name--bluelight { color: rgba(251,191,36,0.55); }
+        .nv-footer-name--dark { color: rgba(255,255,255,0.5); }
+        .nv-footer-name--light { color: rgba(0,0,0,0.55); }
+        .nv-footer-name--bluelight { color: rgba(251,191,36,0.55); }
 
-        .nx-footer-divider {
+        .nv-footer-dot {
           width: 3px; height: 3px;
           border-radius: 50%;
-          background: rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.12);
         }
-        .nx-root--light .nx-footer-divider { background: rgba(0,0,0,0.12); }
-        .nx-root--bluelight .nx-footer-divider { background: rgba(251,191,36,0.2); }
+        .nv-root--light .nv-footer-dot { background: rgba(0,0,0,0.1); }
+        .nv-root--bluelight .nv-footer-dot { background: rgba(251,191,36,0.15); }
 
-        .nx-footer-role {
-          font-size: 0.7rem;
+        .nv-footer-role {
+          font-size: 0.68rem;
           text-transform: uppercase;
-          letter-spacing: 0.1em;
+          letter-spacing: 0.12em;
         }
-        .nx-footer-role--dark { color: rgba(255,255,255,0.18); }
-        .nx-footer-role--light { color: rgba(0,0,0,0.22); }
-        .nx-footer-role--bluelight { color: rgba(251,191,36,0.22); }
+        .nv-footer-role--dark { color: rgba(255,255,255,0.16); }
+        .nv-footer-role--light { color: rgba(0,0,0,0.2); }
+        .nv-footer-role--bluelight { color: rgba(251,191,36,0.2); }
 
-        /* ═══════════════════════
+        /* ═════════════════════════
            RESPONSIVE
-           ═══════════════════════ */
+           ═════════════════════════ */
         @media (max-width: 640px) {
-          .nx-topbar { padding: 0.75rem 1rem; }
-          .nx-orb { width: 220px; height: 220px; }
-          .nx-actions { gap: 0.75rem; }
-          .nx-start-btn { padding: 0.75rem 1.75rem; font-size: 0.85rem; }
-          .nx-cred-btn { padding: 0.7rem 1rem; }
-          .nx-footer { padding: 1rem; }
-          .nx-pills { gap: 0.4rem; }
+          .nv-topbar { padding: 0.8rem 1rem; }
+          .nv-logo-glow { left: 1rem; width: 120px; }
+          .nv-core { width: 200px; height: 200px; }
+          .nv-actions { gap: 0.7rem; }
+          .nv-start-btn { padding: 0.8rem 2rem; font-size: 0.85rem; }
+          .nv-cred-btn { padding: 0.75rem 1.1rem; }
+          .nv-cred-icon-wrap { width: 38px; height: 38px; }
+          .nv-footer { padding: 1rem; }
+          .nv-pills { gap: 0; }
+          .nv-pill { padding: 0.3rem 0.75rem; font-size: 0.64rem; }
+          .nv-pill-sep { margin: 0 0.35rem; }
         }
         @media (max-width: 380px) {
-          .nx-orb { width: 160px; height: 160px; }
-          .nx-orb-ring--2 { inset: 12px; }
-          .nx-orb-ring--3 { inset: 30px; }
+          .nv-core { width: 150px; height: 150px; }
+          .nv-core-ring--2 { inset: 15px; }
+          .nv-core-ring--3 { inset: 30px; }
         }
       `}</style>
     </>

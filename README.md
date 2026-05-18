@@ -8,6 +8,7 @@ A comprehensive project management and team collaboration dashboard built with N
 - **CRM Integration** — Client relationship management with contact tracking
 - **Finance Dashboard** — Revenue tracking, billing, and financial analytics
 - **Team Management** — Role-based access control (Super Admin, Admin, Developer, Client)
+- **Time Tracking** — Track work hours, attendance, and availability
 - **Approval Workflow** — Request and approval system for tasks, leaves, and more
 - **Authentication** — NextAuth.js with credentials-based login and role-based access
 

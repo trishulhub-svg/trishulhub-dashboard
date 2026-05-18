@@ -961,9 +961,9 @@ export default function ApprovalsPage() {
     {
       label: "Approval Requests",
       value: counts.approvals,
-      icon: <Bot className="h-5 w-5" />,
-      color: "text-purple-600 dark:text-purple-400",
-      bg: "bg-purple-50 dark:bg-purple-900/20",
+      icon: <ShieldCheck className="h-5 w-5" />,
+      color: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-50 dark:bg-blue-900/20",
     },
     {
       label: "Leave Requests",
