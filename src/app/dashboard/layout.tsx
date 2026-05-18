@@ -131,6 +131,13 @@ const navGroups: NavGroup[] = [
 // Flat list for header title lookup (order-independent)
 const allNavItems = navGroups.flatMap((g) => g.items);
 
+interface PendingCounts {
+  approvals: number;
+  leaveRequests: number;
+  tasksAwaitingApproval: number;
+  total: number;
+}
+
 interface NotificationItem {
   id: string;
   title: string;
@@ -173,12 +180,14 @@ const SidebarContent = React.memo(function SidebarContent({
   userName,
   pathname,
   onNavigate,
+  badgeCounts,
 }: {
   collapsed: boolean;
   userRole: UserRole;
   userName: string;
   pathname: string;
   onNavigate: (href: string) => void;
+  badgeCounts: Record<string, number>;
 }) {
   // Filter groups: only show groups that have at least one visible item for this role
   const visibleGroups = navGroups
@@ -235,7 +244,7 @@ const SidebarContent = React.memo(function SidebarContent({
                       key={item.href}
                       onClick={() => onNavigate(item.href)}
                       className={cn(
-                        "flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
+                        "relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
                         isActive
                           ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -243,7 +252,15 @@ const SidebarContent = React.memo(function SidebarContent({
                       type="button"
                     >
                       <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
-                      {!collapsed && <span>{item.title}</span>}
+                      {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
+                      {!collapsed && badgeCounts[item.href] > 0 && (
+                        <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
+                          {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
+                        </Badge>
+                      )}
+                      {collapsed && badgeCounts[item.href] > 0 && (
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                      )}
                     </button>
                   );
                 })}
@@ -286,6 +303,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, tasksAwaitingApproval: 0, total: 0 });
 
   const userRole = session?.user?.role as UserRole || "DEVELOPER";
   const userName = session?.user?.name || "User";
@@ -293,6 +311,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const userId = session?.user?.id || "";
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
+
+  // Badge count mapping: nav href → count value
+  const navBadgeCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (pendingCounts.total > 0) map["/dashboard/approvals"] = pendingCounts.total;
+    if (pendingCounts.leaveRequests > 0) map["/dashboard/team"] = pendingCounts.leaveRequests;
+    if (pendingCounts.tasksAwaitingApproval > 0) map["/dashboard/projects"] = pendingCounts.tasksAwaitingApproval;
+    return map;
+  }, [pendingCounts]);
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -306,6 +333,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       console.error("Failed to fetch notifications:", err);
     }
   }, [userId]);
+
+  const fetchPendingCounts = useCallback(async () => {
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") return;
+    try {
+      const res = await fetch("/api/approvals/pending-counts", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setPendingCounts(data as PendingCounts);
+      }
+    } catch (err) {
+      console.error("Failed to fetch pending counts:", err);
+    }
+  }, [userRole]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -324,21 +364,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
-  // PERF: Defer notification fetch by 200ms so page data loads first.
+  // PERF: Defer notification + counts fetch by 200ms so page data loads first.
   // Notifications are non-critical UI — they should not compete with the
   // page's own API calls for network bandwidth on navigation.
   useEffect(() => {
     if (session) {
       const timer = setTimeout(() => {
         fetchNotifications();
+        fetchPendingCounts();
       }, 200);
-      const interval = setInterval(fetchNotifications, 45000);
+      const interval = setInterval(() => {
+        fetchNotifications();
+        fetchPendingCounts();
+      }, 45000);
       return () => {
         clearTimeout(timer);
         clearInterval(interval);
       };
     }
-  }, [session, fetchNotifications]);
+  }, [session, fetchNotifications, fetchPendingCounts]);
 
   const markAsRead = useCallback(async (notifId: string) => {
     try {
@@ -411,6 +455,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           userName={userName}
           pathname={pathname}
           onNavigate={handleNavigate}
+          badgeCounts={navBadgeCounts}
         />
         <Button
           variant="ghost"
@@ -443,6 +488,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             userName={userName}
             pathname={pathname}
             onNavigate={handleNavigate}
+            badgeCounts={navBadgeCounts}
           />
         </SheetContent>
       </Sheet>

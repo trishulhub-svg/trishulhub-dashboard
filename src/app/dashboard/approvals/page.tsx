@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw, AlertTriangle, Trash2, User, AlertCircle,
+  CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw,
+  AlertTriangle, Trash2, User, AlertCircle, Calendar, ClipboardList,
+  ShieldCheck, HourglassIcon, ListChecks, Send, RotateCcw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,9 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { safeArray } from "@/lib/utils";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { safeArray, safeText, safeJsonParse } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TypeScript Interfaces
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 interface Approval {
   id: string;
@@ -34,7 +41,52 @@ interface Approval {
   approvedBy?: { id: string; name: string } | null;
 }
 
-const typeColors: Record<string, string> = {
+interface LeaveRequest {
+  id: string;
+  userId: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+  status: string;
+  approvedBy: string | null;
+  feedback: string | null;
+  createdAt: string;
+  user?: { id: string; name: string; email: string; role: string; avatar: string | null } | null;
+}
+
+interface TaskItem {
+  id: string;
+  title: string;
+  description: string | null;
+  projectId: string;
+  assignedTo: string | null;
+  assigneeType: string;
+  status: string;
+  priority: string;
+  deadline: string | null;
+  completedAt: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assignedToName: string | null;
+  approvedByName: string | null;
+  project?: { id: string; name: string } | null;
+}
+
+interface PendingCounts {
+  approvals: number;
+  leaveRequests: number;
+  tasksAwaitingApproval: number;
+  total: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Color Mappings
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const approvalTypeColors: Record<string, string> = {
   TASK: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   INVOICE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   EMAIL: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
@@ -44,6 +96,14 @@ const typeColors: Record<string, string> = {
   LEAD_OUTREACH: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
   CONTENT_PIECE: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   CHAT_DELETION: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  TASK_EXECUTION: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  EXPENSE_APPROVAL: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  INVOICE_SENDING: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300",
+  EMAIL_SENDING: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  CODE_DEPLOYMENT: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  DATA_EXPORT: "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
+  SCHEDULED_ACTION: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+  CROSS_AGENT_REQUEST: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
 };
 
 const statusColors: Record<string, string> = {
@@ -51,71 +111,234 @@ const statusColors: Record<string, string> = {
   APPROVED: "border-green-300 bg-green-50/50 dark:border-green-700 dark:bg-green-900/10",
   REJECTED: "border-red-300 bg-red-50/50 dark:border-red-700 dark:bg-red-900/10",
   NEEDS_IMPROVEMENT: "border-orange-300 bg-orange-50/50 dark:border-orange-700 dark:bg-orange-900/10",
+  AWAITING_APPROVAL: "border-yellow-300 bg-yellow-50/50 dark:border-yellow-700 dark:bg-yellow-900/10",
 };
+
+const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  PENDING: "default",
+  APPROVED: "secondary",
+  REJECTED: "destructive",
+  NEEDS_IMPROVEMENT: "outline",
+  AWAITING_APPROVAL: "default",
+  DONE: "secondary",
+};
+
+const leaveTypeBadge: Record<string, string> = {
+  CASUAL: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+  SICK: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  PAID: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+};
+
+const priorityBadge: Record<string, string> = {
+  LOW: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  MEDIUM: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  URGENT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const sourceTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  LEAVE: {
+    label: "Leave Request",
+    color: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+    icon: <Calendar className="h-4 w-4" />,
+  },
+  TASK: {
+    label: "Task Approval",
+    color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    icon: <ClipboardList className="h-4 w-4" />,
+  },
+  AI: {
+    label: "AI Agent",
+    color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+    icon: <Bot className="h-4 w-4" />,
+  },
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Helper: get initials from name
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function getInitials(name: string): string {
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Unified Pending Item (for All Pending tab)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+interface UnifiedPendingItem {
+  id: string;
+  source: "LEAVE" | "TASK" | "AI";
+  title: string;
+  description: string | null;
+  requesterName: string;
+  requesterAvatar: string | null;
+  createdAt: string;
+  raw: Approval | LeaveRequest | TaskItem;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Main Component
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function ApprovalsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const isSessionLoading = sessionStatus === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
-  const [approvals, setApprovals] = useState<Approval[]>([]);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState("all-pending");
+
+  // Data states
+  const [aiApprovals, setAiApprovals] = useState<Approval[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [historyItems, setHistoryItems] = useState<Approval[]>([]);
+
+  // UI states
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState("PENDING");
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
-  const fetchApprovals = useCallback(async (status?: string) => {
+  // Computed counts
+  const pendingAiApprovals = aiApprovals.filter((a) => a.status === "PENDING");
+  const pendingLeaves = leaveRequests.filter((l) => l.status === "PENDING");
+  const pendingTasks = tasks.filter((t) => t.status === "AWAITING_APPROVAL");
+
+  const counts: PendingCounts = {
+    approvals: pendingAiApprovals.length,
+    leaveRequests: pendingLeaves.length,
+    tasksAwaitingApproval: pendingTasks.length,
+    total: pendingAiApprovals.length + pendingLeaves.length + pendingTasks.length,
+  };
+
+  // Unified pending queue
+  const unifiedPending: UnifiedPendingItem[] = [
+    ...pendingLeaves.map((l) => ({
+      id: l.id,
+      source: "LEAVE" as const,
+      title: `${safeText(l.user?.name, "Unknown")} — ${l.type} Leave`,
+      description: l.reason || `${l.type} leave from ${new Date(l.startDate).toLocaleDateString()} to ${new Date(l.endDate).toLocaleDateString()}`,
+      requesterName: safeText(l.user?.name, "Unknown"),
+      requesterAvatar: l.user?.avatar || null,
+      createdAt: l.createdAt,
+      raw: l,
+    })),
+    ...pendingTasks.map((t) => ({
+      id: t.id,
+      source: "TASK" as const,
+      title: t.title,
+      description: t.description || `Priority: ${t.priority}`,
+      requesterName: safeText(t.assignedToName, "Unassigned"),
+      requesterAvatar: null,
+      createdAt: t.updatedAt,
+      raw: t,
+    })),
+    ...pendingAiApprovals.map((a) => ({
+      id: a.id,
+      source: "AI" as const,
+      title: a.title,
+      description: a.description,
+      requesterName: a.agent?.name || (a.requesterType === "AI" ? "AI Agent" : "Team Member"),
+      requesterAvatar: null,
+      createdAt: a.createdAt,
+      raw: a,
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Data Fetching
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const url = status ? `/api/approvals?status=${status}` : "/api/approvals?status=PENDING";
-      const res = await fetch(url, { credentials: 'include' });
-      if (res.status === 401) { router.push("/login"); return; }
-      if (res.ok) {
-        setApprovals(safeArray<Approval>(await res.json()));
-      } else {
-        setError("Failed to load approvals");
+      const [
+        approvalsRes,
+        approvedRes,
+        rejectedRes,
+        needsImprovementRes,
+        leavesRes,
+        tasksRes,
+      ] = await Promise.allSettled([
+        fetch("/api/approvals?status=PENDING", { credentials: "include" }),
+        fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
+        fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
+        fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
+        fetch("/api/team?type=leaves", { credentials: "include" }),
+        fetch("/api/tasks", { credentials: "include" }),
+      ]);
+
+      // Handle approvals
+      if (approvalsRes.status === "fulfilled" && approvalsRes.value.ok) {
+        setAiApprovals(safeArray<Approval>(await approvalsRes.value.json()));
+      }
+      if (approvalsRes.status === "fulfilled" && approvalsRes.value.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      // Handle approved + rejected + needs_improvement for history
+      const historyPromises = [approvedRes, rejectedRes, needsImprovementRes]
+        .filter((r) => r.status === "fulfilled" && r.value.ok)
+        .map(async (r) => safeArray<Approval>(await (r as PromiseFulfilledResult<Response>).value.json()));
+      const historyArrays = await Promise.all(historyPromises);
+      setHistoryItems(
+        historyArrays.flat().sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        )
+      );
+
+      // Handle leaves
+      if (leavesRes.status === "fulfilled" && leavesRes.value.ok) {
+        setLeaveRequests(safeArray<LeaveRequest>(await leavesRes.value.json()));
+      }
+
+      // Handle tasks
+      if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
+        const taskData = safeArray<TaskItem>(await tasksRes.value.json());
+        setTasks(taskData);
       }
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load approvals");
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
-    fetchApprovals(activeTab === "ALL" ? undefined : activeTab);
-  }, [activeTab, fetchApprovals]);
+    if (!isSessionLoading && (userRole === "SUPER_ADMIN" || userRole === "ADMIN")) {
+      fetchAllData();
+    }
+  }, [isSessionLoading, userRole, fetchAllData]);
 
-  if (isSessionLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
-            <Skeleton className="h-4 w-80" />
-          </div>
-          <Skeleton className="h-9 w-24" />
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
-        </div>
-      </div>
-    );
-  }
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Action Handlers
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // Role guard
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") { router.push("/dashboard"); return null; }
+  const setActionLoadingState = (id: string, state: boolean) => {
+    setActionLoading((prev) => ({ ...prev, [id]: state }));
+  };
 
-  const handleAction = async (id: string, action: "APPROVED" | "REJECTED" | "NEEDS_IMPROVEMENT") => {
+  const handleAiApproval = async (id: string, action: "APPROVED" | "REJECTED" | "NEEDS_IMPROVEMENT") => {
+    setActionLoadingState(id, true);
     try {
       const feedback = feedbackTexts[id] || undefined;
-
       const res = await fetch("/api/approvals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({ id, status: action, feedback }),
       });
 
@@ -126,170 +349,759 @@ export default function ApprovalsPage() {
           NEEDS_IMPROVEMENT: "Marked as needs improvement — will be revised",
         };
         toast.success(msgs[action]);
-        fetchApprovals(activeTab === "ALL" ? undefined : activeTab);
+        setFeedbackTexts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        fetchAllData();
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to process approval");
       }
     } catch {
       toast.error("Failed to process approval");
+    } finally {
+      setActionLoadingState(id, false);
     }
   };
 
-  const pendingCount = approvals.filter(a => a.status === "PENDING").length;
+  const handleLeaveAction = async (id: string, action: "APPROVED" | "REJECTED") => {
+    setActionLoadingState(id, true);
+    try {
+      const feedback = feedbackTexts[id] || undefined;
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ type: "leave", id, status: action, feedback }),
+      });
+
+      if (res.ok) {
+        toast.success(action === "APPROVED" ? "Leave approved!" : "Leave rejected");
+        setFeedbackTexts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        fetchAllData();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to process leave request");
+      }
+    } catch {
+      toast.error("Failed to process leave request");
+    } finally {
+      setActionLoadingState(id, false);
+    }
+  };
+
+  const handleTaskAction = async (id: string, action: "approve" | "reject") => {
+    setActionLoadingState(id, true);
+    try {
+      const feedback = feedbackTexts[id] || undefined;
+      const body: Record<string, unknown> = { id };
+
+      if (action === "approve") {
+        body.status = "DONE";
+      } else {
+        body.status = "IN_PROGRESS";
+        body.description = feedback ? { feedback } : undefined;
+      }
+
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        toast.success(action === "approve" ? "Task approved!" : "Task sent back for revision");
+        setFeedbackTexts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        fetchAllData();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to process task");
+      }
+    } catch {
+      toast.error("Failed to process task");
+    } finally {
+      setActionLoadingState(id, false);
+    }
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Loading / Auth States
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  if (isSessionLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-56" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <Skeleton className="h-9 w-24" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-10 w-full rounded-lg" />
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-40 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Role guard
+  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    router.push("/dashboard");
+    return null;
+  }
 
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchApprovals(activeTab === "ALL" ? undefined : activeTab); }}>
+        <Button variant="outline" onClick={() => { setError(null); fetchAllData(); }}>
           Try Again
         </Button>
       </div>
     );
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Render Helpers
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const renderApprovalCard = (item: Approval) => {
+    const parsedData = safeJsonParse<Record<string, unknown>>(item.data, {});
+    return (
+      <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${approvalTypeColors[item.type] || "bg-muted"}`}>
+                {item.type === "CHAT_DELETION" ? (
+                  <Trash2 className="h-5 w-5" />
+                ) : item.requesterType === "AI" ? (
+                  <Bot className="h-5 w-5" />
+                ) : (
+                  <MessageSquare className="h-5 w-5" />
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium">{safeText(item.title, "Untitled")}</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <Badge variant="secondary" className="text-[10px]">
+                    {item.type === "CHAT_DELETION" ? "Chat Deletion" : item.type.replace(/_/g, " ")}
+                  </Badge>
+                  {item.agent && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Bot className="h-3 w-3" />
+                      <span>{safeText(item.agent.name, "AI")}</span>
+                    </div>
+                  )}
+                  {item.requesterType === "AI" && (
+                    <Badge variant="outline" className="text-[10px]">AI Requested</Badge>
+                  )}
+                  {item.type === "CHAT_DELETION" && typeof parsedData.requestedBy === "string" && parsedData.requestedBy && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      <span>Requested by {safeText(parsedData.requestedBy, "")}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <Badge variant={statusBadgeVariant[item.status] || "secondary"} className="text-xs">
+                {item.status.replace(/_/g, " ")}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-1">
+                {new Date(item.createdAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          {item.description && (
+            <p className="text-sm text-muted-foreground">{safeText(item.description, "")}</p>
+          )}
+
+          {typeof parsedData.output === "string" && parsedData.output && (
+            <div className="bg-muted rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+                <MessageSquare className="h-3 w-3" /> Output
+              </div>
+              <p className="text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {safeText(parsedData.output, "")}
+              </p>
+            </div>
+          )}
+
+          {item.feedback && (
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300 mb-1">
+                <AlertTriangle className="h-3 w-3" /> Feedback
+              </div>
+              <p className="text-sm">{safeText(item.feedback, "")}</p>
+              {item.approvedBy && (
+                <p className="text-xs text-muted-foreground mt-1">By {safeText(item.approvedBy.name, "")}</p>
+              )}
+            </div>
+          )}
+
+          {item.status === "PENDING" && (
+            <div className="space-y-2 pt-2 border-t">
+              <Textarea
+                placeholder="Feedback (optional for approve, recommended for reject/improve)..."
+                className="text-xs min-h-[44px]"
+                rows={2}
+                value={feedbackTexts[item.id] || ""}
+                onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                aria-label="Approval feedback"
+              />
+              <div className="flex gap-2">
+                <Button
+                  className="bg-green-600 hover:bg-green-700 flex-1"
+                  disabled={actionLoading[item.id]}
+                  onClick={() => handleAiApproval(item.id, "APPROVED")}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+                  disabled={actionLoading[item.id]}
+                  onClick={() => handleAiApproval(item.id, "NEEDS_IMPROVEMENT")}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-1" /> Needs Work
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={actionLoading[item.id]}
+                  onClick={() => handleAiApproval(item.id, "REJECTED")}
+                >
+                  <XCircle className="h-4 w-4 mr-1" /> Reject
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderLeaveCard = (leave: LeaveRequest, showActions: boolean = true) => {
+    const isPending = leave.status === "PENDING";
+    return (
+      <Card key={leave.id} className={`border ${statusColors[leave.status] || ""}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={leave.user?.avatar || undefined} alt={safeText(leave.user?.name, "")} />
+                <AvatarFallback>{getInitials(safeText(leave.user?.name, "?"))}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-sm font-medium">{safeText(leave.user?.name, "Unknown Employee")}</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <Badge variant="secondary" className={`text-[10px] ${leaveTypeBadge[leave.type] || ""}`}>
+                    {leave.type}
+                  </Badge>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Calendar className="h-3 w-3" />
+                    <span>
+                      {new Date(leave.startDate).toLocaleDateString()} — {new Date(leave.endDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <Badge variant={statusBadgeVariant[leave.status] || "secondary"} className="text-xs">
+                {leave.status.replace(/_/g, " ")}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-1">
+                {new Date(leave.createdAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          {leave.reason && (
+            <p className="text-sm text-muted-foreground">{safeText(leave.reason, "")}</p>
+          )}
+
+          {leave.feedback && (
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300 mb-1">
+                <AlertTriangle className="h-3 w-3" /> Feedback
+              </div>
+              <p className="text-sm">{safeText(leave.feedback, "")}</p>
+            </div>
+          )}
+
+          {isPending && showActions && (
+            <div className="space-y-2 pt-2 border-t">
+              <Textarea
+                placeholder="Feedback (optional for approve, recommended for reject)..."
+                className="text-xs min-h-[44px]"
+                rows={2}
+                value={feedbackTexts[leave.id] || ""}
+                onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [leave.id]: e.target.value }))}
+                aria-label="Leave feedback"
+              />
+              <div className="flex gap-2">
+                <Button
+                  className="bg-green-600 hover:bg-green-700 flex-1"
+                  disabled={actionLoading[leave.id]}
+                  onClick={() => handleLeaveAction(leave.id, "APPROVED")}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  disabled={actionLoading[leave.id]}
+                  onClick={() => handleLeaveAction(leave.id, "REJECTED")}
+                >
+                  <XCircle className="h-4 w-4 mr-1" /> Reject
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderTaskCard = (task: TaskItem, showActions: boolean = true) => {
+    const isAwaiting = task.status === "AWAITING_APPROVAL";
+    return (
+      <Card key={task.id} className={`border ${statusColors[task.status] || ""}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${priorityBadge[task.priority] || "bg-muted"}`}>
+                <ClipboardList className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">{safeText(task.title, "Untitled Task")}</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <Badge variant="secondary" className={`text-[10px] ${priorityBadge[task.priority] || ""}`}>
+                    {task.priority}
+                  </Badge>
+                  {task.assignedToName && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      <span>{safeText(task.assignedToName, "")}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <Badge variant={statusBadgeVariant[task.status] || "secondary"} className="text-xs">
+                {task.status.replace(/_/g, " ")}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-1">
+                {new Date(task.updatedAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          {task.description && (
+            <p className="text-sm text-muted-foreground">{safeText(task.description, "")}</p>
+          )}
+
+          {task.deadline && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>Deadline: {new Date(task.deadline).toLocaleDateString()}</span>
+            </div>
+          )}
+
+          {isAwaiting && showActions && (
+            <div className="space-y-2 pt-2 border-t">
+              <Textarea
+                placeholder="Feedback for rejection (optional)..."
+                className="text-xs min-h-[44px]"
+                rows={2}
+                value={feedbackTexts[task.id] || ""}
+                onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                aria-label="Task feedback"
+              />
+              <div className="flex gap-2">
+                <Button
+                  className="bg-green-600 hover:bg-green-700 flex-1"
+                  disabled={actionLoading[task.id]}
+                  onClick={() => handleTaskAction(task.id, "approve")}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+                  disabled={actionLoading[task.id]}
+                  onClick={() => handleTaskAction(task.id, "reject")}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" /> Send Back
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderUnifiedCard = (item: UnifiedPendingItem) => {
+    const src = sourceTypeConfig[item.source] || sourceTypeConfig.AI;
+    if (item.source === "LEAVE") {
+      return renderLeaveCard(item.raw as LeaveRequest, true);
+    }
+    if (item.source === "TASK") {
+      return renderTaskCard(item.raw as TaskItem, true);
+    }
+    // AI approval — render inline with source badge
+    const approval = item.raw as Approval;
+    const parsedData = safeJsonParse<Record<string, unknown>>(approval.data, {});
+    return (
+      <Card key={item.id} className="border border-yellow-300 bg-yellow-50/50 dark:border-yellow-700 dark:bg-yellow-900/10">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${src.color}`}>
+                {src.icon}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{safeText(approval.title, "Untitled")}</p>
+                  <Badge variant="secondary" className={`text-[10px] ${src.color}`}>
+                    {src.label}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {approval.type.replace(/_/g, " ")}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {approval.agent && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Bot className="h-3 w-3" />
+                      <span>{safeText(approval.agent.name, "AI")}</span>
+                    </div>
+                  )}
+                  {approval.requesterType === "AI" && (
+                    <Badge variant="outline" className="text-[10px]">AI Requested</Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(approval.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <Badge variant="default" className="text-xs">PENDING</Badge>
+          </div>
+
+          {approval.description && (
+            <p className="text-sm text-muted-foreground">{safeText(approval.description, "")}</p>
+          )}
+
+          {typeof parsedData.output === "string" && parsedData.output && (
+            <div className="bg-muted rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+                <MessageSquare className="h-3 w-3" /> Output
+              </div>
+              <p className="text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {safeText(parsedData.output, "")}
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-2 pt-2 border-t">
+            <Textarea
+              placeholder="Feedback (optional for approve, recommended for reject/improve)..."
+              className="text-xs min-h-[44px]"
+              rows={2}
+              value={feedbackTexts[approval.id] || ""}
+              onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [approval.id]: e.target.value }))}
+              aria-label="Approval feedback"
+            />
+            <div className="flex gap-2">
+              <Button
+                className="bg-green-600 hover:bg-green-700 flex-1"
+                disabled={actionLoading[approval.id]}
+                onClick={() => handleAiApproval(approval.id, "APPROVED")}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+              </Button>
+              <Button
+                variant="outline"
+                className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+                disabled={actionLoading[approval.id]}
+                onClick={() => handleAiApproval(approval.id, "NEEDS_IMPROVEMENT")}
+              >
+                <AlertTriangle className="h-4 w-4 mr-1" /> Needs Work
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={actionLoading[approval.id]}
+                onClick={() => handleAiApproval(approval.id, "REJECTED")}
+              >
+                <XCircle className="h-4 w-4 mr-1" /> Reject
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Empty state
+  const renderEmpty = (message: string, icon?: React.ReactNode) => (
+    <Card>
+      <CardContent className="p-12 text-center">
+        <div className="flex justify-center mb-4 text-green-500">
+          {icon || <CheckCircle2 className="h-12 w-12" />}
+        </div>
+        <h3 className="text-lg font-semibold mb-1">All caught up!</h3>
+        <p className="text-muted-foreground">{message}</p>
+      </CardContent>
+    </Card>
+  );
+
+  // Loading skeleton
+  const renderLoading = () => (
+    <div className="space-y-3">
+      {[1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-40 rounded-lg" />
+      ))}
+    </div>
+  );
+
+  // History card (simplified, no actions)
+  const renderHistoryCard = (item: Approval) => {
+    const parsedData = safeJsonParse<Record<string, unknown>>(item.data, {});
+    return (
+      <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${approvalTypeColors[item.type] || "bg-muted"}`}>
+                {item.requesterType === "AI" ? <Bot className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+              </div>
+              <div>
+                <p className="text-sm font-medium">{safeText(item.title, "Untitled")}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Badge variant="secondary" className="text-[10px]">
+                    {item.type.replace(/_/g, " ")}
+                  </Badge>
+                  {item.agent && (
+                    <span className="text-xs text-muted-foreground">{safeText(item.agent.name, "AI")}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <Badge variant={statusBadgeVariant[item.status] || "secondary"} className="text-xs">
+                {item.status.replace(/_/g, " ")}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-1">
+                {new Date(item.updatedAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+          {item.feedback && (
+            <div className="mt-2 text-xs text-muted-foreground bg-muted rounded p-2">
+              <span className="font-medium">Feedback: </span>
+              {safeText(item.feedback, "")}
+              {item.approvedBy && (
+                <span className="ml-1">— {safeText(item.approvedBy.name, "")}</span>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Stat Cards
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const statCards = [
+    {
+      label: "Total Pending",
+      value: counts.total,
+      icon: <HourglassIcon className="h-5 w-5" />,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-900/20",
+    },
+    {
+      label: "AI Agent Requests",
+      value: counts.approvals,
+      icon: <Bot className="h-5 w-5" />,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-50 dark:bg-purple-900/20",
+    },
+    {
+      label: "Leave Requests",
+      value: counts.leaveRequests,
+      icon: <Calendar className="h-5 w-5" />,
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-50 dark:bg-sky-900/20",
+    },
+    {
+      label: "Task Approvals",
+      value: counts.tasksAwaitingApproval,
+      icon: <ListChecks className="h-5 w-5" />,
+      color: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-50 dark:bg-blue-900/20",
+    },
+  ];
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Main Render
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
   return (
-    <div className="space-y-4">
-      <PageHeader title="Approval Queue" description="Review and approve pending items. Provide feedback to guide improvements.">
-        <Button variant="outline" size="sm" onClick={() => fetchApprovals(activeTab === "ALL" ? undefined : activeTab)}>
-          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+    <div className="space-y-6">
+      <PageHeader title="Approval Center" description="Universal approval gateway for all system requests">
+        <Button variant="outline" size="sm" onClick={fetchAllData}>
+          <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </PageHeader>
 
+      {/* ── Summary Stat Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${stat.bg} ${stat.color}`}>
+                {stat.icon}
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stat.value}</p>
+                <p className="text-xs text-muted-foreground">{stat.label}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* ── Tabs ── */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="PENDING">
-            Pending {pendingCount > 0 && <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 text-[10px]">{pendingCount}</Badge>}
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="all-pending">
+            All Pending
+            {counts.total > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {counts.total}
+              </Badge>
+            )}
           </TabsTrigger>
-          <TabsTrigger value="APPROVED">Approved</TabsTrigger>
-          <TabsTrigger value="REJECTED">Rejected</TabsTrigger>
-          <TabsTrigger value="NEEDS_IMPROVEMENT">Needs Work</TabsTrigger>
-          <TabsTrigger value="ALL">All</TabsTrigger>
+          <TabsTrigger value="leaves">
+            Leave Requests
+            {counts.leaveRequests > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {counts.leaveRequests}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="tasks">
+            Task Approvals
+            {counts.tasksAwaitingApproval > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {counts.tasksAwaitingApproval}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="ai-agents">
+            AI Agent Requests
+            {counts.approvals > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {counts.approvals}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            History
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value={activeTab} className="mt-4">
+        {/* ── Tab 1: All Pending ── */}
+        <TabsContent value="all-pending" className="mt-4">
           {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
-            </div>
-          ) : approvals.length === 0 ? (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-500" />
-                <h3 className="text-lg font-semibold mb-1">All caught up!</h3>
-                <p className="text-muted-foreground">No items {activeTab.toLowerCase()} right now.</p>
-              </CardContent>
-            </Card>
+            renderLoading()
+          ) : unifiedPending.length === 0 ? (
+            renderEmpty("No pending approvals across the system.")
           ) : (
             <div className="space-y-3">
-              {approvals.map((item) => {
-                let parsedData: any = {};
-                try { parsedData = JSON.parse(item.data); } catch (err) { console.error("Failed to parse approval data:", err); }
+              {unifiedPending.map((item) => renderUnifiedCard(item))}
+            </div>
+          )}
+        </TabsContent>
 
-                return (
-                  <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${typeColors[item.type] || "bg-muted"}`}>
-                            {item.type === "CHAT_DELETION" ? <Trash2 className="h-5 w-5" /> : item.requesterType === "AI" ? <Bot className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{item.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              <Badge variant="secondary" className="text-[10px]">{item.type === "CHAT_DELETION" ? "Chat Deletion" : item.type}</Badge>
-                              {item.agent && (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Bot className="h-3 w-3" />
-                                  <span>{item.agent.name}</span>
-                                </div>
-                              )}
-                              {item.requesterType === "AI" && (
-                                <Badge variant="outline" className="text-[10px]">AI Requested</Badge>
-                              )}
-                              {item.type === "CHAT_DELETION" && parsedData.requestedBy && (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <User className="h-3 w-3" />
-                                  <span>Requested by {parsedData.requestedBy}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant={item.status === "PENDING" ? "default" : "secondary"} className="text-xs">
-                            {item.status.replace("_", " ")}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {new Date(item.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
+        {/* ── Tab 2: Leave Requests ── */}
+        <TabsContent value="leaves" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : pendingLeaves.length === 0 ? (
+            renderEmpty("No pending leave requests.")
+          ) : (
+            <div className="space-y-3">
+              {pendingLeaves.map((leave) => renderLeaveCard(leave, true))}
+            </div>
+          )}
+        </TabsContent>
 
-                      {item.description && (
-                        <p className="text-sm text-muted-foreground">{item.description}</p>
-                      )}
+        {/* ── Tab 3: Task Approvals ── */}
+        <TabsContent value="tasks" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : pendingTasks.length === 0 ? (
+            renderEmpty("No tasks awaiting approval.")
+          ) : (
+            <div className="space-y-3">
+              {pendingTasks.map((task) => renderTaskCard(task, true))}
+            </div>
+          )}
+        </TabsContent>
 
-                      {parsedData.output && (
-                        <div className="bg-muted rounded-lg p-3">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
-                            <MessageSquare className="h-3 w-3" /> Output
-                          </div>
-                          <p className="text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">{parsedData.output}</p>
-                        </div>
-                      )}
+        {/* ── Tab 4: AI Agent Requests ── */}
+        <TabsContent value="ai-agents" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : aiApprovals.length === 0 ? (
+            renderEmpty("No AI agent requests.")
+          ) : (
+            <div className="space-y-3">
+              {aiApprovals.map((item) => renderApprovalCard(item))}
+            </div>
+          )}
+        </TabsContent>
 
-                      {item.feedback && (
-                        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
-                          <div className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300 mb-1">
-                            <AlertTriangle className="h-3 w-3" /> Feedback
-                          </div>
-                          <p className="text-sm">{item.feedback}</p>
-                          {item.approvedBy && (
-                            <p className="text-xs text-muted-foreground mt-1">By {item.approvedBy.name}</p>
-                          )}
-                        </div>
-                      )}
-
-                      {item.status === "PENDING" && (
-                        <div className="space-y-2 pt-2 border-t">
-                          <Textarea
-                            placeholder="Feedback (optional for approve, recommended for reject/improve)..."
-                            className="text-xs min-h-[44px]"
-                            rows={2}
-                            value={feedbackTexts[item.id] || ""}
-                            onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            aria-label="Approval feedback"
-                          />
-                          <div className="flex gap-2">
-                            <Button
-                              className="bg-green-600 hover:bg-green-700 flex-1"
-                              onClick={() => handleAction(item.id, "APPROVED")}
-                            >
-                              <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
-                              onClick={() => handleAction(item.id, "NEEDS_IMPROVEMENT")}
-                            >
-                              <AlertTriangle className="h-4 w-4 mr-1" /> Needs Work
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              onClick={() => handleAction(item.id, "REJECTED")}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" /> Reject
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+        {/* ── Tab 5: History ── */}
+        <TabsContent value="history" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : historyItems.length === 0 ? (
+            renderEmpty("No resolved items in history.", <Clock className="h-12 w-12 text-muted-foreground" />)
+          ) : (
+            <div className="space-y-2">
+              {historyItems.map((item) => renderHistoryCard(item))}
             </div>
           )}
         </TabsContent>
