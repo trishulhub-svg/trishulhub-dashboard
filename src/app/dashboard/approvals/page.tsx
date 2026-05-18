@@ -192,6 +192,8 @@ export default function ApprovalsPage() {
   const { data: session, status: sessionStatus } = useSession();
   const isSessionLoading = sessionStatus === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
+  const userId = session?.user?.id || "";
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // Tab state
   const [activeTab, setActiveTab] = useState("all-pending");
@@ -213,16 +215,29 @@ export default function ApprovalsPage() {
   const pendingLeaves = leaveRequests.filter((l) => l.status === "PENDING");
   const pendingTasks = tasks.filter((t) => t.status === "AWAITING_APPROVAL");
 
-  const counts: PendingCounts = {
+  // Role-based filtering: admins see all, developers see only their own
+  const myLeaves = isAdminUser ? leaveRequests : leaveRequests.filter((l) => l.userId === userId);
+  const myTasks = isAdminUser ? tasks : tasks.filter((t) => t.assignedTo === userId);
+  const myPendingLeaves = myLeaves.filter((l) => l.status === "PENDING");
+  const myPendingTasks = myTasks.filter((t) => t.status === "AWAITING_APPROVAL");
+  const myActiveTasks = myTasks.filter((t) => ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"].includes(t.status));
+  const myApprovals = isAdminUser ? aiApprovals : aiApprovals.filter((a) => a.requesterId === userId);
+
+  const counts: PendingCounts = isAdminUser ? {
     approvals: pendingAiApprovals.length,
     leaveRequests: pendingLeaves.length,
     tasksAwaitingApproval: pendingTasks.length,
     total: pendingAiApprovals.length + pendingLeaves.length + pendingTasks.length,
+  } : {
+    approvals: myPendingTasks.length,
+    leaveRequests: myPendingLeaves.length,
+    tasksAwaitingApproval: myActiveTasks.length,
+    total: myPendingLeaves.length + myPendingTasks.length + myActiveTasks.filter((t) => t.status !== "AWAITING_APPROVAL").length,
   };
 
   // Unified pending queue
   const unifiedPending: UnifiedPendingItem[] = [
-    ...pendingLeaves.map((l) => ({
+    ...(isAdminUser ? pendingLeaves : myPendingLeaves).map((l) => ({
       id: l.id,
       source: "LEAVE" as const,
       title: `${safeText(l.user?.name, "Unknown")} — ${l.type} Leave`,
@@ -232,7 +247,7 @@ export default function ApprovalsPage() {
       createdAt: l.createdAt,
       raw: l,
     })),
-    ...pendingTasks.map((t) => ({
+    ...(isAdminUser ? pendingTasks : myPendingTasks).map((t) => ({
       id: t.id,
       source: "TASK" as const,
       title: t.title,
@@ -242,7 +257,7 @@ export default function ApprovalsPage() {
       createdAt: t.updatedAt,
       raw: t,
     })),
-    ...pendingAiApprovals.map((a) => ({
+    ...(isAdminUser ? pendingAiApprovals : []).map((a) => ({
       id: a.id,
       source: "AI" as const,
       title: a.title,
@@ -318,10 +333,10 @@ export default function ApprovalsPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!isSessionLoading && (userRole === "SUPER_ADMIN" || userRole === "ADMIN")) {
+    if (!isSessionLoading && session) {
       fetchAllData();
     }
-  }, [isSessionLoading, userRole, fetchAllData]);
+  }, [isSessionLoading, session, fetchAllData]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Action Handlers
@@ -462,12 +477,6 @@ export default function ApprovalsPage() {
         </div>
       </div>
     );
-  }
-
-  // Role guard
-  if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-    router.push("/dashboard");
-    return null;
   }
 
   if (error) {
@@ -770,10 +779,10 @@ export default function ApprovalsPage() {
   const renderUnifiedCard = (item: UnifiedPendingItem) => {
     const src = sourceTypeConfig[item.source] || sourceTypeConfig.AI;
     if (item.source === "LEAVE") {
-      return renderLeaveCard(item.raw as LeaveRequest, true);
+      return renderLeaveCard(item.raw as LeaveRequest, isAdminUser);
     }
     if (item.source === "TASK") {
-      return renderTaskCard(item.raw as TaskItem, true);
+      return renderTaskCard(item.raw as TaskItem, isAdminUser);
     }
     // AI approval — render inline with source badge
     const approval = item.raw as Approval;
@@ -941,7 +950,7 @@ export default function ApprovalsPage() {
   // Stat Cards
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  const statCards = [
+  const statCards = isAdminUser ? [
     {
       label: "Total Pending",
       value: counts.total,
@@ -970,6 +979,35 @@ export default function ApprovalsPage() {
       color: "text-blue-600 dark:text-blue-400",
       bg: "bg-blue-50 dark:bg-blue-900/20",
     },
+  ] : [
+    {
+      label: "My Active Tasks",
+      value: myActiveTasks.length,
+      icon: <ClipboardList className="h-5 w-5" />,
+      color: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-50 dark:bg-blue-900/20",
+    },
+    {
+      label: "Awaiting Approval",
+      value: myPendingTasks.length,
+      icon: <HourglassIcon className="h-5 w-5" />,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-900/20",
+    },
+    {
+      label: "My Leave Requests",
+      value: myPendingLeaves.length,
+      icon: <Calendar className="h-5 w-5" />,
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-50 dark:bg-sky-900/20",
+    },
+    {
+      label: "Total Actions",
+      value: counts.total,
+      icon: <ShieldCheck className="h-5 w-5" />,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-50 dark:bg-purple-900/20",
+    },
   ];
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -978,7 +1016,7 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Approval Center" description="Universal approval gateway for all system requests">
+      <PageHeader title="Approval Center" description={isAdminUser ? "Universal approval gateway for all system requests" : "Track your tasks, leave requests, and approvals"}>
         <Button variant="outline" size="sm" onClick={fetchAllData}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
@@ -1005,29 +1043,30 @@ export default function ApprovalsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="all-pending">
-            All Pending
+            {isAdminUser ? "All Pending" : "My Pending"}
             {counts.total > 0 && (
               <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
                 {counts.total}
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="tasks">
+            {isAdminUser ? "Task Approvals" : "My Tasks"}
+            {(isAdminUser ? counts.tasksAwaitingApproval : myActiveTasks.length) > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {isAdminUser ? counts.tasksAwaitingApproval : myActiveTasks.length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="leaves">
-            Leave Requests
+            {isAdminUser ? "Leave Requests" : "My Leaves"}
             {counts.leaveRequests > 0 && (
               <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
                 {counts.leaveRequests}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="tasks">
-            Task Approvals
-            {counts.tasksAwaitingApproval > 0 && (
-              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
-                {counts.tasksAwaitingApproval}
-              </Badge>
-            )}
-          </TabsTrigger>
+          {isAdminUser && (
           <TabsTrigger value="ai-agents">
             AI Agent Requests
             {counts.approvals > 0 && (
@@ -1036,6 +1075,7 @@ export default function ApprovalsPage() {
               </Badge>
             )}
           </TabsTrigger>
+          )}
           <TabsTrigger value="history">
             History
           </TabsTrigger>
@@ -1046,7 +1086,7 @@ export default function ApprovalsPage() {
           {loading ? (
             renderLoading()
           ) : unifiedPending.length === 0 ? (
-            renderEmpty("No pending approvals across the system.")
+            renderEmpty(isAdminUser ? "No pending approvals across the system." : "No pending items for you.")
           ) : (
             <div className="space-y-3">
               {unifiedPending.map((item) => renderUnifiedCard(item))}
@@ -1054,33 +1094,34 @@ export default function ApprovalsPage() {
           )}
         </TabsContent>
 
-        {/* ── Tab 2: Leave Requests ── */}
-        <TabsContent value="leaves" className="mt-4">
-          {loading ? (
-            renderLoading()
-          ) : pendingLeaves.length === 0 ? (
-            renderEmpty("No pending leave requests.")
-          ) : (
-            <div className="space-y-3">
-              {pendingLeaves.map((leave) => renderLeaveCard(leave, true))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ── Tab 3: Task Approvals ── */}
+        {/* ── Tab 2: Task Approvals / My Tasks ── */}
         <TabsContent value="tasks" className="mt-4">
           {loading ? (
             renderLoading()
-          ) : pendingTasks.length === 0 ? (
-            renderEmpty("No tasks awaiting approval.")
+          ) : (isAdminUser ? pendingTasks : myActiveTasks).length === 0 ? (
+            renderEmpty(isAdminUser ? "No tasks awaiting approval." : "No active tasks assigned to you.")
           ) : (
             <div className="space-y-3">
-              {pendingTasks.map((task) => renderTaskCard(task, true))}
+              {(isAdminUser ? pendingTasks : myActiveTasks).map((task) => renderTaskCard(task, isAdminUser))}
             </div>
           )}
         </TabsContent>
 
-        {/* ── Tab 4: AI Agent Requests ── */}
+        {/* ── Tab 3: Leave Requests / My Leaves ── */}
+        <TabsContent value="leaves" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : (isAdminUser ? pendingLeaves : myLeaves).length === 0 ? (
+            renderEmpty(isAdminUser ? "No pending leave requests." : "No leave requests found.")
+          ) : (
+            <div className="space-y-3">
+              {(isAdminUser ? pendingLeaves : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Tab 4: AI Agent Requests (admin only) ── */}
+        {isAdminUser && (
         <TabsContent value="ai-agents" className="mt-4">
           {loading ? (
             renderLoading()
@@ -1092,6 +1133,7 @@ export default function ApprovalsPage() {
             </div>
           )}
         </TabsContent>
+        )}
 
         {/* ── Tab 5: History ── */}
         <TabsContent value="history" className="mt-4">

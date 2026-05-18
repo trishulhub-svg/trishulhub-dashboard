@@ -138,6 +138,11 @@ interface PendingCounts {
   total: number;
 }
 
+// Nav badge response: flat map of nav-href → count
+interface NavBadgeMap {
+  [href: string]: number;
+}
+
 interface NotificationItem {
   id: string;
   title: string;
@@ -304,6 +309,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, tasksAwaitingApproval: 0, total: 0 });
+  const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
 
   const userRole = session?.user?.role as UserRole || "DEVELOPER";
   const userName = session?.user?.name || "User";
@@ -312,14 +318,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
 
-  // Badge count mapping: nav href → count value
-  const navBadgeCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (pendingCounts.total > 0) map["/dashboard/approvals"] = pendingCounts.total;
-    if (pendingCounts.leaveRequests > 0) map["/dashboard/team"] = pendingCounts.leaveRequests;
-    if (pendingCounts.tasksAwaitingApproval > 0) map["/dashboard/projects"] = pendingCounts.tasksAwaitingApproval;
-    return map;
-  }, [pendingCounts]);
+  // Badge count mapping: use API response directly (role-aware for all users)
+  const navBadgeCounts = useMemo(() => navBadgeData, [navBadgeData]);
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -335,17 +335,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [userId]);
 
   const fetchPendingCounts = useCallback(async () => {
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") return;
     try {
       const res = await fetch("/api/approvals/pending-counts", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setPendingCounts(data as PendingCounts);
+        // API returns a flat map of nav-href → count
+        if (data && typeof data === "object" && !data.error) {
+          setNavBadgeData(data as NavBadgeMap);
+          // Backward compat: also populate old format for any other consumers
+          setPendingCounts({
+            approvals: (data["/dashboard/approvals"] || 0) as number,
+            leaveRequests: (data["/dashboard/team"] || 0) as number,
+            tasksAwaitingApproval: (data["/dashboard/projects"] || 0) as number,
+            total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to fetch pending counts:", err);
     }
-  }, [userRole]);
+  }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") {

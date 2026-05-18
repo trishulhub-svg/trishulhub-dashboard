@@ -15,18 +15,23 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id
 
     const { searchParams } = new URL(req.url)
-    const status = searchParams.get("status") || "PENDING"
+    const statusParam = searchParams.get("status")
     const type = searchParams.get("type")
     const agentId = searchParams.get("agentId")
 
     const where: any = {}
-    if (status) where.status = status
     if (type) where.type = type
     if (agentId) where.agentId = agentId
 
-    // Non-admin users can only see their own approvals
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    // Non-admin users can only see their own approval requests
+    const isAdminRole = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    if (!isAdminRole) {
       where.requesterId = userId
+      // Non-admins see all their own approvals unless specific status requested
+      if (statusParam) where.status = statusParam
+    } else {
+      // Admins default to PENDING but can override via ?status=
+      where.status = statusParam || "PENDING"
     }
 
     const approvals = await db.approval.findMany({
