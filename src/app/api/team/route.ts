@@ -51,24 +51,236 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === "attendance") {
-      // Admin-only: full attendance records
+      // Admin-only: computed attendance from Time Tracking + Availability + Leaves
       const userRole = session.user.role
       if (!isAdmin(userRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
-      // [FIX: Increased limit from 60 to 500, support date filtering]
-      const dateFrom = searchParams.get("from")
-      const dateTo = searchParams.get("to")
-      const whereClause: Record<string, unknown> = {}
-      if (dateFrom) whereClause.date = { ...(whereClause.date as Record<string, unknown> || {}), gte: new Date(dateFrom) }
-      if (dateTo) whereClause.date = { ...(whereClause.date as Record<string, unknown> || {}), lte: new Date(dateTo) }
-      const records = await db.attendance.findMany({
-        where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
-        include: { user: { select: { id: true, name: true, email: true, role: true, avatar: true } } },
-        orderBy: { date: "desc" },
-        take: 500,
+
+      const dateFromStr = searchParams.get("from")
+      const dateToStr = searchParams.get("to")
+
+      // Default: last 30 days
+      const today = new Date()
+      const dateFrom = dateFromStr ? new Date(dateFromStr) : new Date(today)
+      dateFrom.setDate(dateFrom.getDate() - 30)
+      if (dateFromStr) dateFrom.setHours(0, 0, 0, 0)
+
+      const dateTo = dateToStr ? new Date(dateToStr) : new Date(today)
+      dateTo.setHours(23, 59, 59, 999)
+
+      // 1. Fetch all active non-CLIENT users
+      const activeUsers = await db.user.findMany({
+        where: { role: { not: "CLIENT" }, isActive: true },
+        select: { id: true, name: true, email: true, role: true, avatar: true },
+        orderBy: { name: "asc" },
       })
-      return NextResponse.json(JSON.parse(JSON.stringify(records)))
+
+      // 2. Fetch all availability schedules for these users
+      const allAvailability = await db.availability.findMany({
+        where: { userId: { in: activeUsers.map(u => u.id) }, isAvailable: true },
+      })
+
+      // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
+      const leaveRequests = await db.leaveRequest.findMany({
+        where: {
+          userId: { in: activeUsers.map(u => u.id) },
+          status: "APPROVED",
+          startDate: { lte: dateTo },
+          endDate: { gte: dateFrom },
+        },
+      })
+
+      const leaves = await db.leave.findMany({
+        where: {
+          userId: { in: activeUsers.map(u => u.id) },
+          status: "APPROVED",
+          startDate: { lte: dateTo },
+          endDate: { gte: dateFrom },
+        },
+      })
+
+      // 4. Fetch all COMPLETED time entries in the date range
+      const timeEntries = await db.timeEntry.findMany({
+        where: {
+          userId: { in: activeUsers.map(u => u.id) },
+          status: "COMPLETED",
+          clockIn: { gte: dateFrom, lt: new Date(dateTo.getTime() + 86400000) },
+        },
+        select: { id: true, userId: true, clockIn: true, clockOut: true, totalHours: true, date: true },
+      })
+
+      // 5. Fetch existing manual attendance records
+      const manualAttendance = await db.attendance.findMany({
+        where: {
+          date: { gte: dateFrom, lte: dateTo },
+        },
+      })
+
+      // 6. Build lookup maps
+      const availByUserDay = new Map<string, { startTime: string; endTime: string }[]>()
+      for (const a of allAvailability) {
+        const key = `${a.userId}-${a.dayOfWeek}`
+        const existing = availByUserDay.get(key) || []
+        existing.push({ startTime: a.startTime, endTime: a.endTime })
+        availByUserDay.set(key, existing)
+      }
+
+      const leaveDaysByUser = new Map<string, Set<string>>()
+      for (const lr of leaveRequests) {
+        const key = lr.userId
+        const set = leaveDaysByUser.get(key) || new Set<string>()
+        const start = new Date(lr.startDate)
+        const end = new Date(lr.endDate)
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          set.add(d.toISOString().split("T")[0])
+        }
+        leaveDaysByUser.set(key, set)
+      }
+      for (const l of leaves) {
+        const key = l.userId
+        const set = leaveDaysByUser.get(key) || new Set<string>()
+        const start = new Date(l.startDate)
+        const end = new Date(l.endDate)
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          set.add(d.toISOString().split("T")[0])
+        }
+        leaveDaysByUser.set(key, set)
+      }
+
+      // Group time entries by userId + date string
+      const timeByUserDay = new Map<string, { totalHours: number; clockIn: Date | null; clockOut: Date | null; entryCount: number }>()
+      for (const te of timeEntries) {
+        const dayStr = new Date(te.date).toISOString().split("T")[0]
+        const key = `${te.userId}-${dayStr}`
+        const existing = timeByUserDay.get(key) || { totalHours: 0, clockIn: null as Date | null, clockOut: null as Date | null, entryCount: 0 }
+        existing.totalHours += te.totalHours || 0
+        existing.entryCount++
+        // Track earliest clock-in and latest clock-out
+        if (!existing.clockIn || te.clockIn < existing.clockIn) existing.clockIn = te.clockIn
+        if (!existing.clockOut || (te.clockOut && te.clockOut > existing.clockOut)) existing.clockOut = te.clockOut
+        timeByUserDay.set(key, existing)
+      }
+
+      // Manual attendance override map: "userId-dateStr" -> Attendance record
+      const manualByUserDay = new Map<string, typeof manualAttendance[0]>()
+      for (const ma of manualAttendance) {
+        const dayStr = new Date(ma.date).toISOString().split("T")[0]
+        manualByUserDay.set(`${ma.userId}-${dayStr}`, ma)
+      }
+
+      // Helper: calculate required hours for a user on a given day of week
+      function getRequiredHours(userId: string, dayOfWeek: number): number {
+        const slots = availByUserDay.get(`${userId}-${dayOfWeek}`)
+        if (!slots || slots.length === 0) return 0 // No schedule = not required
+        let totalMinutes = 0
+        for (const slot of slots) {
+          const [sh, sm] = slot.startTime.split(":").map(Number)
+          const [eh, em] = slot.endTime.split(":").map(Number)
+          let diff = (eh * 60 + em) - (sh * 60 + sm)
+          if (diff < 0) diff += 24 * 60 // Overnight shift (e.g. 19:59 - 23:59)
+          totalMinutes += diff
+        }
+        return totalMinutes / 60
+      }
+
+      // 7. Generate computed attendance records for each day × each user
+      const records: Record<string, unknown>[] = []
+      const dayMs = 86400000
+
+      for (let d = new Date(dateFrom); d <= dateTo; d.setDate(d.getDate() + 1)) {
+        const dayStr = d.toISOString().split("T")[0]
+        const dow = d.getDay()
+
+        for (const user of activeUsers) {
+          // Check manual override first
+          const manualRecord = manualByUserDay.get(`${user.id}-${dayStr}`)
+          if (manualRecord) {
+            records.push({
+              id: manualRecord.id,
+              userId: user.id,
+              date: manualRecord.date.toISOString(),
+              checkIn: manualRecord.checkIn?.toISOString() || null,
+              checkOut: manualRecord.checkOut?.toISOString() || null,
+              status: manualRecord.status,
+              notes: manualRecord.notes,
+              isManual: true,
+              requiredHours: null,
+              workedHours: null,
+              user,
+            })
+            continue
+          }
+
+          // Skip Sundays (day 0) — no work expected
+          if (dow === 0) continue
+
+          // Check if on approved leave
+          const userLeaveDays = leaveDaysByUser.get(user.id)
+          if (userLeaveDays && userLeaveDays.has(dayStr)) {
+            records.push({
+              id: `computed-${user.id}-${dayStr}`,
+              userId: user.id,
+              date: d.toISOString(),
+              checkIn: null,
+              checkOut: null,
+              status: "LEAVE",
+              notes: "Auto-detected from approved leave",
+              isManual: false,
+              requiredHours: getRequiredHours(user.id, dow),
+              workedHours: 0,
+              user,
+            })
+            continue
+          }
+
+          // Check time tracking data
+          const timeData = timeByUserDay.get(`${user.id}-${dayStr}`)
+          const requiredHours = getRequiredHours(user.id, dow)
+          const workedHours = timeData?.totalHours || 0
+
+          // Determine status
+          let status: string
+          if (requiredHours === 0) {
+            // No availability schedule for this day — skip if no time entries
+            if (workedHours === 0) continue
+            // Has time entries but no schedule — still mark PRESENT (they worked anyway)
+            status = "PRESENT"
+          } else if (workedHours >= requiredHours) {
+            status = "PRESENT"
+          } else if (workedHours >= requiredHours * 0.5) {
+            status = "HALF_DAY"
+          } else if (workedHours > 0) {
+            status = "HALF_DAY"
+          } else {
+            status = "ABSENT"
+          }
+
+          records.push({
+            id: `computed-${user.id}-${dayStr}`,
+            userId: user.id,
+            date: d.toISOString(),
+            checkIn: timeData?.clockIn?.toISOString() || null,
+            checkOut: timeData?.clockOut?.toISOString() || null,
+            status,
+            notes: timeData ? `${timeData.entryCount} time entry(s) logged` : "No time entries",
+            isManual: false,
+            requiredHours: Math.round(requiredHours * 100) / 100,
+            workedHours: Math.round(workedHours * 100) / 100,
+            user,
+          })
+        }
+      }
+
+      // Sort by date desc, then user name
+      records.sort((a, b) => {
+        const dateCompare = new Date(b.date as string).getTime() - new Date(a.date as string).getTime()
+        if (dateCompare !== 0) return dateCompare
+        return String((a.user as Record<string, unknown>)?.name).localeCompare(String((b.user as Record<string, unknown>)?.name))
+      })
+
+      // Limit to 500 records
+      return NextResponse.json(records.slice(0, 500))
     }
 
     if (type === "leaves") {

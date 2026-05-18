@@ -58,6 +58,9 @@ interface AttendanceRecord {
   checkOut?: string | null;
   status: string;
   notes?: string | null;
+  isManual?: boolean;
+  requiredHours?: number | null;
+  workedHours?: number | null;
   user?: { id: string; name: string; email: string; role: string; avatar?: string | null };
 }
 
@@ -752,12 +755,49 @@ export default function TeamPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{safeText(record.user?.name)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">{safeText(record.user?.name)}</p>
+                          {record.isManual && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0">Manual</Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          {formatDate(record.date)} &bull;
-                          In: {formatTime(record.checkIn)} &bull;
-                          Out: {formatTime(record.checkOut)}
+                          {formatDate(record.date)}
+                          {record.checkIn && (
+                            <span> &bull; In: {formatTime(record.checkIn)}</span>
+                          )}
+                          {record.checkOut && (
+                            <span> &bull; Out: {formatTime(record.checkOut)}</span>
+                          )}
                         </p>
+                        {/* Hours bar: required vs worked */}
+                        {record.requiredHours !== null && record.requiredHours !== undefined && record.requiredHours > 0 && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="flex-1 max-w-[200px]">
+                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    (record.workedHours || 0) >= record.requiredHours
+                                      ? "bg-green-500"
+                                      : (record.workedHours || 0) >= record.requiredHours * 0.5
+                                        ? "bg-yellow-500"
+                                        : "bg-red-400"
+                                  }`}
+                                  style={{ width: `${Math.min(100, ((record.workedHours || 0) / record.requiredHours) * 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                              {record.workedHours || 0}h / {record.requiredHours}h req
+                            </span>
+                          </div>
+                        )}
+                        {/* Show worked hours even if no requirement */}
+                        {(record.workedHours !== null && record.workedHours !== undefined && record.workedHours > 0) && (record.requiredHours === null || record.requiredHours === 0) && (
+                          <p className="text-[10px] text-green-600 mt-0.5">
+                            Worked {record.workedHours}h{record.status === "PRESENT" ? " (no schedule set)" : ""}
+                          </p>
+                        )}
                         {record.notes && (
                           <p className="text-xs text-muted-foreground/70 mt-0.5 truncate max-w-[400px]">{safeText(record.notes)}</p>
                         )}
@@ -765,12 +805,16 @@ export default function TeamPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <Badge className={`text-[10px] ${attStatusColors[record.status] || ""}`}>{safeText(record.status).replace("_", " ")}</Badge>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditAttDialog(record)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttendance(record.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {record.isManual && (
+                        <>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditAttDialog(record)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttendance(record.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -781,10 +825,13 @@ export default function TeamPage() {
                 <Clock className="h-12 w-12 mx-auto mb-3 opacity-30" />
                 <p>No attendance records found.</p>
                 <p className="text-xs mt-1">
-                  {attDateFrom || attDateTo
-                    ? "Try adjusting the date filters or clear them."
-                    : "Click \"Add Record\" to manually create attendance entries."}
+                  Attendance is auto-computed from Time Tracking and Availability data. If no records show, try:
                 </p>
+                <ul className="text-xs mt-1 text-muted-foreground/70 space-y-0.5">
+                  <li>1. Ensure employees have Availability schedules set up</li>
+                  <li>2. Ensure employees have clocked in/out via Time Tracking</li>
+                  <li>3. Adjust the date filters to a wider range</li>
+                </ul>
               </div>
             )}
           </div>
