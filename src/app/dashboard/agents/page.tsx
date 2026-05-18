@@ -4,13 +4,25 @@ import { useEffect, useCallback, useRef, useState, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { ArrowUpRight, KeyRound, Zap, Shield, Globe, Terminal } from "lucide-react";
+import { ArrowUpRight, KeyRound, Zap, Shield, Globe } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════
-   NOVA — TrishulHub Immersive Workspace v2.0
-   Cinematic command-center experience with interactive parallax,
-   aurora waves, constellation network, and glassmorphism.
+   ORYX — TrishulHub Workspace v3.0
+   Inspired by Oryzo/Lusion's cinematic design language.
+   Warm earth tones, dashed-line motif, character-level reveal,
+   asymmetric split-layout, scroll-position indicator, and
+   magazine-style typography with dramatic entrance choreography.
    ═══════════════════════════════════════════════════════════════ */
+
+/* ── Pre-computed static data ── */
+const DASHLINE_LABELS = ["TrishulHub", "Workspace", "v3.0"];
+const TRISHUL = "TrishulHub";
+const TRISHUL_CHARS = TRISHUL.split("");
+const FEATURES = [
+  { icon: Shield, label: "Secured" },
+  { icon: Zap, label: "AI Powered" },
+  { icon: Globe, label: "Cloud Native" },
+] as const;
 
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
@@ -30,1221 +42,940 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* ── Entrance animation ── */
+  /* ── Entrance choreography ── */
   const [entered, setEntered] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setEntered(true), 80);
+    const t = setTimeout(() => setEntered(true), 100);
     return () => clearTimeout(t);
   }, []);
 
-  /* ── Typewriter effect ── */
+  /* ── Typewriter ── */
   const tagline = "I am ready to cook.";
   const [typedText, setTypedText] = useState("");
   const [typingDone, setTypingDone] = useState(false);
-
   useEffect(() => {
     if (!entered) return;
     let idx = 0;
-    const interval = setInterval(() => {
+    const iv = setInterval(() => {
       idx++;
       setTypedText(tagline.slice(0, idx));
-      if (idx >= tagline.length) {
-        clearInterval(interval);
-        setTypingDone(true);
-      }
-    }, 50);
-    return () => clearInterval(interval);
+      if (idx >= tagline.length) { clearInterval(iv); setTypingDone(true); }
+    }, 55);
+    return () => clearInterval(iv);
   }, [entered]);
 
-  /* ── Interactive mouse parallax ── */
-  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
-  const mouseRef = useRef({ x: 0.5, y: 0.5 });
-  const rafRef = useRef<number>(0);
-
+  /* ── Subtle mouse-follow glow ── */
+  const [glowPos, setGlowPos] = useState({ x: 50, y: 50 });
+  const glowRef = useRef({ x: 50, y: 50 });
+  const rafRef = useRef(0);
   useEffect(() => {
-    const handleMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight };
+    const onMove = (e: MouseEvent) => {
+      glowRef.current = { x: e.clientX, y: e.clientY };
     };
-    window.addEventListener("mousemove", handleMove, { passive: true });
+    window.addEventListener("mousemove", onMove, { passive: true });
     const loop = () => {
-      setMousePos({ ...mouseRef.current });
+      setGlowPos({ ...glowRef.current });
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      cancelAnimationFrame(rafRef.current);
-    };
+    return () => { window.removeEventListener("mousemove", onMove); cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  const parallaxX = (mousePos.x - 0.5) * 2;
-  const parallaxY = (mousePos.y - 0.5) * 2;
-
-  /* ── Constellation particles (canvas-based for performance) ── */
+  /* ── Canvas: subtle grid + floating dots ── */
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const constellationRef = useRef<{
-    particles: { x: number; y: number; vx: number; vy: number; size: number; opacity: number }[];
-  }>({ particles: [] });
-
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
     if (!ctx) return;
-
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
+    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
     resize();
     window.addEventListener("resize", resize);
 
-    const count = window.innerWidth < 768 ? 40 : 80;
-    const particles = Array.from({ length: count }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      size: Math.random() * 2 + 0.5,
-      opacity: Math.random() * 0.5 + 0.1,
+    const dots = Array.from({ length: 50 }, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.5) * 0.15,
+      r: Math.random() * 1.5 + 0.5, a: Math.random() * 0.3 + 0.05,
     }));
-    constellationRef.current = { particles };
-
-    const connectionDist = 120;
-    let animId: number;
-
+    let id: number;
     const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const isLight = mode === "light";
-      const isBlue = mode === "bluelight";
-
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
-        // Draw particle
-        const color = isLight
-          ? `rgba(30, 41, 59, ${p.opacity})`
-          : isBlue
-          ? `rgba(251, 191, 36, ${p.opacity * 0.6})`
-          : `rgba(148, 163, 184, ${p.opacity})`;
+      ctx.clearRect(0, 0, c.width, c.height);
+      const isL = mode === "light", isB = mode === "bluelight";
+      for (const d of dots) {
+        d.x += d.vx; d.y += d.vy;
+        if (d.x < 0 || d.x > c.width) d.vx *= -1;
+        if (d.y < 0 || d.y > c.height) d.vy *= -1;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+        ctx.fillStyle = isL ? `rgba(30,41,59,${d.a})` : isB ? `rgba(251,191,36,${d.a * 0.5})` : `rgba(255,237,215,${d.a * 0.4})`;
         ctx.fill();
-
-        // Draw connections
-        for (let j = i + 1; j < particles.length; j++) {
-          const q = particles[j];
-          const dx = p.x - q.x;
-          const dy = p.y - q.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < connectionDist) {
-            const alpha = (1 - dist / connectionDist) * 0.15;
-            const lineColor = isLight
-              ? `rgba(30, 41, 59, ${alpha})`
-              : isBlue
-              ? `rgba(251, 191, 36, ${alpha * 0.4})`
-              : `rgba(148, 163, 184, ${alpha})`;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.strokeStyle = lineColor;
-            ctx.lineWidth = 0.5;
-            ctx.stroke();
-          }
-        }
       }
-      animId = requestAnimationFrame(draw);
+      id = requestAnimationFrame(draw);
     };
-    animId = requestAnimationFrame(draw);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener("resize", resize);
-    };
+    id = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(id); window.removeEventListener("resize", resize); };
   }, [mode]);
 
-  /* ── Pulse waves data ── */
-  const pulseWaves = useMemo(() => [0, 1, 2, 3, 4], []);
-
   /* ── Handlers ── */
-  const handleStart = useCallback(() => {
-    window.open("https://chat.z.ai", "_blank");
-  }, []);
-  const handleCredentials = useCallback(() => {
-    router.push("/dashboard/credentials");
-  }, [router]);
+  const handleStart = useCallback(() => window.open("https://chat.z.ai", "_blank"), []);
+  const handleCredentials = useCallback(() => router.push("/dashboard/credentials"), [router]);
 
   return (
     <>
-      <div className={`nv-root nv-root--${mode}`}>
-        {/* ═══════════════════════════════════════
-            LAYER 0: Deep Background
-            ═══════════════════════════════════════ */}
-        <div className="nv-bg" aria-hidden />
+      <div className={`ox-root ox-root--${mode}`}>
+        {/* ═══ CURSOR GLOW ═══ */}
+        <div className="ox-cursor-glow" aria-hidden style={{ left: glowPos.x, top: glowPos.y }} />
 
-        {/* ═══════════════════════════════════════
-            LAYER 1: Aurora Waves
-            ═══════════════════════════════════════ */}
-        <div className="nv-aurora" aria-hidden>
-          <div
-            className="nv-aurora-field"
-            style={{
-              transform: `translate(${parallaxX * -15}px, ${parallaxY * -10}px)`,
-            }}
-          >
-            <div className="nv-aurora-wave nv-aurora-wave--1" />
-            <div className="nv-aurora-wave nv-aurora-wave--2" />
-            <div className="nv-aurora-wave nv-aurora-wave--3" />
-            <div className="nv-aurora-wave nv-aurora-wave--4" />
-          </div>
-        </div>
+        {/* ═══ CANVAS BG ═══ */}
+        <canvas ref={canvasRef} className="ox-canvas" aria-hidden />
 
-        {/* ═══════════════════════════════════════
-            LAYER 2: Constellation Canvas
-            ═══════════════════════════════════════ */}
-        <canvas
-          ref={canvasRef}
-          className="nv-constellation"
-          aria-hidden
-        />
+        {/* ═══ DASHED GRID OVERLAY ═══ */}
+        <div className="ox-dash-grid" aria-hidden />
 
-        {/* ═══════════════════════════════════════
-            LAYER 3: Radial Pulse Waves
-            ═══════════════════════════════════════ */}
-        <div className="nv-pulses" aria-hidden>
-          {pulseWaves.map((i) => (
-            <div
-              key={i}
-              className={`nv-pulse nv-pulse--${mode} ${entered ? "nv-pulse--active" : ""}`}
-              style={{ animationDelay: `${i * 2.5}s` }}
-            />
-          ))}
-        </div>
+        {/* ═══ NOISE ═══ */}
+        <div className="ox-noise" aria-hidden />
 
-        {/* ═══════════════════════════════════════
-            LAYER 4: Vignette + Noise
-            ═══════════════════════════════════════ */}
-        <div className={`nv-vignette nv-vignette--${mode}`} aria-hidden />
-        <div className="nv-noise" aria-hidden />
+        {/* ═══════════════════════════════════════════
+            MAIN LAYOUT — Asymmetric Split
+            ═══════════════════════════════════════════ */}
+        <div className="ox-layout">
 
-        {/* ═══════════════════════════════════════
-            CONTENT LAYER
-            ═══════════════════════════════════════ */}
-        <div className="nv-content">
-
-          {/* ── Top Bar ── */}
-          <div className={`nv-topbar ${entered ? "nv-topbar--visible" : ""}`}>
-            <div className="nv-topbar-left">
-              <div className={`nv-logo-glow nv-logo-glow--${mode}`} />
-              <Terminal size={14} className={`nv-logo-icon nv-logo-icon--${mode}`} />
-              <span className={`nv-logo-text nv-logo-text--${mode}`}>TrishulHub</span>
-            </div>
-            <div className="nv-topbar-right">
-              <span className={`nv-badge nv-badge--${mode}`}>Protocol v5.0</span>
-            </div>
-          </div>
-
-          {/* ── Hero ── */}
-          <section
-            className="nv-hero"
-            style={{
-              transform: `translate(${parallaxX * 8}px, ${parallaxY * 5}px)`,
-            }}
-          >
-            {/* Central pulsing core */}
-            <div className="nv-core-wrap" aria-hidden>
-              <div className={`nv-core nv-core--${mode} ${entered ? "nv-core--active" : ""}`}>
-                <div className="nv-core-inner" />
-                <div className={`nv-core-ring nv-core-ring--${mode}`} />
-                <div className={`nv-core-ring nv-core-ring--2 nv-core-ring--${mode}`} />
-                <div className={`nv-core-ring nv-core-ring--3 nv-core-ring--${mode}`} />
+          {/* ── LEFT COLUMN: Brand statement ── */}
+          <div className={`ox-left ${entered ? "ox-left--visible" : ""}`}>
+            <div className="ox-left-inner">
+              {/* Logo */}
+              <div className="ox-logo-row">
+                <div className={`ox-logo-mark ox-logo-mark--${mode}`} />
+                <span className={`ox-logo-text ox-logo-text--${mode}`}>TrishulHub</span>
               </div>
-            </div>
 
-            {/* Title cluster */}
-            <div className="nv-title-cluster">
-              <h1 className={`nv-title nv-title--${mode} ${entered ? "nv-title--visible" : ""}`}>
-                {"TrishulHub".split("").map((char, i) => (
-                  <span
-                    key={i}
-                    className="nv-char"
-                    style={{ animationDelay: `${0.2 + i * 0.045}s` }}
-                  >
-                    {char}
-                  </span>
-                ))}
-              </h1>
+              {/* Dashed line separator */}
+              <div className={`ox-dashline ox-dashline--${mode}`} />
 
-              <p className={`nv-subtitle nv-subtitle--${mode} ${entered ? "nv-subtitle--visible" : ""}`}>
-                Your Personal Workspace
-              </p>
+              {/* Main headline */}
+              <div className="ox-headline-block">
+                <p className={`ox-tagline-upper ox-tagline-upper--${mode}`}>
+                  YOUR PERSONAL
+                </p>
+                <h1 className={`ox-title ox-title--${mode}`}>
+                  {TRISHUL_CHARS.map((ch, i) => (
+                    <span
+                      key={i}
+                      className="ox-char"
+                      style={{ animationDelay: `${0.3 + i * 0.06}s` }}
+                    >
+                      {ch}
+                    </span>
+                  ))}
+                </h1>
+                <p className={`ox-tagline-lower ox-tagline-lower--${mode}`}>
+                  WORKSPACE
+                </p>
+              </div>
 
-              {/* Typewriter tagline */}
-              <div className={`nv-tagline ${entered ? "nv-tagline--visible" : ""}`}>
-                <div className={`nv-tagline-bar nv-tagline-bar--${mode}`} />
-                <span className={`nv-tagline-text nv-tagline-text--${mode}`}>
+              {/* Typewriter line */}
+              <div className={`ox-typewriter ${entered ? "ox-typewriter--visible" : ""}`}>
+                <div className={`ox-typewriter-dot ox-typewriter-dot--${mode}`} />
+                <span className={`ox-typewriter-text ox-typewriter-text--${mode}`}>
                   {typedText}
-                  <span className={`nv-cursor ${typingDone ? "nv-cursor--blink" : ""}`} />
+                  <span className={`ox-cursor ${typingDone ? "ox-cursor--blink" : ""}`} />
                 </span>
               </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className={`nv-actions ${entered ? "nv-actions--visible" : ""}`}>
-              {/* START — Primary CTA with animated gradient border */}
+              {/* Feature badges with dashed dividers */}
+              <div className={`ox-features ${entered ? "ox-features--visible" : ""}`}>
+                {FEATURES.map((f, i) => (
+                  <div key={f.label} className="ox-feature-item">
+                    {i > 0 && <div className={`ox-feature-sep ox-feature-sep--${mode}`} />}
+                    <f.icon size={13} strokeWidth={2} className={`ox-feature-icon ox-feature-icon--${mode}`} />
+                    <span className={`ox-feature-label ox-feature-label--${mode}`}>{f.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT COLUMN: Actions ── */}
+          <div className={`ox-right ${entered ? "ox-right--visible" : ""}`}>
+            <div className="ox-right-inner">
+              {/* START Button — Oryzo-inspired pill */}
               <button
                 onClick={handleStart}
-                className={`nv-start-btn nv-start-btn--${mode}`}
+                className={`ox-start-btn ox-start-btn--${mode}`}
                 type="button"
               >
-                <span className="nv-start-glow" aria-hidden />
-                <span className="nv-start-border" aria-hidden />
-                <span className="nv-start-icon" aria-hidden>
-                  <Zap size={18} strokeWidth={2.5} />
+                <span className="ox-start-inner">
+                  <Zap size={16} strokeWidth={2.5} />
+                  <span>START</span>
+                  <ArrowUpRight size={15} />
                 </span>
-                <span className="nv-start-label">START</span>
-                <span className="nv-start-arrow" aria-hidden>
-                  <ArrowUpRight size={16} />
-                </span>
+                <span className="ox-start-glow-ring" aria-hidden />
               </button>
-
-              <p className={`nv-start-hint nv-start-hint--${mode}`}>
+              <p className={`ox-start-hint ox-start-hint--${mode}`}>
                 Opens workspace in a new tab
               </p>
 
-              {/* Credentials — Glass card */}
+              {/* Dashed separator */}
+              <div className={`ox-dashline-h ox-dashline-h--${mode}`} />
+
+              {/* Credentials card */}
               <button
                 onClick={handleCredentials}
-                className={`nv-cred-btn nv-cred-btn--${mode}`}
+                className={`ox-cred-card ox-cred-card--${mode}`}
                 type="button"
               >
-                <div className={`nv-cred-icon-wrap nv-cred-icon-wrap--${mode}`}>
-                  <KeyRound className="nv-cred-icon" />
+                <div className="ox-cred-top">
+                  <div className={`ox-cred-icon-wrap ox-cred-icon-wrap--${mode}`}>
+                    <KeyRound size={18} />
+                  </div>
+                  <ArrowUpRight size={14} className={`ox-cred-arrow ox-cred-arrow--${mode}`} />
                 </div>
-                <div className="nv-cred-text">
-                  <span className={`nv-cred-title nv-cred-title--${mode}`}>Claim Credentials</span>
-                  <span className={`nv-cred-desc nv-cred-desc--${mode}`}>Get your ID & Password</span>
+                <div className="ox-cred-body">
+                  <span className={`ox-cred-title ox-cred-title--${mode}`}>Claim Credentials</span>
+                  <span className={`ox-cred-desc ox-cred-desc--${mode}`}>Get your ID & Password</span>
                 </div>
-                <ArrowUpRight size={16} className={`nv-cred-arrow nv-cred-arrow--${mode}`} />
+                <div className={`ox-cred-dashline ox-cred-dashline--${mode}`} />
               </button>
-            </div>
-          </section>
 
-          {/* ── Feature Pills ── */}
-          <div className={`nv-pills ${entered ? "nv-pills--visible" : ""}`}>
-            <div className={`nv-pill nv-pill--${mode}`}>
-              <Shield size={13} strokeWidth={2} />
-              <span>Secured</span>
-            </div>
-            <div className="nv-pill-sep" aria-hidden />
-            <div className={`nv-pill nv-pill--${mode}`}>
-              <Zap size={13} strokeWidth={2} />
-              <span>AI Powered</span>
-            </div>
-            <div className="nv-pill-sep" aria-hidden />
-            <div className={`nv-pill nv-pill--${mode}`}>
-              <Globe size={13} strokeWidth={2} />
-              <span>Cloud Native</span>
+              {/* Status badge */}
+              <div className={`ox-status-row ${entered ? "ox-status-row--visible" : ""}`}>
+                <div className={`ox-status-dot ox-status-dot--${mode}`} />
+                <span className={`ox-status-text ox-status-text--${mode}`}>Protocol v5.0</span>
+              </div>
             </div>
           </div>
-
-          {/* ── Footer ── */}
-          <footer className={`nv-footer ${entered ? "nv-footer--visible" : ""}`}>
-            <div className="nv-footer-inner">
-              <div className="nv-footer-glow" aria-hidden />
-              <p className={`nv-footer-text nv-footer-text--${mode}`}>
-                Welcome back,{" "}
-                <span className={`nv-footer-name nv-footer-name--${mode}`}>{userName}</span>
-              </p>
-              <div className={`nv-footer-dot nv-footer-dot--${mode}`} />
-              <span className={`nv-footer-role nv-footer-role--${mode}`}>{userRole}</span>
-            </div>
-          </footer>
         </div>
+
+        {/* ═══ RIGHT EDGE SCROLL INDICATOR (Oryzo-inspired) ═══ */}
+        <div className={`ox-scroll-indicator ${entered ? "ox-scroll-indicator--visible" : ""}`}>
+          <div className={`ox-scroll-bar ox-scroll-bar--${mode}`} />
+          <div className="ox-scroll-labels">
+            {DASHLINE_LABELS.map((label, i) => (
+              <span
+                key={label}
+                className={`ox-scroll-label ox-scroll-label--${mode} ${i === 0 ? "ox-scroll-label--active" : ""}`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ═══ FOOTER — Bottom bar (Oryzo-inspired) ═══ */}
+        <footer className={`ox-footer ${entered ? "ox-footer--visible" : ""}`}>
+          <div className={`ox-footer-inner ox-footer-inner--${mode}`}>
+            <div className="ox-footer-left">
+              <span className={`ox-footer-welcome ox-footer-welcome--${mode}`}>
+                Welcome back,
+              </span>
+              <span className={`ox-footer-name ox-footer-name--${mode}`}>{userName}</span>
+            </div>
+            <div className={`ox-footer-sep ox-footer-sep--${mode}`} />
+            <span className={`ox-footer-role ox-footer-role--${mode}`}>
+              {userRole.toUpperCase()}
+            </span>
+            <div className={`ox-footer-sep ox-footer-sep--${mode}`} />
+            <div className={`ox-footer-dot ox-footer-dot--${mode}`} />
+          </div>
+        </footer>
       </div>
 
       {/* ═══════════════════════════════════════════════════════
-         STYLES — NOVA v2.0
+         STYLES — ORYX v3.0
          ═══════════════════════════════════════════════════════ */}
       <style jsx global>{`
-        /* ── Touch device: disable cursor effects ── */
         @media (pointer: coarse) {
-          .nv-root, .nv-root * { cursor: auto !important; }
+          .ox-root, .ox-root * { cursor: auto !important; }
         }
 
         /* ═════════════════════════
-           ROOT
+           ROOT — Warm Dark (Oryzo-inspired)
            ═════════════════════════ */
-        .nv-root {
+        .ox-root {
           position: relative;
           min-height: 100vh;
           overflow: hidden;
           margin: -1.25rem;
           margin-top: -1.25rem;
-          background: #050508;
+          /* Warm near-black like Oryzo's #100904 */
+          background: #0c0906;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
         }
         @media (min-width: 768px) {
-          .nv-root { margin: -2rem; margin-top: -2rem; }
+          .ox-root { margin: -2rem; margin-top: -2rem; }
         }
-        .nv-root--light { background: #f8f9fc; }
-        .nv-root--bluelight { background: #080606; }
+        .ox-root--light { background: #faf8f4; }
+        .ox-root--bluelight { background: #080606; }
 
         /* ═════════════════════════
-           DEEP BACKGROUND
+           CURSOR-FOLLOW GLOW
            ═════════════════════════ */
-        .nv-bg {
-          position: fixed; inset: 0; z-index: 0;
-          background:
-            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(6, 182, 212, 0.04) 0%, transparent 60%),
-            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.03) 0%, transparent 60%),
-            radial-gradient(ellipse 90% 70% at 50% 50%, rgba(6, 182, 212, 0.015) 0%, transparent 70%);
-        }
-        .nv-root--light .nv-bg {
-          background:
-            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(6, 182, 212, 0.06) 0%, transparent 60%),
-            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 60%);
-        }
-        .nv-root--bluelight .nv-bg {
-          background:
-            radial-gradient(ellipse 80% 60% at 20% 20%, rgba(251, 191, 36, 0.04) 0%, transparent 60%),
-            radial-gradient(ellipse 70% 50% at 80% 80%, rgba(217, 119, 6, 0.03) 0%, transparent 60%);
-        }
-
-        /* ═════════════════════════
-           AURORA WAVES
-           ═════════════════════════ */
-        .nv-aurora {
-          position: fixed; inset: 0; z-index: 1;
-          overflow: hidden; pointer-events: none;
-        }
-        .nv-aurora-field {
-          position: absolute; inset: -20%;
-          transition: transform 0.3s ease-out;
-        }
-        .nv-aurora-wave {
-          position: absolute;
-          border-radius: 50%;
-          filter: blur(120px);
-          will-change: transform;
-          mix-blend-mode: screen;
-        }
-        /* Wave 1 — top-left cyan */
-        .nv-aurora-wave--1 {
-          width: 700px; height: 700px;
-          top: -25%; left: -15%;
-          background: rgba(6, 182, 212, 0.08);
-          animation: nv-aurora-1 24s ease-in-out infinite;
-        }
-        /* Wave 2 — bottom-right violet */
-        .nv-aurora-wave--2 {
-          width: 600px; height: 600px;
-          bottom: -20%; right: -10%;
-          background: rgba(139, 92, 246, 0.07);
-          animation: nv-aurora-2 28s ease-in-out infinite;
-        }
-        /* Wave 3 — center-right pink */
-        .nv-aurora-wave--3 {
-          width: 500px; height: 500px;
-          top: 20%; right: 10%;
-          background: rgba(236, 72, 153, 0.04);
-          animation: nv-aurora-3 32s ease-in-out infinite;
-        }
-        /* Wave 4 — bottom-left blue */
-        .nv-aurora-wave--4 {
-          width: 450px; height: 450px;
-          bottom: 10%; left: 5%;
-          background: rgba(59, 130, 246, 0.05);
-          animation: nv-aurora-4 22s ease-in-out infinite;
-        }
-
-        /* Light mode aurora */
-        .nv-root--light .nv-aurora-wave--1 { background: rgba(6, 182, 212, 0.06); mix-blend-mode: multiply; }
-        .nv-root--light .nv-aurora-wave--2 { background: rgba(139, 92, 246, 0.05); mix-blend-mode: multiply; }
-        .nv-root--light .nv-aurora-wave--3 { background: rgba(236, 72, 153, 0.03); mix-blend-mode: multiply; }
-        .nv-root--light .nv-aurora-wave--4 { background: rgba(59, 130, 246, 0.04); mix-blend-mode: multiply; }
-
-        /* Bluelight aurora */
-        .nv-root--bluelight .nv-aurora-wave--1 { background: rgba(251, 191, 36, 0.07); }
-        .nv-root--bluelight .nv-aurora-wave--2 { background: rgba(217, 119, 6, 0.06); }
-        .nv-root--bluelight .nv-aurora-wave--3 { background: rgba(245, 158, 11, 0.03); }
-        .nv-root--bluelight .nv-aurora-wave--4 { background: rgba(180, 83, 9, 0.04); }
-
-        @keyframes nv-aurora-1 {
-          0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
-          25% { transform: translate(100px, 80px) scale(1.15) rotate(5deg); }
-          50% { transform: translate(50px, 150px) scale(1.05) rotate(-3deg); }
-          75% { transform: translate(-30px, 60px) scale(0.95) rotate(2deg); }
-        }
-        @keyframes nv-aurora-2 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(-80px, -60px) scale(1.1); }
-          66% { transform: translate(60px, -100px) scale(0.9); }
-        }
-        @keyframes nv-aurora-3 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(-70px, 50px) scale(1.2); }
-        }
-        @keyframes nv-aurora-4 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(50px, -70px) scale(1.08); }
-          66% { transform: translate(-40px, 30px) scale(0.95); }
-        }
-
-        /* ═════════════════════════
-           CONSTELLATION CANVAS
-           ═════════════════════════ */
-        .nv-constellation {
-          position: fixed; inset: 0; z-index: 2;
-          pointer-events: none;
-          opacity: 0.7;
-        }
-        .nv-root--light .nv-constellation { opacity: 0.4; }
-        .nv-root--bluelight .nv-constellation { opacity: 0.5; }
-
-        /* ═════════════════════════
-           PULSE WAVES
-           ═════════════════════════ */
-        .nv-pulses {
+        .ox-cursor-glow {
           position: fixed;
-          top: 50%; left: 50%;
-          transform: translate(-50%, -55%);
-          z-index: 3; pointer-events: none;
-        }
-        .nv-pulse {
-          position: absolute;
-          top: 50%; left: 50%;
-          width: 10px; height: 10px;
-          margin: -5px;
+          width: 600px; height: 600px;
           border-radius: 50%;
-          border: 1px solid rgba(6, 182, 212, 0.2);
-          opacity: 0;
-          animation: nv-pulse-expand 12s ease-out infinite;
+          pointer-events: none;
+          z-index: 1;
+          transform: translate(-50%, -50%);
+          background: radial-gradient(circle, rgba(220, 80, 0, 0.04) 0%, transparent 70%);
+          transition: left 0.4s ease-out, top 0.4s ease-out;
         }
-        .nv-pulse--light {
-          border-color: rgba(6, 182, 212, 0.12);
+        .ox-root--light .ox-cursor-glow {
+          background: radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
         }
-        .nv-pulse--bluelight {
-          border-color: rgba(251, 191, 36, 0.15);
-        }
-        .nv-pulse--active {
-          opacity: 1;
-        }
-
-        @keyframes nv-pulse-expand {
-          0% {
-            transform: scale(1);
-            opacity: 0.6;
-          }
-          100% {
-            transform: scale(120);
-            opacity: 0;
-          }
+        .ox-root--bluelight .ox-cursor-glow {
+          background: radial-gradient(circle, rgba(251, 191, 36, 0.05) 0%, transparent 70%);
         }
 
         /* ═════════════════════════
-           VIGNETTE & NOISE
+           CANVAS BG
            ═════════════════════════ */
-        .nv-noise {
+        .ox-canvas {
+          position: fixed; inset: 0; z-index: 2;
+          pointer-events: none; opacity: 0.6;
+        }
+        .ox-root--light .ox-canvas { opacity: 0.3; }
+
+        /* ═════════════════════════
+           DASHED GRID OVERLAY (Oryzo's signature motif)
+           ═════════════════════════ */
+        .ox-dash-grid {
+          position: fixed; inset: 0; z-index: 3;
+          pointer-events: none;
+          background-image:
+            repeating-linear-gradient(90deg, rgba(255,237,215,0.015) 0 1px, transparent 1px 80px),
+            repeating-linear-gradient(0deg, rgba(255,237,215,0.015) 0 1px, transparent 1px 80px);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 0%, transparent 100%);
+          -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 0%, transparent 100%);
+        }
+        .ox-root--light .ox-dash-grid {
+          background-image:
+            repeating-linear-gradient(90deg, rgba(0,0,0,0.02) 0 1px, transparent 1px 80px),
+            repeating-linear-gradient(0deg, rgba(0,0,0,0.02) 0 1px, transparent 1px 80px);
+        }
+
+        /* ═════════════════════════
+           NOISE TEXTURE
+           ═════════════════════════ */
+        .ox-noise {
           position: fixed; inset: 0; z-index: 8000;
           pointer-events: none;
-          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-repeat: repeat; background-size: 200px;
-          opacity: 0.02;
-        }
-        .nv-vignette {
-          position: fixed; inset: 0; z-index: 7999;
-          pointer-events: none;
-        }
-        .nv-vignette--dark, .nv-vignette--bluelight {
-          background: radial-gradient(ellipse 70% 60% at 50% 40%, transparent 0%, rgba(0,0,0,0.7) 100%);
-        }
-        .nv-vignette--light {
-          background: radial-gradient(ellipse 70% 60% at 50% 40%, transparent 0%, rgba(160,175,210,0.2) 100%);
+          opacity: 0.018;
         }
 
         /* ═════════════════════════
-           CONTENT LAYOUT
+           MAIN LAYOUT — Asymmetric Split
            ═════════════════════════ */
-        .nv-content {
+        .ox-layout {
           position: relative; z-index: 10;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
+          display: flex;
           min-height: 100vh;
-          padding: 2rem 1.5rem;
-        }
-
-        /* ═════════════════════════
-           TOP BAR
-           ═════════════════════════ */
-        .nv-topbar {
-          position: fixed; top: 0; left: 0; right: 0;
-          z-index: 100;
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 1.1rem 2rem;
-          opacity: 0; transform: translateY(-15px);
-          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
-          pointer-events: none;
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-        }
-        .nv-topbar--visible { opacity: 1; transform: translateY(0); }
-
-        .nv-topbar-left {
-          display: flex; align-items: center; gap: 0.65rem;
-        }
-        .nv-logo-glow {
-          position: absolute;
-          left: 2rem; top: 50%;
-          transform: translateY(-50%);
-          width: 200px; height: 40px;
-          border-radius: 20px;
-          filter: blur(30px);
-          opacity: 0.4;
-        }
-        .nv-logo-glow--dark { background: rgba(6, 182, 212, 0.15); }
-        .nv-logo-glow--light { background: rgba(6, 182, 212, 0.08); }
-        .nv-logo-glow--bluelight { background: rgba(251, 191, 36, 0.12); }
-
-        .nv-logo-icon {
-          position: relative;
-          opacity: 0.6;
-        }
-        .nv-logo-icon--dark { color: rgba(6, 182, 212, 0.7); }
-        .nv-logo-icon--light { color: rgba(6, 182, 212, 0.6); }
-        .nv-logo-icon--bluelight { color: rgba(251, 191, 36, 0.6); }
-
-        .nv-logo-text {
-          font-size: 0.88rem; font-weight: 700;
-          letter-spacing: 0.6px;
-        }
-        .nv-logo-text--dark { color: rgba(255,255,255,0.65); }
-        .nv-logo-text--light { color: rgba(0,0,0,0.55); }
-        .nv-logo-text--bluelight { color: rgba(251,191,36,0.6); }
-
-        .nv-badge {
-          font-size: 0.62rem; font-weight: 600;
-          letter-spacing: 0.14em; text-transform: uppercase;
-          padding: 0.28rem 0.7rem;
-          border-radius: 100px;
-          border: 1px solid rgba(255,255,255,0.06);
-          background: rgba(255,255,255,0.02);
-          color: rgba(255,255,255,0.3);
-        }
-        .nv-badge--light {
-          border-color: rgba(0,0,0,0.06);
-          background: rgba(0,0,0,0.02);
-          color: rgba(0,0,0,0.3);
-        }
-        .nv-badge--bluelight {
-          border-color: rgba(251,191,36,0.1);
-          background: rgba(251,191,36,0.02);
-          color: rgba(251,191,36,0.35);
-        }
-
-        /* ═════════════════════════
-           HERO SECTION
-           ═════════════════════════ */
-        .nv-hero {
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          gap: 0;
-          text-align: center;
-          position: relative;
-          transition: transform 0.15s ease-out;
-        }
-
-        /* ── Core Orb ── */
-        .nv-core-wrap {
-          position: absolute;
-          top: 50%; left: 50%;
-          transform: translate(-50%, -50%);
-          z-index: 0;
-          pointer-events: none;
-        }
-        .nv-core {
-          position: relative;
-          width: 280px; height: 280px;
-          display: flex; align-items: center; justify-content: center;
-          opacity: 0;
-          transition: opacity 1.5s ease;
-        }
-        .nv-core--active { opacity: 1; }
-
-        .nv-core-inner {
-          width: 6px; height: 6px;
-          border-radius: 50%;
-          background: rgba(6, 182, 212, 0.8);
-          box-shadow:
-            0 0 20px rgba(6, 182, 212, 0.6),
-            0 0 60px rgba(6, 182, 212, 0.3),
-            0 0 120px rgba(139, 92, 246, 0.15);
-          animation: nv-core-breathe 4s ease-in-out infinite;
-        }
-        .nv-root--light .nv-core-inner {
-          background: rgba(6, 182, 212, 0.5);
-          box-shadow:
-            0 0 20px rgba(6, 182, 212, 0.3),
-            0 0 60px rgba(6, 182, 212, 0.15);
-        }
-        .nv-root--bluelight .nv-core-inner {
-          background: rgba(251, 191, 36, 0.7);
-          box-shadow:
-            0 0 20px rgba(251, 191, 36, 0.5),
-            0 0 60px rgba(251, 191, 36, 0.25),
-            0 0 120px rgba(217, 119, 6, 0.1);
-        }
-
-        @keyframes nv-core-breathe {
-          0%, 100% { transform: scale(1); opacity: 0.7; }
-          50% { transform: scale(1.8); opacity: 1; }
-        }
-
-        .nv-core-ring {
-          position: absolute;
-          border-radius: 50%;
-          border: 1px solid rgba(6, 182, 212, 0.1);
-          animation: nv-ring-rotate 25s linear infinite;
-        }
-        .nv-core-ring--2 {
-          inset: 25px;
-          border-color: rgba(139, 92, 246, 0.08);
-          animation-duration: 35s;
-          animation-direction: reverse;
-        }
-        .nv-core-ring--3 {
-          inset: 55px;
-          border-color: rgba(236, 72, 153, 0.06);
-          animation-duration: 45s;
-        }
-        .nv-core-ring--bluelight {
-          border-color: rgba(251, 191, 36, 0.08);
-        }
-        .nv-core-ring--2.nv-core-ring--bluelight {
-          border-color: rgba(217, 119, 6, 0.06);
-        }
-        .nv-core-ring--3.nv-core-ring--bluelight {
-          border-color: rgba(245, 158, 11, 0.04);
-        }
-        .nv-root--light .nv-core-ring { border-color: rgba(6, 182, 212, 0.08); }
-        .nv-root--light .nv-core-ring--2 { border-color: rgba(139, 92, 246, 0.06); }
-
-        @keyframes nv-ring-rotate {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        /* ── Title ── */
-        .nv-title-cluster {
-          position: relative; z-index: 1;
-          display: flex; flex-direction: column;
           align-items: center;
         }
 
-        .nv-title {
-          font-size: clamp(3.2rem, 10vw, 7.5rem);
-          font-weight: 800;
-          letter-spacing: -0.025em;
-          line-height: 1;
+        /* ── LEFT COLUMN ── */
+        .ox-left {
+          flex: 1;
           display: flex;
-          justify-content: center;
+          align-items: center;
+          padding: 4rem 3rem 4rem 4rem;
           opacity: 0;
-          transform: translateY(35px);
+          transform: translateX(-30px);
           transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-          filter: drop-shadow(0 0 40px rgba(6, 182, 212, 0.08));
         }
-        .nv-title--visible { opacity: 1; transform: translateY(0); }
+        .ox-left--visible { opacity: 1; transform: translateX(0); }
 
-        .nv-title--dark {
-          color: transparent;
-          background: linear-gradient(135deg, #f1f5f9 0%, #94a3b8 35%, #e2e8f0 65%, #cbd5e1 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-        }
-        .nv-title--light {
-          color: transparent;
-          background: linear-gradient(135deg, #0f172a 0%, #334155 35%, #1e293b 65%, #475569 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-        }
-        .nv-title--bluelight {
-          color: transparent;
-          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 35%, #fcd34d 65%, #d97706 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          filter: drop-shadow(0 0 40px rgba(251, 191, 36, 0.1));
+        .ox-left-inner {
+          max-width: 560px;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
         }
 
-        .nv-char {
+        /* Logo row */
+        .ox-logo-row {
+          display: flex; align-items: center; gap: 0.7rem;
+          margin-bottom: 2.5rem;
+        }
+        .ox-logo-mark {
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          background: #dc5000;
+          box-shadow: 0 0 12px rgba(220, 80, 0, 0.4);
+          animation: ox-logo-pulse 3s ease-in-out infinite;
+        }
+        .ox-logo-mark--light {
+          background: #06b6d4;
+          box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+        }
+        .ox-logo-mark--bluelight {
+          background: #f59e0b;
+          box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+        }
+        @keyframes ox-logo-pulse {
+          0%, 100% { transform: scale(1); opacity: 0.8; }
+          50% { transform: scale(1.4); opacity: 1; }
+        }
+        .ox-logo-text {
+          font-size: 0.82rem; font-weight: 700;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+        }
+        .ox-logo-text--dark { color: rgba(255,237,215,0.5); }
+        .ox-logo-text--light { color: rgba(30,41,59,0.4); }
+        .ox-logo-text--bluelight { color: rgba(251,191,36,0.45); }
+
+        /* Dashed vertical line — Oryzo motif */
+        .ox-dashline {
+          width: 1px; height: 60px;
+          background: repeating-linear-gradient(180deg, rgba(220,80,0,0.25) 0 6px, transparent 6px 12px);
+          margin-bottom: 2.5rem;
+        }
+        .ox-dashline--light {
+          background: repeating-linear-gradient(180deg, rgba(6,182,212,0.3) 0 6px, transparent 6px 12px);
+        }
+        .ox-dashline--bluelight {
+          background: repeating-linear-gradient(180deg, rgba(251,191,36,0.25) 0 6px, transparent 6px 12px);
+        }
+
+        /* Headline block */
+        .ox-headline-block {
+          margin-bottom: 2rem;
+        }
+        .ox-tagline-upper {
+          font-size: clamp(0.7rem, 1.8vw, 0.9rem);
+          font-weight: 600;
+          letter-spacing: 0.35em;
+          text-transform: uppercase;
+          margin-bottom: 0.6rem;
+          opacity: 0;
+          transform: translateY(15px);
+          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s;
+        }
+        .ox-left--visible .ox-tagline-upper { opacity: 1; transform: translateY(0); }
+        .ox-tagline-upper--dark { color: rgba(255,237,215,0.3); }
+        .ox-tagline-upper--light { color: rgba(30,41,59,0.25); }
+        .ox-tagline-upper--bluelight { color: rgba(251,191,36,0.3); }
+
+        /* Title — large, uppercase, Oryzo-style */
+        .ox-title {
+          font-size: clamp(3.5rem, 9vw, 8rem);
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          line-height: 0.9;
+          text-transform: uppercase;
+          display: flex;
+          overflow: hidden;
+        }
+        .ox-title--dark {
+          color: transparent;
+          background: linear-gradient(135deg, #ffedd7 0%, #dc5000 50%, #ffedd7 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+        }
+        .ox-title--light {
+          color: transparent;
+          background: linear-gradient(135deg, #0f172a 0%, #06b6d4 50%, #0f172a 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+        }
+        .ox-title--bluelight {
+          color: transparent;
+          background: linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #fbbf24 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+        }
+
+        /* Character animation — Oryzo-style clip reveal */
+        .ox-char {
           display: inline-block;
           opacity: 0;
-          transform: translateY(30px) scale(0.85) rotateX(20deg);
-          animation: nv-char-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          transform: translateY(100%);
+          animation: ox-char-reveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
-        @keyframes nv-char-enter {
-          to { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); }
+        @keyframes ox-char-reveal {
+          to { opacity: 1; transform: translateY(0); }
         }
 
-        .nv-subtitle {
-          font-size: clamp(0.85rem, 2.5vw, 1.1rem);
-          font-weight: 400;
-          letter-spacing: 0.2em;
+        .ox-tagline-lower {
+          font-size: clamp(0.7rem, 1.8vw, 0.9rem);
+          font-weight: 600;
+          letter-spacing: 0.35em;
           text-transform: uppercase;
-          margin-top: 0.8rem;
-          opacity: 0; transform: translateY(18px);
-          transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.5s;
+          margin-top: 0.6rem;
+          opacity: 0;
+          transform: translateY(15px);
+          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.8s;
         }
-        .nv-subtitle--visible { opacity: 1; transform: translateY(0); }
+        .ox-left--visible .ox-tagline-lower { opacity: 1; transform: translateY(0); }
+        .ox-tagline-lower--dark { color: rgba(255,237,215,0.3); }
+        .ox-tagline-lower--light { color: rgba(30,41,59,0.25); }
+        .ox-tagline-lower--bluelight { color: rgba(251,191,36,0.3); }
 
-        .nv-subtitle--dark { color: rgba(255,255,255,0.3); }
-        .nv-subtitle--light { color: rgba(0,0,0,0.25); }
-        .nv-subtitle--bluelight { color: rgba(251,191,36,0.35); }
-
-        /* ── Typewriter Tagline ── */
-        .nv-tagline {
-          display: flex; align-items: center; gap: 0.8rem;
-          margin-top: 1.3rem;
-          opacity: 0; transform: translateY(12px);
-          transition: all 0.9s ease 1s;
+        /* Typewriter */
+        .ox-typewriter {
+          display: flex; align-items: center; gap: 0.7rem;
+          margin-bottom: 2.5rem;
+          opacity: 0; transform: translateX(-10px);
+          transition: all 0.8s ease 1s;
         }
-        .nv-tagline--visible { opacity: 1; transform: translateY(0); }
+        .ox-typewriter--visible { opacity: 1; transform: translateX(0); }
 
-        .nv-tagline-bar {
-          width: 28px; height: 2px;
-          border-radius: 1px;
-          background: linear-gradient(90deg, rgba(6, 182, 212, 0.5), transparent);
+        .ox-typewriter-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
           flex-shrink: 0;
+          animation: ox-dot-blink 2s ease-in-out infinite;
         }
-        .nv-root--light .nv-tagline-bar {
-          background: linear-gradient(90deg, rgba(6, 182, 212, 0.4), transparent);
-        }
-        .nv-root--bluelight .nv-tagline-bar {
-          background: linear-gradient(90deg, rgba(251, 191, 36, 0.5), transparent);
+        .ox-typewriter-dot--dark { background: #dc5000; }
+        .ox-typewriter-dot--light { background: #06b6d4; }
+        .ox-typewriter-dot--bluelight { background: #f59e0b; }
+        @keyframes ox-dot-blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.2; }
         }
 
-        .nv-tagline-text {
-          font-size: clamp(0.85rem, 2vw, 1rem);
+        .ox-typewriter-text {
+          font-size: clamp(0.8rem, 1.8vw, 0.95rem);
           font-weight: 300;
-          letter-spacing: 0.02em;
           font-style: italic;
-          display: inline;
+          letter-spacing: 0.02em;
         }
-        .nv-tagline-text--dark { color: rgba(255,255,255,0.45); }
-        .nv-tagline-text--light { color: rgba(0,0,0,0.35); }
-        .nv-tagline-text--bluelight { color: rgba(251,191,36,0.5); }
+        .ox-typewriter-text--dark { color: rgba(255,237,215,0.4); }
+        .ox-typewriter-text--light { color: rgba(30,41,59,0.35); }
+        .ox-typewriter-text--bluelight { color: rgba(251,191,36,0.45); }
 
-        .nv-cursor {
+        .ox-cursor {
           display: inline-block;
           width: 2px; height: 1em;
           margin-left: 2px;
           vertical-align: text-bottom;
           background: currentColor;
         }
-        .nv-cursor--blink {
-          animation: nv-cursor-blink 1s step-end infinite;
-        }
-        @keyframes nv-cursor-blink {
-          50% { opacity: 0; }
-        }
+        .ox-cursor--blink { animation: ox-cursor-blink 1s step-end infinite; }
+        @keyframes ox-cursor-blink { 50% { opacity: 0; } }
 
-        /* ═════════════════════════
-           ACTION BUTTONS
-           ═════════════════════════ */
-        .nv-actions {
-          position: relative; z-index: 1;
-          display: flex; flex-direction: column;
-          align-items: center; gap: 0.9rem;
-          margin-top: 3rem;
-          opacity: 0; transform: translateY(25px);
-          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1) 1.2s;
+        /* Feature badges — Oryzo-style horizontal list */
+        .ox-features {
+          display: flex; align-items: center; gap: 0;
+          opacity: 0; transform: translateY(15px);
+          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.3s;
         }
-        .nv-actions--visible { opacity: 1; transform: translateY(0); }
+        .ox-features--visible { opacity: 1; transform: translateY(0); }
 
-        /* ── START Button ── */
-        .nv-start-btn {
-          position: relative;
-          display: flex; align-items: center; gap: 0.7rem;
-          padding: 0.95rem 2.5rem;
-          border-radius: 60px;
-          border: 1px solid rgba(6, 182, 212, 0.25);
-          background: rgba(6, 182, 212, 0.04);
-          color: #06b6d4;
-          font-size: 0.95rem; font-weight: 700;
-          letter-spacing: 0.18em;
-          font-family: inherit;
-          transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-          overflow: hidden;
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
+        .ox-feature-item {
+          display: flex; align-items: center; gap: 0.4rem;
         }
-        .nv-start-btn:hover {
-          border-color: rgba(6, 182, 212, 0.5);
-          background: rgba(6, 182, 212, 0.1);
-          box-shadow:
-            0 0 40px rgba(6, 182, 212, 0.12),
-            0 0 80px rgba(6, 182, 212, 0.06),
-            inset 0 0 40px rgba(6, 182, 212, 0.04);
-          transform: scale(1.04) translateY(-1px);
+        .ox-feature-sep {
+          width: 1px; height: 14px;
+          margin: 0 0.8rem;
+          background: repeating-linear-gradient(180deg, rgba(255,237,215,0.15) 0 3px, transparent 3px 6px);
         }
-        .nv-start-btn:active { transform: scale(0.98); }
+        .ox-feature-sep--light {
+          background: repeating-linear-gradient(180deg, rgba(30,41,59,0.12) 0 3px, transparent 3px 6px);
+        }
+        .ox-feature-sep--bluelight {
+          background: repeating-linear-gradient(180deg, rgba(251,191,36,0.12) 0 3px, transparent 3px 6px);
+        }
+        .ox-feature-icon {
+          opacity: 0.5;
+        }
+        .ox-feature-icon--dark { color: #dc5000; }
+        .ox-feature-icon--light { color: #06b6d4; }
+        .ox-feature-icon--bluelight { color: #f59e0b; }
+        .ox-feature-label {
+          font-size: 0.65rem;
+          font-weight: 600;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .ox-feature-label--dark { color: rgba(255,237,215,0.35); }
+        .ox-feature-label--light { color: rgba(30,41,59,0.35); }
+        .ox-feature-label--bluelight { color: rgba(251,191,36,0.35); }
 
-        .nv-start-btn--light {
-          border-color: rgba(6, 182, 212, 0.35);
-          background: rgba(6, 182, 212, 0.06);
-          color: #0891b2;
-        }
-        .nv-start-btn--light:hover {
-          border-color: rgba(6, 182, 212, 0.6);
-          background: rgba(6, 182, 212, 0.12);
-          box-shadow: 0 0 40px rgba(6, 182, 212, 0.08);
-        }
-
-        .nv-start-btn--bluelight {
-          border-color: rgba(251, 191, 36, 0.25);
-          background: rgba(251, 191, 36, 0.04);
-          color: #f59e0b;
-        }
-        .nv-start-btn--bluelight:hover {
-          border-color: rgba(251, 191, 36, 0.5);
-          background: rgba(251, 191, 36, 0.1);
-          box-shadow:
-            0 0 40px rgba(251, 191, 36, 0.12),
-            0 0 80px rgba(251, 191, 36, 0.06),
-            inset 0 0 40px rgba(251, 191, 36, 0.04);
-        }
-
-        /* Animated gradient border glow */
-        .nv-start-glow {
-          position: absolute; inset: -2px;
-          border-radius: 62px;
-          background: conic-gradient(
-            from var(--nv-angle, 0deg),
-            transparent 0%,
-            rgba(6, 182, 212, 0.3) 10%,
-            transparent 20%,
-            transparent 100%
-          );
-          z-index: -1;
-          animation: nv-glow-spin 4s linear infinite;
+        /* ── RIGHT COLUMN ── */
+        .ox-right {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4rem;
           opacity: 0;
-          transition: opacity 0.4s;
+          transform: translateX(30px);
+          transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.15s;
         }
-        .nv-start-btn:hover .nv-start-glow { opacity: 1; }
-        .nv-start-btn--bluelight .nv-start-glow {
-          background: conic-gradient(
-            from var(--nv-angle, 0deg),
-            transparent 0%,
-            rgba(251, 191, 36, 0.3) 10%,
-            transparent 20%,
-            transparent 100%
-          );
+        .ox-right--visible { opacity: 1; transform: translateX(0); }
+
+        .ox-right-inner {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 1.2rem;
+          width: 300px;
         }
 
-        @keyframes nv-glow-spin {
-          to { --nv-angle: 360deg; }
-        }
-        @property --nv-angle {
-          syntax: '<angle>';
-          initial-value: 0deg;
-          inherits: false;
-        }
-
-        /* Static border ring */
-        .nv-start-border {
-          position: absolute; inset: -1px;
-          border-radius: 61px;
-          border: 1.5px solid transparent;
-          border-top-color: rgba(6, 182, 212, 0.35);
-          animation: nv-border-spin 3s linear infinite;
-          pointer-events: none;
-        }
-        .nv-start-btn--bluelight .nv-start-border {
-          border-top-color: rgba(251, 191, 36, 0.35);
-        }
-        @keyframes nv-border-spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .nv-start-icon {
-          display: flex; align-items: center;
-        }
-        .nv-start-arrow {
-          display: flex; align-items: center;
-          opacity: 0.4;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .nv-start-btn:hover .nv-start-arrow {
-          opacity: 1; transform: translate(3px, -3px);
-        }
-
-        .nv-start-hint {
-          font-size: 0.7rem;
-          letter-spacing: 0.06em;
-          margin-top: -0.2rem;
-        }
-        .nv-start-hint--dark { color: rgba(255,255,255,0.18); }
-        .nv-start-hint--light { color: rgba(0,0,0,0.22); }
-        .nv-start-hint--bluelight { color: rgba(251,191,36,0.22); }
-
-        /* ── Credentials Button (Glassmorphism) ── */
-        .nv-cred-btn {
-          display: flex; align-items: center; gap: 0.9rem;
-          padding: 0.9rem 1.6rem;
-          border-radius: 18px;
-          border: 1px solid rgba(255,255,255,0.05);
-          background: rgba(255,255,255,0.02);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
+        /* START Button — Oryzo pill style */
+        .ox-start-btn {
+          position: relative;
+          border: none;
+          background: none;
+          padding: 0;
           font-family: inherit;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-          margin-top: 0.3rem;
+          cursor: pointer;
+        }
+        .ox-start-inner {
+          display: flex; align-items: center; gap: 0.6rem;
+          padding: 1rem 2rem;
+          border-radius: 3em;
+          font-size: 0.85rem;
+          font-weight: 600;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+          position: relative;
+          z-index: 1;
+        }
+        .ox-start-btn--dark .ox-start-inner {
+          background: #ffedd7;
+          color: #100904;
+        }
+        .ox-start-btn--light .ox-start-inner {
+          background: #0f172a;
+          color: #f8fafc;
+        }
+        .ox-start-btn--bluelight .ox-start-inner {
+          background: #fbbf24;
+          color: #100904;
+        }
+
+        .ox-start-btn:hover .ox-start-inner {
+          transform: scale(1.03);
+        }
+        .ox-start-btn:active .ox-start-inner {
+          transform: scale(0.98);
+        }
+
+        /* Glow ring on hover */
+        .ox-start-glow-ring {
+          position: absolute;
+          inset: -3px;
+          border-radius: 3em;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+        .ox-start-btn--dark .ox-start-glow-ring {
+          box-shadow: 0 0 25px rgba(220, 80, 0, 0.3), 0 0 60px rgba(220, 80, 0, 0.1);
+        }
+        .ox-start-btn--light .ox-start-glow-ring {
+          box-shadow: 0 0 25px rgba(6, 182, 212, 0.3), 0 0 60px rgba(6, 182, 212, 0.1);
+        }
+        .ox-start-btn--bluelight .ox-start-glow-ring {
+          box-shadow: 0 0 25px rgba(245, 158, 11, 0.3), 0 0 60px rgba(245, 158, 11, 0.1);
+        }
+        .ox-start-btn:hover .ox-start-glow-ring { opacity: 1; }
+
+        .ox-start-hint {
+          font-size: 0.65rem;
+          letter-spacing: 0.05em;
+          padding-left: 0.5rem;
+        }
+        .ox-start-hint--dark { color: rgba(255,237,215,0.2); }
+        .ox-start-hint--light { color: rgba(30,41,59,0.25); }
+        .ox-start-hint--bluelight { color: rgba(251,191,36,0.22); }
+
+        /* Horizontal dashed line */
+        .ox-dashline-h {
+          width: 100%; height: 1px;
+          background: repeating-linear-gradient(90deg, rgba(255,237,215,0.12) 0 6px, transparent 6px 12px);
+        }
+        .ox-dashline-h--light {
+          background: repeating-linear-gradient(90deg, rgba(30,41,59,0.08) 0 6px, transparent 6px 12px);
+        }
+        .ox-dashline-h--bluelight {
+          background: repeating-linear-gradient(90deg, rgba(251,191,36,0.1) 0 6px, transparent 6px 12px);
+        }
+
+        /* Credentials card — dashed border style */
+        .ox-cred-card {
+          width: 100%;
+          border: none;
+          background: none;
+          font-family: inherit;
+          cursor: pointer;
           text-align: left;
+          padding: 1.2rem 0;
+          transition: all 0.3s ease;
+          position: relative;
         }
-        .nv-cred-btn:hover {
-          border-color: rgba(255,255,255,0.1);
-          background: rgba(255,255,255,0.04);
-          transform: translateX(6px);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-        }
-        .nv-root--light .nv-cred-btn {
-          border-color: rgba(0,0,0,0.05);
-          background: rgba(255,255,255,0.7);
-          backdrop-filter: blur(16px);
-        }
-        .nv-root--light .nv-cred-btn:hover {
-          border-color: rgba(0,0,0,0.1);
-          background: rgba(255,255,255,0.9);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
-        }
-        .nv-root--bluelight .nv-cred-btn {
-          border-color: rgba(251,191,36,0.06);
-          background: rgba(251,191,36,0.02);
-        }
-        .nv-root--bluelight .nv-cred-btn:hover {
-          border-color: rgba(251,191,36,0.12);
-          background: rgba(251,191,36,0.04);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
+        .ox-cred-card:hover { transform: translateX(4px); }
 
-        .nv-cred-icon-wrap {
-          width: 42px; height: 42px;
+        .ox-cred-top {
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 0.5rem;
+        }
+        .ox-cred-icon-wrap {
+          width: 36px; height: 36px;
           display: flex; align-items: center; justify-content: center;
-          border-radius: 14px;
-          background: rgba(139, 92, 246, 0.06);
-          border: 1px solid rgba(139, 92, 246, 0.1);
-          flex-shrink: 0;
-          transition: all 0.4s;
+          border-radius: 10px;
+          border: 1px dashed;
+          transition: all 0.3s;
         }
-        .nv-cred-btn:hover .nv-cred-icon-wrap {
-          background: rgba(139, 92, 246, 0.1);
-          border-color: rgba(139, 92, 246, 0.18);
-          transform: scale(1.05);
+        .ox-cred-icon-wrap--dark {
+          border-color: rgba(255,237,215,0.15);
+          color: rgba(255,237,215,0.6);
+          background: rgba(255,237,215,0.03);
         }
-        .nv-cred-icon-wrap--bluelight {
-          background: rgba(251,191,36,0.05);
-          border-color: rgba(251,191,36,0.08);
+        .ox-cred-icon-wrap--light {
+          border-color: rgba(30,41,59,0.12);
+          color: rgba(30,41,59,0.5);
+          background: rgba(30,41,59,0.03);
         }
-        .nv-root--bluelight .nv-cred-btn:hover .nv-cred-icon-wrap {
-          background: rgba(251,191,36,0.08);
+        .ox-cred-icon-wrap--bluelight {
           border-color: rgba(251,191,36,0.15);
+          color: rgba(251,191,36,0.6);
+          background: rgba(251,191,36,0.03);
+        }
+        .ox-cred-card:hover .ox-cred-icon-wrap--dark {
+          border-color: rgba(220,80,0,0.3);
+          background: rgba(220,80,0,0.06);
+        }
+        .ox-cred-card:hover .ox-cred-icon-wrap--light {
+          border-color: rgba(6,182,212,0.3);
+          background: rgba(6,182,212,0.06);
+        }
+        .ox-cred-card:hover .ox-cred-icon-wrap--bluelight {
+          border-color: rgba(251,191,36,0.3);
+          background: rgba(251,191,36,0.06);
+        }
+        .ox-cred-arrow {
+          opacity: 0.25;
+          transition: all 0.3s;
+        }
+        .ox-cred-arrow--dark { color: #ffedd7; }
+        .ox-cred-arrow--light { color: #0f172a; }
+        .ox-cred-arrow--bluelight { color: #fbbf24; }
+        .ox-cred-card:hover .ox-cred-arrow {
+          opacity: 0.7; transform: translate(2px, -2px);
         }
 
-        .nv-cred-icon {
-          width: 18px; height: 18px;
-          color: #8b5cf6;
-        }
-        .nv-root--bluelight .nv-cred-icon { color: #f59e0b; }
-
-        .nv-cred-text {
+        .ox-cred-body {
           display: flex; flex-direction: column; gap: 0.15rem;
         }
-        .nv-cred-title {
-          font-size: 0.85rem; font-weight: 600;
+        .ox-cred-title {
+          font-size: 0.82rem; font-weight: 600;
+          letter-spacing: 0.02em;
         }
-        .nv-cred-title--dark { color: rgba(255,255,255,0.8); }
-        .nv-cred-title--light { color: rgba(0,0,0,0.75); }
-        .nv-cred-title--bluelight { color: rgba(251,191,36,0.8); }
+        .ox-cred-title--dark { color: rgba(255,237,215,0.7); }
+        .ox-cred-title--light { color: rgba(30,41,59,0.7); }
+        .ox-cred-title--bluelight { color: rgba(251,191,36,0.7); }
+        .ox-cred-desc {
+          font-size: 0.68rem;
+        }
+        .ox-cred-desc--dark { color: rgba(255,237,215,0.25); }
+        .ox-cred-desc--light { color: rgba(30,41,59,0.3); }
+        .ox-cred-desc--bluelight { color: rgba(251,191,36,0.28); }
 
-        .nv-cred-desc {
-          font-size: 0.7rem;
+        .ox-cred-dashline {
+          width: 100%; height: 1px;
+          margin-top: 1rem;
+          background: repeating-linear-gradient(90deg, rgba(255,237,215,0.06) 0 4px, transparent 4px 8px);
         }
-        .nv-cred-desc--dark { color: rgba(255,255,255,0.28); }
-        .nv-cred-desc--light { color: rgba(0,0,0,0.35); }
-        .nv-cred-desc--bluelight { color: rgba(251,191,36,0.32); }
+        .ox-cred-dashline--light {
+          background: repeating-linear-gradient(90deg, rgba(30,41,59,0.04) 0 4px, transparent 4px 8px);
+        }
 
-        .nv-cred-arrow {
-          opacity: 0.25;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-          flex-shrink: 0;
+        /* Status row */
+        .ox-status-row {
+          display: flex; align-items: center; gap: 0.5rem;
+          opacity: 0; transform: translateY(10px);
+          transition: all 0.8s ease 1.5s;
         }
-        .nv-cred-arrow--dark { color: #fff; }
-        .nv-cred-arrow--light { color: #000; }
-        .nv-cred-arrow--bluelight { color: #f59e0b; }
-        .nv-cred-btn:hover .nv-cred-arrow {
-          opacity: 0.6; transform: translate(3px, -3px);
+        .ox-status-row--visible { opacity: 1; transform: translateY(0); }
+
+        .ox-status-dot {
+          width: 5px; height: 5px;
+          border-radius: 50%;
         }
+        .ox-status-dot--dark { background: rgba(255,237,215,0.2); }
+        .ox-status-dot--light { background: rgba(30,41,59,0.15); }
+        .ox-status-dot--bluelight { background: rgba(251,191,36,0.2); }
+        .ox-status-text {
+          font-size: 0.58rem;
+          font-weight: 600;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+        }
+        .ox-status-text--dark { color: rgba(255,237,215,0.15); }
+        .ox-status-text--light { color: rgba(30,41,59,0.2); }
+        .ox-status-text--bluelight { color: rgba(251,191,36,0.18); }
 
         /* ═════════════════════════
-           FEATURE PILLS
+           RIGHT EDGE SCROLL INDICATOR
            ═════════════════════════ */
-        .nv-pills {
-          position: relative; z-index: 1;
-          display: flex; align-items: center; gap: 0;
-          margin-top: 2.8rem;
-          opacity: 0; transform: translateY(18px);
-          transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 1.5s;
-          flex-wrap: wrap; justify-content: center;
+        .ox-scroll-indicator {
+          position: fixed;
+          right: 1.5rem;
+          top: 50%;
+          transform: translateY(-50%);
+          z-index: 50;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.8rem;
+          opacity: 0;
+          transition: opacity 1s ease 2s;
         }
-        .nv-pills--visible { opacity: 1; transform: translateY(0); }
+        .ox-scroll-indicator--visible { opacity: 1; }
 
-        .nv-pill {
-          display: flex; align-items: center; gap: 0.4rem;
-          padding: 0.38rem 1rem;
-          font-size: 0.68rem; font-weight: 500;
-          letter-spacing: 0.06em;
-          border: 1px solid rgba(255,255,255,0.05);
-          background: rgba(255,255,255,0.02);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          color: rgba(255,255,255,0.35);
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        .ox-scroll-bar {
+          width: 2px; height: 80px;
+          border-radius: 1px;
+          position: relative;
+          overflow: hidden;
         }
-        .nv-pill:hover {
-          border-color: rgba(255,255,255,0.12);
-          color: rgba(255,255,255,0.65);
-          background: rgba(255,255,255,0.04);
-          transform: translateY(-1px);
-        }
-        .nv-pill--light {
-          border-color: rgba(0,0,0,0.05);
-          background: rgba(255,255,255,0.5);
-          color: rgba(0,0,0,0.4);
-        }
-        .nv-pill--light:hover {
-          border-color: rgba(0,0,0,0.1);
-          color: rgba(0,0,0,0.65);
-          background: rgba(255,255,255,0.8);
-        }
-        .nv-pill--bluelight {
-          border-color: rgba(251,191,36,0.06);
-          background: rgba(251,191,36,0.02);
-          color: rgba(251,191,36,0.35);
-        }
-        .nv-pill--bluelight:hover {
-          border-color: rgba(251,191,36,0.15);
-          color: rgba(251,191,36,0.65);
-          background: rgba(251,191,36,0.04);
-        }
+        .ox-scroll-bar--dark { background: rgba(255,237,215,0.06); }
+        .ox-scroll-bar--light { background: rgba(30,41,59,0.06); }
+        .ox-scroll-bar--bluelight { background: rgba(251,191,36,0.06); }
 
-        .nv-pill-sep {
-          width: 1px; height: 14px;
-          background: rgba(255,255,255,0.08);
-          margin: 0 0.5rem;
+        .ox-scroll-labels {
+          writing-mode: vertical-rl;
+          text-orientation: mixed;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.6rem;
         }
-        .nv-root--light .nv-pill-sep { background: rgba(0,0,0,0.08); }
-        .nv-root--bluelight .nv-pill-sep { background: rgba(251,191,36,0.1); }
+        .ox-scroll-label {
+          font-size: 0.5rem;
+          font-weight: 500;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          opacity: 0.15;
+          transition: opacity 0.3s;
+        }
+        .ox-scroll-label--active { opacity: 0.5; }
+        .ox-scroll-label--dark { color: #ffedd7; }
+        .ox-scroll-label--light { color: #0f172a; }
+        .ox-scroll-label--bluelight { color: #fbbf24; }
 
         /* ═════════════════════════
            FOOTER
            ═════════════════════════ */
-        .nv-footer {
-          position: fixed; bottom: 0; left: 0; right: 0;
-          z-index: 100;
-          display: flex; justify-content: center;
-          padding: 1.3rem 2rem;
+        .ox-footer {
+          position: fixed;
+          bottom: 0; left: 0; right: 0;
+          z-index: 50;
+          padding: 1rem 4rem;
           opacity: 0;
-          transition: opacity 1s ease 1.8s;
-          pointer-events: none;
+          transition: opacity 1s ease 2s;
         }
-        .nv-footer--visible { opacity: 1; }
+        .ox-footer--visible { opacity: 1; }
 
-        .nv-footer-inner {
-          display: flex; align-items: center; gap: 0.9rem;
-          position: relative;
-          padding: 0.5rem 1.2rem;
-          border-radius: 100px;
-          background: rgba(255,255,255,0.02);
-          border: 1px solid rgba(255,255,255,0.04);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+        .ox-footer-inner {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          padding: 0.6rem 1.2rem;
+          border-radius: 3em;
+          border: 1px dashed;
+          width: fit-content;
         }
-        .nv-root--light .nv-footer-inner {
-          background: rgba(255,255,255,0.6);
-          border-color: rgba(0,0,0,0.05);
+        .ox-footer-inner--dark {
+          border-color: rgba(255,237,215,0.06);
+          background: rgba(255,237,215,0.01);
         }
-        .nv-root--bluelight .nv-footer-inner {
-          background: rgba(251,191,36,0.02);
+        .ox-footer-inner--light {
+          border-color: rgba(30,41,59,0.06);
+          background: rgba(30,41,59,0.01);
+        }
+        .ox-footer-inner--bluelight {
           border-color: rgba(251,191,36,0.06);
+          background: rgba(251,191,36,0.01);
         }
 
-        .nv-footer-glow {
-          position: absolute;
-          inset: -1px;
-          border-radius: 101px;
-          opacity: 0;
-          transition: opacity 0.3s;
+        .ox-footer-left {
+          display: flex; align-items: center; gap: 0.4rem;
         }
-        .nv-footer--visible .nv-footer-glow {
-          opacity: 1;
-          background: linear-gradient(135deg, rgba(6, 182, 212, 0.05), transparent 50%, rgba(139, 92, 246, 0.03));
+        .ox-footer-welcome {
+          font-size: 0.7rem; font-weight: 400;
+          letter-spacing: 0.04em;
         }
+        .ox-footer-welcome--dark { color: rgba(255,237,215,0.2); }
+        .ox-footer-welcome--light { color: rgba(30,41,59,0.3); }
+        .ox-footer-welcome--bluelight { color: rgba(251,191,36,0.25); }
 
-        .nv-footer-text {
-          font-size: 0.78rem;
+        .ox-footer-name {
+          font-size: 0.7rem; font-weight: 700;
+          letter-spacing: 0.04em;
         }
-        .nv-footer-text--dark { color: rgba(255,255,255,0.22); }
-        .nv-footer-text--light { color: rgba(0,0,0,0.3); }
-        .nv-footer-text--bluelight { color: rgba(251,191,36,0.28); }
+        .ox-footer-name--dark { color: rgba(255,237,215,0.45); }
+        .ox-footer-name--light { color: rgba(30,41,59,0.55); }
+        .ox-footer-name--bluelight { color: rgba(251,191,36,0.5); }
 
-        .nv-footer-name {
-          font-weight: 600;
+        .ox-footer-sep {
+          width: 1px; height: 12px;
         }
-        .nv-footer-name--dark { color: rgba(255,255,255,0.5); }
-        .nv-footer-name--light { color: rgba(0,0,0,0.55); }
-        .nv-footer-name--bluelight { color: rgba(251,191,36,0.55); }
+        .ox-footer-sep--dark { background: rgba(255,237,215,0.08); }
+        .ox-footer-sep--light { background: rgba(30,41,59,0.08); }
+        .ox-footer-sep--bluelight { background: rgba(251,191,36,0.08); }
 
-        .nv-footer-dot {
-          width: 3px; height: 3px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.12);
-        }
-        .nv-root--light .nv-footer-dot { background: rgba(0,0,0,0.1); }
-        .nv-root--bluelight .nv-footer-dot { background: rgba(251,191,36,0.15); }
-
-        .nv-footer-role {
-          font-size: 0.68rem;
+        .ox-footer-role {
+          font-size: 0.55rem; font-weight: 600;
+          letter-spacing: 0.18em;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
         }
-        .nv-footer-role--dark { color: rgba(255,255,255,0.16); }
-        .nv-footer-role--light { color: rgba(0,0,0,0.2); }
-        .nv-footer-role--bluelight { color: rgba(251,191,36,0.2); }
+        .ox-footer-role--dark { color: rgba(255,237,215,0.15); }
+        .ox-footer-role--light { color: rgba(30,41,59,0.2); }
+        .ox-footer-role--bluelight { color: rgba(251,191,36,0.18); }
+
+        .ox-footer-dot {
+          width: 4px; height: 4px;
+          border-radius: 50%;
+          animation: ox-dot-blink 2.5s ease-in-out infinite;
+        }
+        .ox-footer-dot--dark { background: #dc5000; opacity: 0.5; }
+        .ox-footer-dot--light { background: #06b6d4; opacity: 0.5; }
+        .ox-footer-dot--bluelight { background: #f59e0b; opacity: 0.5; }
 
         /* ═════════════════════════
            RESPONSIVE
            ═════════════════════════ */
-        @media (max-width: 640px) {
-          .nv-topbar { padding: 0.8rem 1rem; }
-          .nv-logo-glow { left: 1rem; width: 120px; }
-          .nv-core { width: 200px; height: 200px; }
-          .nv-actions { gap: 0.7rem; }
-          .nv-start-btn { padding: 0.8rem 2rem; font-size: 0.85rem; }
-          .nv-cred-btn { padding: 0.75rem 1.1rem; }
-          .nv-cred-icon-wrap { width: 38px; height: 38px; }
-          .nv-footer { padding: 1rem; }
-          .nv-pills { gap: 0; }
-          .nv-pill { padding: 0.3rem 0.75rem; font-size: 0.64rem; }
-          .nv-pill-sep { margin: 0 0.35rem; }
+        @media (max-width: 900px) {
+          .ox-layout {
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+          }
+          .ox-left {
+            padding: 3rem 2rem 2rem;
+            transform: translateY(-20px);
+          }
+          .ox-left--visible { transform: translateY(0); }
+          .ox-left-inner { max-width: 100%; align-items: center; }
+          .ox-headline-block { display: flex; flex-direction: column; align-items: center; }
+          .ox-features { justify-content: center; }
+          .ox-right {
+            padding: 2rem;
+            transform: translateY(20px);
+          }
+          .ox-right--visible { transform: translateY(0); }
+          .ox-right-inner {
+            align-items: center;
+            width: 100%;
+            max-width: 300px;
+          }
+          .ox-scroll-indicator { display: none; }
+          .ox-footer { padding: 0.8rem 1.5rem; justify-content: center; }
+          .ox-footer-inner { margin: 0 auto; }
+          .ox-dashline { margin: 0 auto 2rem; }
+          .ox-typewriter { justify-content: center; }
         }
-        @media (max-width: 380px) {
-          .nv-core { width: 150px; height: 150px; }
-          .nv-core-ring--2 { inset: 15px; }
-          .nv-core-ring--3 { inset: 30px; }
+        @media (max-width: 400px) {
+          .ox-title { font-size: clamp(2.8rem, 12vw, 4rem); }
+          .ox-start-inner { padding: 0.85rem 1.5rem; font-size: 0.78rem; }
         }
       `}</style>
     </>
