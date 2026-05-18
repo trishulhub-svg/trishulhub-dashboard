@@ -212,10 +212,7 @@ export async function GET(req: NextRequest) {
             continue
           }
 
-          // Skip Sundays (day 0) — no work expected
-          if (dow === 0) continue
-
-          // Check if on approved leave
+          // Check if on approved leave FIRST (before skip logic)
           const userLeaveDays = leaveDaysByUser.get(user.id)
           if (userLeaveDays && userLeaveDays.has(dayStr)) {
             records.push({
@@ -239,13 +236,16 @@ export async function GET(req: NextRequest) {
           const requiredHours = getRequiredHours(user.id, dow)
           const workedHours = timeData?.totalHours || 0
 
+          // Skip days where the employee has NO availability schedule AND no time entries
+          // (don't hard-skip Sundays — employees may work any day per their availability)
+          if (requiredHours === 0 && workedHours === 0) continue
+
           // Determine status
           let status: string
           if (requiredHours === 0) {
-            // No availability schedule for this day — skip if no time entries
-            if (workedHours === 0) continue
-            // Has time entries but no schedule — still mark PRESENT (they worked anyway)
-            status = "PRESENT"
+            // No availability schedule for this day but has time entries
+            // Mark as NO_SCHEDULE so admin knows there's no expected schedule
+            status = "NO_SCHEDULE"
           } else if (workedHours >= requiredHours) {
             status = "PRESENT"
           } else if (workedHours >= requiredHours * 0.5) {
@@ -446,7 +446,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       // [FIX H8: Validate attendance status against allowed values]
-      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE"]
+      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "NO_SCHEDULE"]
       const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
       if (attStatus && !validAttStatuses.includes(attStatus as string)) {
         return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, or LEAVE" }, { status: 400 })

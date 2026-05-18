@@ -79,6 +79,7 @@ const attStatusColors: Record<string, string> = {
   ABSENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   HALF_DAY: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
   LEAVE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  NO_SCHEDULE: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
 };
 
 // Leave status colors
@@ -794,8 +795,8 @@ export default function TeamPage() {
                         )}
                         {/* Show worked hours even if no requirement */}
                         {(record.workedHours !== null && record.workedHours !== undefined && record.workedHours > 0) && (record.requiredHours === null || record.requiredHours === 0) && (
-                          <p className="text-[10px] text-green-600 mt-0.5">
-                            Worked {record.workedHours}h{record.status === "PRESENT" ? " (no schedule set)" : ""}
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            Worked {record.workedHours}h (no schedule set for this day)
                           </p>
                         )}
                         {record.notes && (
