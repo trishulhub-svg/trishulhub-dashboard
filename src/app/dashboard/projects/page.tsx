@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
   useSensor, useSensors, closestCorners, useDroppable,
@@ -308,9 +309,7 @@ function DroppableKanbanColumn({
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  const [projects, setProjects] = useState<unknown[]>([]);
-  const [clients, setClients] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState<Record<string, unknown> | null>(null);
@@ -319,6 +318,37 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+
+  // ━━ React Query — cached fetch with stale-while-revalidate ━━
+  const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
+    queryKey: ["projects"],
+    queryFn: async () => {
+      const res = await fetch("/api/projects", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load projects");
+      const data = await res.json();
+      const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+      return deepSanitize(raw) as unknown[];
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const { data: clientsData = [] } = useQuery({
+    queryKey: ["clients"],
+    queryFn: async () => {
+      const res = await fetch("/api/clients", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load clients");
+      const data = await res.json();
+      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const projects = projectsData;
+  const clients = clientsData;
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
@@ -346,38 +376,6 @@ export default function ProjectsPage() {
     }
     return false;
   }, []);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const [projRes, clientRes] = await Promise.all([
-        fetch("/api/projects", { credentials: 'include' }),
-        fetch("/api/clients", { credentials: 'include' }),
-      ]);
-      if (projRes.ok) {
-        const projData = await projRes.json();
-        const raw = Array.isArray(projData) ? projData : (Array.isArray(projData?.data) ? projData.data : []);
-        setProjects(deepSanitize(raw));
-      } else {
-        if (handle401(projRes)) return;
-        toast.error("Failed to load projects");
-      }
-      if (clientRes.ok) {
-        const clientData = await clientRes.json();
-        setClients(Array.isArray(clientData) ? clientData : (Array.isArray(clientData?.data) ? clientData.data : []));
-      } else {
-        if (handle401(clientRes)) return;
-        toast.error("Failed to load clients");
-      }
-    } catch {
-      toast.error("Failed to load projects");
-    } finally {
-      setLoading(false);
-    }
-  }, [handle401]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   // ━━ Fetch attachments for a project ━━
   const fetchAttachments = useCallback(async (projectId: string) => {
@@ -433,7 +431,7 @@ export default function ProjectsPage() {
       if (res.ok) {
         toast.success("Project created");
         setAddOpen(false);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -471,7 +469,7 @@ export default function ProjectsPage() {
         toast.success("Project updated");
         setEditOpen(false);
         setEditProject(null);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -491,7 +489,9 @@ export default function ProjectsPage() {
       });
       if (res.ok) {
         toast.success("Project deleted successfully");
-        setProjects((prev) => prev.filter((p: any) => p.id !== deleteId));
+        queryClient.setQueryData(["projects"], (old: unknown[]) =>
+          (old || []).filter((p: any) => p.id !== deleteId)
+        );
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -698,8 +698,8 @@ export default function ProjectsPage() {
 
     // Optimistic update
     setUpdating(true);
-    setProjects((prev) =>
-      prev.map((p) =>
+    queryClient.setQueryData(["projects"], (old: unknown[]) =>
+      (old || []).map((p) =>
         safeText((p as Record<string, unknown>).id, "") === projectId
           ? { ...(p as Record<string, unknown>), status: newStatus }
           : p
@@ -714,18 +714,18 @@ export default function ProjectsPage() {
         body: JSON.stringify({ id: projectId, status: newStatus }),
       });
       if (handle401(res)) {
-        setProjects(prevProjects);
+        queryClient.setQueryData(["projects"], prevProjects);
         return;
       }
       if (!res.ok) {
-        setProjects(prevProjects);
+        queryClient.setQueryData(["projects"], prevProjects);
         const data = await res.json().catch(() => ({}));
         toast.error((data as Record<string, string>).error || "Failed to move project");
       } else {
         toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
       }
     } catch {
-      setProjects(prevProjects);
+      queryClient.setQueryData(["projects"], prevProjects);
       toast.error("Failed to move project");
     } finally {
       setUpdating(false);
@@ -751,7 +751,7 @@ export default function ProjectsPage() {
   }));
 
   // ━━ Loading skeleton (Kanban-style) ━━
-  if (sessionStatus === "loading" || loading) {
+  if (sessionStatus === "loading" || projectsLoading) {
     return (
       <div className="space-y-5">
         <Skeleton className="h-8 w-48" />

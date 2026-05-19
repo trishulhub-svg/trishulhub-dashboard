@@ -71,16 +71,13 @@ export async function GET(req: NextRequest) {
     // For developers: don't expose budget info
     const includeBudget = isAdmin(userRole)
 
-    // ZAI FIX #310: When projectId is specified (detail page), return ONLY
-    // scalar fields — no includes at all. The detail page fetches tasks,
-    // members, and client data from their own dedicated endpoints.
-    // This eliminates the possibility of circular refs or nested objects.
+    // PERF: List view only includes client (for Kanban card display).
+    // Detail view returns scalar fields only — tasks/members fetched separately.
+    // Removing tasks + members from list view dramatically reduces payload size.
     const projects = await db.project.findMany({
       where,
       include: {
         ...(projectId ? {} : { client: true }),
-        ...(projectId ? {} : { tasks: true }),
-        ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
       },
       orderBy: { createdAt: "desc" },
       take: limit,
@@ -88,7 +85,7 @@ export async function GET(req: NextRequest) {
 
     // For developers: hide budget and client financial details
     if (!includeBudget) {
-      const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
+      const filtered = projects.map(({ budget, client, ...rest }) => ({
         ...rest,
         budget: undefined,
         client: client ? { id: client.id, name: client.name, company: client.company } : undefined,

@@ -436,6 +436,10 @@ model Task {
   updatedAt   DateTime @updatedAt
 
   project     Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, status])
+  @@index([assignedTo, assigneeType, status])
+  @@index([status])
 }
 
 // ━━ Invoices ━━
@@ -506,6 +510,8 @@ model LeadEmail {
   createdAt DateTime @default(now())
 
   lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
 }
 
 // ━━ CRM Deals ━━
@@ -585,6 +591,9 @@ model ApiUsageLog {
 
   apiKey       ApiKey   @relation(fields: [apiKeyId], references: [id])
   agent        Agent?   @relation(fields: [agentId], references: [id])
+
+  @@index([createdAt])
+  @@index([agentId])
 }
 
 // ━━ Support Tickets ━━
@@ -666,6 +675,8 @@ model Attendance {
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, date])
 }
 
 // ━━ Notifications ━━
