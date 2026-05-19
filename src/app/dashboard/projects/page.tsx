@@ -599,7 +599,7 @@ export default function ProjectsPage() {
                     const pStatus = safeText(project.status, "");
                     const pClientName = client ? safeText(client.name, "Client") : "Client";
                     const pProgress = safeNumber(project.progress);
-                    const pDeadline = project.deadline;
+                    const pDeadline = project.deadline as string | null | undefined;
                     const pId = safeText(project.id, "");
 
                     return (
