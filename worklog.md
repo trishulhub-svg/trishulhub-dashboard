@@ -26,3 +26,42 @@ Stage Summary:
 - Commit: 5bf63da — "feat: Transform Projects page into Kanban board with glassmorphism"
 - Pushed to: https://github.com/trishulhub-svg/trishulhub-dashboard.git (main)
 - Feature verification: 59/59 PASS — zero data/feature loss
+---
+Task ID: 2
+Agent: Main Agent
+Task: Kanban drag-and-drop + page loading performance optimization
+
+Work Log:
+- Investigated page load performance: identified 6 major bottlenecks
+  1. JWT callback validates session against DB on every request (60s cache)
+  2. Dashboard API fires ~20 DB queries per load
+  3. Layout fires 2 API calls 200ms after every navigation
+  4. RBAC: getAssignedClientIds calls getAssignedProjectIds internally (duplicate)
+  5. ensureAllTables() runs on every API request (redundant)
+  6. No package import optimization
+
+- Applied performance fixes:
+  - Session cache TTL: 60s -> 5min (session-manager.ts)
+  - Layout fetch delay: 200ms -> 1500ms, dep: session -> session?.user?.id (layout.tsx)
+  - Removed ensureAllTables() from /api/dashboard and /api/projects routes
+  - Merged getAssignedProjectIds + getAssignedClientIds into getUserScope (rbac.ts)
+  - Dashboard API uses single getUserScope() call (route.ts)
+  - Added optimizePackageImports for lucide-react, recharts, sonner, @dnd-kit (next.config.ts)
+
+- Implemented Kanban drag-and-drop on Projects page:
+  - Added @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities imports
+  - Created KanbanProjectCard, SortableProjectCard, DroppableKanbanColumn components
+  - Added activeId, updating state + sensors (PointerSensor, 8px distance)
+  - handleDragStart/handleDragEnd with optimistic update + rollback
+  - PUT /api/projects for status change on drop
+  - DndContext with closestCorners, DragOverlay for floating card
+  - Admin-only drag, column highlight on drag-over
+  - Card click navigation disabled during drag
+  - All 15 existing features preserved (verified)
+
+Stage Summary:
+- Files changed: 7 (406 insertions, 195 deletions)
+- Commit: f49ca99 — "feat: Kanban drag-and-drop + performance optimization"
+- Pushed to: https://github.com/trishulhub-svg/trishulhub-dashboard.git (main)
+- Performance: Expected 40-60% reduction in initial page load time
+- DnD: Full drag-and-drop between Kanban columns matching CRM pattern
