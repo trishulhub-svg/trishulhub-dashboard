@@ -91,6 +91,7 @@ export const createInvoiceSchema = z.object({
       description: z.string(),
       quantity: z.number().min(0),
       rate: z.number().min(0),
+      amount: z.number().min(0).optional(),
     }))
   ]).optional(),
   subtotal: z.number().min(0).optional(),
@@ -111,7 +112,7 @@ export const updateInvoiceSchema = z.object({
   invoiceNumber: z.string().max(50).optional(),
   clientId: z.string().optional(),
   projectId: z.string().nullable().optional(),
-  items: z.union([z.string(), z.array(z.object({ description: z.string(), quantity: z.number().min(0), rate: z.number().min(0) }))]).optional(),
+  items: z.union([z.string(), z.array(z.object({ description: z.string(), quantity: z.number().min(0), rate: z.number().min(0), amount: z.number().min(0).optional() }))]).optional(),
   subtotal: z.number().min(0).optional(),
   tax: z.number().min(0).optional(),
   total: z.number().min(0).optional(),

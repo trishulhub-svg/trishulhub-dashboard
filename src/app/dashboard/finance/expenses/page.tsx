@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
-import { Plus, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Pencil } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +65,18 @@ export default function ExpensesPage() {
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  // Edit expense state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editExpense, setEditExpense] = useState<{
+    id: string; category: string; description: string;
+    amount: number; date: string; projectId?: string | null;
+  } | null>(null);
+  const [editCategory, setEditCategory] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
 
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -136,12 +148,58 @@ export default function ExpensesPage() {
   const executeDelete = async () => {
     if (!pendingDelete) return;
     try {
-      const res = await fetch(`/api/expenses?id=${pendingDelete}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch("/api/expenses", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: 'include', body: JSON.stringify({ id: pendingDelete }) });
       if (handleFetchError(res, router)) return;
       if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); }
       else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
     } catch { toast.error("Failed to delete expense"); }
     setPendingDelete(null);
+  };
+
+  // ━━ Open Edit Dialog ━━
+  const openEditDialog = (expense: { id: string; category: string; description: string; amount: number; date: string; projectId?: string | null }) => {
+    setEditCategory(expense.category);
+    setEditDescription(expense.description);
+    setEditAmount(String(expense.amount));
+    setEditDate(expense.date ? expense.date.split("T")[0] : "");
+    setEditProjectId(expense.projectId || "NONE");
+    setEditExpense(expense);
+    setEditOpen(true);
+  };
+
+  const handleEditExpense = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editExpense) return;
+
+    const data = {
+      id: editExpense.id,
+      category: editCategory,
+      description: editDescription,
+      amount: parseFloat(editAmount),
+      date: editDate,
+      projectId: editProjectId === "NONE" ? null : editProjectId || null,
+    };
+
+    try {
+      const res = await fetch("/api/expenses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        toast.success("Expense updated");
+        setEditOpen(false);
+        setEditExpense(null);
+        fetchExpenses();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update expense");
+      }
+    } catch {
+      toast.error("Failed to update expense");
+    }
   };
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -268,6 +326,9 @@ export default function ExpensesPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-semibold">{formatCurrency(expense.amount)}</span>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(expense as any)} aria-label="Edit expense">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(expense.id)} aria-label="Delete expense">
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -277,6 +338,58 @@ export default function ExpensesPage() {
           </Card>
         ))}
       </div>
+
+      {/* Edit Expense Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditExpense(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Expense</DialogTitle><DialogDescription>Edit an existing expense record.</DialogDescription></DialogHeader>
+          <form onSubmit={handleEditExpense} className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Category *</Label>
+              <Select value={editCategory} onValueChange={setEditCategory} required>
+                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HOSTING">Hosting</SelectItem>
+                  <SelectItem value="DOMAINS">Domains</SelectItem>
+                  <SelectItem value="API_COSTS">API Costs</SelectItem>
+                  <SelectItem value="TOOLS">Tools</SelectItem>
+                  <SelectItem value="MARKETING">Marketing</SelectItem>
+                  <SelectItem value="SALARY">Salary</SelectItem>
+                  <SelectItem value="SOFTWARE">Software</SelectItem>
+                  <SelectItem value="OTHER">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Description *</Label>
+              <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} required />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Amount (₹) *</Label>
+                <Input type="number" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} required />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Date *</Label>
+                <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} required />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Project (optional)</Label>
+              <Select value={editProjectId} onValueChange={setEditProjectId}>
+                <SelectTrigger><SelectValue placeholder="No project" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">No Project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" className="w-full">Save Changes</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>

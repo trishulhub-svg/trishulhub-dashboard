@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
 import {
-  Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X,
+  Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X, Pencil,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,18 @@ export default function InvoicesPage() {
   const [paymentStatus, setPaymentStatus] = useState<string>("UNPAID");
   const [invoiceNotes, setInvoiceNotes] = useState<string>("");
 
+  // Edit invoice state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editInvoice, setEditInvoice] = useState<{
+    id: string; clientId: string; projectId?: string | null;
+    items: string; subtotal: number; tax: number; total: number;
+    dueDate?: string | null; gstPercent?: number | null; gst?: number | null;
+    paymentMethod?: string | null; paymentStatus?: string | null; notes?: string | null;
+  } | null>(null);
+  const [editClientId, setEditClientId] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [invRes, clientRes, projRes] = await Promise.all([
@@ -173,6 +185,86 @@ export default function InvoicesPage() {
     setPaymentMethod("");
     setPaymentStatus("UNPAID");
     setInvoiceNotes("");
+  };
+
+  // ━━ Open Edit Dialog ━━
+  const openEditDialog = (inv: { id: string; clientId: string; projectId?: string | null; items: string; subtotal: number; tax: number; total: number; dueDate?: string | null; gstPercent?: number | null; gst?: number | null; paymentMethod?: string | null; paymentStatus?: string | null; notes?: string | null }) => {
+    try {
+      const parsed = JSON.parse(inv.items || "[]") as LineItem[];
+      setLineItems(parsed.length > 0 ? parsed : [{ description: "", quantity: 1, rate: 0, amount: 0 }]);
+    } catch {
+      setLineItems([{ description: "", quantity: 1, rate: 0, amount: 0 }]);
+    }
+    setGstPercent(inv.gstPercent ?? 18);
+    setPaymentMethod(inv.paymentMethod || "");
+    setPaymentStatus(inv.paymentStatus || "UNPAID");
+    setInvoiceNotes(inv.notes || "");
+    setEditClientId(inv.clientId);
+    setEditProjectId(inv.projectId || "NONE");
+    setEditDueDate(inv.dueDate ? inv.dueDate.split("T")[0] : "");
+    setEditInvoice(inv);
+    setEditOpen(true);
+  };
+
+  const handleEditInvoice = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editInvoice) return;
+
+    if (!editClientId) {
+      toast.error("Please select a client");
+      return;
+    }
+
+    const validItems = lineItems.filter((item) => item.description.trim() && item.quantity > 0 && item.rate >= 0);
+    if (validItems.length === 0) {
+      toast.error("At least one line item with a description is required");
+      return;
+    }
+
+    const items = validItems.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      rate: item.rate,
+      amount: item.amount,
+    }));
+
+    const data = {
+      id: editInvoice.id,
+      clientId: editClientId,
+      projectId: editProjectId === "NONE" ? null : editProjectId || null,
+      items: JSON.stringify(items),
+      subtotal,
+      tax: gstAmount,
+      total: totalAmount,
+      dueDate: editDueDate || null,
+      gstPercent,
+      gst: gstAmount,
+      paymentMethod: paymentMethod || null,
+      paymentStatus,
+      notes: invoiceNotes || null,
+    };
+
+    try {
+      const res = await fetch("/api/invoices", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        toast.success("Invoice updated");
+        setEditOpen(false);
+        setEditInvoice(null);
+        resetInvoiceForm();
+        fetchData();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to update invoice");
+      }
+    } catch {
+      toast.error("Failed to update invoice.");
+    }
   };
 
   const handleCreateInvoice = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -242,7 +334,7 @@ export default function InvoicesPage() {
   const executeDelete = async () => {
     if (!pendingDelete) return;
     try {
-      const res = await fetch(`/api/invoices?id=${pendingDelete}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch("/api/invoices", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: 'include', body: JSON.stringify({ id: pendingDelete }) });
       if (handleFetchError(res, router)) return;
       if (res.ok) { toast.success("Invoice deleted"); fetchData(); }
       else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete invoice"); }
@@ -495,6 +587,172 @@ export default function InvoicesPage() {
         </Dialog>
       </PageHeader>
 
+      {/* Edit Invoice Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) { setEditInvoice(null); resetInvoiceForm(); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Edit Invoice</DialogTitle><DialogDescription>Edit an existing invoice.</DialogDescription></DialogHeader>
+          <form onSubmit={handleEditInvoice} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Client *</Label>
+                <Select value={editClientId} onValueChange={setEditClientId} required>
+                  <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                  <SelectContent>
+                    {(clients as { id: string; name: string }[]).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Project</Label>
+                <Select value={editProjectId} onValueChange={setEditProjectId}>
+                  <SelectTrigger><SelectValue placeholder="Select project (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">No Project</SelectItem>
+                    {(projects as { id: string; name: string }[]).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Line Items */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Line Items</Label>
+                <Button type="button" variant="ghost" size="sm" className="h-6 text-xs" onClick={addLineItem}>
+                  <Plus className="h-3 w-3 mr-1" /> Add Item
+                </Button>
+              </div>
+              <div className="border rounded-md overflow-hidden">
+                <div className="grid grid-cols-12 gap-1 p-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                  <div className="col-span-5">Description</div>
+                  <div className="col-span-2 text-right">Qty</div>
+                  <div className="col-span-2 text-right">Rate (₹)</div>
+                  <div className="col-span-2 text-right">Amount</div>
+                  <div className="col-span-1"></div>
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {lineItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-1 p-2 border-t">
+                      <input
+                        className="col-span-5 border rounded px-2 py-1 text-sm bg-background"
+                        placeholder="Description"
+                        value={item.description}
+                        onChange={(e) => updateLineItem(idx, "description", e.target.value)}
+                      />
+                      <input
+                        className="col-span-2 border rounded px-2 py-1 text-sm bg-background text-right"
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateLineItem(idx, "quantity", parseInt(e.target.value) || 0)}
+                      />
+                      <input
+                        className="col-span-2 border rounded px-2 py-1 text-sm bg-background text-right"
+                        type="number"
+                        min={0}
+                        value={item.rate}
+                        onChange={(e) => updateLineItem(idx, "rate", parseFloat(e.target.value) || 0)}
+                      />
+                      <div className="col-span-2 flex items-center justify-end text-sm font-medium pr-2">
+                        {formatCurrency(item.amount)}
+                      </div>
+                      <button
+                        type="button"
+                        className="col-span-1 flex items-center justify-center text-muted-foreground hover:text-red-500 transition-colors"
+                        onClick={() => removeLineItem(idx)}
+                        disabled={lineItems.length <= 1}
+                        title="Remove item"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Totals */}
+            <div className="border rounded-md p-3 space-y-1 text-sm bg-muted/30">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium">{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">GST</span>
+                  <input
+                    className="w-16 border rounded px-2 py-0.5 text-xs bg-background text-right"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={gstPercent}
+                    onChange={(e) => setGstPercent(parseFloat(e.target.value) || 0)}
+                  />
+                  <span className="text-xs text-muted-foreground">%</span>
+                </div>
+                <span className="font-medium">{formatCurrency(gstAmount)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                <span>Total</span>
+                <span>{formatCurrency(totalAmount)}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Payment Method</Label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm bg-background w-full"
+                >
+                  <option value="">None</option>
+                  <option value="UPI">UPI</option>
+                  <option value="CREDIT_DEBIT_CARD">Credit/Debit Card</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Due Date</Label>
+                <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Payment Status</Label>
+                <select
+                  value={paymentStatus}
+                  onChange={(e) => setPaymentStatus(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm bg-background w-full"
+                >
+                  <option value="UNPAID">Unpaid</option>
+                  <option value="PAID">Paid</option>
+                  <option value="DUE">Due</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Notes</Label>
+              <Textarea
+                value={invoiceNotes}
+                onChange={(e) => setInvoiceNotes(e.target.value)}
+                rows={2}
+                placeholder="Additional notes (optional)"
+              />
+            </div>
+
+            <Button type="submit" className="w-full">Save Changes</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex gap-2 flex-wrap">
         {["ALL", "DRAFT", "SENT", "PAID", "OVERDUE"].map((s) => (
           <Button key={s} variant={filter === s ? "default" : "outline"} size="sm" onClick={() => setFilter(s)}>
@@ -527,6 +785,11 @@ export default function InvoicesPage() {
                     )}
                   </div>
                   <div className="flex gap-1">
+                    {(inv.status === "DRAFT" || inv.status === "SENT") && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(inv as any)} aria-label="Edit invoice">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {inv.status === "DRAFT" && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteInvoice(inv.id)} aria-label="Delete invoice">
                         <Trash2 className="h-3.5 w-3.5" />

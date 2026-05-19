@@ -389,7 +389,7 @@ export default function FinancePage() {
       } catch { toast.error("Failed to delete subscription"); }
     } else if (pendingDelete.type === "expense") {
       try {
-        const res = await fetch(`/api/expenses?id=${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
+        const res = await fetch("/api/expenses", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: pendingDelete.id }) });
         if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); }
         else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
       } catch { toast.error("Failed to delete expense"); }
