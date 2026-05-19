@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
     ],
   },
   serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client", "@react-pdf/renderer"],
+  experimental: {
+    optimizePackageImports: ["lucide-react", "recharts", "sonner", "@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
+  },
   turbopack: {},
 };
 

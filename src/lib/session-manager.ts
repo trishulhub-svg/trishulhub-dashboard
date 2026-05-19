@@ -7,7 +7,7 @@ import { randomUUID } from "crypto"
 
 // In-memory cache for session validation (60s TTL to reduce DB queries)
 const sessionCache = new Map<string, { token: string; checkedAt: number }>()
-const CACHE_TTL = 60 * 1000 // 60 seconds
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes (reduced DB round-trips)
 
 // Auto-migrate: ensure ActiveSession table exists
 let sessionTableChecked = false

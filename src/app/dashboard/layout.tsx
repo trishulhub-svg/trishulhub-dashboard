@@ -373,15 +373,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
-  // PERF: Defer notification + counts fetch by 200ms so page data loads first.
-  // Notifications are non-critical UI — they should not compete with the
-  // page's own API calls for network bandwidth on navigation.
+  // PERF: Defer notification + counts fetch by 1.5s so page-critical data
+  // loads first. Notifications are non-critical UI — they should not compete
+  // with the page's own API calls for the 6-connection HTTP limit.
   useEffect(() => {
-    if (session) {
+    if (session?.user?.id) {
       const timer = setTimeout(() => {
         fetchNotifications();
         fetchPendingCounts();
-      }, 200);
+      }, 1500);
       const interval = setInterval(() => {
         fetchNotifications();
         fetchPendingCounts();

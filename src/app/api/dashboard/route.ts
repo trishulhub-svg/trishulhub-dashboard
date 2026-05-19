@@ -2,14 +2,10 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
-import { ensureAllTables } from "@/lib/auto-migrate"
+import { isAdmin, getUserScope } from "@/lib/rbac"
 
 export async function GET() {
   try {
-    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -19,9 +15,8 @@ export async function GET() {
 
     const admin = isAdmin(role)
 
-    // Get project/client scope for developers
-    const assignedProjectIds = await getAssignedProjectIds(userId, role)
-    const assignedClientIds = await getAssignedClientIds(userId, role)
+    // Get project/client scope for developers (single DB call)
+    const { projectIds: assignedProjectIds, clientIds: assignedClientIds } = await getUserScope(userId, role)
 
     // Build where clauses based on role
     const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}

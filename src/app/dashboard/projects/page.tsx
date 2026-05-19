@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import {
+  DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
+  useSensor, useSensors, closestCorners, useDroppable,
+} from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, ArrowRight, Pencil, Trash2, MoreHorizontal,
   Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X,
@@ -41,9 +47,6 @@ const statusColors: Record<string, string> = {
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
 // ━━ Kanban column configuration ━━
-// DnD-ready: each column maps to a status key. To add drag-and-drop later,
-// wrap the column card list with @dnd-kit Droppable (droppableId=col.key)
-// and each card with Draggable (draggableId=project.id, index=i).
 const KANBAN_COLUMNS = [
   { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10" },
   { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10" },
@@ -66,6 +69,242 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ━━ Kanban Project Card (visual only — used in both sortable cards and DragOverlay) ━━
+function KanbanProjectCard({
+  project,
+  onClick,
+  isAdminUser,
+  onEdit,
+  onDelete,
+  isDragging,
+}: {
+  project: Record<string, unknown>;
+  onClick: () => void;
+  isAdminUser: boolean;
+  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+  isDragging?: boolean;
+}) {
+  const client = project.client as Record<string, unknown> | undefined;
+  const pName = safeText(project.name, "Untitled");
+  const pStatus = safeText(project.status, "");
+  const pClientName = client ? safeText(client.name, "Client") : "Client";
+  const pProgress = safeNumber(project.progress);
+  const pDeadline = project.deadline as string | null | undefined;
+
+  return (
+    <div
+      className={cn(
+        "group/card relative rounded-lg border p-3.5 cursor-pointer transition-all duration-200",
+        "bg-white/50 dark:bg-white/[0.03] backdrop-blur-sm",
+        "border-gray-200/60 dark:border-gray-700/40",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        "hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+        !isDragging && "hover:-translate-y-0.5",
+        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20"
+      )}
+      onClick={onClick}
+      style={isDragging ? { pointerEvents: "none" as const } : undefined}
+    >
+      {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
+      {isAdminUser && onEdit && onDelete && !isDragging && (
+        <div
+          className="absolute top-2.5 right-2 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem onClick={(e) => onEdit(project, e)} className="gap-2 cursor-pointer">
+                <Pencil className="h-3.5 w-3.5" /> Edit Project
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => onDelete(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
+                <Trash2 className="h-3.5 w-3.5" /> Delete Project
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+
+      {/* Project Title + Icon */}
+      <div className="flex items-start gap-2 pr-7">
+        <FolderKanban className="h-4 w-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+        <h4
+          className="text-sm font-semibold leading-snug line-clamp-2"
+          title={pName}
+        >
+          {pName}
+        </h4>
+      </div>
+
+      {/* Status Badge + Client Name */}
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <Badge className={`text-[10px] px-1.5 py-0 leading-4 ${statusColors[pStatus] || ""}`}>
+          {pStatus.replace("_", " ")}
+        </Badge>
+        <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+          {pClientName}
+        </span>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="mt-3 space-y-1">
+        <div className="flex justify-between text-[11px]">
+          <span className="text-muted-foreground">Progress</span>
+          <span className="font-semibold tabular-nums">{pProgress}%</span>
+        </div>
+        <Progress value={pProgress} className="h-1.5" />
+      </div>
+
+      {/* Deadline */}
+      {pDeadline && (
+        <p className="text-[11px] text-muted-foreground/70 mt-2.5 flex items-center gap-1">
+          <span className="font-medium text-muted-foreground">Deadline:</span>
+          {safeDate(pDeadline, "No date")}
+        </p>
+      )}
+
+      {/* View Action */}
+      <div className="mt-3 pt-2.5 border-t border-gray-200/30 dark:border-gray-700/30">
+        <span className="text-xs font-medium text-primary/70 group-hover/card:text-primary transition-colors inline-flex items-center gap-1">
+          View <ArrowRight className="h-3 w-3" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ━━ SortableProjectCard — wraps KanbanProjectCard with useSortable ━━
+function SortableProjectCard({
+  project,
+  onCardClick,
+  isAdminUser,
+  onEdit,
+  onDelete,
+}: {
+  project: Record<string, unknown>;
+  onCardClick: () => void;
+  isAdminUser: boolean;
+  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+  onDelete: (projectId: string, e: React.MouseEvent) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: safeText(project.id, ""),
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <KanbanProjectCard
+        project={project}
+        onClick={onCardClick}
+        isAdminUser={isAdminUser}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        isDragging={false}
+      />
+    </div>
+  );
+}
+
+// ━━ DroppableKanbanColumn — wraps column card list with useDroppable + SortableContext ━━
+function DroppableKanbanColumn({
+  col,
+  projects,
+  isAdminUser,
+  onCardClick,
+  onEdit,
+  onDelete,
+  isDimmed,
+  activeId,
+}: {
+  col: typeof KANBAN_COLUMNS[number];
+  projects: Record<string, unknown>[];
+  isAdminUser: boolean;
+  onCardClick: (project: Record<string, unknown>) => void;
+  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+  onDelete: (projectId: string, e: React.MouseEvent) => void;
+  isDimmed: boolean;
+  activeId: string | null;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+
+  return (
+    <div
+      className={cn(
+        "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start",
+        "bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl",
+        "border-gray-200/80 dark:border-gray-700/50",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        col.glowColor,
+        isDimmed && "opacity-40 pointer-events-none",
+        isOver && !isDimmed && "ring-2 ring-primary/30 border-primary/40 bg-primary/[0.03] dark:bg-primary/[0.06]"
+      )}
+      style={{ minHeight: "calc(100vh - 300px)" }}
+    >
+      {/* Column Header */}
+      <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/40">
+        <div className="flex items-center gap-2.5">
+          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", col.dot)} />
+          <h3 className="font-semibold text-sm tracking-tight">{col.label}</h3>
+          <Badge
+            variant="secondary"
+            className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center"
+          >
+            {col.projects.length}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Card List — Droppable zone */}
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "p-2.5 space-y-2.5 overflow-y-auto transition-colors duration-200",
+          isOver && !isDimmed && "bg-primary/[0.02] dark:bg-primary/[0.04]"
+        )}
+        style={{ maxHeight: "calc(100vh - 380px)" }}
+      >
+        {col.projects.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <FolderKanban className="h-8 w-8 text-muted-foreground/20 mb-2" />
+            <p className="text-[11px] text-muted-foreground/40">No projects</p>
+          </div>
+        )}
+        <SortableContext items={col.projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
+          {col.projects.map((project) => {
+            const pId = safeText(project.id, "");
+            // Don't render the actively dragged card in the list
+            if (activeId === pId) return null;
+            return (
+              <SortableProjectCard
+                key={pId}
+                project={project}
+                onCardClick={() => onCardClick(project)}
+                isAdminUser={isAdminUser}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            );
+          })}
+        </SortableContext>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -78,6 +317,8 @@ export default function ProjectsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
@@ -92,6 +333,11 @@ export default function ProjectsPage() {
   const [uploadingFile, setUploadingFile] = useState(false);
   // L-PRJ-6 FIX: State for credential delete confirmation dialog
   const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -424,6 +670,68 @@ export default function ProjectsPage() {
     }
   };
 
+  // ━━ DnD handlers ━━
+  const handleDragStart = (event: DragStartEvent) => {
+    if (updating) return;
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const projectId = active.id as string;
+    const newStatus = over.id as string;
+
+    if (!VALID_STATUSES.includes(newStatus)) return;
+
+    const allProjects = projects as Record<string, unknown>[];
+    const project = allProjects.find((p) => safeText(p.id, "") === projectId);
+    if (!project) return;
+
+    const currentStatus = safeText(project.status, "");
+    if (currentStatus === newStatus) return;
+
+    // Store previous state for rollback
+    const prevProjects = projects;
+
+    // Optimistic update
+    setUpdating(true);
+    setProjects((prev) =>
+      prev.map((p) =>
+        safeText((p as Record<string, unknown>).id, "") === projectId
+          ? { ...(p as Record<string, unknown>), status: newStatus }
+          : p
+      )
+    );
+
+    try {
+      const res = await fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: projectId, status: newStatus }),
+      });
+      if (handle401(res)) {
+        setProjects(prevProjects);
+        return;
+      }
+      if (!res.ok) {
+        setProjects(prevProjects);
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error || "Failed to move project");
+      } else {
+        toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
+      }
+    } catch {
+      setProjects(prevProjects);
+      toast.error("Failed to move project");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const filtered = (projects as Record<string, unknown>[]).filter((p) => {
     const pName = safeText(p.name, "");
     const pStatus = safeText(p.status, "");
@@ -555,147 +863,50 @@ export default function ProjectsPage() {
           )}
         </div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
-          {kanbanColumns.map((col) => {
-            const isDimmed = filter !== "ALL" && filter !== col.key;
-            return (
-              <div
-                key={col.key}
-                className={cn(
-                  "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start",
-                  "bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl",
-                  "border-gray-200/80 dark:border-gray-700/50",
-                  "hover:border-gray-300 dark:hover:border-gray-600",
-                  col.glowColor,
-                  isDimmed && "opacity-40 pointer-events-none"
-                )}
-                style={{ minHeight: "calc(100vh - 300px)" }}
-              >
-                {/* Column Header */}
-                <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/40">
-                  <div className="flex items-center gap-2.5">
-                    <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", col.dot)} />
-                    <h3 className="font-semibold text-sm tracking-tight">{col.label}</h3>
-                    <Badge
-                      variant="secondary"
-                      className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center"
-                    >
-                      {col.projects.length}
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Card List — DnD hook point: wrap with @dnd-kit Droppable */}
-                <div className="p-2.5 space-y-2.5 overflow-y-auto" style={{ maxHeight: "calc(100vh - 380px)" }}>
-                  {col.projects.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-10 text-center">
-                      <FolderKanban className="h-8 w-8 text-muted-foreground/20 mb-2" />
-                      <p className="text-[11px] text-muted-foreground/40">No projects</p>
-                    </div>
-                  )}
-                  {col.projects.map((project) => {
-                    const client = project.client as Record<string, unknown> | undefined;
-                    const pName = safeText(project.name, "Untitled");
-                    const pStatus = safeText(project.status, "");
-                    const pClientName = client ? safeText(client.name, "Client") : "Client";
-                    const pProgress = safeNumber(project.progress);
-                    const pDeadline = project.deadline as string | null | undefined;
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex gap-4 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
+            {kanbanColumns.map((col) => {
+              const isDimmed = filter !== "ALL" && filter !== col.key;
+              return (
+                <DroppableKanbanColumn
+                  key={col.key}
+                  col={col}
+                  projects={col.projects}
+                  isAdminUser={isAdminUser}
+                  onCardClick={(project) => {
                     const pId = safeText(project.id, "");
-
-                    return (
-                      /* DnD hook point: wrap with @dnd-kit Draggable */
-                      <div
-                        key={pId}
-                        className={cn(
-                          "group/card relative rounded-lg border p-3.5 cursor-pointer transition-all duration-200",
-                          "bg-white/50 dark:bg-white/[0.03] backdrop-blur-sm",
-                          "border-gray-200/60 dark:border-gray-700/40",
-                          "hover:border-gray-300 dark:hover:border-gray-600",
-                          "hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/20",
-                          "hover:-translate-y-0.5"
-                        )}
-                        onClick={() => router.push(`/dashboard/projects/${pId}`)}
-                      >
-                        {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
-                        {isAdminUser && (
-                          <div
-                            className="absolute top-2.5 right-2 z-10"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuItem onClick={(e) => openEditDialog(project, e)} className="gap-2 cursor-pointer">
-                                  <Pencil className="h-3.5 w-3.5" /> Edit Project
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => openDeleteDialog(pId, e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
-                                  <Trash2 className="h-3.5 w-3.5" /> Delete Project
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        )}
-
-                        {/* Project Title + Icon */}
-                        <div className="flex items-start gap-2 pr-7">
-                          <FolderKanban className="h-4 w-4 text-muted-foreground/60 shrink-0 mt-0.5" />
-                          <h4
-                            className="text-sm font-semibold leading-snug line-clamp-2"
-                            title={pName}
-                          >
-                            {pName}
-                          </h4>
-                        </div>
-
-                        {/* Status Badge + Client Name */}
-                        <div className="mt-2 flex items-center gap-2 flex-wrap">
-                          <Badge className={`text-[10px] px-1.5 py-0 leading-4 ${statusColors[pStatus] || ""}`}>
-                            {pStatus.replace("_", " ")}
-                          </Badge>
-                          <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
-                            {pClientName}
-                          </span>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="mt-3 space-y-1">
-                          <div className="flex justify-between text-[11px]">
-                            <span className="text-muted-foreground">Progress</span>
-                            <span className="font-semibold tabular-nums">{pProgress}%</span>
-                          </div>
-                          <Progress value={pProgress} className="h-1.5" />
-                        </div>
-
-                        {/* Deadline */}
-                        {pDeadline && (
-                          <p className="text-[11px] text-muted-foreground/70 mt-2.5 flex items-center gap-1">
-                            <span className="font-medium text-muted-foreground">Deadline:</span>
-                            {safeDate(pDeadline, "No date")}
-                          </p>
-                        )}
-
-                        {/* View Action */}
-                        <div className="mt-3 pt-2.5 border-t border-gray-200/30 dark:border-gray-700/30">
-                          <span className="text-xs font-medium text-primary/70 group-hover/card:text-primary transition-colors inline-flex items-center gap-1">
-                            View <ArrowRight className="h-3 w-3" />
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                    router.push(`/dashboard/projects/${pId}`);
+                  }}
+                  onEdit={openEditDialog}
+                  onDelete={openDeleteDialog}
+                  isDimmed={isDimmed}
+                  activeId={activeId}
+                />
+              );
+            })}
+          </div>
+          {/* DragOverlay — visual floating card during drag */}
+          <DragOverlay dropAnimation={null}>
+            {activeId ? (() => {
+              const project = (filtered as Record<string, unknown>[]).find(
+                (p) => safeText(p.id, "") === activeId
+              );
+              return project ? (
+                <KanbanProjectCard
+                  project={project}
+                  onClick={() => {}}
+                  isAdminUser={false}
+                  isDragging={true}
+                />
+              ) : null;
+            })() : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
