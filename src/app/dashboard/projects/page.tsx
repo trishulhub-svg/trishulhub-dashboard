@@ -27,7 +27,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
   PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
@@ -39,6 +39,19 @@ const statusColors: Record<string, string> = {
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+
+// ━━ Kanban column configuration ━━
+// DnD-ready: each column maps to a status key. To add drag-and-drop later,
+// wrap the column card list with @dnd-kit Droppable (droppableId=col.key)
+// and each card with Draggable (draggableId=project.id, index=i).
+const KANBAN_COLUMNS = [
+  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10" },
+  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10" },
+  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10" },
+  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10" },
+  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10" },
+  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10" },
+] as const;
 
 // ━━ Credential form type ━━
 interface CredentialForm {
@@ -421,29 +434,45 @@ export default function ProjectsPage() {
     return matchesFilter && matchesSearch;
   });
 
-  // L-PRJ-5 FIX: Merged duplicate loading skeleton blocks
+  // ━━ Group filtered projects into Kanban columns ━━
+  const kanbanColumns = KANBAN_COLUMNS.map((col) => ({
+    ...col,
+    projects: (filtered as Record<string, unknown>[]).filter(
+      (p) => safeText(p.status, "") === col.key
+    ),
+  }));
+
+  // ━━ Loading skeleton (Kanban-style) ━━
   if (sessionStatus === "loading" || loading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48 rounded-lg" />)}
+      <div className="space-y-5">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-9 w-72" />
+        <div className="flex gap-4 overflow-hidden">
+          {KANBAN_COLUMNS.slice(0, 4).map((col) => (
+            <div key={col.key} className="flex-shrink-0 w-[300px] space-y-3">
+              <Skeleton className="h-10 w-full rounded-xl" />
+              <Skeleton className="h-44 w-full rounded-lg" />
+              <Skeleton className="h-36 w-full rounded-lg" />
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="space-y-5">
+      {/* ━━━━ Header ━━━━ */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Projects</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground text-sm">Manage your web development projects</p>
         </div>
         {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm"><Plus className="h-4 w-4 mr-1" /> New Project</Button>
+              <Button size="sm" className="gap-1.5"><Plus className="h-4 w-4" /> New Project</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
@@ -482,97 +511,194 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      {/* ━━━━ Search & Status Filters ━━━━ */}
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 w-48" aria-label="Search projects" />
+          <Input
+            placeholder="Search projects..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 w-56"
+            aria-label="Search projects"
+          />
         </div>
-        {/* M-PRJ-5 FIX: Added missing APPROVAL and DEPLOYED filter buttons */}
-        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
-          <Button key={s} variant={filter === s ? "default" : "outline"} size="sm" onClick={() => setFilter(s)}>
-            {s === "ALL" ? "All" : s.replace("_", " ")}
-          </Button>
-        ))}
+        <div className="flex gap-1.5 flex-wrap">
+          {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
+            <Button
+              key={s}
+              variant={filter === s ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setFilter(s)}
+            >
+              {s === "ALL" ? "All" : s.replace("_", " ")}
+            </Button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filtered.length === 0 ? (
-          <div className="col-span-full text-center py-16">
-            <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
-            <p className="text-muted-foreground">
-              {projects.length === 0 ? "No projects yet" : "No projects match your filter"}
-            </p>
-            {projects.length === 0 && isAdminUser && (
-              <Button variant="outline" className="mt-4" onClick={() => setAddOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" /> Create your first project
-              </Button>
-            )}
-          </div>
-        ) : null}
-        {filtered.map((project) => (
-          <Card
-            key={safeText(project.id, "")}
-            className="hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => router.push(`/dashboard/projects/${safeText(project.id, "")}`)}
-          >
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
-                  <CardTitle className="text-base truncate">{safeText(project.name, "Untitled")}</CardTitle>
+      {/* ━━━━ Kanban Board ━━━━ */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-20">
+          <FolderKanban className="h-14 w-14 mx-auto text-muted-foreground/30 mb-4" />
+          <p className="text-lg font-medium text-muted-foreground">
+            {projects.length === 0 ? "No projects yet" : "No projects match your search"}
+          </p>
+          <p className="text-sm text-muted-foreground/60 mt-1">
+            {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
+          </p>
+          {projects.length === 0 && isAdminUser && (
+            <Button variant="outline" className="mt-5 gap-2" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4" /> Create your first project
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="flex gap-4 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
+          {kanbanColumns.map((col) => {
+            const isDimmed = filter !== "ALL" && filter !== col.key;
+            return (
+              <div
+                key={col.key}
+                className={cn(
+                  "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start",
+                  "bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl",
+                  "border-gray-200/80 dark:border-gray-700/50",
+                  "hover:border-gray-300 dark:hover:border-gray-600",
+                  col.glowColor,
+                  isDimmed && "opacity-40 pointer-events-none"
+                )}
+                style={{ minHeight: "calc(100vh - 300px)" }}
+              >
+                {/* Column Header */}
+                <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/40">
+                  <div className="flex items-center gap-2.5">
+                    <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", col.dot)} />
+                    <h3 className="font-semibold text-sm tracking-tight">{col.label}</h3>
+                    <Badge
+                      variant="secondary"
+                      className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center"
+                    >
+                      {col.projects.length}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0 ml-2">
-                  <Badge className={`text-[10px] ${statusColors[safeText(project.status, "")] || ""}`}>
-                    {safeText(project.status, "UNKNOWN").replace("_", " ")}
-                  </Badge>
-                  {isAdminUser && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={(e) => openEditDialog(project, e)} className="gap-2 cursor-pointer">
-                          <Pencil className="h-3.5 w-3.5" /> Edit Project
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => openDeleteDialog(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
-                          <Trash2 className="h-3.5 w-3.5" /> Delete Project
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+
+                {/* Card List — DnD hook point: wrap with @dnd-kit Droppable */}
+                <div className="p-2.5 space-y-2.5 overflow-y-auto" style={{ maxHeight: "calc(100vh - 380px)" }}>
+                  {col.projects.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <FolderKanban className="h-8 w-8 text-muted-foreground/20 mb-2" />
+                      <p className="text-[11px] text-muted-foreground/40">No projects</p>
+                    </div>
                   )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {(() => {
-                const client = project.client as Record<string, unknown> | undefined;
-                return <p className="text-sm text-muted-foreground mb-3">{client ? safeText(client.name, "Client") : "Client"}</p>;
-              })()}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span>Progress</span>
-                  <span>{safeNumber(project.progress)}%</span>
-                </div>
-                <Progress value={safeNumber(project.progress)} className="h-2" />
-              </div>
-              {project.deadline ? (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Deadline: {safeDate(project.deadline, "No date")}
-                </p>
-              ) : null}
-              <div className="flex justify-end mt-3">
-                <Button variant="ghost" size="sm">
-                  View <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                  {col.projects.map((project) => {
+                    const client = project.client as Record<string, unknown> | undefined;
+                    const pName = safeText(project.name, "Untitled");
+                    const pStatus = safeText(project.status, "");
+                    const pClientName = client ? safeText(client.name, "Client") : "Client";
+                    const pProgress = safeNumber(project.progress);
+                    const pDeadline = project.deadline;
+                    const pId = safeText(project.id, "");
 
-      {/* Edit Project Dialog with Tabs */}
+                    return (
+                      /* DnD hook point: wrap with @dnd-kit Draggable */
+                      <div
+                        key={pId}
+                        className={cn(
+                          "group/card relative rounded-lg border p-3.5 cursor-pointer transition-all duration-200",
+                          "bg-white/50 dark:bg-white/[0.03] backdrop-blur-sm",
+                          "border-gray-200/60 dark:border-gray-700/40",
+                          "hover:border-gray-300 dark:hover:border-gray-600",
+                          "hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+                          "hover:-translate-y-0.5"
+                        )}
+                        onClick={() => router.push(`/dashboard/projects/${pId}`)}
+                      >
+                        {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
+                        {isAdminUser && (
+                          <div
+                            className="absolute top-2.5 right-2 z-10"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem onClick={(e) => openEditDialog(project, e)} className="gap-2 cursor-pointer">
+                                  <Pencil className="h-3.5 w-3.5" /> Edit Project
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={(e) => openDeleteDialog(pId, e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
+                                  <Trash2 className="h-3.5 w-3.5" /> Delete Project
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        )}
+
+                        {/* Project Title + Icon */}
+                        <div className="flex items-start gap-2 pr-7">
+                          <FolderKanban className="h-4 w-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                          <h4
+                            className="text-sm font-semibold leading-snug line-clamp-2"
+                            title={pName}
+                          >
+                            {pName}
+                          </h4>
+                        </div>
+
+                        {/* Status Badge + Client Name */}
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          <Badge className={`text-[10px] px-1.5 py-0 leading-4 ${statusColors[pStatus] || ""}`}>
+                            {pStatus.replace("_", " ")}
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+                            {pClientName}
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="mt-3 space-y-1">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-muted-foreground">Progress</span>
+                            <span className="font-semibold tabular-nums">{pProgress}%</span>
+                          </div>
+                          <Progress value={pProgress} className="h-1.5" />
+                        </div>
+
+                        {/* Deadline */}
+                        {pDeadline && (
+                          <p className="text-[11px] text-muted-foreground/70 mt-2.5 flex items-center gap-1">
+                            <span className="font-medium text-muted-foreground">Deadline:</span>
+                            {safeDate(pDeadline, "No date")}
+                          </p>
+                        )}
+
+                        {/* View Action */}
+                        <div className="mt-3 pt-2.5 border-t border-gray-200/30 dark:border-gray-700/30">
+                          <span className="text-xs font-medium text-primary/70 group-hover/card:text-primary transition-colors inline-flex items-center gap-1">
+                            View <ArrowRight className="h-3 w-3" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, and credentials.</DialogDescription></DialogHeader>
@@ -733,8 +859,8 @@ export default function ProjectsPage() {
                             </div>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
-                              <span className="mx-1">•</span>
-                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "••••••••"}</span></span>
+                              <span className="mx-1">&bull;</span>
+                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
                               {/* L-PRJ-7 FIX: Added aria-labels for accessibility */}
                               <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
                                 {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
@@ -755,7 +881,7 @@ export default function ProjectsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Project Confirmation */}
+      {/* ━━━━ Delete Project Confirmation ━━━━ */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -773,7 +899,7 @@ export default function ProjectsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* L-PRJ-6 FIX: Credential Delete Confirmation (replaces native confirm()) */}
+      {/* ━━━━ Credential Delete Confirmation (replaces native confirm()) ━━━━ */}
       <AlertDialog open={!!deleteCredId} onOpenChange={() => setDeleteCredId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
