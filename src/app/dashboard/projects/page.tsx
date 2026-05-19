@@ -263,7 +263,7 @@ function DroppableKanbanColumn({
             variant="secondary"
             className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center"
           >
-            {col.projects.length}
+            {projects.length}
           </Badge>
         </div>
       </div>
@@ -277,14 +277,14 @@ function DroppableKanbanColumn({
         )}
         style={{ maxHeight: "calc(100vh - 380px)" }}
       >
-        {col.projects.length === 0 && (
+        {projects.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <FolderKanban className="h-8 w-8 text-muted-foreground/20 mb-2" />
             <p className="text-[11px] text-muted-foreground/40">No projects</p>
           </div>
         )}
-        <SortableContext items={col.projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
-          {col.projects.map((project) => {
+        <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
+          {projects.map((project) => {
             const pId = safeText(project.id, "");
             // Don't render the actively dragged card in the list
             if (activeId === pId) return null;
