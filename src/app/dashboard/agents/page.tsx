@@ -46,7 +46,7 @@ const STATS = [
   { icon: Sparkles, label: "AI Models", value: "50+" },
 ] as const;
 
-const SECTIONS = ["Hero", "Features", "Launch", "Welcome"];
+const SECTIONS = ["Welcome", "Hero", "Features", "Launch"];
 
 /* ── Animation FX types ── */
 type FX = "up" | "down" | "left" | "right" | "blur" | "scale" | "rotate" | "char";
@@ -351,47 +351,28 @@ export default function TrishulWorkspacePage() {
         <div className="oz-noise" aria-hidden />
 
         {/* ═══════════════════════════════════════
-            SECTION 1 — HERO
+            SECTION 1 — WELCOME (first on load)
             ═══════════════════════════════════════ */}
-        <section className="oz-section oz-section--hero" ref={setSectionRef(0)}>
-          {/* Hero background glow */}
-          <div className="oz-section-bg oz-section-bg--hero" ref={heroBgRef} aria-hidden />
-
-          <div className="oz-section-inner">
-            <div className="oz-logo-row" {...anim("0.0", "blur", { range: "0.20", dist: "25", blur: "12" })}>
-              <div className={`oz-logo-dot oz-logo-dot--${mode}`} />
-              <span className={`oz-logo-txt oz-logo-txt--${mode}`}>TrishulHub</span>
+        <section className="oz-section oz-section--welcome" ref={setSectionRef(0)}>
+          <div className="oz-section-bg oz-section-bg--welcome" aria-hidden />
+          <div className="oz-section-inner oz-section-inner--welcome">
+            <div className={`oz-welcome-card oz-welcome-card--${mode}`} {...anim("0.0", "scale", { range: "0.28", dist: "70" })}>
+              <div className="oz-welcome-glow" aria-hidden />
+              <p className={`oz-welcome-label oz-welcome-label--${mode}`}>Welcome back,</p>
+              <h2 className={`oz-welcome-name oz-welcome-name--${mode}`}>{userName}</h2>
+              <div className="oz-welcome-role-wrap">
+                <span className={`oz-welcome-role oz-welcome-role--${mode}`}>{userRole.toUpperCase()}</span>
+              </div>
+              <div className={`oz-welcome-dash oz-welcome-dash--${mode}`} />
+              <p className={`oz-welcome-msg oz-welcome-msg--${mode}`}>Your workspace is ready. Dive in and build something extraordinary today.</p>
             </div>
 
-            <p className={`oz-tag-upper oz-tag-upper--${mode}`} {...anim("0.05", "blur", { range: "0.20", dist: "35", blur: "10" })}>
-              Your Personal
-            </p>
-
-            <h1 className={`oz-title oz-title--${mode}`}>
-              {TRISHUL_CHARS.map((ch, i) => (
-                <span
-                  key={i}
-                  className="oz-char"
-                  {...anim(String(0.08 + i * 0.045), "char", { range: "0.22", dist: "120" })}
-                >
-                  {ch}
-                </span>
-              ))}
-            </h1>
-
-            <p className={`oz-tag-lower oz-tag-lower--${mode}`} {...anim("0.35", "blur", { range: "0.20", dist: "35", blur: "10" })}>
-              Workspace
-            </p>
-
-            <div className="oz-typewriter" {...anim("0.45", "up", { range: "0.20", dist: "30" })}>
-              <div className={`oz-type-dot oz-type-dot--${mode}`} />
-              <span className={`oz-type-text oz-type-text--${mode}`}>
-                {typedText}
-                <span className={`oz-type-cursor ${typingDone ? "oz-type-cursor--blink" : ""}`} />
-              </span>
+            <div className="oz-footer-badge" {...anim("0.22", "blur", { range: "0.22", dist: "25", blur: "6" })}>
+              <div className={`oz-footer-badge-dot oz-footer-badge-dot--${mode}`} />
+              <span className={`oz-footer-badge-text oz-footer-badge-text--${mode}`}>TRISHULHUB WORKSPACE v6.0</span>
             </div>
 
-            <div className="oz-scroll-hint" {...anim("0.60", "up", { range: "0.20", dist: "25" })}>
+            <div className="oz-scroll-hint" {...anim("0.38", "up", { range: "0.20", dist: "25" })}>
               <div className={`oz-scroll-hint-line oz-scroll-hint-line--${mode}`} />
               <span className={`oz-scroll-hint-text oz-scroll-hint-text--${mode}`}>Scroll to explore</span>
               <ChevronDown size={14} className={`oz-scroll-hint-icon oz-scroll-hint-icon--${mode}`} />
@@ -400,9 +381,50 @@ export default function TrishulWorkspacePage() {
         </section>
 
         {/* ═══════════════════════════════════════
-            SECTION 2 — FEATURES
+            SECTION 2 — HERO
             ═══════════════════════════════════════ */}
-        <section className="oz-section oz-section--features" ref={setSectionRef(1)}>
+        <section className="oz-section oz-section--hero" ref={setSectionRef(1)}>
+          <div className="oz-section-bg oz-section-bg--hero" ref={heroBgRef} aria-hidden />
+          <div className="oz-section-inner">
+            <div className="oz-logo-row" {...anim("0.0", "blur", { range: "0.22", dist: "30", blur: "12" })}>
+              <div className={`oz-logo-dot oz-logo-dot--${mode}`} />
+              <span className={`oz-logo-txt oz-logo-txt--${mode}`}>TrishulHub</span>
+            </div>
+
+            <p className={`oz-tag-upper oz-tag-upper--${mode}`} {...anim("0.05", "blur", { range: "0.22", dist: "40", blur: "10" })}>
+              Your Personal
+            </p>
+
+            <h1 className={`oz-title oz-title--${mode}`}>
+              {TRISHUL_CHARS.map((ch, i) => (
+                <span
+                  key={i}
+                  className="oz-char"
+                  {...anim(String(0.08 + i * 0.045), "char", { range: "0.24", dist: "120" })}
+                >
+                  {ch}
+                </span>
+              ))}
+            </h1>
+
+            <p className={`oz-tag-lower oz-tag-lower--${mode}`} {...anim("0.38", "blur", { range: "0.22", dist: "40", blur: "10" })}>
+              Workspace
+            </p>
+
+            <div className="oz-typewriter" {...anim("0.48", "up", { range: "0.22", dist: "35" })}>
+              <div className={`oz-type-dot oz-type-dot--${mode}`} />
+              <span className={`oz-type-text oz-type-text--${mode}`}>
+                {typedText}
+                <span className={`oz-type-cursor ${typingDone ? "oz-type-cursor--blink" : ""}`} />
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════
+            SECTION 3 — FEATURES
+            ═══════════════════════════════════════ */}
+        <section className="oz-section oz-section--features" ref={setSectionRef(2)}>
           <div className="oz-section-bg oz-section-bg--features" aria-hidden />
           <div className="oz-section-inner oz-section-inner--features">
             <div className={`oz-section-label oz-section-label--${mode}`} {...anim("0.0", "blur", { range: "0.24", dist: "40", blur: "10" })}>
@@ -448,9 +470,9 @@ export default function TrishulWorkspacePage() {
         </section>
 
         {/* ═══════════════════════════════════════
-            SECTION 3 — LAUNCH
+            SECTION 4 — LAUNCH
             ═══════════════════════════════════════ */}
-        <section className="oz-section oz-section--launch" ref={setSectionRef(2)}>
+        <section className="oz-section oz-section--launch" ref={setSectionRef(3)}>
           <div className="oz-section-bg oz-section-bg--launch" aria-hidden />
           <div className="oz-section-inner oz-section-inner--launch">
             <div className={`oz-section-label oz-section-label--${mode}`} {...anim("0.0", "blur", { range: "0.24", dist: "40", blur: "10" })}>
@@ -488,30 +510,6 @@ export default function TrishulWorkspacePage() {
             <div className="oz-status" {...anim("0.38", "blur", { range: "0.20", dist: "25", blur: "6" })}>
               <div className={`oz-status-dot oz-status-dot--${mode}`} />
               <span className={`oz-status-text oz-status-text--${mode}`}>Protocol v6.0 — Cinematic Engine</span>
-            </div>
-          </div>
-        </section>
-
-        {/* ═══════════════════════════════════════
-            SECTION 4 — WELCOME
-            ═══════════════════════════════════════ */}
-        <section className="oz-section oz-section--welcome" ref={setSectionRef(3)}>
-          <div className="oz-section-bg oz-section-bg--welcome" aria-hidden />
-          <div className="oz-section-inner oz-section-inner--welcome">
-            <div className={`oz-welcome-card oz-welcome-card--${mode}`} {...anim("0.0", "scale", { range: "0.32", dist: "80" })}>
-              <div className="oz-welcome-glow" aria-hidden />
-              <p className={`oz-welcome-label oz-welcome-label--${mode}`}>Welcome back,</p>
-              <h2 className={`oz-welcome-name oz-welcome-name--${mode}`}>{userName}</h2>
-              <div className="oz-welcome-role-wrap">
-                <span className={`oz-welcome-role oz-welcome-role--${mode}`}>{userRole.toUpperCase()}</span>
-              </div>
-              <div className={`oz-welcome-dash oz-welcome-dash--${mode}`} />
-              <p className={`oz-welcome-msg oz-welcome-msg--${mode}`}>Your workspace is ready. Dive in and build something extraordinary today.</p>
-            </div>
-
-            <div className="oz-footer-badge" {...anim("0.25", "blur", { range: "0.24", dist: "30", blur: "6" })}>
-              <div className={`oz-footer-badge-dot oz-footer-badge-dot--${mode}`} />
-              <span className={`oz-footer-badge-text oz-footer-badge-text--${mode}`}>TRISHULHUB WORKSPACE v6.0</span>
             </div>
           </div>
         </section>
