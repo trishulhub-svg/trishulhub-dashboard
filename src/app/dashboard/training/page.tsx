@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -77,8 +78,7 @@ const LEVEL_CONFIG: Record<string, { label: string; className: string }> = {
 export default function TrainingLibraryPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [documents, setDocuments] = useState<TrainingDocument[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [generating, setGenerating] = useState(false)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("ALL")
@@ -90,41 +90,40 @@ export default function TrainingLibraryPage() {
   // Delete dialog
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  const fetchDocuments = useCallback(async () => {
-    try {
+  const { data: documents = [], isLoading: documentsLoading } = useQuery({
+    queryKey: ["training-documents", search, statusFilter],
+    queryFn: async () => {
       const params = new URLSearchParams()
       if (search) params.set("search", search)
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       const res = await fetch(`/api/training/documents?${params.toString()}`, { credentials: "include" })
-      if (res.ok) setDocuments(safeArray<TrainingDocument>(await res.json()))
-    } catch (err) {
-      console.error("Failed to fetch documents:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [search, statusFilter])
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized") }
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      return safeArray<TrainingDocument>(data)
+    },
+    enabled: status !== "loading" && !!session && ["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || ""),
+    staleTime: 60 * 1000,
+    retry: 1,
+  })
 
+  const hasPending = documents.some(d => d.status === "GENERATING" || d.status === "DRAFT")
+
+  // Auth guard
   useEffect(() => {
-    if (status === "loading") return
-    if (!session || !["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || "")) {
+    if (status !== "loading" && (!session || !["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || ""))) {
       router.push("/dashboard")
-      return
     }
-    fetchDocuments()
-  }, [session, status, router, fetchDocuments])
+  }, [session, status, router])
 
-  // ZAI FIX: Auto-poll when there are documents being generated.
-  // Stops polling once all documents reach a terminal status (READY/FAILED/ARCHIVED).
+  // Auto-poll when there are documents being generated
   useEffect(() => {
-    const hasPending = documents.some(d => d.status === "GENERATING" || d.status === "DRAFT")
     if (!hasPending) return
     const interval = setInterval(() => {
-      fetchDocuments()
+      queryClient.invalidateQueries({ queryKey: ["training-documents"] })
     }, 5000)
     return () => clearInterval(interval)
-  }, [documents, fetchDocuments])
-
-  // ZAI FIX: handleCreate now returns immediately with GENERATING status.
+  }, [hasPending, queryClient])
   // AI generation runs in background on the server.
   const handleCreate = async () => {
     if (!newTopic.trim()) return
@@ -140,7 +139,7 @@ export default function TrainingLibraryPage() {
       if (res.ok) {
         toast.success("Document creation started — AI is generating content in the background.", { description: "It will appear as 'Ready' when done." })
         setNewTopic("")
-        fetchDocuments()
+        queryClient.invalidateQueries({ queryKey: ["training-documents"] })
       } else {
         const data = await res.json()
         const errMsg = data.error || "Failed to create document"
@@ -168,7 +167,7 @@ export default function TrainingLibraryPage() {
         // Delete the old failed document
         await fetch(`/api/training/documents/${doc.id}`, { method: "DELETE", credentials: "include" })
         toast.success("Retry started — AI is generating content.")
-        fetchDocuments()
+        queryClient.invalidateQueries({ queryKey: ["training-documents"] })
       } else {
         const data = await res.json()
         toast.error(data.error || "Retry failed", { duration: 8000 })
@@ -189,7 +188,7 @@ export default function TrainingLibraryPage() {
       })
       if (res.ok) {
         toast.success("Document deleted")
-        setDocuments((prev) => prev.filter((d) => d.id !== deleteId))
+        queryClient.invalidateQueries({ queryKey: ["training-documents"] })
       } else {
         toast.error("Failed to delete document")
       }
@@ -200,7 +199,7 @@ export default function TrainingLibraryPage() {
     }
   }
 
-  if (status === "loading" || loading) {
+  if (status === "loading" || documentsLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">

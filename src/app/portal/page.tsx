@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { FolderKanban, FileText, HeadphonesIcon, DollarSign, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,17 +10,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function PortalDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState({ projects: 0, invoices: 0, tickets: 0, pendingAmount: 0 });
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    try {
+  const { data: stats = { projects: 0, invoices: 0, tickets: 0, pendingAmount: 0 }, isLoading: loading } = useQuery({
+    queryKey: ["portal-stats"],
+    queryFn: async () => {
       const [projRes, invRes, ticketRes] = await Promise.all([
         fetch("/api/projects", { credentials: 'include' }),
         fetch("/api/invoices", { credentials: 'include' }),
         fetch("/api/support", { credentials: 'include' }),
       ]);
+      if (projRes.status === 401 || invRes.status === 401 || ticketRes.status === 401) {
+        window.location.href = "/login"; throw new Error("Unauthorized");
+      }
       const projects = projRes.ok ? await projRes.json() : [];
       const invoices = invRes.ok ? await invRes.json() : [];
       const tickets = ticketRes.ok ? await ticketRes.json() : [];
@@ -28,23 +32,16 @@ export default function PortalDashboard() {
         .filter((i) => i.status === "SENT" || i.status === "OVERDUE")
         .reduce((sum, i) => sum + i.total, 0);
 
-      setStats({
+      return {
         projects: projects.length,
         invoices: invoices.length,
         tickets: (tickets as unknown[]).length,
         pendingAmount: pending,
-      });
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+      };
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   if (loading) {
     return (
@@ -62,7 +59,7 @@ export default function PortalDashboard() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+        <Button variant="outline" onClick={() => { setError(null); queryClient.invalidateQueries({ queryKey: ["portal-stats"] }); }}>
           Try Again
         </Button>
       </div>

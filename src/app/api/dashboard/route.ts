@@ -51,6 +51,7 @@ export async function GET() {
       db.agent.findMany({
         where: agentWhere,
         include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } },
+        take: 100,
       }),
       db.project.findMany({
         where: projectWhere,
@@ -61,7 +62,7 @@ export async function GET() {
       db.invoice.findMany({ where: invoiceWhere, take: 20, orderBy: { createdAt: "desc" } }),
       db.expense.findMany({ where: expenseWhere, take: 20, orderBy: { createdAt: "desc" } }),
       // API keys are SUPER_ADMIN only in the dashboard view
-      admin ? db.apiKey.findMany() : Promise.resolve([]),
+      admin ? db.apiKey.findMany({ take: 100 }) : Promise.resolve([]),
       db.apiUsageLog.findMany({
         where: !admin ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
         include: { agent: { select: { id: true, name: true, type: true } } },

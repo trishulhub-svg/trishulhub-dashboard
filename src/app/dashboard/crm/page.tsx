@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -271,9 +272,28 @@ export default function CRMPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { data: leadsData = [], isLoading: leadsLoading, error: leadsError } = useQuery({
+    queryKey: ["leads"],
+    queryFn: async () => {
+      const res = await fetch("/api/leads?limit=200", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as Record<string, string>).error || "Failed to load leads");
+      }
+      const result = await res.json();
+      return Array.isArray(result) ? result : (result.data || []);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const leads = leadsData;
+  const loading = leadsLoading;
+  const error = leadsError?.message || null;
+
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -305,39 +325,12 @@ export default function CRMPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  const fetchLeads = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/leads?limit=200", { credentials: 'include', signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const result = await res.json();
-        // Handle paginated response format { data, total, page, limit, totalPages }
-        setLeads(Array.isArray(result) ? result : (result.data || []));
-      } else {
-        // CRM-028: Handle non-ok fetchLeads response
-        const data = await res.json().catch(() => ({}));
-        setError((data as Record<string, string>).error || "Failed to load leads");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Failed to load leads");
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
   // CRM-002: Role guard with useEffect
   useEffect(() => {
     if (status === "authenticated" && !isAdminUser) {
       router.push("/dashboard");
     }
   }, [status, router, isAdminUser]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchLeads(controller.signal);
-    return () => controller.abort();
-  }, [fetchLeads]);
 
   // CRM-004: Clear email fields when selectedLead changes
   useEffect(() => {
@@ -482,7 +475,9 @@ export default function CRMPage() {
 
     // Optimistic update
     setUpdating(true);
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)));
+    queryClient.setQueryData<Lead[]>(["leads"], (prev) =>
+      (prev || []).map((l) => (l.id === leadId ? { ...l, status: newStatus } : l))
+    );
     // CRM-011: Update selectedLead on optimistic update
     setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: newStatus } as Lead : prev);
 
@@ -495,13 +490,13 @@ export default function CRMPage() {
       });
       if (handleFetchError(res, router)) {
         // Rollback on 401 redirect
-        setLeads(prevLeads);
+        queryClient.setQueryData(["leads"], prevLeads);
         setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
         return;
       }
       if (!res.ok) {
         // CRM-007: Rollback on failure
-        setLeads(prevLeads);
+        queryClient.setQueryData(["leads"], prevLeads);
         setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to update lead");
@@ -510,7 +505,7 @@ export default function CRMPage() {
       }
     } catch {
       // CRM-007: Rollback on error
-      setLeads(prevLeads);
+      queryClient.setQueryData(["leads"], prevLeads);
       setSelectedLead((prev) => prev?.id === leadId ? { ...prev, status: lead.status } as Lead : prev);
       toast.error("Failed to move lead");
     } finally {
@@ -557,7 +552,7 @@ export default function CRMPage() {
       if (res.ok) {
         toast.success("Lead added");
         setAddOpen(false);
-        fetchLeads();
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to add lead");
@@ -583,7 +578,7 @@ export default function CRMPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead updated");
-        fetchLeads();
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
         // CRM-009: Don't close panel, update selectedLead in place
         setSelectedLead((prev) => prev?.id === selectedLead.id ? { ...prev, ...data } as Lead : prev);
       } else {
@@ -643,7 +638,7 @@ export default function CRMPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead deleted");
-        fetchLeads();
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
         if (selectedLead?.id === deleteTarget.id) setSelectedLead(null);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -670,7 +665,7 @@ export default function CRMPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Lead converted to client!");
-        fetchLeads();
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
         setSelectedLead(null);
         // Navigate to clients page to see the new client
         router.push("/dashboard/clients");
@@ -724,7 +719,7 @@ export default function CRMPage() {
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
         {/* CRM-020: Set loading before fetchLeads on retry */}
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchLeads(); }}>
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["leads"] }); }}>
           Try Again
         </Button>
       </div>

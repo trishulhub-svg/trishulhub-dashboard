@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, DollarSign, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,26 +17,20 @@ const invoiceStatusColors: Record<string, string> = {
 };
 
 export default function PortalInvoicesPage() {
-  const [invoices, setInvoices] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const fetchInvoices = useCallback(async () => {
-    try {
+  const { data: invoices = [], isLoading: loading } = useQuery({
+    queryKey: ["portal-invoices"],
+    queryFn: async () => {
       const res = await fetch("/api/invoices", { credentials: 'include' });
-      if (res.ok) setInvoices(safeArray(await res.json()));
-      else setError("Failed to load invoices");
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load invoices");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchInvoices();
-  }, [fetchInvoices]);
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load invoices");
+      return safeArray(await res.json());
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   if (loading) {
     return (
@@ -51,7 +46,7 @@ export default function PortalInvoicesPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchInvoices(); }}>
+        <Button variant="outline" onClick={() => { setError(null); queryClient.invalidateQueries({ queryKey: ["portal-invoices"] }); }}>
           Try Again
         </Button>
       </div>

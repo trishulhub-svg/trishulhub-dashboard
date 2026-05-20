@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, MessageSquare, Send, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,29 +26,24 @@ const ticketStatusColors: Record<string, string> = {
 };
 
 export default function PortalSupportPage() {
-  const [tickets, setTickets] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Record<string, unknown> | null>(null);
   const [replyText, setReplyText] = useState("");
 
-  const fetchTickets = useCallback(async () => {
-    try {
+  const { data: tickets = [], isLoading: loading } = useQuery({
+    queryKey: ["support-tickets"],
+    queryFn: async () => {
       const res = await fetch("/api/support", { credentials: 'include' });
-      if (res.ok) { const data = await res.json(); setTickets(Array.isArray(data) ? data : []); }
-      else setError("Failed to load tickets");
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load tickets");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load tickets");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   const handleCreateTicket = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -71,7 +67,7 @@ export default function PortalSupportPage() {
       if (res.ok) {
         toast.success("Ticket created");
         setAddOpen(false);
-        fetchTickets();
+        queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to create ticket");
@@ -104,7 +100,7 @@ export default function PortalSupportPage() {
         if (replyData && replyData.ticket) {
           setSelectedTicket(replyData.ticket);
         }
-        fetchTickets();
+        queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to send reply");
@@ -128,7 +124,7 @@ export default function PortalSupportPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchTickets(); }}>
+        <Button variant="outline" onClick={() => { setError(null); queryClient.invalidateQueries({ queryKey: ["support-tickets"] }); }}>
           Try Again
         </Button>
       </div>

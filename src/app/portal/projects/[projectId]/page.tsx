@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, User, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,40 +37,40 @@ export default function PortalProjectDetailPage() {
       ? String(rawProjectId[0] ?? '')
       : '';
 
-  const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchData = useCallback(async () => {
-    try {
+  const { data: fetchData, isLoading: loading } = useQuery({
+    queryKey: ["portal-project-detail", projectId],
+    queryFn: async () => {
       const [projRes, taskRes] = await Promise.all([
         fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
         fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
       ]);
+      if (projRes.status === 401 || taskRes.status === 401) {
+        window.location.href = "/login"; throw new Error("Unauthorized");
+      }
+      let project: Record<string, unknown> | null = null;
+      let tasks: unknown[] = [];
       if (projRes.ok) {
         const projData = await projRes.json();
-        // ZAI FIX #310: Deep sanitize before storing in state
         let raw: unknown = null;
         if (Array.isArray(projData) && projData.length > 0) raw = projData[0];
         else if (projData?.id) raw = projData;
         else if (Array.isArray(projData?.data) && projData.data.length > 0) raw = projData.data[0];
-        if (raw) setProject(deepSanitize<Record<string, unknown>>(raw));
+        if (raw) project = deepSanitize<Record<string, unknown>>(raw);
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
         const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
-        setTasks(deepSanitize<Record<string, unknown>[]>(raw));
+        tasks = deepSanitize<Record<string, unknown>[]>(raw);
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+      return { project, tasks };
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: !!projectId,
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const project = fetchData?.project ?? null;
+  const tasks = fetchData?.tasks ?? [];
 
   if (loading) {
     return (

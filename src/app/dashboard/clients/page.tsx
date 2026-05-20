@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -377,9 +378,8 @@ export default function ClientsPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const [clients, setClients] = useState<ClientRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   // CLI-005: searchInput for the input, debouncedSearch for the fetch
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDeferredValue(searchInput);
@@ -389,11 +389,6 @@ export default function ClientsPage() {
 
   // CLI-036: Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalResults, setTotalResults] = useState(0);
-
-  // CLI-033: Stats from API (aggregated across all pages, not current page slice)
-  const [stats, setStats] = useState({ total: 0, active: 0, revenue: 0 as number | undefined, invoices: 0 });
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -442,14 +437,62 @@ export default function ClientsPage() {
   const [showMediator, setShowMediator] = useState(false);
 
   // Feature 1: Project methods state
-  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
   const [manageMethodsOpen, setManageMethodsOpen] = useState(false);
   const [newMethodName, setNewMethodName] = useState("");
   const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
   const [editingMethodName, setEditingMethodName] = useState("");
   const [deleteMethodTarget, setDeleteMethodTarget] = useState<{id: string, name: string} | null>(null);
   const [methodSaving, setMethodSaving] = useState(false);
-  const [methodLoading, setMethodLoading] = useState(false);
+
+  // ━━ useQuery for clients ━━
+  const { data: clientsResponse, isLoading: clientsLoading, error: clientsError } = useQuery({
+    queryKey: ["clients", debouncedSearch, statusFilter, sortBy, sortOrder, currentPage],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      const parsed = parseSmartSearch(debouncedSearch);
+      if (parsed.textSearch) params.set("search", parsed.textSearch);
+      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter);
+      params.set("sortBy", sortBy);
+      params.set("sortOrder", sortOrder);
+      params.set("page", String(currentPage));
+      params.set("limit", String(PAGE_SIZE));
+      if (parsed.dateFrom) params.set("dateFrom", toDateString(parsed.dateFrom));
+      if (parsed.dateTo) params.set("dateTo", toDateString(parsed.dateTo));
+
+      const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include" });
+      if (handleFetchError(res)) return null;
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to load clients");
+      }
+      return await res.json();
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const clients = Array.isArray(clientsResponse) ? clientsResponse : (clientsResponse?.data || []);
+  const totalPages = clientsResponse?.totalPages || 1;
+  const totalResults = clientsResponse?.total || 0;
+  const stats = clientsResponse?.stats || { total: 0, active: 0, revenue: 0, invoices: 0 };
+  const loading = clientsLoading;
+  const error = clientsError?.message || null;
+
+  // ━━ useQuery for project methods ━━
+  const { data: projectMethodsData = [], isLoading: methodLoading } = useQuery({
+    queryKey: ["project-methods"],
+    queryFn: async () => {
+      const res = await fetch("/api/project-methods", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load project methods");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const projectMethods = projectMethodsData;
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -471,7 +514,7 @@ export default function ClientsPage() {
       });
       if (res.ok) {
         toast.success("Method deleted successfully");
-        fetchProjectMethods();
+        queryClient.invalidateQueries({ queryKey: ["project-methods"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to delete method");
@@ -483,22 +526,6 @@ export default function ClientsPage() {
       setDeleteMethodTarget(null);
     }
   };
-
-  // ━━ Fetch project methods ━━
-  const fetchProjectMethods = useCallback(async () => {
-    setMethodLoading(true);
-    try {
-      const res = await fetch("/api/project-methods", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setProjectMethods(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setMethodLoading(false);
-    }
-  }, []);
 
   // Seed default project methods if empty (M-CLI-5: Promise.all)
   const seedDefaultMethods = useCallback(async () => {
@@ -516,15 +543,13 @@ export default function ClientsPage() {
               body: JSON.stringify({ name }),
             })
           ));
-          fetchProjectMethods();
-        } else {
-          setProjectMethods(existing);
+          queryClient.invalidateQueries({ queryKey: ["project-methods"] });
         }
       }
     } catch {
       // silently fail
     }
-  }, [fetchProjectMethods]);
+  }, [queryClient]);
 
   // Redirect non-admin users away from this page
   useEffect(() => {
@@ -540,59 +565,14 @@ export default function ClientsPage() {
     }
   }, [status, isAdminUser, seedDefaultMethods]);
 
-  // ━━ Fetch clients ━━
-  const fetchClients = useCallback(async (signal?: AbortSignal, page: number = 1) => {
-    try {
-      const params = new URLSearchParams();
-      // CLI-032: Smart date parsing
-      const parsed = parseSmartSearch(debouncedSearch);
-      if (parsed.textSearch) params.set("search", parsed.textSearch);
-      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter);
-      params.set("sortBy", sortBy);
-      params.set("sortOrder", sortOrder);
-      // CLI-036: Pagination
-      params.set("page", String(page));
-      params.set("limit", String(PAGE_SIZE));
-      // CLI-032: Date range params
-      if (parsed.dateFrom) params.set("dateFrom", toDateString(parsed.dateFrom));
-      if (parsed.dateTo) params.set("dateTo", toDateString(parsed.dateTo));
-
-      const res = await fetch(`/api/clients?${params.toString()}`, { credentials: "include", signal });
-      if (handleFetchError(res)) return;
-      if (res.ok) {
-        const result = await res.json();
-        const data: ClientRow[] = Array.isArray(result) ? result : (result.data || []);
-        // CLI-036: Store pagination info
-        setTotalResults(result.total || 0);
-        setCurrentPage(result.page || 1);
-        setTotalPages(result.totalPages || 1);
-        // CLI-033: Store aggregate stats from API
-        if (result.stats) setStats(result.stats);
-        setClients(data);
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        toast.error(errData.error || "Failed to load clients");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      toast.error("Failed to load clients");
-      setError(err instanceof Error ? err.message : "Failed to load clients");
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, statusFilter, sortBy, sortOrder, handleFetchError]);
-
+  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-    const controller = new AbortController();
-    fetchClients(controller.signal);
-    return () => controller.abort();
-  }, [fetchClients]);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
 
   // ━━ Pagination helper (CLI-036) ━━
   const goToPage = (page: number) => {
-    const controller = new AbortController();
-    fetchClients(controller.signal, page);
+    setCurrentPage(page);
   };
 
   // Shared handlers for method CRUD (M-CLI-9 + L-CLI-7)
@@ -608,7 +588,7 @@ export default function ClientsPage() {
       });
       if (res.ok) {
         setNewMethodName("");
-        fetchProjectMethods();
+        queryClient.invalidateQueries({ queryKey: ["project-methods"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to add method");
@@ -618,7 +598,7 @@ export default function ClientsPage() {
     } finally {
       setMethodSaving(false);
     }
-  }, [newMethodName, methodSaving, fetchProjectMethods]);
+  }, [newMethodName, methodSaving]);
 
   const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
     if (!name.trim() || methodSaving) return;
@@ -632,7 +612,7 @@ export default function ClientsPage() {
       });
       if (res.ok) {
         setEditingMethodId(null);
-        fetchProjectMethods();
+        queryClient.invalidateQueries({ queryKey: ["project-methods"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to update method");
@@ -642,7 +622,7 @@ export default function ClientsPage() {
     } finally {
       setMethodSaving(false);
     }
-  }, [methodSaving, fetchProjectMethods]);
+  }, [methodSaving]);
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -769,7 +749,7 @@ export default function ClientsPage() {
         if (res.ok) {
           toast.success("Client updated successfully");
           setDialogOpen(false);
-          fetchClients();
+          queryClient.invalidateQueries({ queryKey: ["clients"] });
           // Refresh detail if open
           if (detailClient?.id === editingClient.id) {
             fetchDetail(editingClient.id);
@@ -816,7 +796,7 @@ export default function ClientsPage() {
         if (res.ok) {
           toast.success("Client created successfully");
           setDialogOpen(false);
-          fetchClients();
+          queryClient.invalidateQueries({ queryKey: ["clients"] });
         } else {
           // CLI-020: try/catch around res.json() in error branch
           const data = await res.json().catch(() => ({}));
@@ -841,7 +821,7 @@ export default function ClientsPage() {
       if (handleFetchError(res)) return;
       if (res.ok) {
         toast.success("Client deactivated successfully");
-        fetchClients();
+        queryClient.invalidateQueries({ queryKey: ["clients"] });
         if (detailClient?.id === deleteTarget.id) {
           setDetailClient(null);
         }
@@ -976,8 +956,8 @@ export default function ClientsPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        {/* CLI-019: set setLoading(true) before fetchClients() */}
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchClients(); }}>
+        {/* CLI-019: retry clients query */}
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["clients"] }); }}>
           Try Again
         </Button>
       </div>

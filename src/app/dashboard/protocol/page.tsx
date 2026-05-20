@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -29,31 +30,24 @@ export default function ProtocolPage() {
   const isAdmin = session?.user?.role === "SUPER_ADMIN";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [protocol, setProtocol] = useState<ProtocolFile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
   // ── Fetch current protocol PDF ──
-  const fetchProtocol = useCallback(async () => {
-    try {
+  const { data: protocol = null, isLoading: protocolLoading } = useQuery({
+    queryKey: ["protocol"],
+    queryFn: async () => {
       const res = await fetch("/api/protocol");
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.id) setProtocol(data);
-        else setProtocol(null);
-      }
-    } catch {
-      console.error("Failed to fetch protocol");
-    }
-  }, []);
-
-  useEffect(() => {
-    if (status === "authenticated") {
-      setLoading(true);
-      fetchProtocol().finally(() => setLoading(false));
-    }
-  }, [status, fetchProtocol]);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.id ? data as ProtocolFile : null;
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: status === "authenticated",
+  });
+  const loading = protocolLoading;
 
   // ── Upload PDF ──
   const handleUpload = async (file: File) => {
@@ -90,7 +84,7 @@ export default function ProtocolPage() {
 
       if (res.ok) {
         toast.success("Protocol PDF uploaded successfully");
-        await fetchProtocol();
+        queryClient.invalidateQueries({ queryKey: ["protocol"] });
       } else {
         const data = await res.json();
         toast.error(safeText(data.error, "Upload failed"));
@@ -141,7 +135,7 @@ export default function ProtocolPage() {
       const res = await fetch("/api/protocol", { method: "DELETE" });
       if (res.ok) {
         toast.success("Protocol PDF deleted");
-        setProtocol(null);
+        queryClient.invalidateQueries({ queryKey: ["protocol"] });
       } else {
         toast.error("Failed to delete");
       }

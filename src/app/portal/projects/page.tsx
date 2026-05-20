@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,31 +13,22 @@ import { safeText, safeNumber, safeDate } from "@/lib/utils";
 
 export default function PortalProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProjects = useCallback(async () => {
-    try {
+  const { data: projects = [], isLoading: loading } = useQuery({
+    queryKey: ["portal-projects"],
+    queryFn: async () => {
       const res = await fetch("/api/projects", { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        // Handle both array and paginated { data: [...] } responses
-        setProjects(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []));
-      } else {
-        setError("Failed to load projects");
-      }
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load projects");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load projects");
+      const data = await res.json();
+      // Handle both array and paginated { data: [...] } responses
+      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   if (loading) {
     return (
@@ -52,7 +44,7 @@ export default function PortalProjectsPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchProjects(); }}>
+        <Button variant="outline" onClick={() => { setError(null); queryClient.invalidateQueries({ queryKey: ["portal-projects"] }); }}>
           Try Again
         </Button>
       </div>

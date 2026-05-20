@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
@@ -97,7 +98,6 @@ export default function TrainingReaderPage() {
   const params = useParams()
   const assignmentId = params.assignmentId as string
 
-  const [assignment, setAssignment] = useState<AssignmentData | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>("loading")
   const [questions, setQuestions] = useState<Question[]>([])
   const [answers, setAnswers] = useState<(number | null)[]>([])
@@ -117,83 +117,102 @@ export default function TrainingReaderPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const submittingRef = useRef(false)
   const answersRef = useRef<(number | null)[]>([])
+  const initializedRef = useRef(false)
 
   // Keep answersRef in sync so timer auto-submit always has the latest answers
   useEffect(() => {
     answersRef.current = answers
   }, [answers])
 
-  const fetchAssignment = useCallback(async () => {
-    try {
+  // ── React Query — assignment data ──
+  const { data: assignment, isLoading: assignmentLoading } = useQuery({
+    queryKey: ["training-assignment", assignmentId],
+    queryFn: async () => {
       const res = await fetch(`/api/training/assignments/${assignmentId}`, { credentials: "include" })
       if (!res.ok) {
         if (res.status === 404) {
           toast.error("Assignment not found")
         }
         router.push("/dashboard/my-training")
-        return
+        throw new Error("Assignment not found")
       }
-
       const data = await res.json()
-      setAssignment(data)
+      return data as AssignmentData
+    },
+    enabled: !!assignmentId && authStatus !== "loading" && !!session,
+    staleTime: 30 * 1000,
+    retry: 1,
+  })
 
-      // Parse image URLs safely
-      const imgUrlRaw = data.document?.imageUrls || "[]"
-      try { setImageUrls(JSON.parse(imgUrlRaw)) } catch (_) { /* ignore */ }
+  // ── Initialization: process assignment data (view mode, results, resume) ──
+  useEffect(() => {
+    if (!assignment || initializedRef.current) return
+    initializedRef.current = true
 
-      // Determine view mode
-      if (["PASSED", "FAILED"].includes(data.status)) {
-        setViewMode("results")
-        // Load results from last attempt
-        if (data.test && data.attempts && data.attempts.length > 0) {
-          const testQuestions: Question[] = JSON.parse(data.test.questions)
-          const lastAttempt = data.attempts[0]
-          setQuestions(testQuestions)
-          setResults({
-            score: lastAttempt.score,
-            total: lastAttempt.total,
-            passed: lastAttempt.passed,
-            percentage: Math.round((lastAttempt.score / lastAttempt.total) * 100),
-            results: testQuestions.map((q: any, idx: number) => {
-              const selected = q.selectedAnswer ?? null
-              const correct = q.correctAnswer ?? 0
-              return {
-                question: q.question,
-                options: q.options,
-                correctAnswer: correct,
-                selectedAnswer: selected,
-                isCorrect: selected === correct,
-                explanation: q.explanation || "",
-              }
-            }),
+    // Parse image URLs safely
+    const imgUrlRaw = assignment.document?.imageUrls || "[]"
+    try { setImageUrls(JSON.parse(imgUrlRaw)) } catch (_) { /* ignore */ }
+
+    // Determine view mode
+    if (["PASSED", "FAILED"].includes(assignment.status)) {
+      setViewMode("results")
+      // Load results from last attempt
+      if (assignment.test && assignment.attempts && assignment.attempts.length > 0) {
+        const testQuestions: Question[] = JSON.parse(assignment.test.questions)
+        const lastAttempt = assignment.attempts[0]
+        setQuestions(testQuestions)
+        setResults({
+          score: lastAttempt.score,
+          total: lastAttempt.total,
+          passed: lastAttempt.passed,
+          percentage: Math.round((lastAttempt.score / lastAttempt.total) * 100),
+          results: testQuestions.map((q: any, idx: number) => {
+            const selected = q.selectedAnswer ?? null
+            const correct = q.correctAnswer ?? 0
+            return {
+              question: q.question,
+              options: q.options,
+              correctAnswer: correct,
+              selectedAnswer: selected,
+              isCorrect: selected === correct,
+              explanation: q.explanation || "",
+            }
+          }),
+        })
+      }
+    } else if (assignment.status === "TEST_STARTED") {
+      // Resume test
+      if (assignment.test) {
+        fetch(`/api/training/tests/${assignment.test.id}?assignmentId=${assignmentId}`, { credentials: "include" })
+          .then(testRes => {
+            if (!testRes.ok) return
+            return testRes.json()
           })
-        }
-      } else if (data.status === "TEST_STARTED") {
-        // Resume test
-        if (data.test) {
-          const testRes = await fetch(`/api/training/tests/${data.test.id}?assignmentId=${assignmentId}`, { credentials: "include" })
-          if (testRes.ok) {
-            const testData = await testRes.json()
+          .then(testData => {
+            if (!testData) return
             const testQs: Question[] = testData.questions
             setQuestions(testQs)
             const initAnswers = new Array(testQs.length).fill(null)
             setAnswers(initAnswers)
             answersRef.current = initAnswers
             // Calculate remaining time from when test was started (updatedAt reflects status change)
-            const totalSeconds = data.test.timeLimit * 60
-            const elapsedSeconds = Math.floor((Date.now() - new Date(data.updatedAt).getTime()) / 1000)
+            const totalSeconds = assignment.test!.timeLimit * 60
+            const elapsedSeconds = Math.floor((Date.now() - new Date(assignment.updatedAt).getTime()) / 1000)
             const remaining = Math.max(0, totalSeconds - elapsedSeconds)
             if (remaining <= 0) {
               // Time already expired — auto-submit with empty answers
-              try {
-                const submitRes = await fetch("/api/training/attempts", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  credentials: "include",
-                  body: JSON.stringify({ assignmentId, answers: new Array(testQs.length).fill(null), timeTaken: totalSeconds }),
+              fetch("/api/training/attempts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ assignmentId, answers: new Array(testQs.length).fill(null), timeTaken: totalSeconds }),
+              })
+                .then(submitRes => {
+                  if (!submitRes.ok) return
+                  return submitRes.json()
                 })
-                if (submitRes.ok) {
-                  const result = await submitRes.json()
+                .then(result => {
+                  if (!result) return
                   setResults({
                     score: result.score,
                     total: result.total,
@@ -209,37 +228,22 @@ export default function TrainingReaderPage() {
                     })),
                   })
                   setViewMode("results")
-                  return
-                }
-              } catch (e) {
-                console.error("Auto-submit on resume failed:", e)
-              }
+                })
+                .catch((e) => console.error("Auto-submit on resume failed:", e))
+              return
             }
             setTimeLeft(remaining)
             setTestStartTime(Date.now() - elapsedSeconds * 1000)
             setViewMode("test")
-          }
-        }
-      } else if (data.status === "READ") {
-        setViewMode("ready")
-      } else {
-        setViewMode("read")
+          })
+          .catch((e) => console.error("Failed to resume test:", e))
       }
-    } catch (err) {
-      console.error("Failed to load assignment:", err)
-      toast.error("Failed to load assignment")
-      router.push("/dashboard/my-training")
+    } else if (assignment.status === "READ") {
+      setViewMode("ready")
+    } else {
+      setViewMode("read")
     }
-  }, [assignmentId, router])
-
-  useEffect(() => {
-    if (authStatus === "loading") return
-    if (!session) {
-      router.push("/login")
-      return
-    }
-    fetchAssignment()
-  }, [session, authStatus, router, fetchAssignment])
+  }, [assignment, assignmentId])
 
   // Timer effect
   useEffect(() => {
@@ -275,7 +279,6 @@ export default function TrainingReaderPage() {
         body: JSON.stringify({ status: "READ" }),
       })
       if (res.ok) {
-        setAssignment((prev) => prev ? { ...prev, status: "READ" } : prev)
         setViewMode("ready")
         toast.success("Marked as read! You can now start the test.")
       }
@@ -374,7 +377,7 @@ export default function TrainingReaderPage() {
 
   const answeredCount = answers.filter((a) => a !== null).length
 
-  if (authStatus === "loading" || viewMode === "loading") {
+  if (authStatus === "loading" || assignmentLoading || viewMode === "loading") {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 bg-muted/50 animate-pulse rounded" />

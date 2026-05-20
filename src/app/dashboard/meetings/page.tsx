@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -193,10 +194,7 @@ function getDateLabel(dateStr: string): string {
 export default function MeetingsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -222,49 +220,49 @@ export default function MeetingsPage() {
   const userId = session?.user?.id || "";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const fetchMeetings = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/meetings", { credentials: "include", signal });
-      if (res.status === 401) { router.push("/login"); return; }
-      if (res.ok) {
-        const data = await res.json();
-        setMeetings(safeArray<Meeting>(data));
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch meetings");
-      toast.error("Failed to load meetings");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: meetingsData = [], isLoading: meetingsLoading, error: meetingsError } = useQuery({
+    queryKey: ["meetings"],
+    queryFn: async () => {
+      const res = await fetch("/api/meetings", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load meetings");
+      const data = await res.json();
+      return safeArray<Meeting>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
-  const fetchTeamAndProjects = useCallback(async () => {
-    try {
-      const [teamRes, projectsRes] = await Promise.all([
-        fetch("/api/team", { credentials: "include" }),
-        fetch("/api/projects", { credentials: "include" }),
-      ]);
-      if (teamRes.ok) {
-        const teamData = await teamRes.json();
-        setTeamMembers(safeArray<TeamMember>(teamData).filter((u: TeamMember) => u.id !== userId));
-      }
-      if (projectsRes.ok) {
-        const projectData = await projectsRes.json();
-        setProjects(safeArray<Project>(projectData));
-      }
-    } catch (err) {
-      console.error("Failed to fetch team and projects:", err);
-    }
-  }, [userId]);
+  const { data: teamMembersData = [] } = useQuery({
+    queryKey: ["team-members"],
+    queryFn: async () => {
+      const res = await fetch("/api/team", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load team");
+      const data = await res.json();
+      return safeArray<TeamMember>(data).filter((u: TeamMember) => u.id !== userId);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    fetchMeetings(signal);
-    fetchTeamAndProjects();
-    return () => controller.abort();
-  }, [fetchMeetings, fetchTeamAndProjects]);
+  const { data: projectsData = [] } = useQuery({
+    queryKey: ["projects-list"],
+    queryFn: async () => {
+      const res = await fetch("/api/projects", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load projects");
+      const data = await res.json();
+      return safeArray<Project>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const meetings = meetingsData;
+  const teamMembers = teamMembersData;
+  const projects = projectsData;
+  const loading = meetingsLoading;
 
   // Stats
   const stats = useMemo(() => {
@@ -417,7 +415,7 @@ export default function MeetingsPage() {
         toast.success(editMode ? "Meeting updated" : "Meeting scheduled");
         setDialogOpen(false);
         resetForm();
-        fetchMeetings();
+        queryClient.invalidateQueries({ queryKey: ["meetings"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to save meeting");
@@ -438,7 +436,7 @@ export default function MeetingsPage() {
       if (res.ok) {
         toast.success("Meeting cancelled");
         setDetailOpen(false);
-        fetchMeetings();
+        queryClient.invalidateQueries({ queryKey: ["meetings"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to cancel meeting");
@@ -458,7 +456,7 @@ export default function MeetingsPage() {
       });
       if (res.ok) {
         toast.success(rsvpStatus === "ACCEPTED" ? "Meeting accepted" : "Meeting declined");
-        fetchMeetings();
+        queryClient.invalidateQueries({ queryKey: ["meetings"] });
         // Update detail view if open
         if (selectedMeeting?.id === meetingId) {
           setSelectedMeeting((prev) => {

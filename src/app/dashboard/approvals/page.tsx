@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -198,15 +199,77 @@ export default function ApprovalsPage() {
   // Tab state
   const [activeTab, setActiveTab] = useState("all-pending");
 
-  // Data states
-  const [aiApprovals, setAiApprovals] = useState<Approval[]>([]);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [historyItems, setHistoryItems] = useState<Approval[]>([]);
+  const queryClient = useQueryClient();
 
-  // UI states
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ━━ useQuery: Pending AI approvals ━━
+  const { data: aiApprovalsData = [], isLoading: approvalsLoading, error: approvalsError } = useQuery({
+    queryKey: ["approvals-pending"],
+    queryFn: async () => {
+      const res = await fetch("/api/approvals?status=PENDING", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load approvals");
+      const data = await res.json();
+      return safeArray<Approval>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  // ━━ useQuery: Approval history (approved + rejected + needs_improvement) ━━
+ const { data: historyItemsData = [] } = useQuery({
+    queryKey: ["approvals-history"],
+    queryFn: async () => {
+      const [approvedRes, rejectedRes, needsImprovementRes] = await Promise.allSettled([
+        fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
+        fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
+        fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
+      ]);
+      const historyPromises = [approvedRes, rejectedRes, needsImprovementRes]
+        .filter((r) => r.status === "fulfilled" && r.value.ok)
+        .map(async (r) => safeArray<Approval>(await (r as PromiseFulfilledResult<Response>).value.json()));
+      const historyArrays = await Promise.all(historyPromises);
+      return historyArrays.flat().sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  // ━━ useQuery: Leave requests ━━
+  const { data: leaveRequestsData = [], isLoading: leavesLoading, error: leavesError } = useQuery({
+    queryKey: ["approvals-leaves"],
+    queryFn: async () => {
+      const res = await fetch("/api/team?type=leaves", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load leave requests");
+      const data = await res.json();
+      return safeArray<LeaveRequest>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  // ━━ useQuery: Tasks ━━
+  const { data: tasksData = [], isLoading: tasksLoading, error: tasksError } = useQuery({
+    queryKey: ["approvals-tasks"],
+    queryFn: async () => {
+      const res = await fetch("/api/tasks", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load tasks");
+      const data = await res.json();
+      return safeArray<TaskItem>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const aiApprovals = aiApprovalsData;
+  const leaveRequests = leaveRequestsData;
+  const tasks = tasksData;
+  const historyItems = historyItemsData;
+  const loading = approvalsLoading || leavesLoading || tasksLoading;
+  const error = approvalsError?.message || leavesError?.message || tasksError?.message || null;
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
@@ -270,75 +333,6 @@ export default function ApprovalsPage() {
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // Data Fetching
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  const fetchAllData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [
-        approvalsRes,
-        approvedRes,
-        rejectedRes,
-        needsImprovementRes,
-        leavesRes,
-        tasksRes,
-      ] = await Promise.allSettled([
-        fetch("/api/approvals?status=PENDING", { credentials: "include" }),
-        fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
-        fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
-        fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
-        fetch("/api/team?type=leaves", { credentials: "include" }),
-        fetch("/api/tasks", { credentials: "include" }),
-      ]);
-
-      // Handle approvals
-      if (approvalsRes.status === "fulfilled" && approvalsRes.value.ok) {
-        setAiApprovals(safeArray<Approval>(await approvalsRes.value.json()));
-      }
-      if (approvalsRes.status === "fulfilled" && approvalsRes.value.status === 401) {
-        router.push("/login");
-        return;
-      }
-
-      // Handle approved + rejected + needs_improvement for history
-      const historyPromises = [approvedRes, rejectedRes, needsImprovementRes]
-        .filter((r) => r.status === "fulfilled" && r.value.ok)
-        .map(async (r) => safeArray<Approval>(await (r as PromiseFulfilledResult<Response>).value.json()));
-      const historyArrays = await Promise.all(historyPromises);
-      setHistoryItems(
-        historyArrays.flat().sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        )
-      );
-
-      // Handle leaves
-      if (leavesRes.status === "fulfilled" && leavesRes.value.ok) {
-        setLeaveRequests(safeArray<LeaveRequest>(await leavesRes.value.json()));
-      }
-
-      // Handle tasks
-      if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
-        const taskData = safeArray<TaskItem>(await tasksRes.value.json());
-        setTasks(taskData);
-      }
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
-  useEffect(() => {
-    if (!isSessionLoading && session) {
-      fetchAllData();
-    }
-  }, [isSessionLoading, session, fetchAllData]);
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Action Handlers
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -369,7 +363,8 @@ export default function ApprovalsPage() {
           delete next[id];
           return next;
         });
-        fetchAllData();
+        queryClient.invalidateQueries({ queryKey: ["approvals-pending"] });
+        queryClient.invalidateQueries({ queryKey: ["approvals-history"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to process approval");
@@ -399,7 +394,7 @@ export default function ApprovalsPage() {
           delete next[id];
           return next;
         });
-        fetchAllData();
+        queryClient.invalidateQueries({ queryKey: ["approvals-leaves"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to process leave request");
@@ -438,7 +433,7 @@ export default function ApprovalsPage() {
           delete next[id];
           return next;
         });
-        fetchAllData();
+        queryClient.invalidateQueries({ queryKey: ["approvals-tasks"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to process task");
@@ -484,7 +479,12 @@ export default function ApprovalsPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchAllData(); }}>
+        <Button variant="outline" onClick={() => {
+          queryClient.invalidateQueries({ queryKey: ["approvals-pending"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-history"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-leaves"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-tasks"] });
+        }}>
           Try Again
         </Button>
       </div>
@@ -1017,7 +1017,12 @@ export default function ApprovalsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Approval Center" description={isAdminUser ? "Universal approval gateway for all system requests" : "Track your tasks, leave requests, and approvals"}>
-        <Button variant="outline" size="sm" onClick={fetchAllData}>
+        <Button variant="outline" size="sm" onClick={() => {
+          queryClient.invalidateQueries({ queryKey: ["approvals-pending"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-history"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-leaves"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-tasks"] });
+        }}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </PageHeader>

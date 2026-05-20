@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
@@ -135,10 +136,8 @@ export default function DocumentDetailPage() {
   const params = useParams()
   const docId = params.docId as string
 
-  const [document, setDocument] = useState<DocumentData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [generatingTest, setGeneratingTest] = useState<string | null>(null)
-  const [employees, setEmployees] = useState<Employee[]>([])
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignLevel, setAssignLevel] = useState("LOW")
   const [assignDueDate, setAssignDueDate] = useState("")
@@ -147,60 +146,57 @@ export default function DocumentDetailPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [imageUrls, setImageUrls] = useState<string[]>([])
 
-  const fetchDocument = useCallback(async () => {
-    try {
+  const { data: document, isLoading: loading } = useQuery({
+    queryKey: ["training-document", docId],
+    queryFn: async () => {
       const res = await fetch(`/api/training/documents/${docId}`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        setDocument(data)
-        try {
-          setImageUrls(JSON.parse(data.imageUrls || "[]"))
-        } catch (_e) { /* ignore */ }
-      } else if (res.status === 404) {
-        toast.error("Document not found")
-        router.push("/dashboard/training")
-      }
-    } catch (_e) {
-      toast.error("Failed to load document")
-    } finally {
-      setLoading(false)
-    }
-  }, [docId, router])
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized") }
+      if (res.status === 404) { toast.error("Document not found"); router.push("/dashboard/training"); throw new Error("Not found") }
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      try {
+        setImageUrls(JSON.parse(data.imageUrls || "[]"))
+      } catch (_e) { /* ignore */ }
+      return data as DocumentData
+    },
+    enabled: authStatus !== "loading" && !!session && !!docId && ["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || ""),
+    staleTime: 60 * 1000,
+    retry: 1,
+  })
 
-  const fetchEmployees = useCallback(async () => {
-    try {
+  const { data: employees = [] } = useQuery({
+    queryKey: ["team-users", "training-assign"],
+    queryFn: async () => {
       const res = await fetch("/api/team?type=users", { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        const allUsers = safeArray<Employee>(data)
-        const myRole = session?.user?.role || ""
-        const myId = session?.user?.id || ""
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized") }
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      const allUsers = safeArray<Employee>(data)
+      const myRole = session?.user?.role || ""
+      const myId = session?.user?.id || ""
 
-        let filtered: Employee[]
-        if (myRole === "SUPER_ADMIN") {
-          // Superadmin can assign to anyone (self, admins, developers)
-          filtered = allUsers.filter((e: Employee) => ["SUPER_ADMIN", "ADMIN", "DEVELOPER"].includes(e.role))
-        } else {
-          // Admin can assign to self and developers, but NOT superadmins
-          filtered = allUsers.filter((e: Employee) =>
-            e.id === myId || e.role === "DEVELOPER" || e.role === "ADMIN"
-          ).filter((e: Employee) => e.role !== "SUPER_ADMIN")
-        }
-
-        setEmployees(filtered.map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role })))
+      let filtered: Employee[]
+      if (myRole === "SUPER_ADMIN") {
+        filtered = allUsers.filter((e: Employee) => ["SUPER_ADMIN", "ADMIN", "DEVELOPER"].includes(e.role))
+      } else {
+        filtered = allUsers.filter((e: Employee) =>
+          e.id === myId || e.role === "DEVELOPER" || e.role === "ADMIN"
+        ).filter((e: Employee) => e.role !== "SUPER_ADMIN")
       }
-    } catch (_e) { /* ignore */ }
-  }, [session])
 
+      return filtered.map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role }))
+    },
+    enabled: authStatus !== "loading" && !!session && ["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || ""),
+    staleTime: 60 * 1000,
+    retry: 1,
+  })
+
+  // Auth guard
   useEffect(() => {
-    if (authStatus === "loading") return
-    if (!session || !["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || "")) {
+    if (authStatus !== "loading" && (!session || !["SUPER_ADMIN", "ADMIN"].includes(session.user?.role || ""))) {
       router.push("/dashboard")
-      return
     }
-    fetchDocument()
-    fetchEmployees()
-  }, [session, authStatus, router, fetchDocument, fetchEmployees])
+  }, [session, authStatus, router])
 
   const handleGenerateTest = async (level: string) => {
     setGeneratingTest(level)
@@ -214,7 +210,7 @@ export default function DocumentDetailPage() {
       })
       if (res.ok) {
         toast.success(`${level} test generated successfully!`)
-        fetchDocument()
+        queryClient.invalidateQueries({ queryKey: ["training-document", docId] })
       } else {
         const data = await res.json()
         toast.error(data.error || "Failed to generate test")
@@ -234,7 +230,7 @@ export default function DocumentDetailPage() {
       })
       if (res.ok) {
         toast.success("Test deleted")
-        fetchDocument()
+        queryClient.invalidateQueries({ queryKey: ["training-document", docId] })
       } else {
         toast.error("Failed to delete test")
       }
@@ -268,7 +264,7 @@ export default function DocumentDetailPage() {
         setAssignOpen(false)
         setSelectedEmployees([])
         setAssignDueDate("")
-        fetchDocument()
+        queryClient.invalidateQueries({ queryKey: ["training-document", docId] })
       } else {
         const data = await res.json()
         toast.error(data.error || "Failed to assign training")

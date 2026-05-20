@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -68,31 +69,41 @@ export default function InvoicesPage() {
     }
   }, [status, router, isAdminUser]);
 
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (status !== "authenticated" || !isAdminUser) return null;
-
-  const [invoices, setInvoices] = useState<unknown[]>([]);
-  const [clients, setClients] = useState<unknown[]>([]);
-  const [projects, setProjects] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState("ALL");
+
+  const { data: invoicesPageData, isLoading: invoicesLoading, error: invoicesError } = useQuery({
+    queryKey: ["invoices-page"],
+    queryFn: async () => {
+      const [invRes, clientRes, projRes] = await Promise.all([
+        fetch("/api/invoices", { credentials: 'include' }),
+        fetch("/api/clients", { credentials: 'include' }),
+        fetch("/api/projects", { credentials: 'include' }),
+      ]);
+      if (handleFetchError(invRes, router)) throw new Error("Unauthorized");
+      if (!invRes.ok) throw new Error("Failed to load invoices");
+      const invData = await invRes.json().catch(() => null);
+      const invoices = Array.isArray(invData) ? invData : invData.data || [];
+
+      if (handleFetchError(clientRes, router)) throw new Error("Unauthorized");
+      const clientData = clientRes.ok ? await clientRes.json().catch(() => null) : null;
+      const clients = Array.isArray(clientData) ? clientData : clientData?.data || [];
+
+      if (handleFetchError(projRes, router)) throw new Error("Unauthorized");
+      const projData = projRes.ok ? await projRes.json().catch(() => null) : null;
+      const projects = Array.isArray(projData) ? projData : projData?.data || [];
+
+      return { invoices, clients, projects };
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const invoices = invoicesPageData?.invoices || [];
+  const clients = invoicesPageData?.clients || [];
+  const projects = invoicesPageData?.projects || [];
+  const loading = invoicesLoading;
+  const error = invoicesError ? (invoicesError instanceof Error ? invoicesError.message : "Failed to load invoices") : null;
   const [previewInvoice, setPreviewInvoice] = useState<Record<string, unknown> | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -119,42 +130,24 @@ export default function InvoicesPage() {
   const [editProjectId, setEditProjectId] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
 
-  const fetchData = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const [invRes, clientRes, projRes] = await Promise.all([
-        fetch("/api/invoices", { credentials: 'include', signal }),
-        fetch("/api/clients", { credentials: 'include', signal }),
-        fetch("/api/projects", { credentials: 'include', signal }),
-      ]);
-      if (handleFetchError(invRes, router)) return;
-      if (invRes.ok) {
-        const invData = await invRes.json().catch(() => null);
-        setInvoices(Array.isArray(invData) ? invData : invData.data || []);
-      }
-      if (handleFetchError(clientRes, router)) return;
-      if (clientRes.ok) {
-        const clientData = await clientRes.json().catch(() => null);
-        setClients(Array.isArray(clientData) ? clientData : clientData.data || []);
-      }
-      if (handleFetchError(projRes, router)) return;
-      if (projRes.ok) {
-        const projData = await projRes.json().catch(() => null);
-        setProjects(Array.isArray(projData) ? projData : projData.data || []);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load invoices");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  if (status === "loading") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchData(controller.signal);
-    return () => controller.abort();
-  }, [fetchData]);
+  if (status !== "authenticated" || !isAdminUser) return null;
+
 
   // ━━ Line item helpers ━━
   const addLineItem = () => {
@@ -257,7 +250,7 @@ export default function InvoicesPage() {
         setEditOpen(false);
         setEditInvoice(null);
         resetInvoiceForm();
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["invoices-page"] });
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to update invoice");
@@ -317,7 +310,7 @@ export default function InvoicesPage() {
         toast.success("Invoice created");
         setAddOpen(false);
         resetInvoiceForm();
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["invoices-page"] });
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to create invoice");
@@ -336,7 +329,7 @@ export default function InvoicesPage() {
     try {
       const res = await fetch("/api/invoices", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: 'include', body: JSON.stringify({ id: pendingDelete }) });
       if (handleFetchError(res, router)) return;
-      if (res.ok) { toast.success("Invoice deleted"); fetchData(); }
+      if (res.ok) { toast.success("Invoice deleted"); queryClient.invalidateQueries({ queryKey: ["invoices-page"] }); }
       else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete invoice"); }
     } catch { toast.error("Failed to delete invoice"); }
     setPendingDelete(null);
@@ -356,7 +349,7 @@ export default function InvoicesPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success(`Invoice marked as ${status}`);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["invoices-page"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || `Failed to update invoice status`);
@@ -378,7 +371,7 @@ export default function InvoicesPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success(`Payment status updated to ${label}`);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["invoices-page"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to update payment status");
@@ -408,7 +401,7 @@ export default function InvoicesPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["invoices-page"] }); }}>
           Try Again
         </Button>
       </div>

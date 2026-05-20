@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
 const invoiceStatusColors: Record<string, string> = {
@@ -26,40 +27,29 @@ export default function DashboardPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const isSessionLoading = status === "loading";
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const fetchDashboard = useCallback(async () => {
-    try {
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: async () => {
       const res = await fetch("/api/dashboard", { credentials: 'include' });
-      if (res.ok) {
-        const json = await res.json();
-        // ZAI FIX #310: Deep sanitize dashboard data to strip any non-serializable values
-        setData(deepSanitize<Record<string, unknown>>(json));
-      } else {
-        setError(true);
-      }
-    } catch (err) {
-      console.error("Dashboard fetch error:", err);
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load dashboard");
+      const json = await res.json();
+      return deepSanitize<Record<string, unknown>>(json);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   // SECURITY FIX: Removed auto-seed that could unintentionally seed the database.
   // Seeding should only happen via explicit admin action at /api/setup POST.
   // If the dashboard fails to load, show an error state instead.
 
-  if (isSessionLoading || loading || (!data && !error)) {
+  if (isSessionLoading || loading) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -84,7 +74,7 @@ export default function DashboardPage() {
             <div className="text-center">
               <AlertCircle className="h-8 w-8 mx-auto text-destructive mb-2" />
               <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
-              <Button size="sm" variant="outline" className="mt-2" onClick={() => { setError(false); setLoading(true); fetchDashboard(); }}>Retry</Button>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => { setError(false); }}>Retry</Button>
             </div>
           </CardContent>
         </Card>

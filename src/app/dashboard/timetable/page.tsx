@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -215,21 +216,97 @@ export default function TimetablePage() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
 
+  const queryClient = useQueryClient();
+
   // Core state
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>([]);
-  const [workTasks, setWorkTasks] = useState<WorkTask[]>([]);
   const [settings, setSettings] = useState<TimetableSettings>({
     sleepHours: 8,
     workSplitPercent: 60,
     weekStartsOn: "MONDAY",
   });
 
-  // Loading states
-  const [loading, setLoading] = useState(true);
-  const [workLoading, setWorkLoading] = useState(true);
-  const [settingsLoading, setSettingsLoading] = useState(true);
+  // ── Computed date ranges (needed by queries) ──
+  const dateRange = useMemo(() => {
+    if (viewMode === "day") {
+      return { start: selectedDate, end: selectedDate, label: format(selectedDate, "EEEE, MMM d, yyyy") };
+    }
+    if (viewMode === "week") {
+      const weekStartsOn = settings.weekStartsOn === "SUNDAY" ? 0 : 1;
+      const start = startOfWeek(selectedDate, { weekStartsOn });
+      const end = endOfWeek(selectedDate, { weekStartsOn });
+      return { start, end, label: `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}` };
+    }
+    // month
+    const start = startOfMonth(selectedDate);
+    const end = endOfMonth(selectedDate);
+    return { start, end, label: format(selectedDate, "MMMM yyyy") };
+  }, [viewMode, selectedDate, settings.weekStartsOn]);
+
+  // ── Data Fetching via React Query ──
+
+  const { data: personalTasks = [], isLoading: personalLoading } = useQuery({
+    queryKey: ["timetable-personal-tasks", viewMode, getDateStr(selectedDate), getDateStr(dateRange.start), getDateStr(dateRange.end)],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (viewMode === "day") {
+        params.set("date", getDateStr(selectedDate));
+      } else {
+        params.set("startDate", getDateStr(dateRange.start));
+        params.set("endDate", getDateStr(dateRange.end));
+      }
+      const res = await fetch(`/api/timetable/personal-tasks?${params}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      return safeArray<PersonalTask>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const { data: workTasks = [], isLoading: workLoading } = useQuery({
+    queryKey: ["timetable-work-tasks", viewMode, getDateStr(selectedDate), getDateStr(dateRange.start), getDateStr(dateRange.end)],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (viewMode === "day") {
+        params.set("date", getDateStr(selectedDate));
+      } else {
+        params.set("startDate", getDateStr(dateRange.start));
+        params.set("endDate", getDateStr(dateRange.end));
+      }
+      const res = await fetch(`/api/timetable/work-data?${params}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      return safeArray<WorkTask>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const { isLoading: settingsLoading } = useQuery({
+    queryKey: ["timetable-settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/timetable/settings", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      const s: TimetableSettings = {
+        sleepHours: data.sleepHours ?? 8,
+        workSplitPercent: data.workSplitPercent ?? 60,
+        weekStartsOn: data.weekStartsOn ?? "MONDAY",
+      };
+      setSettings(s);
+      setSettingsForm(s);
+      return s;
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const loading = personalLoading;
 
   // Dialog states
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
@@ -268,23 +345,7 @@ export default function TimetablePage() {
   // Overlap warning state
   const [overlapWarning, setOverlapWarning] = useState<PersonalTask | null>(null);
 
-  // ── Computed date ranges ──
-
-  const dateRange = useMemo(() => {
-    if (viewMode === "day") {
-      return { start: selectedDate, end: selectedDate, label: format(selectedDate, "EEEE, MMM d, yyyy") };
-    }
-    if (viewMode === "week") {
-      const weekStartsOn = settings.weekStartsOn === "SUNDAY" ? 0 : 1;
-      const start = startOfWeek(selectedDate, { weekStartsOn });
-      const end = endOfWeek(selectedDate, { weekStartsOn });
-      return { start, end, label: `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}` };
-    }
-    // month
-    const start = startOfMonth(selectedDate);
-    const end = endOfMonth(selectedDate);
-    return { start, end, label: format(selectedDate, "MMMM yyyy") };
-  }, [viewMode, selectedDate, settings.weekStartsOn]);
+  // ── Computed ──
 
   const weekDays = useMemo(() => {
     if (viewMode !== "week") return [];
@@ -303,93 +364,6 @@ export default function TimetablePage() {
   const availableHours = 24 - sleepHours;
   const workHours = availableHours * (settings.workSplitPercent / 100);
   const personalHours = availableHours * ((100 - settings.workSplitPercent) / 100);
-
-  // ── Data Fetching ──
-
-  const fetchPersonalTasks = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const params = new URLSearchParams();
-      if (viewMode === "day") {
-        params.set("date", getDateStr(selectedDate));
-      } else {
-        params.set("startDate", getDateStr(dateRange.start));
-        params.set("endDate", getDateStr(dateRange.end));
-      }
-
-      const res = await fetch(`/api/timetable/personal-tasks?${params}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setPersonalTasks(safeArray<PersonalTask>(data));
-      } else {
-        toast.error("Failed to load personal tasks");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      toast.error("Failed to load personal tasks");
-    } finally {
-      setLoading(false);
-    }
-  }, [viewMode, selectedDate, dateRange.start, dateRange.end]);
-
-  const fetchWorkTasks = useCallback(async (signal?: AbortSignal) => {
-    setWorkLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (viewMode === "day") {
-        params.set("date", getDateStr(selectedDate));
-      } else {
-        params.set("startDate", getDateStr(dateRange.start));
-        params.set("endDate", getDateStr(dateRange.end));
-      }
-
-      const res = await fetch(`/api/timetable/work-data?${params}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setWorkTasks(safeArray<WorkTask>(data));
-      } else {
-        toast.error("Failed to load work tasks");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      toast.error("Failed to load work tasks");
-    } finally {
-      setWorkLoading(false);
-    }
-  }, [viewMode, selectedDate, dateRange.start, dateRange.end]);
-
-  const fetchSettings = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/timetable/settings", { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        const s: TimetableSettings = {
-          sleepHours: data.sleepHours ?? 8,
-          workSplitPercent: data.workSplitPercent ?? 60,
-          weekStartsOn: data.weekStartsOn ?? "MONDAY",
-        };
-        setSettings(s);
-        setSettingsForm(s);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      toast.error("Failed to load timetable settings");
-    } finally {
-      setSettingsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchPersonalTasks(controller.signal);
-    fetchWorkTasks(controller.signal);
-    return () => controller.abort();
-  }, [fetchPersonalTasks, fetchWorkTasks]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchSettings(controller.signal);
-    return () => controller.abort();
-  }, [fetchSettings]);
 
   // ── Navigation ──
 
@@ -466,7 +440,7 @@ export default function TimetablePage() {
     if (res.ok) {
       toast.success("Task created");
       setTaskDialogOpen(false);
-      fetchPersonalTasks();
+      queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
     } else {
       const err = await res.json();
       toast.error(err.error || "Failed to create task");
@@ -500,7 +474,7 @@ export default function TimetablePage() {
         if (res.ok) {
           toast.success("Task updated");
           setTaskDialogOpen(false);
-          fetchPersonalTasks();
+          queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
         } else {
           const err = await res.json();
           toast.error(err.error || "Failed to update task");
@@ -580,7 +554,7 @@ export default function TimetablePage() {
       if (res.ok) {
         toast.success("Work task added");
         setWorkTaskDialogOpen(false);
-        fetchPersonalTasks();
+        queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to create work task");
@@ -601,7 +575,7 @@ export default function TimetablePage() {
       });
       if (res.ok) {
         toast.success("Task deleted");
-        fetchPersonalTasks();
+        queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
       } else {
         toast.error("Failed to delete task");
       }
@@ -626,7 +600,7 @@ export default function TimetablePage() {
         });
         if (res.ok) {
           toast.success("Task completed!");
-          fetchPersonalTasks();
+          queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
         } else {
           toast.error("Failed to complete task");
         }
@@ -645,7 +619,7 @@ export default function TimetablePage() {
             APPROVAL: "Request approved",
           };
           toast.success(actionLabels[task.sourceType] || "Work task completed!");
-          fetchWorkTasks();
+          queryClient.invalidateQueries({ queryKey: ["timetable-work-tasks"] });
         } else {
           toast.error("Failed to complete work task");
         }
@@ -673,8 +647,8 @@ export default function TimetablePage() {
         setSettingsDialogOpen(false);
         // BUG #6 FIX: Refresh data when settings change (weekStartsOn affects week view)
         setTimeout(() => {
-          fetchPersonalTasks();
-          fetchWorkTasks();
+          queryClient.invalidateQueries({ queryKey: ["timetable-personal-tasks"] });
+          queryClient.invalidateQueries({ queryKey: ["timetable-work-tasks"] });
         }, 100);
       } else {
         toast.error("Failed to save settings");

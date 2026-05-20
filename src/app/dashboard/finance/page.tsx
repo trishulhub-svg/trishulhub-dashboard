@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -148,156 +149,108 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:
 export default function FinancePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  const queryClient = useQueryClient();
   const userRole = session?.user?.role || "DEVELOPER";
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  // Subscriptions
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [subLoading, setSubLoading] = useState(true);
-  const [subTotalMonthly, setSubTotalMonthly] = useState(0);
+  // ─── Dashboard data query ────
+  const { data: dashboardData = null, isLoading: dashboardLoading } = useQuery({
+    queryKey: ["finance-dashboard"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard", { credentials: "include" });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load dashboard data. Please refresh the page.");
+      const raw = await res.json().catch(() => null);
+      return deepSanitize<DashboardData | null>(raw);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const data = dashboardData;
+  const loading = dashboardLoading;
+
+  // ─── Subscriptions query ────
+  const { data: subsData = { subscriptions: [], totalMonthlyCost: 0 } } = useQuery({
+    queryKey: ["finance-subscriptions"],
+    queryFn: async () => {
+      const res = await fetch("/api/subscriptions", { credentials: "include" });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load");
+      const raw = await res.json();
+      return deepSanitize<{ subscriptions?: Subscription[]; totalMonthlyCost?: number }>(raw);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const subscriptions = subsData.subscriptions || [];
+  const subTotalMonthly = subsData.totalMonthlyCost || 0;
+  const subLoading = false;
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
 
   // Expenses (for tab)
-  const [expenses, setExpenses] = useState<ExpenseWithProject[]>([]);
-  const [expLoading, setExpLoading] = useState(true);
   const [expSearch, setExpSearch] = useState("");
   const [expStartDate, setExpStartDate] = useState("");
   const [expEndDate, setExpEndDate] = useState("");
   const [expCategory, setExpCategory] = useState("");
 
   // Stats
-  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
-  const [projectStats, setProjectStats] = useState<ProjectStat[]>([]);
-  const [statsTotal, setStatsTotal] = useState(0);
+  const { data: expStatsData = { byCategory: [], byProject: [], totalExpenses: 0 } } = useQuery({
+    queryKey: ["finance-expense-stats", expStartDate, expEndDate],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (expStartDate) params.set("startDate", expStartDate);
+      if (expEndDate) params.set("endDate", expEndDate);
+      const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include" });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load");
+      const json = await res.json();
+      return json;
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const categoryStats = expStatsData.byCategory || [];
+  const projectStats = expStatsData.byProject || [];
+  const statsTotal = expStatsData.totalExpenses || 0;
 
   // Projects (for dropdown)
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const { data: projectsData = [] } = useQuery({
+    queryKey: ["finance-projects"],
+    queryFn: async () => {
+      const res = await fetch("/api/projects", { credentials: "include" });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load");
+      const json = await res.json();
+      const arr = Array.isArray(json) ? json : (json.projects || json.data || []);
+      return arr.map((p: any) => ({ id: p.id, name: p.name }));
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const projects = projectsData;
 
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
 
-  // ─── Fetch dashboard data (existing) ────
-  const fetchData = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/dashboard", { credentials: "include", signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const raw = await res.json().catch(() => null);
-        setData(deepSanitize<DashboardData | null>(raw));
-      } else {
-        setError("Failed to load dashboard data. Please refresh the page.");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-      setError("Network error. Please check your connection and refresh.");
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
-  // ─── Fetch subscriptions ────
-  const fetchSubscriptions = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setSubLoading(true);
-      const res = await fetch("/api/subscriptions", { credentials: "include", signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const raw = await res.json();
-        const json = deepSanitize<{ subscriptions?: Subscription[]; totalMonthlyCost?: number }>(raw);
-        setSubscriptions(json.subscriptions || []);
-        setSubTotalMonthly(json.totalMonthlyCost || 0);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    } finally {
-      setSubLoading(false);
-    }
-  }, [router]);
-
-  // ─── Fetch expenses with filters ────
-  const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setExpLoading(true);
+  // ─── Expenses query (with filters) ────
+  const { data: expensesData = [], isLoading: expLoading } = useQuery({
+    queryKey: ["finance-expenses", expSearch, expStartDate, expEndDate, expCategory],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (expSearch) params.set("search", expSearch);
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
-      const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const raw = await res.json();
-        setExpenses(deepSanitize<ExpenseWithProject[]>(Array.isArray(raw) ? raw : []));
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    } finally {
-      setExpLoading(false);
-    }
-  }, [expSearch, expStartDate, expEndDate, expCategory]);
-
-  // ─── Fetch expense stats ────
-  const fetchStats = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const params = new URLSearchParams();
-      if (expStartDate) params.set("startDate", expStartDate);
-      if (expEndDate) params.set("endDate", expEndDate);
-      const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include", signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const json = await res.json();
-        setCategoryStats(json.byCategory || []);
-        setProjectStats(json.byProject || []);
-        setStatsTotal(json.totalExpenses || 0);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    }
-  }, [expStartDate, expEndDate, router]);
-
-  // ─── Fetch projects for dropdowns ────
-  const fetchProjects = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/projects", { credentials: "include", signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const json = await res.json();
-        const arr = Array.isArray(json) ? json : (json.projects || json.data || []);
-        setProjects(arr.map((p: any) => ({ id: p.id, name: p.name })));
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    }
-  }, [router]);
-
-  // Re-fetch expenses and stats when filters change (separate from initial load)
-  useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    fetchExpenses(signal);
-    fetchStats(signal);
-    return () => controller.abort();
-  }, [fetchExpenses, fetchStats]);
-
-  // Initial data load (runs once)
-  useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    fetchData(signal);
-    fetchSubscriptions(signal);
-    fetchProjects(signal);
-    fetchExpenses(signal);
-    fetchStats(signal);
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include" });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load");
+      const raw = await res.json();
+      return deepSanitize<ExpenseWithProject[]>(Array.isArray(raw) ? raw : []);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const expenses = expensesData;
 
   // ─── Subscription handlers ────
   const handleSaveSubscription = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -346,7 +299,7 @@ export default function FinancePage() {
       }
       setSubDialogOpen(false);
       setEditingSub(null);
-      fetchSubscriptions();
+      queryClient.invalidateQueries({ queryKey: ["finance-subscriptions"] });
     } catch {
       toast.error("Something went wrong");
     }
@@ -363,7 +316,7 @@ export default function FinancePage() {
       });
       if (res.ok) {
         toast.success(`Subscription ${newStatus === "ACTIVE" ? "resumed" : "paused"}`);
-        fetchSubscriptions();
+        queryClient.invalidateQueries({ queryKey: ["finance-subscriptions"] });
       }
     } catch {
       toast.error("Failed to update subscription");
@@ -384,13 +337,13 @@ export default function FinancePage() {
     if (pendingDelete.type === "subscription") {
       try {
         const res = await fetch(`/api/subscriptions/${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
-        if (res.ok) { toast.success("Subscription deleted"); fetchSubscriptions(); }
+        if (res.ok) { toast.success("Subscription deleted"); queryClient.invalidateQueries({ queryKey: ["finance-subscriptions"] }); }
         else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete subscription"); }
       } catch { toast.error("Failed to delete subscription"); }
     } else if (pendingDelete.type === "expense") {
       try {
         const res = await fetch("/api/expenses", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: pendingDelete.id }) });
-        if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); }
+        if (res.ok) { toast.success("Expense deleted"); queryClient.invalidateQueries({ queryKey: ["finance-expenses", expSearch, expStartDate, expEndDate, expCategory] }); queryClient.invalidateQueries({ queryKey: ["finance-expense-stats", expStartDate, expEndDate] }); }
         else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
       } catch { toast.error("Failed to delete expense"); }
     }
@@ -420,7 +373,7 @@ export default function FinancePage() {
   if (status !== "authenticated" || (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN")) return null;
 
   // ─── Loading skeleton ────
-  if (loading) {
+  if (dashboardLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -449,7 +402,7 @@ export default function FinancePage() {
                 <p className="text-sm text-muted-foreground">{error || "No data received from the server."}</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); setLoading(true); fetchData(); }}>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); queryClient.invalidateQueries({ queryKey: ["finance-dashboard"] }); }}>
               Retry
             </Button>
           </CardContent>

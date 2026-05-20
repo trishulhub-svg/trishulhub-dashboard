@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { safeArray, safeText } from "@/lib/utils";
@@ -204,26 +205,95 @@ export default function AvailabilityPage() {
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isSessionLoading = status === "loading";
 
-  // ── Core data ──
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
-  const [availabilities, setAvailabilities] = useState<AvailabilityEntry[]>([]);
-  const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ── Core data (useQuery with 60s cache) ──
+  const queryClient = useQueryClient();
+  const { data: coreData, isLoading: loading, error: coreError } = useQuery({
+    queryKey: ["availability-core"],
+    queryFn: async () => {
+      const [availRes, overrideRes, teamRes] = await Promise.all([
+        fetch("/api/availability", { credentials: "include" }),
+        fetch("/api/availability/overrides", { credentials: "include" }),
+        fetch("/api/team?type=users", { credentials: "include" }),
+      ]);
+      if (availRes.status === 401 || overrideRes.status === 401 || teamRes.status === 401) {
+        router.push("/login");
+        throw new Error("Unauthorized");
+      }
+      const availabilities = availRes.ok ? safeArray<AvailabilityEntry>(await availRes.json()) : [];
+      const overrides = overrideRes.ok ? safeArray<OverrideEntry>(await overrideRes.json()) : [];
+      const teamUsers = teamRes.ok ? safeArray<TeamUser>(await teamRes.json()) : [];
+      return { availabilities, overrides, teamUsers };
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: !!isUserAdmin,
+  });
+  const teamUsers = coreData?.teamUsers ?? [];
+  const availabilities = coreData?.availabilities ?? [];
+  const overrides = coreData?.overrides ?? [];
   const [error, setError] = useState<string | null>(null);
+
+  // ── Daily Schedule state (must be declared before useEffect below) ──
+  const [dailyDate, setDailyDate] = useState<Date>(new Date());
+  const [dailyUserId, setDailyUserId] = useState<string>("");
+
+  // Set dailyUserId from first team user if not set
+  useEffect(() => {
+    if (teamUsers.length > 0 && !dailyUserId) {
+      setDailyUserId(teamUsers[0].id);
+    }
+  }, [teamUsers, dailyUserId]);
 
   // ── Weekly Overview state ──
   const [weekOffset, setWeekOffset] = useState(0);
-  const [weekSchedule, setWeekSchedule] = useState<WeekSchedule | null>(null);
-  const [weekLoading, setWeekLoading] = useState(false);
   const [selectedDayDetail, setSelectedDayDetail] = useState<{
     userId: string; userName: string; date: string; dayData: WeekDayData
   } | null>(null);
 
-  // ── Daily Schedule state ──
-  const [dailyDate, setDailyDate] = useState<Date>(new Date());
-  const [dailyUserId, setDailyUserId] = useState<string>("");
-  const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
-  const [dailyLoading, setDailyLoading] = useState(false);
+  // ── Computed values (needed by useQuery) ──
+  const currentWeekStart = useMemo(() => {
+    const now = new Date();
+    now.setDate(now.getDate() + weekOffset * 7);
+    return getWeekStart(now);
+  }, [weekOffset]);
+
+  const weekDates = useMemo(() => getWeekDates(currentWeekStart), [currentWeekStart]);
+  const weekStartStr = formatDateOnly(currentWeekStart);
+  const weekEndStr = formatDateOnly(weekDates[6]);
+
+  // ── Weekly Overview (useQuery with 60s cache) ──
+  const { data: weekSchedule, isLoading: weekLoading } = useQuery({
+    queryKey: ["availability-week", weekStartStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/availability/schedule?type=week&date=${weekStartStr}`, {
+        credentials: "include",
+      });
+      if (res.status === 401) { router.push("/login"); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      return await res.json();
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: !!isUserAdmin && !loading,
+  });
+
+  // ── Daily Schedule (useQuery with 60s cache) ──
+  const dailyDateStr = formatDateOnly(dailyDate);
+  const { data: dailySchedule, isLoading: dailyLoading } = useQuery({
+    queryKey: ["availability-daily", dailyUserId, dailyDateStr],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/availability/schedule?date=${dailyDateStr}&userId=${dailyUserId}`,
+        { credentials: "include" }
+      );
+      if (res.status === 401) { router.push("/login"); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      return await res.json();
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: !!isUserAdmin && !loading && !!dailyUserId,
+  });
 
   // ── Dialog states ──
   const [availDialogOpen, setAvailDialogOpen] = useState(false);
@@ -251,99 +321,12 @@ export default function AvailabilityPage() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [dailyCalendarOpen, setDailyCalendarOpen] = useState(false);
 
-  // ── Computed values ──
-  const currentWeekStart = useMemo(() => {
-    const now = new Date();
-    now.setDate(now.getDate() + weekOffset * 7);
-    return getWeekStart(now);
-  }, [weekOffset]);
-
-  const weekDates = useMemo(() => getWeekDates(currentWeekStart), [currentWeekStart]);
-
-  const weekStartStr = formatDateOnly(currentWeekStart);
-  const weekEndStr = formatDateOnly(weekDates[6]);
-
-  // ── Data fetching ──
-  const fetchCoreData = useCallback(async () => {
-    try {
-      const [availRes, overrideRes, teamRes] = await Promise.all([
-        fetch("/api/availability", { credentials: "include" }),
-        fetch("/api/availability/overrides", { credentials: "include" }),
-        fetch("/api/team?type=users", { credentials: "include" }),
-      ]);
-      if (availRes.status === 401 || overrideRes.status === 401 || teamRes.status === 401) {
-        router.push("/login");
-        return;
-      }
-      if (availRes.ok) setAvailabilities(safeArray(await availRes.json()));
-      if (overrideRes.ok) setOverrides(safeArray(await overrideRes.json()));
-      if (teamRes.ok) {
-        const users = safeArray<TeamUser>(await teamRes.json());
-        setTeamUsers(users);
-        if (!dailyUserId && users.length > 0) {
-          setDailyUserId(users[0].id);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to fetch data:", err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, [router, dailyUserId]);
-
-  const fetchWeekSchedule = useCallback(async () => {
-    setWeekLoading(true);
-    try {
-      const res = await fetch(`/api/availability/schedule?type=week&date=${weekStartStr}`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setWeekSchedule(data);
-      } else if (res.status === 401) {
-        router.push("/login");
-      }
-    } catch (err) {
-      console.error("Failed to fetch week schedule:", err);
-    } finally {
-      setWeekLoading(false);
-    }
-  }, [weekStartStr, router]);
-
-  const fetchDailySchedule = useCallback(async () => {
-    if (!dailyUserId) return;
-    setDailyLoading(true);
-    try {
-      const dateStr = formatDateOnly(dailyDate);
-      const res = await fetch(
-        `/api/availability/schedule?date=${dateStr}&userId=${dailyUserId}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setDailySchedule(data);
-      } else if (res.status === 401) {
-        router.push("/login");
-      }
-    } catch (err) {
-      console.error("Failed to fetch daily schedule:", err);
-    } finally {
-      setDailyLoading(false);
-    }
-  }, [dailyUserId, dailyDate, router]);
-
-  useEffect(() => {
-    if (isUserAdmin) fetchCoreData();
-  }, [fetchCoreData, isUserAdmin]);
-
-  useEffect(() => {
-    if (isUserAdmin && !loading) fetchWeekSchedule();
-  }, [fetchWeekSchedule, isUserAdmin, loading]);
-
-  useEffect(() => {
-    if (isUserAdmin && !loading && dailyUserId) fetchDailySchedule();
-  }, [fetchDailySchedule, isUserAdmin, loading, dailyUserId]);
+  // ── Invalidate helpers for mutations ──
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["availability-core"] });
+    queryClient.invalidateQueries({ queryKey: ["availability-week"] });
+    queryClient.invalidateQueries({ queryKey: ["availability-daily"] });
+  }, [queryClient]);
 
   // ── Filter upcoming overrides ──
   const upcomingOverrides = useMemo(
@@ -450,8 +433,7 @@ export default function AvailabilityPage() {
         toast.success(editingAvailability ? "Availability updated" : "Availability added");
         setAvailDialogOpen(false);
         resetAvailForm();
-        fetchCoreData();
-        fetchWeekSchedule();
+        refreshAll();
       } else {
         const err = await res.json();
         toast.error(safeText(err.error, "Failed to save availability"));
@@ -507,8 +489,7 @@ export default function AvailabilityPage() {
         toast.success(editingOverride ? "Override updated" : "Override added");
         setOverrideDialogOpen(false);
         resetOverrideForm();
-        fetchCoreData();
-        fetchWeekSchedule();
+        refreshAll();
       } else {
         const err = await res.json();
         toast.error(safeText(err.error, "Failed to save override"));
@@ -528,8 +509,7 @@ export default function AvailabilityPage() {
       });
       if (res.ok) {
         toast.success("Availability deleted");
-        fetchCoreData();
-        fetchWeekSchedule();
+        refreshAll();
       } else {
         toast.error("Failed to delete");
       }
@@ -546,8 +526,7 @@ export default function AvailabilityPage() {
       });
       if (res.ok) {
         toast.success("Override deleted");
-        fetchCoreData();
-        fetchWeekSchedule();
+        refreshAll();
       } else {
         toast.error("Failed to delete");
       }
@@ -625,7 +604,7 @@ export default function AvailabilityPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchCoreData(); }}>
+        <Button variant="outline" onClick={() => { setError(null); refreshAll(); }}>
           <RefreshCw className="h-4 w-4 mr-2" /> Try Again
         </Button>
       </div>

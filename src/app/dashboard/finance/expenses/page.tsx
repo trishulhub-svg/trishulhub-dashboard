@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -48,23 +49,39 @@ export default function ExpensesPage() {
     }
   }, [status, router, isAdminUser]);
 
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
-      </div>
-    );
-  }
-
-  if (status !== "authenticated" || !isAdminUser) return null;
-
-  const [expenses, setExpenses] = useState<unknown[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  const { data: expensesData = [], isLoading: expensesLoading, error: expensesError } = useQuery({
+    queryKey: ["expenses-page"],
+    queryFn: async () => {
+      const res = await fetch("/api/expenses", { credentials: 'include' });
+      if (handleFetchError(res, router)) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error("Failed to load expenses");
+      const data = await res.json().catch(() => null);
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const expenses = expensesData;
+  const loading = expensesLoading;
+  const error = expensesError ? (expensesError instanceof Error ? expensesError.message : "Failed to load expenses") : null;
+
+  const { data: projectsData = [] } = useQuery({
+    queryKey: ["expenses-projects"],
+    queryFn: async () => {
+      const res = await fetch("/api/projects", { credentials: 'include' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : (data.projects || data.data || []);
+      return arr.map((p: any) => ({ id: p.id, name: p.name }));
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const projects = projectsData;
 
   // Edit expense state
   const [editOpen, setEditOpen] = useState(false);
@@ -78,36 +95,18 @@ export default function ExpensesPage() {
   const [editDate, setEditDate] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
 
-  const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/expenses", { credentials: 'include', signal });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        setExpenses(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load expenses");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  if (status === "loading") {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchExpenses(controller.signal);
-    // Fetch projects for the dropdown
-    fetch("/api/projects", { credentials: 'include', signal: controller.signal })
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        const arr = Array.isArray(data) ? data : (data.projects || data.data || []);
-        setProjects(arr.map((p: any) => ({ id: p.id, name: p.name })));
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [fetchExpenses]);
+  if (status !== "authenticated" || !isAdminUser) return null;
+
+
 
   const handleAddExpense = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -131,7 +130,7 @@ export default function ExpensesPage() {
       if (res.ok) {
         toast.success("Expense added");
         setAddOpen(false);
-        fetchExpenses();
+        queryClient.invalidateQueries({ queryKey: ["expenses-page"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to add expense");
@@ -150,7 +149,7 @@ export default function ExpensesPage() {
     try {
       const res = await fetch("/api/expenses", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: 'include', body: JSON.stringify({ id: pendingDelete }) });
       if (handleFetchError(res, router)) return;
-      if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); }
+      if (res.ok) { toast.success("Expense deleted"); queryClient.invalidateQueries({ queryKey: ["expenses-page"] }); }
       else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
     } catch { toast.error("Failed to delete expense"); }
     setPendingDelete(null);
@@ -192,7 +191,7 @@ export default function ExpensesPage() {
         toast.success("Expense updated");
         setEditOpen(false);
         setEditExpense(null);
-        fetchExpenses();
+        queryClient.invalidateQueries({ queryKey: ["expenses-page"] });
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to update expense");
@@ -226,7 +225,7 @@ export default function ExpensesPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchExpenses(); }}>
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["expenses-page"] }); }}>
           Try Again
         </Button>
       </div>

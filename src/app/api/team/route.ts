@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
           createdAt: true,
         },
         orderBy: { name: "asc" },
+        take: 100,
       })
       return NextResponse.json(JSON.parse(JSON.stringify(users)))
     }
@@ -74,11 +75,13 @@ export async function GET(req: NextRequest) {
         where: { role: { not: "CLIENT" }, isActive: true },
         select: { id: true, name: true, email: true, role: true, avatar: true },
         orderBy: { name: "asc" },
+        take: 100,
       })
 
       // 2. Fetch all availability schedules for these users
       const allAvailability = await db.availability.findMany({
         where: { userId: { in: activeUsers.map(u => u.id) }, isAvailable: true },
+        take: 500,
       })
 
       // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
@@ -89,6 +92,7 @@ export async function GET(req: NextRequest) {
           startDate: { lte: dateTo },
           endDate: { gte: dateFrom },
         },
+        take: 500,
       })
 
       const leaves = await db.leave.findMany({
@@ -98,6 +102,7 @@ export async function GET(req: NextRequest) {
           startDate: { lte: dateTo },
           endDate: { gte: dateFrom },
         },
+        take: 500,
       })
 
       // 4. Fetch all COMPLETED time entries in the date range
@@ -108,6 +113,7 @@ export async function GET(req: NextRequest) {
           clockIn: { gte: dateFrom, lt: new Date(dateTo.getTime() + 86400000) },
         },
         select: { id: true, userId: true, clockIn: true, clockOut: true, totalHours: true, date: true },
+        take: 500,
       })
 
       // 5. Fetch existing manual attendance records
@@ -115,6 +121,7 @@ export async function GET(req: NextRequest) {
         where: {
           date: { gte: dateFrom, lte: dateTo },
         },
+        take: 500,
       })
 
       // 6. Build lookup maps
@@ -294,6 +301,7 @@ export async function GET(req: NextRequest) {
             user: { select: { id: true, name: true, email: true, role: true } },
           },
           orderBy: { createdAt: "desc" },
+          take: 100,
         })
         return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
       }
@@ -302,6 +310,7 @@ export async function GET(req: NextRequest) {
           user: { select: { id: true, name: true, email: true, role: true } },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       })
       return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
     }
@@ -318,6 +327,7 @@ export async function GET(req: NextRequest) {
           agent: { select: { id: true, name: true, type: true } },
         },
         orderBy: { userId: "asc" },
+        take: 100,
       })
       return NextResponse.json(JSON.parse(JSON.stringify(access)))
     }
@@ -338,6 +348,7 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: { name: "asc" },
+      take: 100,
     })
     return NextResponse.json(JSON.parse(JSON.stringify(users)))
   } catch (error: unknown) {
@@ -417,6 +428,7 @@ export async function POST(req: NextRequest) {
       try {
         const admins = await db.user.findMany({
           where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+          take: 20,
         })
         const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
         for (const admin of admins) {

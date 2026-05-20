@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
           project: { select: { id: true, name: true } },
         },
         orderBy: { clockIn: "desc" },
+        take: 200,
       })
 
       // For admin users, fetch all currently active entries across all users
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
             project: { select: { id: true, name: true } },
           },
           orderBy: { clockIn: "desc" },
+          take: 100,
         })
         activeEntries = structuredClone(allActive)
       }
@@ -125,6 +127,7 @@ export async function GET(req: NextRequest) {
           project: { select: { id: true, name: true } },
         },
         orderBy: { clockIn: "desc" },
+        take: 100,
       })
       activeEntries = structuredClone(allActive)
     }

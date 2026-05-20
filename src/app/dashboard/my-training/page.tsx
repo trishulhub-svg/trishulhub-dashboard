@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -61,28 +62,24 @@ const LEVEL_CONFIG: Record<string, { label: string; className: string }> = {
 export default function MyTrainingPage() {
   const { data: session, status: authStatus } = useSession()
   const router = useRouter()
-  const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
 
-  const fetchAssignments = useCallback(async () => {
-    try {
+  const { data: assignmentsData = [], isLoading: assignmentsLoading } = useQuery({
+    queryKey: ["training-assignments"],
+    queryFn: async () => {
       const res = await fetch("/api/training/assignments", { credentials: "include" })
-      if (res.ok) setAssignments(safeArray<Assignment>(await res.json()))
-    } catch (_e) {
-      toast.error("Failed to load assignments")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized") }
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      return safeArray<Assignment>(data)
+    },
+    enabled: authStatus !== "loading" && !!session,
+    staleTime: 60 * 1000,
+    retry: 1,
+  })
 
-  useEffect(() => {
-    if (authStatus === "loading") return
-    if (!session) {
-      router.push("/login")
-      return
-    }
-    fetchAssignments()
-  }, [session, authStatus, router, fetchAssignments])
+  const assignments = assignmentsData
+  const loading = assignmentsLoading
 
   const handleAction = (assignment: Assignment) => {
     switch (assignment.status) {
@@ -114,6 +111,12 @@ export default function MyTrainingPage() {
       default: return "View"
     }
   }
+
+  useEffect(() => {
+    if (authStatus !== "loading" && !session) {
+      router.push("/login")
+    }
+  }, [session, authStatus, router])
 
   if (authStatus === "loading" || loading) {
     return (

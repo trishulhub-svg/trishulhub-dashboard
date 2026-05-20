@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
@@ -146,8 +147,38 @@ export default function SettingsPage() {
     quietHoursStart: "22:00",
     quietHoursEnd: "08:00",
   });
-  const [prefsLoading, setPrefsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const userRole = session?.user?.role || "DEVELOPER";
+  const isSuperAdmin = userRole === "SUPER_ADMIN";
+  const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isSuperAdminOnly = isSuperAdmin;
   const [prefsSaving, setPrefsSaving] = useState(false);
+
+  // ── Fetch Notification Preferences via React Query ──
+  const { isLoading: prefsLoading } = useQuery({
+    queryKey: ["notification-preferences"],
+    queryFn: async () => {
+      const res = await fetch("/api/notification-preferences", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setPrefs({
+        emailNotifications: data.emailNotifications ?? true,
+        budgetAlerts: data.budgetAlerts ?? true,
+        meetingReminders: data.meetingReminders ?? true,
+        taskReminders: data.taskReminders ?? true,
+        approvalAlerts: data.approvalAlerts ?? true,
+        invoiceReminders: data.invoiceReminders ?? true,
+        quietHoursEnabled: data.quietHoursEnabled ?? false,
+        quietHoursStart: data.quietHoursStart || "22:00",
+        quietHoursEnd: data.quietHoursEnd || "08:00",
+      });
+      return data;
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
   // ── Change Password state (OTP flow) ──
   const [currentPassword, setCurrentPassword] = useState("");
@@ -158,8 +189,23 @@ export default function SettingsPage() {
   const [passwordOtpCode, setPasswordOtpCode] = useState("");
 
   // Team Management state
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
+
+  // ── Fetch Team Members via React Query ──
+  const { data: teamMembersData = [], isLoading: teamLoading } = useQuery({
+    queryKey: ["settings-team-members"],
+    queryFn: async () => {
+      if (!isAdminOrAbove) return [];
+      const res = await fetch("/api/team?type=users", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      return safeArray<TeamMember>(data);
+    },
+    enabled: !!isAdminOrAbove,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const teamMembers = teamMembersData;
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [addUserLoading, setAddUserLoading] = useState(false);
   const [newUserName, setNewUserName] = useState("");
@@ -182,8 +228,23 @@ export default function SettingsPage() {
   const [emailChangeLoading, setEmailChangeLoading] = useState(false);
 
   // SMTP Config state (SUPER_ADMIN only)
-  const [smtpConfigs, setSmtpConfigs] = useState<SmtpConfig[]>([]);
-  const [smtpLoading, setSmtpLoading] = useState(false);
+
+  // ── Fetch SMTP Configs via React Query ──
+  const { data: smtpConfigsData = [], isLoading: smtpLoading } = useQuery({
+    queryKey: ["smtp-configs"],
+    queryFn: async () => {
+      if (!isSuperAdmin) return [];
+      const res = await fetch("/api/smtp", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      return safeArray<SmtpConfig>(data);
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const smtpConfigs = smtpConfigsData;
   const [smtpDialogOpen, setSmtpDialogOpen] = useState(false);
   const [smtpEditId, setSmtpEditId] = useState<string | null>(null);
   const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
@@ -193,11 +254,29 @@ export default function SettingsPage() {
   const [smtpDeleteLoading, setSmtpDeleteLoading] = useState(false);
 
   // Email Logs state (SUPER_ADMIN only)
-  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
-  const [emailLogsTotal, setEmailLogsTotal] = useState(0);
-  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [emailLogTypeFilter, setEmailLogTypeFilter] = useState<string>("ALL");
   const [emailLogStatusFilter, setEmailLogStatusFilter] = useState<string>("ALL");
+
+  // ── Fetch Email Logs via React Query ──
+  const { data: emailLogsData, isLoading: emailLogsLoading } = useQuery({
+    queryKey: ["email-logs", emailLogTypeFilter, emailLogStatusFilter],
+    queryFn: async () => {
+      if (!isSuperAdmin) return { logs: [], total: 0 };
+      const params = new URLSearchParams({ limit: "100", offset: "0" });
+      if (emailLogTypeFilter !== "ALL") params.set("type", emailLogTypeFilter);
+      if (emailLogStatusFilter !== "ALL") params.set("status", emailLogStatusFilter);
+      const res = await fetch(`/api/email-logs?${params.toString()}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      return { logs: data.logs || [], total: data.total || 0 };
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const emailLogs = emailLogsData?.logs || [];
+  const emailLogsTotal = emailLogsData?.total || 0;
   const [clearingLogs, setClearingLogs] = useState(false);
   const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
 
@@ -220,11 +299,6 @@ export default function SettingsPage() {
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
-
-  const userRole = session?.user?.role || "DEVELOPER";
-  const isSuperAdmin = userRole === "SUPER_ADMIN";
-  const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
   // ── Refs for OTP auto-submit handlers (avoids stale closures + dep loops) ──
   const handlePasswordVerifyOtpRef = useRef<() => void>(null!);
@@ -260,33 +334,8 @@ export default function SettingsPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [name, session?.user?.name]);
 
-  // ── Fetch Notification Preferences ──
-  const fetchPrefs = useCallback(async () => {
-    try {
-      setPrefsLoading(true);
-      const res = await fetch("/api/notification-preferences", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setPrefs({
-          emailNotifications: data.emailNotifications ?? true,
-          budgetAlerts: data.budgetAlerts ?? true,
-          meetingReminders: data.meetingReminders ?? true,
-          taskReminders: data.taskReminders ?? true,
-          approvalAlerts: data.approvalAlerts ?? true,
-          invoiceReminders: data.invoiceReminders ?? true,
-          quietHoursEnabled: data.quietHoursEnabled ?? false,
-          quietHoursStart: data.quietHoursStart || "22:00",
-          quietHoursEnd: data.quietHoursEnd || "08:00",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setPrefsLoading(false);
-    }
-  }, []);
-
-  const savePrefs = useCallback(async (key: string, value: boolean | string | null) => {
+  // ── Save Notification Preference ──
+  const savePrefs = async (key: string, value: boolean | string | null) => {
     setPrefs(prev => ({ ...prev, [key]: value }));
     setPrefsSaving(true);
     try {
@@ -304,84 +353,7 @@ export default function SettingsPage() {
     } finally {
       setPrefsSaving(false);
     }
-  }, []);
-
-  useEffect(() => {
-    fetchPrefs();
-  }, [fetchPrefs]);
-
-  // ── Fetch Team Members ──
-  const fetchTeamMembers = useCallback(async () => {
-    if (!isAdminOrAbove) return;
-    setTeamLoading(true);
-    try {
-      const res = await fetch("/api/team?type=users", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setTeamMembers(safeArray(data));
-      } else {
-        toast.error("Failed to load team members");
-      }
-    } catch (err) {
-      console.error("Failed to fetch team members:", err);
-    } finally {
-      setTeamLoading(false);
-    }
-  }, [isAdminOrAbove]);
-
-  useEffect(() => {
-    fetchTeamMembers();
-  }, [fetchTeamMembers]);
-
-  // ── Fetch SMTP Configs ──
-  const fetchSmtpConfigs = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    setSmtpLoading(true);
-    try {
-      const res = await fetch("/api/smtp", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setSmtpConfigs(safeArray(data));
-      } else {
-        toast.error("Failed to load SMTP configurations");
-      }
-    } catch (err) {
-      console.error("Failed to fetch SMTP configs:", err);
-    } finally {
-      setSmtpLoading(false);
-    }
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    fetchSmtpConfigs();
-  }, [fetchSmtpConfigs]);
-
-  // ── Fetch Email Logs ──
-  const fetchEmailLogs = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    setEmailLogsLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: "100", offset: "0" });
-      if (emailLogTypeFilter !== "ALL") params.set("type", emailLogTypeFilter);
-      if (emailLogStatusFilter !== "ALL") params.set("status", emailLogStatusFilter);
-      const res = await fetch(`/api/email-logs?${params.toString()}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setEmailLogs(data.logs || []);
-        setEmailLogsTotal(data.total || 0);
-      } else {
-        toast.error("Failed to load email logs");
-      }
-    } catch (err) {
-      console.error("Failed to fetch email logs:", err);
-    } finally {
-      setEmailLogsLoading(false);
-    }
-  }, [isSuperAdmin, emailLogTypeFilter, emailLogStatusFilter]);
-
-  useEffect(() => {
-    fetchEmailLogs();
-  }, [fetchEmailLogs]);
+  };
 
   // ── Add User ──
   const handleAddUser = async () => {
@@ -424,7 +396,7 @@ export default function SettingsPage() {
         setNewUserRole("DEVELOPER");
         setNewUserDepartment("");
         setShowNewUserPassword(false);
-        fetchTeamMembers();
+        queryClient.invalidateQueries({ queryKey: ["settings-team-members"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to add user");
@@ -450,7 +422,7 @@ export default function SettingsPage() {
       if (res.ok) {
         toast.success("Role updated successfully");
         setEditingUserId(null);
-        fetchTeamMembers();
+        queryClient.invalidateQueries({ queryKey: ["settings-team-members"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to update role");
@@ -479,7 +451,7 @@ export default function SettingsPage() {
 
       if (res.ok) {
         toast.success(currentActive ? "User deactivated" : "User activated");
-        fetchTeamMembers();
+        queryClient.invalidateQueries({ queryKey: ["settings-team-members"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to update user status");
@@ -752,7 +724,7 @@ export default function SettingsPage() {
         setSmtpDialogOpen(false);
         setSmtpEditId(null);
         setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
-        fetchSmtpConfigs();
+        queryClient.invalidateQueries({ queryKey: ["smtp-configs"] });
       } else {
         // Show detailed error for debugging - includes backend detail if available
         const errorDetail = data.detail ? ` (${data.detail})` : "";
@@ -805,7 +777,7 @@ export default function SettingsPage() {
       if (res.ok) {
         toast.success("SMTP config deleted");
         setSmtpDeleteConfirm(null);
-        fetchSmtpConfigs();
+        queryClient.invalidateQueries({ queryKey: ["smtp-configs"] });
       } else {
         const data = await res.json();
         toast.error(data.error || "Failed to delete");
@@ -846,7 +818,7 @@ export default function SettingsPage() {
       if (res.ok) {
         toast.success(data.message || `Deleted ${data.deleted} old log(s)`);
         setClearLogsConfirm(false);
-        fetchEmailLogs();
+        queryClient.invalidateQueries({ queryKey: ["email-logs"] });
       } else {
         toast.error(data.error || "Failed to clear logs");
       }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { safeParseDate } from "@/lib/utils";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -108,21 +109,43 @@ const calendarBgColors: Record<string, string> = {
 
 export default function LeaveManagementPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: session, status } = useSession();
-  const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const userRole = session?.user?.role || "DEVELOPER";
+  const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  // Calendar state
-  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
-  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
 
-  // Filter state
-  const [filterEmployee, setFilterEmployee] = useState("ALL");
-  const [filterStatus, setFilterStatus] = useState("ALL");
+  const { data: leavesData = [], isLoading: leavesLoading, error: leavesError } = useQuery({
+    queryKey: ["leaves"],
+    queryFn: async () => {
+      const res = await fetch("/api/leaves", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load leaves");
+      const data = await res.json();
+      return safeArray<LeaveRecord>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const { data: teamUsersData = [] } = useQuery({
+    queryKey: ["leaves-team-users"],
+    queryFn: async () => {
+      const res = await fetch("/api/team?type=users", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load team users");
+      const data = await res.json();
+      return safeArray<TeamUser>(data);
+    },
+    enabled: isUserAdmin,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const leaves = leavesData;
+  const teamUsers = teamUsersData;
+  const loading = leavesLoading;
+  const error = leavesError?.message || null;
 
   // Form state
   const [formUserId, setFormUserId] = useState("");
@@ -130,52 +153,12 @@ export default function LeaveManagementPage() {
   const [formStartDate, setFormStartDate] = useState("");
   const [formEndDate, setFormEndDate] = useState("");
   const [formReason, setFormReason] = useState("");
-
-  const userRole = session?.user?.role || "DEVELOPER";
-  const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    async function loadData() {
-      try {
-        const leavesRes = await fetch("/api/leaves", { credentials: "include", signal });
-        if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
-
-        if (isUserAdmin) {
-          const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
-          if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        console.error("Failed to fetch data:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadData();
-    return () => controller.abort();
-  }, [isUserAdmin]);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const leavesRes = await fetch("/api/leaves", { credentials: "include" });
-      if (leavesRes.status === 401) { router.push("/login"); return; }
-      if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
-
-      if (isUserAdmin) {
-        const teamRes = await fetch("/api/team?type=users", { credentials: "include" });
-        if (teamRes.status === 401) { router.push("/login"); return; }
-        if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
-      }
-    } catch (err) {
-      console.error("Failed to fetch data:", err);
-      toast.error("Failed to refresh data");
-    }
-  }, [isUserAdmin]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
+  const [filterEmployee, setFilterEmployee] = useState("ALL");
+  const [filterStatus, setFilterStatus] = useState("ALL");
 
   const handleSubmit = async () => {
     if (!formStartDate || !formEndDate) {
@@ -218,7 +201,7 @@ export default function LeaveManagementPage() {
         setFormEndDate("");
         setFormReason("");
         setFormUserId("");
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["leaves"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to submit leave request");
@@ -241,7 +224,7 @@ export default function LeaveManagementPage() {
       });
       if (res.ok) {
         toast.success(`Leave ${status.toLowerCase()}`);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["leaves"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to update leave");
@@ -260,7 +243,7 @@ export default function LeaveManagementPage() {
       });
       if (res.ok) {
         toast.success("Leave deleted");
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["leaves"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to delete leave");
@@ -360,7 +343,8 @@ export default function LeaveManagementPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+        {/* Retry leaves query */}
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["leaves"] }); }}>
           Try Again
         </Button>
       </div>

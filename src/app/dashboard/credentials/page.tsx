@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -75,9 +76,7 @@ const LABEL_COLORS: Record<string, string> = {
 export default function CredentialsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const queryClient = useQueryClient();
 
   // UI state
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
@@ -100,58 +99,48 @@ export default function CredentialsPage() {
   const [formTargetUserId, setFormTargetUserId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const fetchCredentials = useCallback(async () => {
-    try {
+  // ── Fetch credentials with user filter ──
+  const credQueryKey = isAdmin && selectedUserId !== "all" ? selectedUserId : "all";
+  const { data: credentialsData = [], isLoading: loading } = useQuery({
+    queryKey: ["credentials", credQueryKey],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (isAdmin && selectedUserId && selectedUserId !== "all") {
         params.set("userId", selectedUserId);
       }
       const res = await fetch(`/api/credentials?${params.toString()}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setCredentials(safeArray<Credential>(data));
-      } else {
-        setError(true);
-      }
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [isAdmin, selectedUserId]);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return safeArray<Credential>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const credentials = credentialsData;
 
-  const fetchUsers = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
+  // ── Fetch all users (admin only) ──
+  useQuery({
+    queryKey: ["credentials-users"],
+    queryFn: async () => {
+      if (!isAdmin) return [];
       const res = await fetch("/api/team", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        const users = safeArray<UserOption>(data.users || data);
-        setAllUsers(users);
-      }
-    } catch {
-      // silent
-    }
-  }, [isAdmin]);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const users = safeArray<UserOption>(data.users || data);
+      setAllUsers(users);
+      return users;
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+    enabled: !!session,
+  });
 
-  useEffect(() => {
-    if (status === "loading") return;
-    if (!session) {
-      router.push("/login");
-      return;
-    }
-    fetchCredentials();
-    fetchUsers();
-  }, [session, status, router, fetchCredentials, fetchUsers]);
-
-  // Re-fetch when admin changes user filter
+  // ── Refetch credentials when admin changes user filter ──
   useEffect(() => {
     if (isAdmin && session) {
-      setLoading(true);
-      setError(false);
-      fetchCredentials();
+      queryClient.invalidateQueries({ queryKey: ["credentials", credQueryKey] });
     }
-  }, [selectedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedUserId]);
 
   const copyToClipboard = async (text: string, fieldId: string) => {
     try {
@@ -223,7 +212,7 @@ export default function CredentialsPage() {
         if (res.ok) {
           setShowAddDialog(false);
           resetForm();
-          fetchCredentials();
+          queryClient.invalidateQueries({ queryKey: ["credentials", credQueryKey] });
         }
       } else {
         body.userId = isAdmin ? formTargetUserId : session!.user.id;
@@ -236,7 +225,7 @@ export default function CredentialsPage() {
         if (res.ok) {
           setShowAddDialog(false);
           resetForm();
-          fetchCredentials();
+          queryClient.invalidateQueries({ queryKey: ["credentials", credQueryKey] });
         }
       }
     } catch {
@@ -254,7 +243,7 @@ export default function CredentialsPage() {
         credentials: "include",
       });
       if (res.ok) {
-        fetchCredentials();
+        queryClient.invalidateQueries({ queryKey: ["credentials", credQueryKey] });
       }
     } catch {
       // silent

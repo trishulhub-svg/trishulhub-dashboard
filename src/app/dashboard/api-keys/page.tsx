@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -71,9 +72,7 @@ export default function ApiKeysPage() {
   const { data: session, status } = useSession();
   const isSessionLoading = status === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
-  const [keys, setKeys] = useState<ApiKeyData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<ApiKeyData | null>(null);
@@ -90,7 +89,35 @@ export default function ApiKeysPage() {
   const [formPriority, setFormPriority] = useState("1");
   const [formAssignedAgents, setFormAssignedAgents] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const fetchAbortRef = useRef<AbortController | null>(null);
+  const { data: keysData = [], isLoading: keysLoading, error: keysError, refetch: refetchKeys } = useQuery({
+    queryKey: ["api-keys"],
+    queryFn: async () => {
+      const res = await fetch("/api/api-keys", { credentials: 'include' });
+      if (res.status === 401) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) return data;
+        throw new Error(data.error || "Unexpected response from server");
+      } else {
+        let errorMsg = "Failed to fetch API keys";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          errorMsg = `Server error (${res.status}). Please try again.`;
+        }
+        throw new Error(errorMsg);
+      }
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const keys = keysData;
+  const loading = keysLoading;
+  const error = keysError ? (keysError instanceof Error ? keysError.message : "Failed to fetch API keys") : null;
+  const fetchKeys = () => { refetchKeys(); queryClient.invalidateQueries({ queryKey: ["api-keys"] }); };
 
   const resetForm = () => {
     setFormProvider("ZAI");
@@ -100,48 +127,6 @@ export default function ApiKeysPage() {
     setFormPriority("1");
     setFormAssignedAgents([]);
   };
-
-  const fetchKeys = useCallback(async () => {
-    try {
-      setError(null);
-      const res = await fetch("/api/api-keys", { credentials: 'include' });
-      if (res.status === 401) {
-        setKeys([]);
-        setError("Your session has expired. Please sign in again.");
-        setTimeout(() => { window.location.href = "/login"; }, 1500);
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setKeys(data);
-        } else {
-          setKeys([]);
-          setError(data.error || "Unexpected response from server");
-        }
-      } else {
-        let errorMsg = "Failed to fetch API keys";
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch {
-          errorMsg = `Server error (${res.status}). Please try again.`;
-        }
-        setKeys([]);
-        setError(errorMsg);
-      }
-    } catch {
-      setKeys([]);
-      setError("Network error. Please check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchKeys();
-    return () => { fetchAbortRef.current?.abort(); };
-  }, [fetchKeys]);
 
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();

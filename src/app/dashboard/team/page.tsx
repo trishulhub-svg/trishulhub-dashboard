@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -116,17 +117,14 @@ function formatDate(isoStr?: string | null): string {
 }
 
 export default function TeamPage() {
-  const [users, setUsers] = useState<TeamUser[]>([]);
-  const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
 
   const userRole = session?.user?.role || "DEVELOPER";
   const currentUserId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+  const queryClient = useQueryClient();
 
   // Default tab based on role — non-admins default to "leaves"
   const [tab, setTab] = useState<"team" | "leaves" | "attendance">(isAdminUser ? "team" : "leaves");
@@ -164,85 +162,56 @@ export default function TeamPage() {
   const [attDateTo, setAttDateTo] = useState("");
   const [attUserFilter, setAttUserFilter] = useState("all");
 
-  const fetchData = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const [userRes, leaveRes, attendRes] = await Promise.all([
-        isAdminUser
-          ? fetch("/api/team", { credentials: "include", signal })
-          : Promise.resolve({ ok: true, json: async () => [] }),
-        fetch("/api/team?type=leaves", { credentials: "include", signal }),
-        isAdminUser
-          ? fetch("/api/team?type=attendance", { credentials: "include", signal })
-          : Promise.resolve({ ok: true, json: async () => [] }),
-      ]);
+  const { data: usersData = [], isLoading: usersLoading, error: usersError } = useQuery({
+    queryKey: ["team-users"],
+    queryFn: async () => {
+      const res = await fetch("/api/team", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load team members");
+      const data = await res.json();
+      return safeArray<TeamUser>(data);
+    },
+    enabled: isAdminUser,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
-      if (userRes.ok) {
-        const userData = await (userRes as Response).json();
-        setUsers(safeArray<TeamUser>(userData));
-      } else {
-        const errData = await (userRes as Response).json().catch(() => null);
-        toast.error(errData?.error || "Failed to load team members");
-      }
+  const { data: leavesData = [], isLoading: leavesLoading, error: leavesError } = useQuery({
+    queryKey: ["team-leaves"],
+    queryFn: async () => {
+      const res = await fetch("/api/team?type=leaves", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load leave requests");
+      const data = await res.json();
+      return safeArray<LeaveRecord>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
-      if (leaveRes.ok) {
-        const leaveData = await (leaveRes as Response).json();
-        setLeaves(safeArray<LeaveRecord>(leaveData));
-      } else {
-        const errData = await (leaveRes as Response).json().catch(() => null);
-        toast.error(errData?.error || "Failed to load leave requests");
-      }
-
-      if (attendRes.ok) {
-        const attendData = await (attendRes as Response).json();
-        setAttendance(safeArray<AttendanceRecord>(attendData));
-      } else {
-        const errData = await (attendRes as Response).json().catch(() => null);
-        toast.error(errData?.error || "Failed to load attendance data");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load team data");
-    } finally {
-      setLoading(false);
-    }
-  }, [isAdminUser]);
-
-  // Fetch attendance with filters
-  const fetchAttendance = useCallback(async (signal?: AbortSignal) => {
-    try {
+  const { data: attendanceData = [], isLoading: attendanceLoading, error: attendanceError } = useQuery({
+    queryKey: ["team-attendance", attDateFrom, attDateTo],
+    queryFn: async () => {
       const params = new URLSearchParams();
       params.set("type", "attendance");
       if (attDateFrom) params.set("from", attDateFrom);
       if (attDateTo) params.set("to", attDateTo);
-      const res = await fetch(`/api/team?${params.toString()}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setAttendance(safeArray<AttendanceRecord>(data));
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load attendance data");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    }
-  }, [attDateFrom, attDateTo]);
+      const res = await fetch(`/api/team?${params.toString()}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load attendance data");
+      const data = await res.json();
+      return safeArray<AttendanceRecord>(data);
+    },
+    enabled: isAdminUser,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchData(controller.signal);
-    return () => controller.abort();
-  }, [fetchData]);
-
-  // Refetch attendance when date filters change
-  useEffect(() => {
-    if (tab === "attendance" && isAdminUser) {
-      const controller = new AbortController();
-      fetchAttendance(controller.signal);
-      return () => controller.abort();
-    }
-  }, [tab, fetchAttendance, isAdminUser]);
+  const users = usersData;
+  const leaves = leavesData;
+  const attendance = attendanceData;
+  const loading = usersLoading || leavesLoading || attendanceLoading;
+  const error = usersError?.message || leavesError?.message || attendanceError?.message || null;
 
   // Edit user handler
   const handleEditUser = useCallback(async () => {
@@ -265,7 +234,7 @@ export default function TeamPage() {
         toast.success(`${safeText(editForm.name)} updated successfully`);
         setEditUserOpen(false);
         setEditUser(null);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["team-users"] });
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to update user");
@@ -275,7 +244,7 @@ export default function TeamPage() {
     } finally {
       setEditLoading(false);
     }
-  }, [editUser, editForm, fetchData]);
+  }, [editUser, editForm]);
 
   const openEditDialog = useCallback((user: TeamUser) => {
     setEditUser(user);
@@ -295,7 +264,7 @@ export default function TeamPage() {
       });
       if (res.ok) {
         toast.success(`Leave ${status.toLowerCase()}`);
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["team-leaves"] });
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || `Failed to ${status.toLowerCase()} leave`);
@@ -305,7 +274,7 @@ export default function TeamPage() {
     } finally {
       setMutating(false);
     }
-  }, [mutating, fetchData]);
+  }, [mutating]);
 
   const handleApplyLeave = useCallback(async () => {
     if (leaveForm.startDate && leaveForm.endDate && new Date(leaveForm.startDate) > new Date(leaveForm.endDate)) {
@@ -325,7 +294,7 @@ export default function TeamPage() {
         toast.success("Leave request submitted");
         setLeaveDialogOpen(false);
         setLeaveForm({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["team-leaves"] });
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to submit leave");
@@ -335,7 +304,7 @@ export default function TeamPage() {
     } finally {
       setMutating(false);
     }
-  }, [leaveForm, mutating, fetchData]);
+  }, [leaveForm, mutating]);
 
   const handleAddMember = useCallback(async () => {
     if (!memberForm.name || !memberForm.email || !memberForm.password) {
@@ -371,7 +340,7 @@ export default function TeamPage() {
         toast.success(`${safeText(memberForm.name)} added to the team`);
         setAddMemberOpen(false);
         setMemberForm({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["team-users"] });
       } else {
         toast.error(data.error || "Failed to add member");
       }
@@ -380,7 +349,7 @@ export default function TeamPage() {
     } finally {
       setAddMemberLoading(false);
     }
-  }, [memberForm, fetchData]);
+  }, [memberForm]);
 
   // ── Attendance CRUD handlers ──
 
@@ -411,7 +380,7 @@ export default function TeamPage() {
         toast.success("Attendance record added");
         setAttDialogOpen(false);
         setAttForm({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-        fetchAttendance();
+        queryClient.invalidateQueries({ queryKey: ["team-attendance"] });
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to add attendance record");
@@ -421,7 +390,7 @@ export default function TeamPage() {
     } finally {
       setAttLoading(false);
     }
-  }, [attForm, fetchAttendance]);
+  }, [attForm]);
 
   const handleEditAttendance = useCallback(async () => {
     if (!editAttForm.id) return;
@@ -448,7 +417,7 @@ export default function TeamPage() {
         toast.success("Attendance record updated");
         setEditAttDialogOpen(false);
         setEditAttForm({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-        fetchAttendance();
+        queryClient.invalidateQueries({ queryKey: ["team-attendance"] });
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to update attendance record");
@@ -458,7 +427,7 @@ export default function TeamPage() {
     } finally {
       setAttEditLoading(false);
     }
-  }, [editAttForm, fetchAttendance]);
+  }, [editAttForm]);
 
   const handleDeleteAttendance = useCallback(async (id: string) => {
     if (!confirm("Are you sure you want to delete this attendance record?")) return;
@@ -469,7 +438,7 @@ export default function TeamPage() {
       });
       if (res.ok) {
         toast.success("Attendance record deleted");
-        fetchAttendance();
+        queryClient.invalidateQueries({ queryKey: ["team-attendance"] });
       } else {
         const errData = await res.json().catch(() => null);
         toast.error(errData?.error || "Failed to delete attendance record");
@@ -477,7 +446,7 @@ export default function TeamPage() {
     } catch {
       toast.error("Failed to delete attendance record");
     }
-  }, [fetchAttendance]);
+  }, []);
 
   const openEditAttDialog = useCallback((record: AttendanceRecord) => {
     setEditAttForm({
@@ -514,7 +483,7 @@ export default function TeamPage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-muted-foreground">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchData(); }}>
+        <Button variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["team-users"] }); queryClient.invalidateQueries({ queryKey: ["team-leaves"] }); queryClient.invalidateQueries({ queryKey: ["team-attendance"] }); }}>
           Try Again
         </Button>
       </div>
@@ -545,7 +514,7 @@ export default function TeamPage() {
         <div className="flex gap-2">
           {isAdminUser && (
             <>
-              <Button size="sm" variant="outline" onClick={() => { setLoading(true); fetchData(); }} disabled={loading}>
+              <Button size="sm" variant="outline" onClick={() => { queryClient.invalidateQueries({ queryKey: ["team-users"] }); queryClient.invalidateQueries({ queryKey: ["team-leaves"] }); queryClient.invalidateQueries({ queryKey: ["team-attendance"] }); }} disabled={loading}>
                 <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
               </Button>
               {tab === "team" && (

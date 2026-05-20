@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -100,6 +101,8 @@ export default function ProjectDetailPage() {
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   // L-PRJ-8 FIX: Removed unused isSuperAdmin variable
 
+  const queryClient = useQueryClient();
+
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
       window.location.href = "/login";
@@ -108,12 +111,72 @@ export default function ProjectDetailPage() {
     return false;
   }, []);
 
-  // ── State: ALL typed as unknown[] or Record<string,unknown> for safety ──
-  const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<unknown[]>([]);
-  const [members, setMembers] = useState<unknown[]>([]);
-  const [teamUsers, setTeamUsers] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ── React Query — project detail, tasks, members ──
+  const { data: projectData, isLoading: projectLoading } = useQuery({
+    queryKey: ["project-detail", projectId],
+    queryFn: async () => {
+      if (!projectId) return { project: null, tasks: [], members: [] };
+      const [projRes, taskRes, memberRes] = await Promise.all([
+        fetch(`/api/projects?projectId=${projectId}`, { credentials: "include" }),
+        fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include" }),
+        fetch(`/api/projects/${projectId}/members`, { credentials: "include" }),
+      ]);
+
+      let project: Record<string, unknown> | null = null;
+      if (projRes.ok) {
+        if (projRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+        const raw = deepSanitize(await projRes.json());
+        if (Array.isArray(raw) && raw.length > 0) {
+          project = raw[0] as Record<string, unknown>;
+        } else if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) {
+          project = raw as Record<string, unknown>;
+        } else if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
+          project = ((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>;
+        }
+      } else if (projRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+
+      let tasks: unknown[] = [];
+      if (taskRes.ok) {
+        if (taskRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+        const td = deepSanitize(await taskRes.json());
+        tasks = Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+      } else if (taskRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+
+      let members: unknown[] = [];
+      if (memberRes.ok) {
+        if (memberRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+        const md = deepSanitize(await memberRes.json());
+        members = Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
+      } else if (memberRes.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+
+      return { project, tasks, members };
+    },
+    enabled: !!projectId,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+
+  const project = projectData?.project ?? null;
+  const tasks = projectData?.tasks ?? [];
+  const members = projectData?.members ?? [];
+
+  // ── React Query — team users (admin only) ──
+  const { data: teamUsersData = [] } = useQuery({
+    queryKey: ["team-users"],
+    queryFn: async () => {
+      const res = await fetch("/api/team?type=users", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load team users");
+      const ud = deepSanitize(await res.json());
+      return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
+    },
+    enabled: isAdminUser,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  const teamUsers = teamUsersData;
+
   const [addOpen, setAddOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
@@ -121,56 +184,6 @@ export default function ProjectDetailPage() {
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const fetchData = useCallback(async (signal?: AbortSignal) => {
-    if (!projectId) { setLoading(false); return; }
-    try {
-      const [projRes, taskRes, memberRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`, { credentials: "include", signal }),
-        fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include", signal }),
-        fetch(`/api/projects/${projectId}/members`, { credentials: "include", signal }),
-      ]);
-
-      if (projRes.ok) {
-        const raw = deepSanitize(await projRes.json());
-        if (Array.isArray(raw) && raw.length > 0) {
-          setProject(raw[0] as Record<string, unknown>);
-        } else if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) {
-          setProject(raw as Record<string, unknown>);
-        } else if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
-          setProject(((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>);
-        }
-      } else { handle401(projRes); }
-
-      if (taskRes.ok) {
-        const td = deepSanitize(await taskRes.json());
-        setTasks(Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []));
-      } else { handle401(taskRes); }
-
-      if (memberRes.ok) {
-        const md = deepSanitize(await memberRes.json());
-        setMembers(Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []));
-      } else { handle401(memberRes); }
-
-      if (isAdminUser) {
-        const userRes = await fetch("/api/team?type=users", { credentials: "include", signal });
-        if (userRes.ok) {
-          const ud = deepSanitize(await userRes.json());
-          setTeamUsers(Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []));
-        } else { handle401(userRes); }
-      }
-    } catch {
-      toast.error("Failed to load project data");
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, isAdminUser, handle401]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchData(controller.signal);
-    return () => controller.abort();
-  }, [fetchData]);
 
   // M-PRJ-6 FIX: Cleanup debounce timer on unmount
   useEffect(() => {
@@ -192,7 +205,7 @@ export default function ProjectDetailPage() {
     };
     try {
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(data) });
-      if (res.ok) { toast.success("Task created"); setAddOpen(false); fetchData(); }
+      if (res.ok) { toast.success("Task created"); setAddOpen(false); queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }); }
       else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
     } catch { toast.error("Failed to create task"); }
   };
@@ -210,7 +223,7 @@ export default function ProjectDetailPage() {
         } else {
           toast.success(`Task moved to ${finalStatus.replace("_", " ")}`);
         }
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] });
       } else {
         if (handle401(res)) return;
         const err = await res.json().catch(() => null);
@@ -222,7 +235,7 @@ export default function ProjectDetailPage() {
   const handleDeleteTask = async (taskId: string) => {
     try {
       const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { toast.success("Task deleted"); fetchData(); }
+      if (res.ok) { toast.success("Task deleted"); queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }); }
       else { if (handle401(res)) return; toast.error("Failed to delete task"); }
     } catch { toast.error("Failed to delete task"); }
   };
@@ -230,7 +243,7 @@ export default function ProjectDetailPage() {
   const handleAddMember = async (userId: string, role: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
-      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); fetchData(); }
+      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }); }
       else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
     } catch { toast.error("Failed to add member"); }
   };
@@ -238,7 +251,7 @@ export default function ProjectDetailPage() {
   const handleUpdateProject = async (updates: Record<string, unknown>) => {
     try {
       const res = await fetch("/api/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: projectId, ...updates }) });
-      if (res.ok) { toast.success("Project updated"); fetchData(); }
+      if (res.ok) { toast.success("Project updated"); queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }); }
       else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update project"); }
     } catch { toast.error("Failed to update project"); }
   };
@@ -246,7 +259,7 @@ export default function ProjectDetailPage() {
   const handleRemoveMember = async (userId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { toast.success("Member removed"); fetchData(); }
+      if (res.ok) { toast.success("Member removed"); queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }); }
       else { if (handle401(res)) return; toast.error("Failed to remove member"); }
     } catch { toast.error("Failed to remove member"); }
   };
@@ -266,7 +279,7 @@ export default function ProjectDetailPage() {
   }, [teamUsers, memberUserIds]);
 
   // ── Loading state ──
-  if (sessionStatus === "loading" || loading) {
+  if (sessionStatus === "loading" || projectLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
