@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -8,6 +8,7 @@ import {
   CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw,
   AlertTriangle, Trash2, User, AlertCircle, Calendar, ClipboardList,
   ShieldCheck, HourglassIcon, ListChecks, Send, RotateCcw,
+  GraduationCap, BookOpen, FileQuestion, Timer, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,28 @@ interface PendingCounts {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Training Assignment (for Overdue Training tab)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+interface TrainingAssignment {
+  id: string;
+  documentId: string;
+  testId: string | null;
+  assignedTo: string;
+  assignedBy: string;
+  testLevel: string;
+  dueDate: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  document?: { id: string; topic: string; imageUrl: string | null } | null;
+  employee?: { id: string; name: string; email: string; avatar: string | null } | null;
+  assigner?: { id: string; name: string } | null;
+  test?: { id: string; level: string; timeLimit: number; createdAt: string } | null;
+  attempts?: { id: string; score: number; total: number; passed: boolean; timeTaken: number | null; createdAt: string }[];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Color Mappings
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -124,6 +147,20 @@ const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive"
   DONE: "secondary",
 };
 
+const trainingStatusBadge: Record<string, string> = {
+  ASSIGNED: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  READ: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  TEST_STARTED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  FAILED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  PASSED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+};
+
+const testLevelBadge: Record<string, string> = {
+  LOW: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  MEDIUM: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  HIGH: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
 const leaveTypeBadge: Record<string, string> = {
   CASUAL: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   SICK: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
@@ -153,6 +190,11 @@ const sourceTypeConfig: Record<string, { label: string; color: string; icon: Rea
     color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
     icon: <Bot className="h-4 w-4" />,
   },
+  OVERDUE_TRAINING: {
+    label: "Overdue Training",
+    color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+    icon: <GraduationCap className="h-4 w-4" />,
+  },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -175,13 +217,13 @@ function getInitials(name: string): string {
 
 interface UnifiedPendingItem {
   id: string;
-  source: "LEAVE" | "TASK" | "AI";
+  source: "LEAVE" | "TASK" | "AI" | "OVERDUE_TRAINING";
   title: string;
   description: string | null;
   requesterName: string;
   requesterAvatar: string | null;
   createdAt: string;
-  raw: Approval | LeaveRequest | TaskItem;
+  raw: Approval | LeaveRequest | TaskItem | TrainingAssignment;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,12 +305,27 @@ export default function ApprovalsPage() {
     retry: 1,
   });
 
+  // ━━ useQuery: Overdue Training Assignments ━━
+  const { data: overdueTrainingData = [], isLoading: trainingLoading, error: trainingError } = useQuery({
+    queryKey: ["approvals-overdue-training"],
+    queryFn: async () => {
+      const res = await fetch("/api/training/assignments?overdue=true", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load overdue training");
+      const data = await res.json();
+      return safeArray<TrainingAssignment>(data);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
   const aiApprovals = aiApprovalsData;
   const leaveRequests = leaveRequestsData;
   const tasks = tasksData;
   const historyItems = historyItemsData;
-  const loading = approvalsLoading || leavesLoading || tasksLoading;
-  const error = approvalsError?.message || leavesError?.message || tasksError?.message || null;
+  const overdueTraining = overdueTrainingData;
+  const loading = approvalsLoading || leavesLoading || tasksLoading || trainingLoading;
+  const error = approvalsError?.message || leavesError?.message || tasksError?.message || trainingError?.message || null;
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
@@ -276,6 +333,7 @@ export default function ApprovalsPage() {
   const pendingAiApprovals = aiApprovals.filter((a) => a.status === "PENDING");
   const pendingLeaves = leaveRequests.filter((l) => l.status === "PENDING");
   const pendingTasks = tasks.filter((t) => t.status === "AWAITING_APPROVAL");
+  const overdueTrainingCount = overdueTraining.length;
 
   // Role-based filtering: admins see all, developers see only their own
   const myLeaves = isAdminUser ? leaveRequests : leaveRequests.filter((l) => l.userId === userId);
@@ -289,12 +347,12 @@ export default function ApprovalsPage() {
     approvals: pendingAiApprovals.length,
     leaveRequests: pendingLeaves.length,
     tasksAwaitingApproval: pendingTasks.length,
-    total: pendingAiApprovals.length + pendingLeaves.length + pendingTasks.length,
+    total: pendingAiApprovals.length + pendingLeaves.length + pendingTasks.length + overdueTrainingCount,
   } : {
     approvals: myPendingTasks.length,
     leaveRequests: myPendingLeaves.length,
     tasksAwaitingApproval: myActiveTasks.length,
-    total: myPendingLeaves.length + myPendingTasks.length + myActiveTasks.filter((t) => t.status !== "AWAITING_APPROVAL").length,
+    total: myPendingLeaves.length + myPendingTasks.length + myActiveTasks.filter((t) => t.status !== "AWAITING_APPROVAL").length + overdueTrainingCount,
   };
 
   // Unified pending queue
@@ -328,6 +386,17 @@ export default function ApprovalsPage() {
       requesterAvatar: null,
       createdAt: a.createdAt,
       raw: a,
+    })),
+    // Overdue training items
+    ...overdueTraining.map((t) => ({
+      id: t.id,
+      source: "OVERDUE_TRAINING" as const,
+      title: `${safeText(t.employee?.name, "Unknown")} — ${safeText(t.document?.topic, "Training")}`,
+      description: t.dueDate ? `Was due ${new Date(t.dueDate).toLocaleDateString()} · Status: ${t.status}` : `Status: ${t.status}`,
+      requesterName: safeText(t.employee?.name, "Unknown"),
+      requesterAvatar: t.employee?.avatar || null,
+      createdAt: t.dueDate || t.createdAt,
+      raw: t,
     })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -458,6 +527,7 @@ export default function ApprovalsPage() {
           queryClient.invalidateQueries({ queryKey: ["approvals-history"] });
           queryClient.invalidateQueries({ queryKey: ["approvals-leaves"] });
           queryClient.invalidateQueries({ queryKey: ["approvals-tasks"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-overdue-training"] });
         }}>
           Try Again
         </Button>
@@ -758,6 +828,9 @@ export default function ApprovalsPage() {
     if (item.source === "TASK") {
       return renderTaskCard(item.raw as TaskItem, isAdminUser);
     }
+    if (item.source === "OVERDUE_TRAINING") {
+      return renderOverdueTrainingCard(item.raw as TrainingAssignment);
+    }
     // AI approval — render inline with source badge
     const approval = item.raw as Approval;
     const parsedData = safeJsonParse<Record<string, unknown>>(approval.data, {});
@@ -847,6 +920,124 @@ export default function ApprovalsPage() {
               </Button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Overdue Training Card
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const renderOverdueTrainingCard = (item: TrainingAssignment) => {
+    const daysOverdue = item.dueDate
+      ? Math.floor((Date.now() - new Date(item.dueDate).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    const lastAttempt = item.attempts && item.attempts.length > 0 ? item.attempts[0] : null;
+    const severityColor = daysOverdue >= 7
+      ? "border-red-400 bg-red-50/80 dark:border-red-600 dark:bg-red-900/20"
+      : daysOverdue >= 3
+        ? "border-orange-400 bg-orange-50/80 dark:border-orange-600 dark:bg-orange-900/20"
+        : "border-yellow-400 bg-yellow-50/80 dark:border-yellow-600 dark:bg-yellow-900/20";
+    const severityLabel = daysOverdue >= 7
+      ? "Critical"
+      : daysOverdue >= 3
+        ? "Urgent"
+        : "Overdue";
+    const severityBg = daysOverdue >= 7
+      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+      : daysOverdue >= 3
+        ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+        : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300";
+
+    const statusProgress = (() => {
+      switch (item.status) {
+        case "ASSIGNED": return { label: "Not Started", icon: <BookOpen className="h-3.5 w-3.5" />, color: trainingStatusBadge.ASSIGNED };
+        case "READ": return { label: "Material Read", icon: <BookOpen className="h-3.5 w-3.5" />, color: trainingStatusBadge.READ };
+        case "TEST_STARTED": return { label: "Test In Progress", icon: <FileQuestion className="h-3.5 w-3.5" />, color: trainingStatusBadge.TEST_STARTED };
+        case "FAILED": return { label: "Test Failed", icon: <XCircle className="h-3.5 w-3.5" />, color: trainingStatusBadge.FAILED };
+        default: return { label: item.status, icon: <Clock className="h-3.5 w-3.5" />, color: trainingStatusBadge.ASSIGNED };
+      }
+    })();
+
+    return (
+      <Card key={item.id} className={`border ${severityColor}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg flex items-center justify-center bg-red-100 dark:bg-red-900/30">
+                <GraduationCap className="h-5 w-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">{safeText(item.document?.topic, "Untitled Training")}</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <Badge variant="secondary" className={`text-[10px] ${severityBg}`}>
+                    <AlertTriangle className="h-3 w-3 mr-0.5" />
+                    {severityLabel} — {daysOverdue}d overdue
+                  </Badge>
+                  <Badge variant="secondary" className={`text-[10px] ${testLevelBadge[item.testLevel] || ""}`}>
+                    {item.testLevel} Level
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="flex items-center gap-1">
+                {statusProgress.icon}
+                <Badge variant="secondary" className={`text-[10px] ${statusProgress.color}`}>
+                  {statusProgress.label}
+                </Badge>
+              </div>
+              {item.dueDate && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Due: {new Date(item.dueDate).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Employee info */}
+          <div className="flex items-center gap-3">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={item.employee?.avatar || undefined} alt={safeText(item.employee?.name, "")} />
+              <AvatarFallback className="text-xs">{getInitials(safeText(item.employee?.name, "?"))}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{safeText(item.employee?.name, "Unknown Employee")}</p>
+              <p className="text-xs text-muted-foreground truncate">{safeText(item.employee?.email, "")}</p>
+            </div>
+            {isAdminUser && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0"
+                onClick={() => router.push("/dashboard/training")}
+              >
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Last attempt info (if any) */}
+          {lastAttempt && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted rounded-lg p-2">
+              <div className="flex items-center gap-1">
+                <Timer className="h-3.5 w-3.5" />
+                <span>Last attempt: {lastAttempt.score}/{lastAttempt.total} ({lastAttempt.timeTaken ? `${Math.floor(lastAttempt.timeTaken / 60)}m ${lastAttempt.timeTaken % 60}s` : "No time"})</span>
+              </div>
+              <Badge variant={lastAttempt.passed ? "secondary" : "destructive"} className="text-[10px]">
+                {lastAttempt.passed ? "Passed" : "Failed"}
+              </Badge>
+            </div>
+          )}
+
+          {/* Assigned by info */}
+          {item.assigner && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Assigned by {safeText(item.assigner.name, "")}</span>
+              <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -947,11 +1138,11 @@ export default function ApprovalsPage() {
       bg: "bg-sky-50 dark:bg-sky-900/20",
     },
     {
-      label: "Task Approvals",
-      value: counts.tasksAwaitingApproval,
-      icon: <ListChecks className="h-5 w-5" />,
-      color: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-900/20",
+      label: "Overdue Training",
+      value: overdueTrainingCount,
+      icon: <GraduationCap className="h-5 w-5" />,
+      color: overdueTrainingCount > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400",
+      bg: overdueTrainingCount > 0 ? "bg-red-50 dark:bg-red-900/20" : "bg-green-50 dark:bg-green-900/20",
     },
   ] : [
     {
@@ -996,6 +1187,7 @@ export default function ApprovalsPage() {
           queryClient.invalidateQueries({ queryKey: ["approvals-history"] });
           queryClient.invalidateQueries({ queryKey: ["approvals-leaves"] });
           queryClient.invalidateQueries({ queryKey: ["approvals-tasks"] });
+          queryClient.invalidateQueries({ queryKey: ["approvals-overdue-training"] });
         }}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
@@ -1046,6 +1238,15 @@ export default function ApprovalsPage() {
             )}
           </TabsTrigger>
 
+          {overdueTrainingCount > 0 && (
+            <TabsTrigger value="overdue-training">
+              Overdue Training
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {overdueTrainingCount}
+              </Badge>
+            </TabsTrigger>
+          )}
+
           <TabsTrigger value="history">
             History
           </TabsTrigger>
@@ -1086,6 +1287,19 @@ export default function ApprovalsPage() {
           ) : (
             <div className="space-y-3">
               {(isAdminUser ? pendingLeaves : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Tab 4: Overdue Training ── */}
+        <TabsContent value="overdue-training" className="mt-4">
+          {loading ? (
+            renderLoading()
+          ) : overdueTraining.length === 0 ? (
+            renderEmpty("No overdue training assignments.", <GraduationCap className="h-12 w-12 text-green-500" />)
+          ) : (
+            <div className="space-y-3">
+              {overdueTraining.map((item) => renderOverdueTrainingCard(item))}
             </div>
           )}
         </TabsContent>

@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       ensureTable("Approval"),
       ensureTable("LeaveRequest"),
       ensureTable("Task"),
+      ensureTable("TrainingAssignment"),
     ])
 
     const badges: Record<string, number> = {}
@@ -43,16 +44,25 @@ export async function GET(req: NextRequest) {
     // ADMIN / SUPER_ADMIN badges
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (isAdmin(userRole)) {
-      const [approvals, leaveRequests, tasksAwaitingApproval] = await Promise.all([
+      const [approvals, leaveRequests, tasksAwaitingApproval, overdueTraining] = await Promise.all([
         db.approval.count({ where: { status: "PENDING" } }),
         db.leaveRequest.count({ where: { status: "PENDING" } }),
         db.task.count({ where: { status: "AWAITING_APPROVAL" } }),
+        db.trainingAssignment.count({
+          where: {
+            dueDate: { lt: new Date() },
+            status: { notIn: ["PASSED", "FAILED"] },
+          },
+        }),
       ])
 
-      const total = approvals + leaveRequests + tasksAwaitingApproval
+      const total = approvals + leaveRequests + tasksAwaitingApproval + overdueTraining
 
-      // Approvals page: all pending combined
+      // Approvals page: all pending combined + overdue training
       if (total > 0) badges["/dashboard/approvals"] = total
+
+      // Training page: overdue training count for admin
+      if (overdueTraining > 0) badges["/dashboard/training"] = overdueTraining
 
       // Team page: pending leave requests (admin needs to act)
       if (leaveRequests > 0) badges["/dashboard/team"] = leaveRequests
@@ -129,8 +139,20 @@ export async function GET(req: NextRequest) {
     // Leaves: my pending leave requests
     if (myPendingLeaves > 0) badges["/dashboard/leaves"] = myPendingLeaves
 
+    // My overdue training assignments
+    const myOverdueTraining = await db.trainingAssignment.count({
+      where: {
+        assignedTo: userId,
+        dueDate: { lt: new Date() },
+        status: { notIn: ["PASSED", "FAILED"] },
+      },
+    })
+
+    // My Training: overdue assignments
+    if (myOverdueTraining > 0) badges["/dashboard/my-training"] = myOverdueTraining
+
     // Approvals: my submitted approvals + resolved approvals (things to check)
-    const myApprovalItems = mySubmittedCount + myPendingLeaves
+    const myApprovalItems = mySubmittedCount + myPendingLeaves + myOverdueTraining
     if (myApprovalItems > 0) badges["/dashboard/approvals"] = myApprovalItems
 
     // Meetings: could add meeting count later if needed

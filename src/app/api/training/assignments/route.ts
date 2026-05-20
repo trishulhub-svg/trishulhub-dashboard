@@ -117,6 +117,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const status = searchParams.get("status") || ""
+    const overdueOnly = searchParams.get("overdue") === "true"
 
     const where: any = {}
 
@@ -130,6 +131,12 @@ export async function GET(req: NextRequest) {
 
     if (status) where.status = status
 
+    // Overdue filter: dueDate < now AND status not completed
+    if (overdueOnly) {
+      where.dueDate = { lt: new Date() }
+      where.status = { notIn: ["PASSED", "FAILED"] }
+    }
+
     const assignments = await db.trainingAssignment.findMany({
       where,
       include: {
@@ -139,8 +146,78 @@ export async function GET(req: NextRequest) {
         test: { select: { id: true, level: true, timeLimit: true, createdAt: true } },
         attempts: { orderBy: { createdAt: "desc" }, take: 1 },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: overdueOnly ? { dueDate: "asc" } : { createdAt: "desc" },
+      take: overdueOnly ? 100 : undefined,
     })
+
+    // ── Smart Overdue Notifications ──
+    // When an admin fetches overdue assignments, create notifications for any
+    // that don't have one yet (idempotent — checked by metadata)
+    if (overdueOnly && isAdmin(userRole) && assignments.length > 0) {
+      try {
+        // Find unique overdue assignments that need notifications
+        for (const assignment of assignments) {
+          const metadataKey = `OVERDUE_TRAINING_${assignment.id}`
+          // Check if notification already exists for this overdue assignment
+          const existingNotif = await db.notification.findFirst({
+            where: {
+              userId: { in: [userId] },
+              metadata: { contains: metadataKey },
+            },
+          })
+          if (!existingNotif) {
+            const daysOverdue = Math.floor(
+              (Date.now() - new Date(assignment.dueDate!).getTime()) / (1000 * 60 * 60 * 24)
+            )
+            await db.notification.create({
+              data: {
+                userId,
+                title: "Training Overdue",
+                message: `${assignment.employee?.name || "An employee"}'s training "${assignment.document?.topic || "Unknown"}" is ${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue (was due ${new Date(assignment.dueDate!).toLocaleDateString()}). Status: ${assignment.status}`,
+                type: "WARNING",
+                link: "/dashboard/approvals",
+                metadata: JSON.stringify({ type: "OVERDUE_TRAINING", assignmentId: assignment.id, key: metadataKey }),
+              },
+            })
+          }
+        }
+      } catch (notifErr: any) {
+        console.error("[training/assignments] Overdue notification error (non-blocking):", notifErr.message)
+      }
+    }
+
+    // ── Smart Overdue Notifications for employees (own overdue) ──
+    // When a non-admin fetches overdue assignments, create personal reminder
+    if (overdueOnly && !isAdmin(userRole) && assignments.length > 0) {
+      try {
+        for (const assignment of assignments) {
+          const metadataKey = `OVERDUE_REMINDER_${assignment.id}`
+          const existingNotif = await db.notification.findFirst({
+            where: {
+              userId: userId,
+              metadata: { contains: metadataKey },
+            },
+          })
+          if (!existingNotif) {
+            const daysOverdue = Math.floor(
+              (Date.now() - new Date(assignment.dueDate!).getTime()) / (1000 * 60 * 60 * 24)
+            )
+            await db.notification.create({
+              data: {
+                userId,
+                title: "Your Training is Overdue",
+                message: `Your training "${assignment.document?.topic || "Unknown"}" is ${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue. Please complete it as soon as possible.`,
+                type: "WARNING",
+                link: "/dashboard/my-training",
+                metadata: JSON.stringify({ type: "OVERDUE_REMINDER", assignmentId: assignment.id, key: metadataKey }),
+              },
+            })
+          }
+        }
+      } catch (notifErr: any) {
+        console.error("[training/assignments] Employee overdue notification error (non-blocking):", notifErr.message)
+      }
+    }
 
     return NextResponse.json(assignments)
   } catch (error: any) {

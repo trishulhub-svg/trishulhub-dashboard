@@ -185,6 +185,24 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // ── Clean up overdue notifications when training is completed ──
+    try {
+      // Delete overdue training notifications for all admins
+      const overdueNotifs = await db.notification.findMany({
+        where: {
+          type: "WARNING",
+          metadata: { contains: `"assignmentId":"${assignmentId}"` },
+        },
+      })
+      if (overdueNotifs.length > 0) {
+        await db.notification.deleteMany({
+          where: { id: { in: overdueNotifs.map((n) => n.id) } },
+        })
+      }
+    } catch (cleanupErr: any) {
+      console.error("[training/attempts] Notification cleanup error (non-blocking):", cleanupErr.message)
+    }
+
     // Notify admins about completion
     try {
       const admins = await db.user.findMany({
