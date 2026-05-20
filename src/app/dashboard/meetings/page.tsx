@@ -193,7 +193,7 @@ function getDateLabel(dateStr: string): string {
 // ━━ Main Component ━━
 export default function MeetingsPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
@@ -499,20 +499,6 @@ export default function MeetingsPage() {
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
   };
-
-  // ━━ Session loading guard ━━
-  if (status === "loading") {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   // ━━ Loading State ━━
   if (loading) {

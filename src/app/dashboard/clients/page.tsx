@@ -912,25 +912,6 @@ export default function ClientsPage() {
   // CLI-032: Check if a date quick filter is active
   const isDateFilterActive = (value: string) => debouncedSearch.toLowerCase().trim() === value;
 
-  // ━━ Early return for non-authenticated / non-admin ━━
-  // NOTE: All hooks must be called before any early returns (react-hooks/rules-of-hooks)
-  if (status === "loading") {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-28 rounded-lg" />
-          ))}
-        </div>
-        <Skeleton className="h-96 rounded-lg" />
-      </div>
-    );
-  }
-
   if (status !== "authenticated" || !isAdminUser) return null;
 
   // ━━ Loading state ━━

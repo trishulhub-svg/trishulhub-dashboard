@@ -69,8 +69,7 @@ interface ApiKeyData {
 
 export default function ApiKeysPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const isSessionLoading = status === "loading";
+  const { data: session } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
@@ -305,18 +304,6 @@ export default function ApiKeysPage() {
   const activeKeys = keys.filter(k => k.status === "ACTIVE").length;
   const exhaustedKeys = keys.filter(k => k.status === "EXHAUSTED").length;
   const errorKeys = keys.filter(k => k.status === "ERROR").length;
-
-  // Session loading guard — must be BEFORE role guard
-  if (isSessionLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 rounded-lg animate-pulse" />)}
-        </div>
-      </div>
-    );
-  }
 
   // Role guard
   if (userRole !== "SUPER_ADMIN") { router.push("/dashboard"); return null; }

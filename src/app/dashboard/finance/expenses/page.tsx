@@ -95,15 +95,6 @@ export default function ExpensesPage() {
   const [editDate, setEditDate] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
 
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
-      </div>
-    );
-  }
-
   if (status !== "authenticated" || !isAdminUser) return null;
 
 

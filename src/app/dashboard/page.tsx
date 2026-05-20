@@ -25,8 +25,7 @@ const invoiceStatusColors: Record<string, string> = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const isSessionLoading = status === "loading";
+  const { data: session } = useSession();
   const [error, setError] = useState(false);
 
   const userRole = session?.user?.role || "DEVELOPER";
@@ -49,7 +48,7 @@ export default function DashboardPage() {
   // Seeding should only happen via explicit admin action at /api/setup POST.
   // If the dashboard fails to load, show an error state instead.
 
-  if (isSessionLoading || loading) {
+  if (loading) {
     return (
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

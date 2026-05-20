@@ -5,14 +5,10 @@ import { db } from "@/lib/db"
 import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/clients - List all clients with pagination and aggregated data
 export async function GET(req: NextRequest) {
   try {
-    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
-    await ensureAllTables()
-
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

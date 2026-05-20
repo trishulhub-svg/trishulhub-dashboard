@@ -200,11 +200,9 @@ const PRIORITY_STYLES: Record<string, { color: string; label: string }> = {
 
 export default function AvailabilityPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  const isSessionLoading = status === "loading";
-
   // ── Core data (useQuery with 60s cache) ──
   const queryClient = useQueryClient();
   const { data: coreData, isLoading: loading, error: coreError } = useQuery({
@@ -553,23 +551,6 @@ export default function AvailabilityPage() {
   };
 
   // ─── Loading / Auth states ──────────────────────────────────────────────────
-
-  if (isSessionLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-8 rounded" />
-          <Skeleton className="h-8 w-56" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-32 rounded-lg" />
-          ))}
-        </div>
-        <Skeleton className="h-[500px] rounded-lg" />
-      </div>
-    );
-  }
 
   if (!isUserAdmin) {
     return (

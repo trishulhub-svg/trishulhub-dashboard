@@ -5,13 +5,10 @@ import { db } from "@/lib/db"
 import { createContactSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/contacts - List contacts with pagination, search, filter, sort
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -99,8 +96,6 @@ export async function GET(req: NextRequest) {
 // POST /api/contacts - Create contact (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { createLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // ━━ Shared constants ━━
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
@@ -70,8 +69,6 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-    await ensureAllTables()
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
@@ -155,8 +152,6 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureAllTables()
-
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -217,8 +212,6 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureAllTables()
-
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -256,8 +249,6 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-    await ensureAllTables()
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {

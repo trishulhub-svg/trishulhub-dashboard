@@ -357,19 +357,6 @@ export default function FinancePage() {
     }
   }, [status, router, userRole]);
 
-  // ─── Session loading guard (before role guard to avoid flash) ────
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
-        </div>
-        <Skeleton className="h-64 rounded-lg" />
-      </div>
-    );
-  }
-
   if (status !== "authenticated" || (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN")) return null;
 
   // ─── Loading skeleton ────

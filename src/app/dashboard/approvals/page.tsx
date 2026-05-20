@@ -190,8 +190,7 @@ interface UnifiedPendingItem {
 
 export default function ApprovalsPage() {
   const router = useRouter();
-  const { data: session, status: sessionStatus } = useSession();
-  const isSessionLoading = sessionStatus === "loading";
+  const { data: session } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -448,31 +447,6 @@ export default function ApprovalsPage() {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Loading / Auth States
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  if (isSessionLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-56" />
-            <Skeleton className="h-4 w-96" />
-          </div>
-          <Skeleton className="h-9 w-24" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
-          ))}
-        </div>
-        <Skeleton className="h-10 w-full rounded-lg" />
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-40 rounded-lg" />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (

@@ -130,22 +130,6 @@ export default function InvoicesPage() {
   const [editProjectId, setEditProjectId] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
 
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   if (status !== "authenticated" || !isAdminUser) return null;
 
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
@@ -184,14 +185,14 @@ const SidebarContent = React.memo(function SidebarContent({
   userRole,
   userName,
   pathname,
-  onNavigate,
+  onLinkClick,
   badgeCounts,
 }: {
   collapsed: boolean;
   userRole: UserRole;
   userName: string;
   pathname: string;
-  onNavigate: (href: string) => void;
+  onLinkClick?: () => void;
   badgeCounts: Record<string, number>;
 }) {
   // Filter groups: only show groups that have at least one visible item for this role
@@ -245,16 +246,17 @@ const SidebarContent = React.memo(function SidebarContent({
                 {group.items.map((item) => {
                   const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
                   return (
-                    <button
+                    <Link
                       key={item.href}
-                      onClick={() => onNavigate(item.href)}
+                      href={item.href}
+                      prefetch={true}
+                      onClick={onLinkClick}
                       className={cn(
                         "relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
                         isActive
                           ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       )}
-                      type="button"
                     >
                       <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
                       {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
@@ -266,7 +268,7 @@ const SidebarContent = React.memo(function SidebarContent({
                       {collapsed && badgeCounts[item.href] > 0 && (
                         <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
                       )}
-                    </button>
+                    </Link>
                   );
                 })}
               </div>
@@ -438,10 +440,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
-  const handleNavigate = (href: string) => {
-    router.push(href);
-    setMobileOpen(false);
-  };
+  // Prefetch common dashboard routes on mount for instant navigation
+  useEffect(() => {
+    const commonRoutes = [
+      "/dashboard/projects",
+      "/dashboard/crm",
+      "/dashboard/team",
+      "/dashboard/finance",
+      "/dashboard/meetings",
+      "/dashboard/clients",
+    ];
+    commonRoutes.forEach((r) => router.prefetch(r));
+  }, [router]);
 
   if (status === "loading") {
     return <LoadingScreen />;
@@ -463,7 +473,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           userRole={userRole}
           userName={userName}
           pathname={pathname}
-          onNavigate={handleNavigate}
           badgeCounts={navBadgeCounts}
         />
         <Button
@@ -496,7 +505,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             userRole={userRole}
             userName={userName}
             pathname={pathname}
-            onNavigate={handleNavigate}
+            onLinkClick={() => setMobileOpen(false)}
             badgeCounts={navBadgeCounts}
           />
         </SheetContent>

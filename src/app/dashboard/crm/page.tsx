@@ -683,20 +683,6 @@ export default function CRMPage() {
   // Check if any filter is active
   const hasActiveFilters = search || dateFilter || filterSource !== "all" || filterStatus !== "all";
 
-  // CRM-002: Show loading skeleton while session is loading
-  if (status === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-32" />
-        <div className="flex gap-4">
-          {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-96 w-[260px] rounded-lg shrink-0" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   // CRM-002: Don't render if not authenticated or not admin
   if (status !== "authenticated" || !isAdminUser) return null;
 

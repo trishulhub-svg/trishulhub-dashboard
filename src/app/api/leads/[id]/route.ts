@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { updateLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // ━━ Shared constants (mirrors leads/route.ts) ━━
 const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
@@ -18,8 +17,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -57,8 +54,6 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -164,7 +159,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to convert lead to client" }, { status: 500 })
     }
   } catch (error: unknown) {
-    // Outer catch for unexpected errors (e.g. ensureAllTables failure)
+    // Outer catch for unexpected errors
     console.error("[leads/[id]] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to convert lead" }, { status: 500 })
   }
@@ -176,8 +171,6 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -263,7 +256,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update lead" }, { status: 500 })
     }
   } catch (error: unknown) {
-    // Outer catch for unexpected errors (e.g. ensureAllTables failure)
+    // Outer catch for unexpected errors
     console.error("[leads/[id]] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to update lead" }, { status: 500 })
   }
@@ -275,8 +268,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

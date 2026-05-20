@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/notification-preferences
 export async function GET() {
   try {
-    await ensureAllTables()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -33,7 +31,6 @@ export async function GET() {
 // PATCH /api/notification-preferences
 export async function PATCH(req: NextRequest) {
   try {
-    await ensureAllTables()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

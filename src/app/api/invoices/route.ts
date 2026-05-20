@@ -6,13 +6,10 @@ import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
 import { deepSanitize } from "@/lib/utils"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -96,8 +93,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    await ensureAllTables()
-
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-post:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rateOk) {
@@ -176,8 +171,6 @@ export async function PATCH(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-patch:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -295,8 +288,6 @@ export async function DELETE(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-delete:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)

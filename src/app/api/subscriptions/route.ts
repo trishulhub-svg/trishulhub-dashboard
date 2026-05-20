@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // Currency conversion rates to INR (approximate)
 const CURRENCY_TO_INR: Record<string, number> = {
@@ -23,8 +22,6 @@ function getMonthlyINR(rate: number, currency: string, frequency: string): numbe
 // GET /api/subscriptions - List subscriptions with filters
 export async function GET(req: NextRequest) {
   try {
-  await ensureAllTables()
-
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -82,8 +79,6 @@ export async function GET(req: NextRequest) {
 // POST /api/subscriptions - Create subscription (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-  await ensureAllTables()
-
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

@@ -110,7 +110,7 @@ const calendarBgColors: Record<string, string> = {
 export default function LeaveManagementPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
@@ -310,20 +310,6 @@ export default function LeaveManagementPage() {
   const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  // Session loading guard
-  if (status === "loading") {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Leave Management</h1>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
