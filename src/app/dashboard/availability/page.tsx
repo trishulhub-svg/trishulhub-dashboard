@@ -686,8 +686,8 @@ export default function AvailabilityPage() {
                   <p className="text-sm">No team members found for this week</p>
                 </div>
               ) : (
-                <ScrollArea className="w-full">
-                  <div className="min-w-[900px]">
+                <div className="w-full overflow-x-auto -mx-6">
+                  <div className="min-w-[900px] px-6">
                     {/* Header row */}
                     <div className="grid grid-cols-[180px_repeat(7,1fr)] border-b bg-muted/50 sticky top-0 z-10">
                       <div className="p-3 text-xs font-semibold text-muted-foreground border-r flex items-center">
@@ -859,7 +859,7 @@ export default function AvailabilityPage() {
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
