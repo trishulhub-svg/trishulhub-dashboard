@@ -65,3 +65,25 @@ Stage Summary:
 - Pushed to: https://github.com/trishulhub-svg/trishulhub-dashboard.git (main)
 - Performance: Expected 40-60% reduction in initial page load time
 - DnD: Full drag-and-drop between Kanban columns matching CRM pattern
+---
+Task ID: 1
+Agent: Main Agent
+Task: Implement smart overdue training notification system in Approvals page
+
+Work Log:
+- Explored codebase: Training models (TrainingDocument, TrainingTest, TrainingAssignment, TestAttempt), Approval system, Notification system, Sidebar badge system
+- Updated /api/approvals/pending-counts to count overdue training (dueDate < now, status not PASSED/FAILED) for both admin and developer roles
+- Added ?overdue=true query support to /api/training/assignments GET endpoint
+- Added smart notification creation: when overdue assignments are fetched, creates idempotent notifications (checked by metadata key to avoid duplicates)
+- Added overdue notification cleanup in /api/training/attempts POST: when training is completed (PASSED/FAILED), all related overdue notifications are deleted
+- Added Overdue Training tab to Approvals page with severity-based cards (Overdue/Urgent/Critical based on days overdue)
+- Added overdue training to unified pending queue in All Pending tab
+- Added training-specific stat card in admin view showing overdue count
+- Auto-shows Overdue Training tab when there are overdue items
+
+Stage Summary:
+- 4 files changed, 348 insertions, 17 deletions
+- Commit: b941954 pushed to main
+- No data loss: only reads data and creates/cleans up notifications
+- Badge on Approvals sidebar now includes overdue training count and only clears when PASSED/FAILED
+
