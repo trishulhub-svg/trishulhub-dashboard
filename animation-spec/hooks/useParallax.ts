@@ -57,5 +57,5 @@ export function useParallax(
     mass: 0.5,
   });
 
-  return { ref, y, scrollProgress };
+  return { ref, y, scrollYProgress };
 }
