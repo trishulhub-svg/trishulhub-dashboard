@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useMemo, useRef, useCallback } from "react";
+import { useParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag, CheckCircle2, ShieldCheck,
-  DollarSign, Activity, Gauge, ListTodo, CircleDot,
+  DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck, LayoutDashboard,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import type { TaskStatus, TaskPriority } from "@/lib/types";
 import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// BULLETPROOF v7: Complete rebuild with safeText() on EVERY rendered value.
+// BULLETPROOF v8: React Query migration + improved task board layout.
 // ALL Radix Select replaced with native <select> (React 19 compatibility).
 // Every JSX child is guaranteed to be string | number | null | undefined | boolean.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -47,12 +48,12 @@ const taskStatusAccentColors: Record<string, string> = {
   DONE: "bg-green-400",
 };
 
-const taskStatusRingColors: Record<string, string> = {
-  TODO: "ring-gray-400/20",
-  IN_PROGRESS: "ring-blue-400/20",
-  REVIEW: "ring-yellow-400/20",
-  AWAITING_APPROVAL: "ring-orange-400/20",
-  DONE: "ring-green-400/20",
+const taskStatusTextColors: Record<string, string> = {
+  TODO: "text-gray-600 dark:text-gray-400",
+  IN_PROGRESS: "text-blue-600 dark:text-blue-400",
+  REVIEW: "text-yellow-600 dark:text-yellow-400",
+  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+  DONE: "text-green-600 dark:text-green-400",
 };
 
 const projectStatusColors: Record<string, string> = {
@@ -115,7 +116,9 @@ function getProgressColor(progress: number) {
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const { data: session, status: sessionStatus } = useSession();
+  const queryClient = useQueryClient();
 
   // Safe projectId extraction
   const rawProjectId = params?.projectId;
@@ -128,7 +131,6 @@ export default function ProjectDetailPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  // L-PRJ-8 FIX: Removed unused isSuperAdmin variable
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -138,12 +140,7 @@ export default function ProjectDetailPage() {
     return false;
   }, []);
 
-  // ── State: ALL typed as unknown[] or Record<string,unknown> for safety ──
-  const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<unknown[]>([]);
-  const [members, setMembers] = useState<unknown[]>([]);
-  const [teamUsers, setTeamUsers] = useState<unknown[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ── State: UI-only state (dialogs, selections) ──
   const [addOpen, setAddOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
@@ -152,62 +149,81 @@ export default function ProjectDetailPage() {
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchData = useCallback(async (signal?: AbortSignal) => {
-    if (!projectId) { setLoading(false); return; }
-    try {
-      const [projRes, taskRes, memberRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`, { credentials: "include", signal }),
-        fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include", signal }),
-        fetch(`/api/projects/${projectId}/members`, { credentials: "include", signal }),
-      ]);
-
-      if (projRes.ok) {
-        const raw = deepSanitize(await projRes.json());
-        if (Array.isArray(raw) && raw.length > 0) {
-          setProject(raw[0] as Record<string, unknown>);
-        } else if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) {
-          setProject(raw as Record<string, unknown>);
-        } else if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
-          setProject(((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>);
-        }
-      } else { handle401(projRes); }
-
-      if (taskRes.ok) {
-        const td = deepSanitize(await taskRes.json());
-        setTasks(Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []));
-      } else { handle401(taskRes); }
-
-      if (memberRes.ok) {
-        const md = deepSanitize(await memberRes.json());
-        setMembers(Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []));
-      } else { handle401(memberRes); }
-
-      if (isAdminUser) {
-        const userRes = await fetch("/api/team?type=users", { credentials: "include", signal });
-        if (userRes.ok) {
-          const ud = deepSanitize(await userRes.json());
-          setTeamUsers(Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []));
-        } else { handle401(userRes); }
+  // ── React Query: Project data with caching ──
+  const { data: projectData, isLoading: projectLoading } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const res = await fetch(`/api/projects?projectId=${projectId}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load project");
+      const raw = deepSanitize(await res.json());
+      if (Array.isArray(raw) && raw.length > 0) return raw[0] as Record<string, unknown>;
+      if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) return raw as Record<string, unknown>;
+      if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
+        return ((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>;
       }
-    } catch {
-      toast.error("Failed to load project data");
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, isAdminUser, handle401]);
+      return null;
+    },
+    enabled: !!projectId,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchData(controller.signal);
-    return () => controller.abort();
-  }, [fetchData]);
+  const { data: tasksData = [], isLoading: tasksLoading } = useQuery({
+    queryKey: ["project-tasks", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const res = await fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load tasks");
+      const td = deepSanitize(await res.json());
+      return Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+    },
+    enabled: !!projectId,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
 
-  // M-PRJ-6 FIX: Cleanup debounce timer on unmount
-  useEffect(() => {
-    return () => {
-      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-    };
-  }, []);
+  const { data: membersData = [], isLoading: membersLoading } = useQuery({
+    queryKey: ["project-members", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const res = await fetch(`/api/projects/${projectId}/members`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load members");
+      const md = deepSanitize(await res.json());
+      return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
+    },
+    enabled: !!projectId,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+
+  const { data: teamUsersData = [] } = useQuery({
+    queryKey: ["team-users"],
+    queryFn: async () => {
+      const res = await fetch("/api/team?type=users", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load team users");
+      const ud = deepSanitize(await res.json());
+      return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
+    },
+    enabled: isAdminUser,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+
+  const project = projectData;
+  const tasks = tasksData;
+  const members = membersData;
+  const teamUsers = teamUsersData;
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+  };
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -222,7 +238,7 @@ export default function ProjectDetailPage() {
     };
     try {
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(data) });
-      if (res.ok) { toast.success("Task created"); setAddOpen(false); fetchData(); }
+      if (res.ok) { toast.success("Task created"); setAddOpen(false); invalidateAll(); }
       else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
     } catch { toast.error("Failed to create task"); }
   };
@@ -238,9 +254,9 @@ export default function ProjectDetailPage() {
         } else if (finalStatus === "DONE" && newStatus === "DONE") {
           toast.success("Task approved and marked as done");
         } else {
-          toast.success(`Task moved to ${finalStatus.replace("_", " ")}`);
+          toast.success(`Task moved to ${String(finalStatus).replace("_", " ")}`);
         }
-        fetchData();
+        invalidateAll();
       } else {
         if (handle401(res)) return;
         const err = await res.json().catch(() => null);
@@ -252,7 +268,7 @@ export default function ProjectDetailPage() {
   const handleDeleteTask = async (taskId: string) => {
     try {
       const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { toast.success("Task deleted"); fetchData(); }
+      if (res.ok) { toast.success("Task deleted"); invalidateAll(); }
       else { if (handle401(res)) return; toast.error("Failed to delete task"); }
     } catch { toast.error("Failed to delete task"); }
   };
@@ -260,7 +276,7 @@ export default function ProjectDetailPage() {
   const handleAddMember = async (userId: string, role: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
-      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); fetchData(); }
+      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); invalidateAll(); }
       else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
     } catch { toast.error("Failed to add member"); }
   };
@@ -268,7 +284,7 @@ export default function ProjectDetailPage() {
   const handleUpdateProject = async (updates: Record<string, unknown>) => {
     try {
       const res = await fetch("/api/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: projectId, ...updates }) });
-      if (res.ok) { toast.success("Project updated"); fetchData(); }
+      if (res.ok) { toast.success("Project updated"); invalidateAll(); }
       else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update project"); }
     } catch { toast.error("Failed to update project"); }
   };
@@ -276,7 +292,7 @@ export default function ProjectDetailPage() {
   const handleRemoveMember = async (userId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { toast.success("Member removed"); fetchData(); }
+      if (res.ok) { toast.success("Member removed"); invalidateAll(); }
       else { if (handle401(res)) return; toast.error("Failed to remove member"); }
     } catch { toast.error("Failed to remove member"); }
   };
@@ -295,8 +311,10 @@ export default function ProjectDetailPage() {
     return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
   }, [teamUsers, memberUserIds]);
 
+  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+
   // ── Loading state ──
-  if (sessionStatus === "loading" || loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -314,8 +332,8 @@ export default function ProjectDetailPage() {
             </div>
           ))}
         </div>
-        <div className="flex gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-64 rounded-lg" />)}
         </div>
       </div>
     );
@@ -351,6 +369,8 @@ export default function ProjectDetailPage() {
 
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
+  const isTodosPage = pathname.endsWith("/todos");
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -369,6 +389,38 @@ export default function ProjectDetailPage() {
             <p className="text-muted-foreground/80 text-sm mt-1.5 leading-relaxed max-w-2xl">{safeText(projectDesc)}</p>
           )}
         </div>
+      </div>
+
+      {/* ── View Tabs: Overview | My Tasks ── */}
+      <div className="flex items-center gap-1 bg-muted/60 rounded-lg p-1 w-fit">
+        <Button
+          variant={isTodosPage ? "ghost" : "default"}
+          size="sm"
+          className={cn(
+            "gap-1.5 text-xs transition-all",
+            isTodosPage && "text-muted-foreground hover:text-foreground",
+            !isTodosPage && "shadow-sm"
+          )}
+          onClick={() => router.push(`/dashboard/projects/${projectId}`)}
+        >
+          <LayoutDashboard className="h-3.5 w-3.5" />
+          Overview
+          {isAdminUser && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">Admin</Badge>}
+        </Button>
+        <Button
+          variant={isTodosPage ? "default" : "ghost"}
+          size="sm"
+          className={cn(
+            "gap-1.5 text-xs transition-all",
+            !isTodosPage && "text-muted-foreground hover:text-foreground",
+            isTodosPage && "shadow-sm"
+          )}
+          onClick={() => router.push(`/dashboard/projects/${projectId}/todos`)}
+        >
+          <ClipboardCheck className="h-3.5 w-3.5" />
+          My Tasks
+          {!isAdminUser && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">You</Badge>}
+        </Button>
       </div>
 
       {/* Project Info Cards */}
@@ -419,7 +471,6 @@ export default function ProjectDetailPage() {
                   value={safeNumber(projectProgress)}
                   onChange={(e) => {
                     const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                    // M-PRJ-6 FIX: Debounce progress updates (500ms) to avoid excessive API calls
                     if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
                     progressTimerRef.current = setTimeout(() => {
                       handleUpdateProject({ progress: val });
@@ -445,7 +496,7 @@ export default function ProjectDetailPage() {
                 <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Budget</p>
               </div>
               <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-300">
-                ₹{String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+                {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
               </p>
             </CardContent>
           </Card>
@@ -595,18 +646,23 @@ export default function ProjectDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Task Board */}
+      {/* ── Task Board Header with Add Task ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
             <ListTodo className="h-4 w-4 text-primary" />
           </div>
-          <h2 className="text-lg font-bold">Task Board</h2>
+          <div>
+            <h2 className="text-lg font-bold">Task Board</h2>
+            <p className="text-xs text-muted-foreground">{String(tasks.length)} total tasks</p>
+          </div>
         </div>
         {(isAdminUser || members.length > 0) && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5 shadow-sm"><Plus className="h-4 w-4" /> Add Task</Button>
+              <Button size="sm" className="gap-1.5 shadow-sm bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:shadow-primary/20 transition-all duration-200 hover:scale-[1.02]">
+                <Plus className="h-4 w-4" /> Add Task
+              </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -839,24 +895,31 @@ export default function ProjectDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Task Columns */}
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      {/* ── Task Columns — Responsive Grid Layout (TASK 4) ── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         {TASK_COLUMNS.map((status) => {
           const statusStr = String(status);
           const columnTasks = (tasks as Record<string, unknown>[]).filter(
             (t) => extractStr(t, "status", "") === statusStr
           );
           const accentColor = taskStatusAccentColors[statusStr] || "bg-gray-400";
-          const ringColor = taskStatusRingColors[statusStr] || "ring-gray-400/20";
+          const textColor = taskStatusTextColors[statusStr] || "text-gray-500";
+
           return (
-            <div key={statusStr} className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
-              <div className={`rounded-t-xl px-3.5 py-2.5 flex items-center gap-2 relative overflow-hidden ${taskStatusColors[statusStr] || ""}`}>
+            <div key={statusStr} className="flex flex-col min-w-0">
+              {/* Column Header */}
+              <div className={cn(
+                "rounded-t-xl px-3.5 py-2.5 flex items-center gap-2 relative overflow-hidden",
+                taskStatusColors[statusStr] || "",
+                "border border-b-0 border-gray-200/60 dark:border-gray-700/40"
+              )}>
                 <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
-                <CircleDot className={cn("h-3.5 w-3.5", statusStr === "TODO" ? "text-gray-500" : statusStr === "IN_PROGRESS" ? "text-blue-500" : statusStr === "REVIEW" ? "text-yellow-500" : statusStr === "AWAITING_APPROVAL" ? "text-orange-500" : "text-green-500")} />
-                <h3 className="font-bold text-[13px] tracking-tight">{statusStr.replace("_", " ")}</h3>
-                <Badge variant="secondary" className="text-[10px] font-bold ml-auto bg-muted/80">{String(columnTasks.length)}</Badge>
+                <CircleDot className={cn("h-3.5 w-3.5", textColor)} />
+                <h3 className="font-bold text-[13px] tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
+                <Badge variant="secondary" className="text-[10px] font-bold bg-muted/80">{String(columnTasks.length)}</Badge>
               </div>
-              <div className="flex-1 space-y-2 p-2 bg-muted/20 rounded-b-xl min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
+              {/* Column Card List — independently scrollable */}
+              <div className="flex-1 space-y-2 p-2 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[180px] max-h-[500px] overflow-y-auto custom-scrollbar">
                 {columnTasks.map((task) => {
                   const tId = extractStr(task, "id", "");
                   const tTitle = extractStr(task, "title", "Untitled");
@@ -875,12 +938,16 @@ export default function ProjectDetailPage() {
                   return (
                     <Card
                       key={tId}
-                      className={cn("hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px]", borderL)}
+                      className={cn(
+                        "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px]",
+                        borderL,
+                        "bg-white/80 dark:bg-white/[0.04] backdrop-blur-sm"
+                      )}
                       onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
                     >
                       <CardContent className="p-3 space-y-2">
                         <div className="flex items-start justify-between gap-1.5">
-                          <p className="text-sm font-semibold leading-snug">{safeText(tTitle, "Untitled")}</p>
+                          <p className="text-sm font-semibold leading-snug line-clamp-2">{safeText(tTitle, "Untitled")}</p>
                           <Badge className={`text-[10px] shrink-0 font-semibold ${priorityColors[tPriority] || ""}`}>
                             {safeText(tPriority, "MEDIUM")}
                           </Badge>
@@ -895,7 +962,7 @@ export default function ProjectDetailPage() {
                             ) : (
                               <User className="h-3 w-3" />
                             )}
-                            <span>{safeText(tAssignedName)}</span>
+                            <span className="truncate max-w-[80px]">{safeText(tAssignedName)}</span>
                           </div>
                           {tDeadline && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
@@ -969,6 +1036,17 @@ export default function ProjectDetailPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Board Summary Footer */}
+      <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
+        <span>{String(tasks.length)} tasks across {String(TASK_COLUMNS.length)} columns</span>
+        {tasks.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span>{String(tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length)} completed</span>
+            <Progress value={Math.round((tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length / tasks.length) * 100)} className="h-1.5 w-24 [&>div]:bg-emerald-500" />
+          </div>
+        )}
       </div>
     </div>
   );

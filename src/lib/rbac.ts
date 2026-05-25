@@ -1,6 +1,13 @@
 import { db } from "@/lib/db"
 
 /**
+ * Check if a user is a super admin (only SUPER_ADMIN)
+ */
+export function isSuperAdmin(role: string): boolean {
+  return role === "SUPER_ADMIN"
+}
+
+/**
  * Check if a user is an admin (SUPER_ADMIN or ADMIN)
  */
 export function isAdmin(role: string): boolean {
@@ -8,15 +15,17 @@ export function isAdmin(role: string): boolean {
 }
 
 /**
- * Get the list of project IDs that a developer is assigned to.
- * Admins see all projects (returns null to indicate "no filter needed").
+ * Get the list of project IDs that a user has access to.
+ * SUPER_ADMIN sees all projects (returns null to indicate "no filter needed").
+ * ADMIN sees only projects they are explicitly added to as a member.
  * CLIENT users see projects belonging to their linked client record.
+ * DEVELOPER / VIEWER see only projects they are members of.
  * 
- * @returns Array of project IDs the user has access to, or null if admin (all access)
+ * @returns Array of project IDs the user has access to, or null if SUPER_ADMIN (all access)
  */
 export async function getAssignedProjectIds(userId: string, role: string): Promise<string[] | null> {
-  // Admins can see all projects
-  if (isAdmin(role)) return null
+  // Only SUPER_ADMIN can see all projects
+  if (isSuperAdmin(role)) return null
 
   // CLIENT users: find projects via their linked Client record
   if (role === "CLIENT") {
@@ -29,7 +38,7 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
     return projects.map(p => p.id)
   }
 
-  // Developers only see projects they're members of
+  // ADMIN, DEVELOPER, VIEWER: only see projects they are members of
   const memberships = await db.projectMember.findMany({
     where: { userId },
     select: { projectId: true },
@@ -44,7 +53,7 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
  * Useful for filtering clients, invoices, etc.
  */
 export async function getAssignedClientIds(userId: string, role: string): Promise<string[] | null> {
-  if (isAdmin(role)) return null
+  if (isSuperAdmin(role)) return null
 
   // CLIENT users: return their own linked client ID
   if (role === "CLIENT") {
