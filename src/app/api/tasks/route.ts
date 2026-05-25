@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const projectId = searchParams.get("projectId")
+  const assignedToFilter = searchParams.get("assignedTo")
 
   // Developers only see tasks from their assigned projects
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
@@ -44,6 +45,12 @@ export async function GET(req: NextRequest) {
   if (assignedProjectIds) {
     where.projectId = { in: assignedProjectIds }
   }
+
+  // Filter by assigned user when ?assignedTo=current
+  if (assignedToFilter === "current") {
+    where.assignedTo = userId
+  }
+
   if (projectId) {
     where.projectId = assignedProjectIds
       ? { in: [...(assignedProjectIds as string[])].filter(id => id === projectId) }

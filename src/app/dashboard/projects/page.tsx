@@ -13,6 +13,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, ArrowRight, Pencil, Trash2, MoreHorizontal,
   Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2, LayoutGrid,
+  ClipboardCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -93,6 +94,7 @@ function KanbanProjectCard({
   onEdit,
   onDelete,
   isDragging,
+  onHover,
 }: {
   project: Record<string, unknown>;
   onClick: () => void;
@@ -100,6 +102,7 @@ function KanbanProjectCard({
   onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete?: (projectId: string, e: React.MouseEvent) => void;
   isDragging?: boolean;
+  onHover?: () => void;
 }) {
   const client = project.client as Record<string, unknown> | undefined;
   const pName = safeText(project.name, "Untitled");
@@ -126,6 +129,7 @@ function KanbanProjectCard({
         pStatus === "PLANNING" && "border-l-gray-400 dark:border-l-gray-500",
       )}
       onClick={onClick}
+      onMouseEnter={onHover}
       style={isDragging ? { pointerEvents: "none" as const } : undefined}
     >
       {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
@@ -213,12 +217,14 @@ function SortableProjectCard({
   isAdminUser,
   onEdit,
   onDelete,
+  onHover,
 }: {
   project: Record<string, unknown>;
   onCardClick: () => void;
   isAdminUser: boolean;
   onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete: (projectId: string, e: React.MouseEvent) => void;
+  onHover?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: safeText(project.id, ""),
@@ -238,6 +244,7 @@ function SortableProjectCard({
         onEdit={onEdit}
         onDelete={onDelete}
         isDragging={false}
+        onHover={onHover}
       />
     </div>
   );
@@ -253,6 +260,7 @@ function DroppableKanbanColumn({
   onDelete,
   isDimmed,
   activeId,
+  onHover,
 }: {
   col: typeof KANBAN_COLUMNS[number];
   projects: Record<string, unknown>[];
@@ -262,6 +270,7 @@ function DroppableKanbanColumn({
   onDelete: (projectId: string, e: React.MouseEvent) => void;
   isDimmed: boolean;
   activeId: string | null;
+  onHover?: (pid: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
@@ -325,6 +334,7 @@ function DroppableKanbanColumn({
                 isAdminUser={isAdminUser}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onHover={() => onHover && onHover(pId)}
               />
             );
           })}
@@ -548,6 +558,44 @@ export default function ProjectsPage() {
     e.stopPropagation();
     setDeleteId(projectId);
   };
+
+  // ━━ Prefetch project detail data on hover (Task 2: fast navigation) ━━
+  const handlePrefetchProject = useCallback((pid: string) => {
+    if (!pid) return;
+    queryClient.prefetchQuery({
+      queryKey: ["project", pid],
+      queryFn: async () => {
+        const res = await fetch(`/api/projects?projectId=${pid}`, { credentials: "include" });
+        if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+        if (!res.ok) throw new Error("Failed to load project");
+        const raw = await res.json();
+        if (Array.isArray(raw) && raw.length > 0) return raw[0];
+        if (raw && typeof raw === "object" && raw.id) return raw;
+        return null;
+      },
+      staleTime: 30 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["project-tasks", pid],
+      queryFn: async () => {
+        const res = await fetch(`/api/tasks?projectId=${pid}`, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load tasks");
+        const td = await res.json();
+        return Array.isArray(td) ? td : (Array.isArray(td?.data) ? td.data : []);
+      },
+      staleTime: 30 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["project-members", pid],
+      queryFn: async () => {
+        const res = await fetch(`/api/projects/${pid}/members`, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load members");
+        const md = await res.json();
+        return Array.isArray(md) ? md : (Array.isArray(md?.data) ? md.data : []);
+      },
+      staleTime: 30 * 1000,
+    });
+  }, [queryClient]);
 
   // ━━ File upload handler ━━
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -831,7 +879,16 @@ export default function ProjectsPage() {
           </div>
           <p className="text-muted-foreground/70 text-sm mt-1 ml-[46px]">Manage your web development projects</p>
         </div>
-        {isAdminUser && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push("/dashboard/projects/todos")}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" /> My Todos
+          </Button>
+          {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1.5 relative overflow-hidden bg-gradient-to-r from-primary to-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
@@ -873,7 +930,8 @@ export default function ProjectsPage() {
               </form>
             </DialogContent>
           </Dialog>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ━━━━ Stats Bar ━━━━ */}
@@ -984,6 +1042,7 @@ export default function ProjectsPage() {
                   onDelete={openDeleteDialog}
                   isDimmed={isDimmed}
                   activeId={activeId}
+                  onHover={handlePrefetchProject}
                 />
               );
             })}

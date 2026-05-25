@@ -311,7 +311,7 @@ export default function ProjectDetailPage() {
     return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
   }, [teamUsers, memberUserIds]);
 
-  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+  const isLoading = sessionStatus === "loading" || projectLoading;
 
   // ── Loading state ──
   if (isLoading) {
@@ -533,7 +533,33 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Project Members */}
+      {/* Project Members — show skeleton if loading */}
+      {membersLoading ? (
+        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-white/80 to-white/50 dark:from-gray-900/30 dark:to-gray-900/10">
+          <CardHeader className="pb-3 border-b border-gray-100/60 dark:border-gray-800/40">
+            <div className="flex items-center gap-2.5">
+              <Skeleton className="h-8 w-8 rounded-lg" />
+              <div className="space-y-1">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-3">
+            <div className="flex gap-2.5">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-2 p-2 rounded-xl border">
+                  <Skeleton className="h-7 w-7 rounded-full" />
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-2 w-12" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
       <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-white/80 to-white/50 dark:from-gray-900/30 dark:to-gray-900/10">
         <CardHeader className="pb-3 border-b border-gray-100/60 dark:border-gray-800/40">
           <div className="flex items-center justify-between">
@@ -645,6 +671,7 @@ export default function ProjectDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* ── Task Board Header with Add Task ── */}
       <div className="flex items-center justify-between">
@@ -896,7 +923,7 @@ export default function ProjectDetailPage() {
       </Dialog>
 
       {/* ── Task Columns — Responsive Grid Layout (TASK 4) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
         {TASK_COLUMNS.map((status) => {
           const statusStr = String(status);
           const columnTasks = (tasks as Record<string, unknown>[]).filter(
@@ -909,17 +936,17 @@ export default function ProjectDetailPage() {
             <div key={statusStr} className="flex flex-col min-w-0">
               {/* Column Header */}
               <div className={cn(
-                "rounded-t-xl px-3.5 py-2.5 flex items-center gap-2 relative overflow-hidden",
+                "rounded-t-xl px-3 py-2 flex items-center gap-1.5 relative overflow-hidden",
                 taskStatusColors[statusStr] || "",
                 "border border-b-0 border-gray-200/60 dark:border-gray-700/40"
               )}>
                 <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
                 <CircleDot className={cn("h-3.5 w-3.5", textColor)} />
-                <h3 className="font-bold text-[13px] tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
+                <h3 className="font-bold text-xs tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
                 <Badge variant="secondary" className="text-[10px] font-bold bg-muted/80">{String(columnTasks.length)}</Badge>
               </div>
               {/* Column Card List — independently scrollable */}
-              <div className="flex-1 space-y-2 p-2 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[180px] max-h-[500px] overflow-y-auto custom-scrollbar">
+              <div className="flex-1 space-y-1.5 p-1.5 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[140px] max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
                 {columnTasks.map((task) => {
                   const tId = extractStr(task, "id", "");
                   const tTitle = extractStr(task, "title", "Untitled");
@@ -945,24 +972,24 @@ export default function ProjectDetailPage() {
                       )}
                       onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
                     >
-                      <CardContent className="p-3 space-y-2">
+                      <CardContent className="p-2 space-y-1.5">
                         <div className="flex items-start justify-between gap-1.5">
-                          <p className="text-sm font-semibold leading-snug line-clamp-2">{safeText(tTitle, "Untitled")}</p>
-                          <Badge className={`text-[10px] shrink-0 font-semibold ${priorityColors[tPriority] || ""}`}>
+                          <p className="text-xs font-semibold leading-tight line-clamp-1">{safeText(tTitle, "Untitled")}</p>
+                          <Badge className={`text-[10px] shrink-0 font-semibold px-1.5 py-0 ${priorityColors[tPriority] || ""}`}>
                             {safeText(tPriority, "MEDIUM")}
                           </Badge>
                         </div>
                         {tDesc && (
-                          <p className="text-xs text-muted-foreground/80 line-clamp-2 leading-relaxed">{safeText(tDesc)}</p>
+                          <p className="text-[10px] text-muted-foreground/70 line-clamp-1 leading-snug">{safeText(tDesc)}</p>
                         )}
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                             {tAssigneeType === "AI" ? (
-                              <Bot className="h-3 w-3" />
+                              <Bot className="h-2.5 w-2.5" />
                             ) : (
-                              <User className="h-3 w-3" />
+                              <User className="h-2.5 w-2.5" />
                             )}
-                            <span className="truncate max-w-[80px]">{safeText(tAssignedName)}</span>
+                            <span className="truncate max-w-[70px]">{safeText(tAssignedName)}</span>
                           </div>
                           {tDeadline && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
