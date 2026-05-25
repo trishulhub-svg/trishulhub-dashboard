@@ -73,7 +73,7 @@ export function TiltCard({
   // Glare gradient follows cursor
   const glareBackground = useTransform(
     [pointerX, pointerY],
-    ([x, y]) =>
+    ([x, y]: number[]) =>
       `radial-gradient(circle at ${x * 100}% ${y * 100}%, rgba(255,255,255,${glareIntensity}), transparent 60%)`
   );
 
