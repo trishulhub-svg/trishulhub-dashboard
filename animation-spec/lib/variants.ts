@@ -120,7 +120,7 @@ export const pageLoadSequence = {
  *   to   { opacity:1; transform: translateY(0) rotateX(0); filter: blur(0); }
  * }
  * .letter { animation: letterIn 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards; }
- * .letter:nth-child(1) { animation-delay: 0.06s; } /* etc */
+ * .letter nth-child(1) { animation-delay: 0.06s; } // etc
  */
 
 export const titleContainer: Variants = {
@@ -208,7 +208,7 @@ export const cursorVariants: Variants = {
     transition: {
       duration: 1,
       repeat: Infinity,
-      ease: "steps(2)",
+      ease: "easeInOut",
       times: [0, 0.5, 0.5, 1],
     },
   },

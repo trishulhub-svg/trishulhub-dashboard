@@ -133,7 +133,7 @@ export default function TrishulHubLanding() {
 
   return (
     <MotionConfig
-      reducedMotion={prefersReducedMotion ? "user" : false}
+      reducedMotion={prefersReducedMotion ? "user" : undefined}
       transition={themeTransition}
     >
       <main className="relative min-h-screen overflow-hidden bg-gray-950 text-white selection:bg-indigo-500/30">

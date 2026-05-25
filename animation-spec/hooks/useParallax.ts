@@ -31,7 +31,7 @@ interface UseParallaxOptions {
 interface UseParallaxReturn {
   ref: React.RefObject<HTMLDivElement | null>;
   y: MotionValue<number>;
-  scrollProgress: MotionValue<number>;
+  scrollYProgress: MotionValue<number>;
 }
 
 export function useParallax(
