@@ -1,0 +1,1223 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "sqlite"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+// ━━ User & Auth ━━
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  password      String
+  role          String   @default("DEVELOPER") // SUPER_ADMIN, ADMIN, DEVELOPER, CLIENT
+  department    String?  // DEV, SALES, FINANCE, HR, CONTENT, SUPPORT, MANAGEMENT
+  avatar        String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agentConversations AgentConversation[]
+  chats              Chat[]
+  sentInvoices       Invoice[]
+  leaveRequests      LeaveRequest[]
+  attendanceRecords  Attendance[]
+  notifications      Notification[]
+  scheduledTasks     ScheduledTask[]
+  agentAccess        UserAgentAccess[]
+  approvalActions    Approval[]       @relation("ApprovalActions")
+  timeEntries        TimeEntry[]
+  organizedMeetings  Meeting[]
+  meetingAttendances MeetingAttendee[]
+  projectMemberships ProjectMember[]
+  emailVerifications EmailVerification[]
+  passwordChanges    PasswordChange[]
+  passwordResets     PasswordReset[]
+  activeSession      ActiveSession?
+  leaves                Leave[]
+  approvedLeaves        Leave[]               @relation("ApprovedLeaves")
+  availabilities        Availability[]
+  availabilityOverrides AvailabilityOverride[]
+  assignedDeals         Deal[]
+  trainingDocuments    TrainingDocument[] @relation("TrainingDocGenerator")
+  trainingTests        TrainingTest[]     @relation("TrainingTestGenerator")
+  trainingAssigned     TrainingAssignment[] @relation("TrainingEmployee")
+  trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
+  personalTimetableTasks PersonalTimetableTask[]
+  timetableSettings      TimetableSettings?
+  protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
+  protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
+  protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
+  protocolAccess      UserProtocolAccess?
+  userCredentials     UserCredential[]
+  linkedClients        Client[]            @relation("ClientLinkedUser")
+  notificationPreferences NotificationPreference?
+}
+
+// ━━ API Keys ━━
+model ApiKey {
+  id            String   @id @default(cuid())
+  provider      String   // OPENROUTER, ZAI, GOOGLE_AI, OTHER
+  keyName       String
+  keyValue      String
+  monthlyBudget Float    @default(18.0)
+  currentSpend  Float    @default(0)
+  status        String   @default("ACTIVE") // ACTIVE, EXHAUSTED, ERROR
+  priority      Int      @default(1)
+  assignedAgents String  @default("[]") // JSON array of agent types
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  usageLogs ApiUsageLog[]
+  agents   Agent[]
+}
+
+// ━━ AI Agents ━━
+model Agent {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
+  description  String
+  model        String   @default("glm-4.5-flash")
+  systemPrompt String
+  status       String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
+  apiKeyId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  apiKey          ApiKey?            @relation(fields: [apiKeyId], references: [id])
+  conversations   AgentConversation[]
+  chats           Chat[]
+  usageLogs       ApiUsageLog[]
+  roleConfig      AgentRoleConfig?
+  userAccess      UserAgentAccess[]
+  scheduledTasks  ScheduledTask[]
+  sentMessages    CrossAgentMessage[] @relation("FromAgent")
+  receivedMessages CrossAgentMessage[] @relation("ToAgent")
+  approvals       Approval[]
+  autonomyConfig  AgentAutonomyConfig?
+  activityLogs    AgentActivityLog[]
+  autonomousPrompts AgentAutonomousPrompt[]
+}
+
+// ━━ Agent Role Configuration ━━
+model AgentRoleConfig {
+  id               String  @id @default(cuid())
+  agentId          String  @unique
+  rolePrompt       String  // Enhanced role-specific system prompt
+  quickActions     String  @default("[]") // JSON: [{id, label, prompt}]
+  specialCommands  String  @default("[]") // JSON: [{id, label, prompt, icon}]
+  features         String  @default("{}") // JSON: {webSearch, autoTask, crossAgent, approvalRequired, ...}
+  autoWorkflows    String  @default("[]") // JSON: [{id, name, trigger, actions}]
+  suggestedPrompts String  @default("[]") // JSON: [{id, label, prompt}] - role-specific suggestion prompts
+
+  // GitHub integration settings
+  githubRepo      String  @default("") // GitHub repo URL (e.g., "https://github.com/user/repo")
+  githubToken     String  @default("") // GitHub personal access token
+  autoPushEnabled Boolean @default(false) // Auto-push code changes to GitHub
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Chat System ━━
+model Chat {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  title     String   @default("New Chat")
+  isShared  Boolean  @default(false) // Can be accessed by other agents
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED, ENDED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Chat locking - prevents concurrent access by different users
+  lockedBy    String?   // User ID who is currently active on this chat
+  lockedAt    DateTime? // When the lock was acquired
+  lockedByName String?  // Display name of the user who locked it
+
+  // Persistent TODO items - survives navigation away and back
+  todoItems     String  @default("[]") // JSON array of TODO items with status
+  isProcessing  Boolean @default(false) // Whether agent is currently processing
+
+  agent          Agent            @relation(fields: [agentId], references: [id])
+  user           User             @relation(fields: [userId], references: [id])
+  messages       ChatMessage[]
+  crossMessages  CrossAgentMessage[]
+
+  @@index([agentId, userId])
+  @@index([userId, status])
+  @@index([lockedBy])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      String   // user, assistant, system
+  content   String
+  metadata  String?  // JSON: {tokens, cost, model, attachments, approvalId}
+  createdAt DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
+// ━━ User-Agent Access (RBAC) ━━
+model UserAgentAccess {
+  id         String  @id @default(cuid())
+  userId     String
+  agentId    String
+  canChat    Boolean @default(true)
+  canView    Boolean @default(true)
+  canApprove Boolean @default(false)
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+}
+
+// ━━ Scheduled Tasks ━━
+model ScheduledTask {
+  id               String    @id @default(cuid())
+  agentId          String
+  userId           String
+  title            String
+  description      String?
+  dueDate          DateTime
+  status           String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
+  progress         Int       @default(0) // 0-100
+  priority         String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  result           String?   // AI output / result of the task
+  notifyAt         DateTime? // When to notify
+  completedAt      DateTime?
+  attachments      String    @default("[]") // JSON array: [{name, url, size, type}]
+  crossAgentAccess String    @default("[]") // JSON array of agentIds that can view/execute this task
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([dueDate])
+}
+
+// ━━ Approval System ━━
+model Approval {
+  id             String   @id @default(cuid())
+  type           String   // TASK, INVOICE, EMAIL, QUOTATION, PROJECT_PLAN, CODE_REVIEW, LEAD_OUTREACH, CONTENT_PIECE
+  requesterType  String   // AI, HUMAN
+  requesterId    String?  // agentId or userId
+  agentId        String?
+  title          String
+  description    String?  // Summary of what needs approval
+  data           String   @default("{}") // JSON: the item needing approval
+  status         String   @default("PENDING") // PENDING, APPROVED, REJECTED, NEEDS_IMPROVEMENT
+  feedback       String?  // Why rejected or what to improve
+  approvedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agent       Agent?  @relation(fields: [agentId], references: [id])
+  approvedBy  User?   @relation("ApprovalActions", fields: [approvedById], references: [id])
+
+  @@index([status])
+  @@index([requesterType])
+  @@index([agentId])
+}
+
+// ━━ Cross-Agent Communication ━━
+model CrossAgentMessage {
+  id              String   @id @default(cuid())
+  fromAgentId     String
+  toAgentId       String
+  chatId          String?  // Optional link to a chat (from side)
+  linkedChatId    String?  // Optional link to a specific chat on the receiving agent for data sharing
+  message         String
+  type            String   // INFO, REQUEST, RESULT, ALERT
+  status          String   @default("PENDING") // PENDING, PROCESSED, IGNORED
+  shareFullChat   Boolean  @default(false) // Whether to share full chat context with the receiving agent
+  isAutonomous    Boolean  @default(false) // Was this message generated autonomously?
+  createdAt       DateTime @default(now())
+
+  fromAgent  Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
+  toAgent    Agent  @relation("ToAgent", fields: [toAgentId], references: [id])
+  chat       Chat?  @relation(fields: [chatId], references: [id])
+
+  @@index([toAgentId, status])
+  @@index([fromAgentId])
+}
+
+// ━━ Agent Autonomy ━━
+model AgentAutonomyConfig {
+  id            String    @id @default(cuid())
+  agentId       String    @unique
+  enabled       Boolean   @default(false)       // Is autonomy enabled for this agent?
+  interval      Int       @default(5)           // Minutes between thinking cycles
+  lastRunAt     DateTime? // Last time the thinking cycle ran
+  nextRunAt     DateTime? // Next scheduled run
+  totalRuns     Int       @default(0)           // Total thinking cycles executed
+  totalErrors   Int       @default(0)           // Total errors encountered
+  lastError     String?   // Last error message
+  status        String    @default("PAUSED")    // RUNNING, PAUSED, ERROR
+  startedBy      String?   // userId who started the agent
+  startedByRole  String?   // Role of the user who started (SUPER_ADMIN, ADMIN, DEVELOPER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  agent             Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activityLogs      AgentActivityLog[]
+}
+
+// ━━ Agent Autonomous Prompts ━━
+model AgentAutonomousPrompt {
+  id        String   @id @default(cuid())
+  agentId   String
+  title     String
+  content   String   // The actual prompt/instructions for autonomous mode
+  isActive  Boolean  @default(false) // Only ONE active prompt per agent
+  isDefault Boolean  @default(false) // System default — cannot be deleted
+  createdBy String?  // userId of the admin who created it
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, isActive])
+}
+
+model AgentActivityLog {
+  id            String    @id @default(cuid())
+  agentId       String
+  configId      String
+  action        String    // thinking_cycle, tool_call, message_sent, report_generated, error
+  title         String    // Short human-readable title
+  description   String?   // Detailed description of what happened
+  result        String?   // JSON: Result data from the action
+  status        String    @default("SUCCESS") // SUCCESS, FAILED, SKIPPED, PENDING_APPROVAL
+  tokensUsed    Int       @default(0)
+  cost          Float     @default(0)
+  duration      Int       @default(0)          // Execution time in ms
+  createdAt     DateTime  @default(now())
+
+  config AgentAutonomyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  agent  Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([configId, createdAt])
+}
+
+// ━━ Project Method ━━
+model ProjectMethod {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients   Client[]  @relation("ClientProjectMethod")
+}
+
+// ━━ Clients ━━
+model Client {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  phone           String?
+  company         String?
+  website         String?              // kept for backward compat
+  websites        ClientWebsite[]
+  status          String   @default("ACTIVE") // ACTIVE, INACTIVE, ONBOARDING, PAUSED, COMPLETED, CHURNED
+  userId          String?  // linked portal user
+  user            User?    @relation("ClientLinkedUser", fields: [userId], references: [id])
+  notes           String?
+  projectType     String?              // ENGINEERING, MEDICAL, RETAIL, REAL_ESTATE, FINANCE, EDUCATION, LEGAL, FOOD_BEVERAGE, MANUFACTURING, IT_SERVICES, OTHER
+  projectMethodId String?              // Method of Project (JAVA, PHP, HTML, Other, etc.)
+  projectStartDate DateTime?            // When engagement started
+  deliveryDate    DateTime?            // Expected delivery date
+  mediatorName    String?              // Mediator/agent/broker name
+  mediatorPhone   String?              // Mediator contact number
+  mediatorEmail   String?              // Mediator email
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  projects       Project[]
+  invoices       Invoice[]
+  leads          Lead[]
+  deals          Deal[]
+  contacts       Contact[]
+  tickets        SupportTicket[]
+  contracts      Contract[]
+  projectMethod  ProjectMethod?  @relation("ClientProjectMethod", fields: [projectMethodId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([email])
+}
+
+// ━━ Client Websites (one-to-many) ━━
+model ClientWebsite {
+  id        String   @id @default(cuid())
+  url       String
+  label     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  clientId  String
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+// ━━ Projects ━━
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  clientId    String
+  status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
+  progress    Int      @default(0)
+  deadline    DateTime?
+  budget      Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client       Client        @relation(fields: [clientId], references: [id])
+  tasks        Task[]
+  invoices     Invoice[]
+  timeEntries  TimeEntry[]
+  meetings     Meeting[]
+  expenses     Expense[]
+  subscriptions Subscription[]
+  members      ProjectMember[]
+  attachments  ProjectAttachment[]
+  credentials  ProjectCredential[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([deadline])
+}
+
+// ━━ Project Members (RBAC) ━━
+model ProjectMember {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  role      String   @default("MEMBER") // MEMBER, LEAD
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+// ━━ Tasks ━━
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  assignedTo  String?  // userId or agentId
+  assigneeType String  @default("HUMAN") // HUMAN, AI
+  status      String   @default("TODO") // TODO, IN_PROGRESS, REVIEW, AWAITING_APPROVAL, DONE
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  deadline    DateTime?
+  completedAt DateTime?
+  approvedBy  String?  // userId of admin/superadmin who approved
+  approvedAt  DateTime? // when the task was approved
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+// ━━ Invoices ━━
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  clientId      String
+  projectId     String?
+  items         String   @default("[]") // JSON array of line items
+  subtotal      Float    @default(0)
+  tax           Float    @default(0)
+  total         Float    @default(0)
+  status        String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE
+  dueDate       DateTime?
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  client        Client   @relation(fields: [clientId], references: [id])
+  project       Project? @relation(fields: [projectId], references: [id])
+  paymentMethod  String?   // UPI, CREDIT_DEBIT_CARD, BANK_TRANSFER, OTHER
+  gst            Float?    // GST amount in INR
+  gstPercent     Float?    // GST percentage (e.g., 18)
+  notes          String?   // Additional notes
+  paymentStatus  String    @default("UNPAID") // PAID, UNPAID, DUE
+
+  sentBy        User?    @relation(fields: [sentById], references: [id])
+  sentById      String?
+
+  @@index([clientId])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
+// ━━ CRM / Leads ━━
+model Lead {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  company     String?
+  website     String?
+  phone       String?
+  source      String   @default("MANUAL") // MANUAL, AI_FOUND, REFERRAL, SOCIAL_MEDIA
+  score       Int      @default(0)
+  status      String   @default("NEW") // NEW, CONTACTED, INTERESTED, PROPOSAL, NEGOTIATING, WON, LOST
+  notes       String?
+  clientId    String?  // converted to client
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client      Client?  @relation(fields: [clientId], references: [id])
+  emails      LeadEmail[]
+  deals       Deal[]
+  contacts    Contact[]
+
+  @@index([status])
+  @@index([clientId])
+}
+
+model LeadEmail {
+  id        String   @id @default(cuid())
+  leadId    String
+  subject   String
+  body      String
+  direction String   @default("OUTBOUND") // OUTBOUND, INBOUND
+  status    String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, SENT, FAILED
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+// ━━ CRM Deals ━━
+model Deal {
+  id                String    @id @default(cuid())
+  title             String
+  value             Float     @default(0)
+  currency          String    @default("USD") // USD, GBP, INR
+  stage             String    @default("LEAD") // LEAD, QUALIFIED, PROPOSAL, NEGOTIATION, CLOSED_WON, CLOSED_LOST
+  probability       Int       @default(0) // 0-100
+  expectedCloseDate DateTime?
+  actualCloseDate   DateTime?
+  clientId          String?
+  leadId            String?
+  assignedToId      String?   // userId of the assigned team member
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  client     Client?  @relation(fields: [clientId], references: [id])
+  lead       Lead?    @relation(fields: [leadId], references: [id])
+  assignedTo User?    @relation(fields: [assignedToId], references: [id])
+
+  @@index([stage])
+  @@index([clientId])
+  @@index([leadId])
+  @@index([expectedCloseDate])
+}
+
+// ━━ CRM Contacts ━━
+model Contact {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String?
+  email     String   @unique
+  phone     String?
+  jobTitle  String?
+  clientId  String?
+  leadId    String?
+  notes     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client    Client?  @relation(fields: [clientId], references: [id])
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+
+  @@index([clientId])
+  @@index([leadId])
+}
+
+// ━━ Agent Conversations (Legacy - kept for migration) ━━
+model AgentConversation {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  title     String?
+  messages  String   @default("[]") // JSON array of messages
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ API Usage Tracking ━━
+model ApiUsageLog {
+  id           String   @id @default(cuid())
+  apiKeyId     String
+  agentId      String?
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  cost         Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  apiKey       ApiKey   @relation(fields: [apiKeyId], references: [id])
+  agent        Agent?   @relation(fields: [agentId], references: [id])
+}
+
+// ━━ Support Tickets ━━
+model SupportTicket {
+  id          String   @id @default(cuid())
+  clientId    String
+  subject     String
+  description String
+  status      String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  assignedTo  String?  // userId
+  resolution  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client      Client   @relation(fields: [clientId], references: [id])
+  messages    TicketMessage[]
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  senderId  String?  // userId or null for AI
+  senderType String  @default("HUMAN") // HUMAN, AI
+  message   String
+  createdAt DateTime @default(now())
+
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id])
+}
+
+// ━━ HR ━━
+model LeaveRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   @default("CASUAL") // CASUAL, SICK, PAID
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedBy  String?
+  feedback    String?  // Reason for rejection or notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ━━ Time Tracking ━━
+model TimeEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  projectId   String?
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED
+  clockIn     DateTime @default(now())
+  clockOut    DateTime?
+  totalHours  Float?   // Computed on clock out: (clockOut - clockIn) in hours
+  date        DateTime @default(now()) // The date this entry belongs to (for grouping)
+
+  user        User     @relation(fields: [userId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([date])
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  checkIn   DateTime?
+  checkOut  DateTime?
+  status    String   @default("PRESENT") // PRESENT, ABSENT, HALF_DAY, LEAVE
+  notes     String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ━━ Notifications ━━
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, WARNING, ERROR, SUCCESS, TASK, APPROVAL, AGENT
+  isRead    Boolean  @default(false)
+  link      String?
+  metadata  String?  // JSON: additional data (taskId, approvalId, agentId, etc.)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// ━━ Notification Preferences (per-user) ━━
+model NotificationPreference {
+  id                   String  @id @default(cuid())
+  userId               String  @unique
+  emailNotifications   Boolean @default(true)
+  budgetAlerts         Boolean @default(true)
+  meetingReminders     Boolean @default(true)
+  taskReminders        Boolean @default(true)
+  approvalAlerts       Boolean @default(true)
+  invoiceReminders     Boolean @default(true)
+  quietHoursEnabled    Boolean @default(false)
+  quietHoursStart      String? // "22:00"
+  quietHoursEnd        String? // "08:00"
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Meetings ━━
+model Meeting {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  date         DateTime
+  startTime    String   // Format: "HH:mm" e.g., "09:30"
+  endTime      String?  // Format: "HH:mm" e.g., "10:30"
+  organizerId  String
+  meetingType  String   @default("VIRTUAL") // VIRTUAL, IN_PERSON, PHONE
+  meetingLink  String?  // Google Meet link
+  projectId    String?
+  status       String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizer    User     @relation(fields: [organizerId], references: [id])
+  project      Project? @relation(fields: [projectId], references: [id])
+  attendees    MeetingAttendee[]
+
+  @@index([organizerId])
+  @@index([projectId])
+  @@index([date])
+}
+
+model MeetingAttendee {
+  id         String  @id @default(cuid())
+  meetingId  String
+  userId     String
+  rsvpStatus String  @default("PENDING") // PENDING, ACCEPTED, DECLINED
+
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user       User    @relation(fields: [userId], references: [id])
+
+  @@unique([meetingId, userId])
+}
+
+// ━━ Expenses ━━
+model Expense {
+  id          String   @id @default(cuid())
+  category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, SALARY, SOFTWARE, OTHER
+  description String
+  amount      Float
+  date        DateTime
+  receiptUrl  String?
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project? @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([category])
+  @@index([date])
+}
+
+// ━━ Subscriptions ━━
+model Subscription {
+  id          String    @id @default(cuid())
+  service     String    // Service name e.g., "Google One UK", "AI API CODEX"
+  rate        Float     // Monthly/annual cost
+  currency    String    @default("INR") // INR, GBP, USD
+  frequency   String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
+  status      String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED
+  category    String?   // Software, Hosting, etc.
+  projectId   String?
+  startDate   DateTime  @default(now())
+  endDate     DateTime? // When subscription ends/stopped
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([status])
+}
+
+// ━━ SMTP Configuration ━━
+model SmtpConfig {
+  id          String   @id @default(cuid())
+  host        String   // e.g., smtp-relay.brevo.com
+  port        Int      @default(587)
+  username    String   // SMTP login
+  password    String   // SMTP password (stored encrypted in DB)
+  fromEmail   String   // Sender email address
+  fromName    String   @default("TrishulHub") // Sender display name
+  secure      Boolean  @default(false) // Use TLS (true for port 465)
+  isPrimary   Boolean  @default(true) // Primary or failover
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ━━ Email Verification (OTP) ━━
+model EmailVerification {
+  id         String   @id @default(cuid())
+  userId     String
+  newEmail   String   // The new email the user wants to switch to
+  otp        String   // Bcrypt-hashed OTP code (never stored in plaintext)
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0) // Failed verification attempts
+  expiresAt  DateTime // OTP expiry (10 minutes)
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([newEmail])
+  @@index([expiresAt])
+}
+
+// ━━ Email Log (Audit Trail) ━━
+model EmailLog {
+  id            String   @id @default(cuid())
+  to            String   // Recipient email
+  subject       String   // Email subject
+  type          String   // OTP, PASSWORD_CHANGE, EMAIL_CHANGE, RESET_LINK, DIRECT_RESET
+  status        String   // SENT, FAILED, REJECTED
+  smtpConfigId  String?  // Which SMTP config was used
+  smtpHost      String?  // SMTP host for quick reference
+  method        String?  // primary, failover
+  error         String?  // Error message if failed
+  triggeredBy   String?  // userId who triggered the email
+  metadata      String?  // JSON: additional context
+  createdAt     DateTime @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([triggeredBy])
+}
+
+// ━━ Password Change (OTP verification) ━━
+model PasswordChange {
+  id         String   @id @default(cuid())
+  userId     String
+  otp        String   // Bcrypt-hashed OTP code
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0)
+  expiresAt  DateTime // OTP expiry (10 minutes)
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ━━ Password Reset Token ━━
+model PasswordReset {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique // Secure random token for reset link
+  used       Boolean  @default(false)
+  expiresAt  DateTime // Token expiry (1 hour)
+  triggeredBy String? // SUPER_ADMIN userId who initiated the reset
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ━━ Active Session (Single-Device Login Enforcement) ━━
+model ActiveSession {
+  id           String   @id @default(cuid())
+  userId       String   @unique // One active session per user
+  sessionToken String   // Current valid session token (UUID)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionToken])
+}
+
+// ━━ Leave Management (Enhanced) ━━
+model Leave {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  leaveType   String   // SICK_LEAVE, CASUAL_LEAVE, ANNUAL_LEAVE, PUBLIC_HOLIDAY, OTHER
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  approvedBy  String?
+  approver    User?    @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ━━ Employee Availability ━━
+model Availability {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime   String   // HH:mm format
+  endTime     String   // HH:mm format
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, dayOfWeek, startTime, endTime])
+  @@index([userId])
+}
+
+// ━━ Availability Overrides ━━
+model AvailabilityOverride {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime // Specific date
+  startTime   String?  // HH:mm format, null = all day
+  endTime     String?  // HH:mm format, null = all day
+  isAvailable Boolean
+  reason      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}
+
+// ━━ Training System ━━
+model TrainingDocument {
+  id            String   @id @default(cuid())
+  topic         String
+  content       String
+  summary       String?
+  imageUrl      String?
+  imageUrls     String   @default("[]")
+  status        String   @default("DRAFT") // DRAFT, READY, ARCHIVED
+  generatedBy   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  generator      User     @relation("TrainingDocGenerator", fields: [generatedBy], references: [id])
+  tests          TrainingTest[]
+  assignments    TrainingAssignment[]
+}
+
+model TrainingTest {
+  id            String   @id @default(cuid())
+  documentId    String
+  level         String   // LOW, MEDIUM, HIGH
+  questions     String
+  timeLimit     Int      @default(20)
+  generatedBy   String
+  createdAt     DateTime @default(now())
+
+  document      TrainingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  generator     User     @relation("TrainingTestGenerator", fields: [generatedBy], references: [id])
+  assignments   TrainingAssignment[]
+
+  @@unique([documentId, level])
+}
+
+model TrainingAssignment {
+  id            String   @id @default(cuid())
+  documentId    String
+  testId        String?
+  assignedTo    String
+  assignedBy    String
+  testLevel     String   @default("LOW")
+  timeLimit     Int?     @default(20) // Per-assignment override; null uses test's timeLimit
+  dueDate       DateTime?
+  status        String   @default("ASSIGNED") // ASSIGNED, READ, TEST_STARTED, COMPLETED, PASSED, FAILED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  document      TrainingDocument @relation(fields: [documentId], references: [id])
+  test          TrainingTest?    @relation(fields: [testId], references: [id])
+  employee      User     @relation("TrainingEmployee", fields: [assignedTo], references: [id])
+  assigner      User     @relation("TrainingAssigner", fields: [assignedBy], references: [id])
+  attempts      TestAttempt[]
+
+  @@index([assignedTo])
+  @@index([status])
+}
+
+model TestAttempt {
+  id            String   @id @default(cuid())
+  assignmentId  String
+  answers       String
+  score         Int
+  total         Int      @default(10)
+  timeTaken     Int?
+  passed        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  assignment    TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Personalized Time Table ━━
+model PersonalTimetableTask {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  startTime   DateTime // When the task starts
+  endTime     DateTime // When the task ends
+  date        DateTime // The date this task belongs to (for filtering)
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  category    String   @default("PERSONAL") // PERSONAL, HEALTH, FINANCE, STUDY, SOCIAL, OTHER, WORK_LOCAL
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, status])
+  @@index([date])
+}
+
+model TimetableSettings {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  sleepHours      Float   @default(8)
+  workSplitPercent Float  @default(60) // % of available time for work (rest for personal)
+  weekStartsOn    String  @default("MONDAY") // MONDAY or SUNDAY
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Protocol Management ━━
+model ProtocolVersion {
+  id                String   @id @default(cuid())
+  version           String   @unique  // e.g., "5.0"
+  title             String   @default("Trishul Protocol")
+  content           String   @default("") // Full protocol markdown content
+  stageDescriptions String   @default("[]") // JSON: [{stage: 0, title: "...", description: "...", deliverables: "..."}]
+  agentSkills       String   @default("[]") // JSON: [{agentType: "DEV", name: "Dev Agent", skills: ["..."]}]
+  isActive          Boolean  @default(true)
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  creator           User     @relation("ProtocolVersions", fields: [createdBy], references: [id])
+  invites           ProtocolInvite[]
+  accessLogs        ProtocolAccessLog[]
+  userAccessList    UserProtocolAccess[]
+}
+
+model ProtocolInvite {
+  id            String    @id @default(cuid())
+  protocolId    String
+  inviteCode    String    @unique  // e.g., "TRISHUL-A3X9K2"
+  targetEmail   String    // User email this invite is for
+  targetName    String?   // User name
+  agentAccess   String    @default("[]") // JSON: ["DEV", "CLIENT_HUNTER", ...] - which agents user can access
+  expiresAt     DateTime
+  usedAt        DateTime?
+  usedBy        String?   // userId who used this invite
+  createdBy     String    // SUPER_ADMIN userId
+  status        String    @default("PENDING") // PENDING, USED, EXPIRED, REVOKED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creator       User           @relation("ProtocolInvites", fields: [createdBy], references: [id])
+  usedByUser    User?          @relation("InviteUsedBy", fields: [usedBy], references: [id])
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+  accessLogs    ProtocolAccessLog[]
+}
+
+model ProtocolAccessLog {
+  id            String   @id @default(cuid())
+  inviteId      String
+  protocolId    String
+  userEmail     String
+  agentAccess   String   @default("[]") // Snapshot of agent access at time of access
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+
+  invite        ProtocolInvite @relation(fields: [inviteId], references: [id])
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+}
+
+// ━━ User Protocol Access (persistent) ━━
+model UserProtocolAccess {
+  id            String   @id @default(cuid())
+  userId        String   @unique  // One protocol access per user
+  userEmail     String
+  userName      String?
+  protocolId    String
+  agentAccess   String   @default("[]") // JSON: ["DEV", "FINANCE", ...] - SUPER_ADMIN controls this
+  isActive      Boolean  @default(true)
+  verifiedAt    DateTime @default(now())
+  verifiedVia   String   // invite code used
+  lastAccessAt  DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
+}
+
+// ━━ Project Attachments (PDF files) ━━
+model ProjectAttachment {
+  id        String   @id @default(cuid())
+  projectId String
+  fileName  String
+  fileData  String   // base64 encoded PDF content (for SQLite storage)
+  fileSize  Int      // bytes
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ━━ Project Credentials (encrypted ID/password storage) ━━
+model ProjectCredential {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String   // e.g., "Hosting Login", "Client Portal", "Database"
+  username  String
+  password  String   // encrypted with AES-256-GCM
+  iv        String   // initialization vector (base64)
+  tag       String   // auth tag (base64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ━━ User Credentials (ID & Password Management) ━━
+model UserCredential {
+  id          String   @id @default(cuid())
+  userId      String
+  label       String   // e.g., "Workspace", "Email", "Portal", "Hosting"
+  username    String   // The ID / username
+  password    String   // The password / secret
+  url         String?  // Optional login URL
+  notes       String?  // Additional instructions
+  createdBy   String?  // SUPER_ADMIN userId who created it
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ━━ Client Contracts ━━
+model Contract {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Contract details
+  contractNumber  String   @unique
+  title           String
+  status          String   @default("DRAFT")  // DRAFT, SENT, SIGNED, EXPIRED, CANCELLED
+
+  // Parties
+  clientName      String
+  clientEmail     String
+  clientCompany   String?
+  clientPhone     String?
+  clientAddress   String?
+
+  // Project details (auto-filled)
+  projectName     String?
+  projectDescription String?
+  projectType     String?
+  projectMethod   String?
+  projectStartDate String?
+  deliveryDate    String?
+
+  // Contract terms
+  scopeOfWork     String   @default("")
+  paymentTerms    String   @default("")
+  totalValue      Float    @default(0)
+  currency        String   @default("INR")
+  paymentSchedule String   @default("")
+  startDate       String?
+  endDate         String?
+
+  // Terms & conditions
+  termsAndConditions String @default("")
+  amendments       String   @default("")
+  specialClauses   String   @default("")
+
+  // Metadata
+  generatedBy      String?
+  sentAt           DateTime?
+  sentVia          String?
+  signedAt         DateTime?
+
+  // Template reference
+  templateText     String?
+  templateFileName String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+}

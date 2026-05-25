@@ -1,0 +1,35 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/execute-tasks",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/execute-tasks",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/execute-tasks",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/execute-tasks",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/execute-tasks",
+      "schedule": "0 5 * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/cron/(.*)",
+      "headers": [
+        {
+          "key": "x-cron-secret",
+          "value": "cron-trishulhub-secret-2024"
+        }
+      ]
+    }
+  ]
+}
