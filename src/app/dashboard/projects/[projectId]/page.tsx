@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag, CheckCircle2, ShieldCheck,
+  DollarSign, Activity, Gauge, ListTodo, CircleDot,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { TASK_COLUMNS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
-import { safeText, safeNumber, safeDate, deepSanitize } from "@/lib/utils";
+import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BULLETPROOF v7: Complete rebuild with safeText() on EVERY rendered value.
@@ -36,6 +37,22 @@ const taskStatusColors: Record<string, string> = {
   REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
   AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
   DONE: "bg-green-50 dark:bg-green-900/20",
+};
+
+const taskStatusAccentColors: Record<string, string> = {
+  TODO: "bg-gray-400",
+  IN_PROGRESS: "bg-blue-400",
+  REVIEW: "bg-yellow-400",
+  AWAITING_APPROVAL: "bg-orange-400",
+  DONE: "bg-green-400",
+};
+
+const taskStatusRingColors: Record<string, string> = {
+  TODO: "ring-gray-400/20",
+  IN_PROGRESS: "ring-blue-400/20",
+  REVIEW: "ring-yellow-400/20",
+  AWAITING_APPROVAL: "ring-orange-400/20",
+  DONE: "ring-green-400/20",
 };
 
 const projectStatusColors: Record<string, string> = {
@@ -52,6 +69,13 @@ const priorityColors: Record<string, string> = {
   MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const priorityBorderColors: Record<string, string> = {
+  LOW: "border-l-gray-300 dark:border-l-gray-600",
+  MEDIUM: "border-l-blue-400 dark:border-l-blue-500",
+  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+  URGENT: "border-l-red-400 dark:border-l-red-500",
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
@@ -80,6 +104,12 @@ function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
     current = (current as Record<string, unknown>)[key];
   }
   return typeof current === "string" ? current : (typeof current === "number" || typeof current === "boolean" ? String(current) : fallback);
+}
+
+function getProgressColor(progress: number) {
+  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
 }
 
 export default function ProjectDetailPage() {
@@ -269,8 +299,21 @@ export default function ProjectDetailPage() {
   if (sessionStatus === "loading" || loading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-32 rounded-lg" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-9 rounded-lg" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-56" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-xl border p-4 bg-gradient-to-br from-muted/40 to-muted/20">
+              <Skeleton className="h-3 w-16 mb-3" />
+              <Skeleton className="h-7 w-20" />
+            </div>
+          ))}
+        </div>
         <div className="flex gap-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64 w-[260px] rounded-lg shrink-0" />)}
         </div>
@@ -280,10 +323,13 @@ export default function ProjectDetailPage() {
 
   if (!projectId) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground mb-4">Invalid project ID</p>
-        <Button variant="outline" onClick={() => router.push("/dashboard/projects")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+      <div className="text-center py-16">
+        <div className="h-16 w-16 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+          <ListTodo className="h-8 w-8 text-muted-foreground/40" />
+        </div>
+        <p className="text-muted-foreground mb-4 font-medium">Invalid project ID</p>
+        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+          <ArrowLeft className="h-4 w-4" /> Back to Projects
         </Button>
       </div>
     );
@@ -291,37 +337,54 @@ export default function ProjectDetailPage() {
 
   if (!project) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground mb-4">Project not found</p>
-        <Button variant="outline" onClick={() => router.push("/dashboard/projects")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+      <div className="text-center py-16">
+        <div className="h-16 w-16 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+          <ListTodo className="h-8 w-8 text-muted-foreground/40" />
+        </div>
+        <p className="text-muted-foreground mb-4 font-medium">Project not found</p>
+        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+          <ArrowLeft className="h-4 w-4" /> Back to Projects
         </Button>
       </div>
     );
   }
 
+  const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects" className="mt-0.5 hover:bg-muted/80 rounded-lg hover:scale-105 transition-all duration-200">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold">{safeText(projectName, "Untitled")}</h1>
-          <p className="text-muted-foreground text-sm">{safeText(projectDesc) || "No description"}</p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-extrabold tracking-tight">{safeText(projectName, "Untitled")}</h1>
+            <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} font-medium shadow-sm`}>
+              {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
+            </Badge>
+          </div>
+          {projectDesc && (
+            <p className="text-muted-foreground/80 text-sm mt-1.5 leading-relaxed max-w-2xl">{safeText(projectDesc)}</p>
+          )}
         </div>
       </div>
 
       {/* Project Info Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-4">
         {/* Status */}
-        <Card>
+        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Status</p>
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Activity className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+              </div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Status</p>
+            </div>
             {isAdminUser ? (
               <select
-                className="mt-1 h-7 text-xs border rounded px-2 bg-background w-full"
+                className="h-8 text-xs border rounded-lg px-2.5 bg-background/80 w-full font-medium focus:ring-2 focus:ring-primary/20 transition-all"
                 value={safeText(projectStatus, "PLANNING")}
                 onChange={(e) => handleUpdateProject({ status: e.target.value })}
               >
@@ -330,7 +393,7 @@ export default function ProjectDetailPage() {
                 ))}
               </select>
             ) : (
-              <Badge className={`mt-1 ${projectStatusColors[safeText(projectStatus, "")] || ""}`}>
+              <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} font-semibold text-xs shadow-sm`}>
                 {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
               </Badge>
             )}
@@ -338,11 +401,16 @@ export default function ProjectDetailPage() {
         </Card>
 
         {/* Progress */}
-        <Card>
+        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Progress</p>
-            <div className="flex items-center gap-2 mt-1">
-              <Progress value={safeNumber(projectProgress)} className="h-2 flex-1" />
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Gauge className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+              </div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Progress</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Progress value={safeNumber(projectProgress)} className={cn("h-2 flex-1 rounded-full", getProgressColor(projectProgress))} />
               {isAdminUser ? (
                 <Input
                   type="number"
@@ -357,10 +425,10 @@ export default function ProjectDetailPage() {
                       handleUpdateProject({ progress: val });
                     }, 500);
                   }}
-                  className="h-7 w-14 text-xs text-center"
+                  className="h-7 w-14 text-xs text-center font-semibold"
                 />
               ) : (
-                <span className="text-sm font-medium">{safeNumber(projectProgress)}%</span>
+                <span className={cn("text-sm font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
               )}
             </div>
           </CardContent>
@@ -368,52 +436,72 @@ export default function ProjectDetailPage() {
 
         {/* Budget (admin only) */}
         {isAdminUser && (
-          <Card>
+          <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-emerald-50/80 to-emerald-100/40 dark:from-emerald-900/15 dark:to-emerald-900/5">
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">Budget</p>
-              <p className="text-sm font-medium mt-1">
-                {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+              <div className="flex items-center gap-2 mb-2.5">
+                <div className="h-7 w-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Budget</p>
+              </div>
+              <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-300">
+                ₹{String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
               </p>
             </CardContent>
           </Card>
         )}
 
         {/* Deadline */}
-        <Card>
+        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Deadline</p>
-            <p className="text-sm font-medium mt-1">
-              {projectDeadline ? safeDate(projectDeadline, "No deadline") : "No deadline"}
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <CalendarDays className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+              </div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Deadline</p>
+            </div>
+            <p className="text-sm font-bold">
+              {projectDeadline ? safeDate(projectDeadline, "No deadline") : <span className="text-muted-foreground font-medium">No deadline</span>}
             </p>
           </CardContent>
         </Card>
 
         {/* Team Size (non-admin) */}
         {!isAdminUser && (
-          <Card>
+          <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">Team Size</p>
-              <p className="text-sm font-medium mt-1">{String(members.length)} members</p>
+              <div className="flex items-center gap-2 mb-2.5">
+                <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  <Users className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+                </div>
+                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Team Size</p>
+              </div>
+              <p className="text-lg font-bold tracking-tight">{String(members.length)} <span className="text-sm font-medium text-muted-foreground">members</span></p>
             </CardContent>
           </Card>
         )}
       </div>
 
       {/* Project Members */}
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-white/80 to-white/50 dark:from-gray-900/30 dark:to-gray-900/10">
+        <CardHeader className="pb-3 border-b border-gray-100/60 dark:border-gray-800/40">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Project Team</CardTitle>
-              <CardDescription>
-                {String(members.length)} member{members.length !== 1 ? "s" : ""} assigned to this project
-              </CardDescription>
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
+                <Users className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-bold">Project Team</CardTitle>
+                <CardDescription className="text-xs">
+                  {String(members.length)} member{members.length !== 1 ? "s" : ""} assigned to this project
+                </CardDescription>
+              </div>
             </div>
             {isAdminUser && (
               <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
                 <DialogTrigger asChild>
-                  <Button size="sm" variant="outline">
-                    <UserPlus className="h-4 w-4 mr-1" /> Add Member
+                  <Button size="sm" variant="outline" className="gap-1.5 shadow-sm hover:shadow-md transition-all">
+                    <UserPlus className="h-3.5 w-3.5" /> Add Member
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
@@ -435,10 +523,10 @@ export default function ProjectDetailPage() {
                           const uId = extractStr(user, "id", "");
                           const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
                           return (
-                            <div key={uId} className="flex items-center justify-between p-3 rounded-lg border">
+                            <div key={uId} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/30 transition-colors">
                               <div className="flex items-center gap-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarFallback className="text-xs">{initials || "?"}</AvatarFallback>
+                                <Avatar className="h-8 w-8 ring-2 ring-muted">
+                                  <AvatarFallback className="text-xs bg-gradient-to-br from-primary/20 to-primary/5">{initials || "?"}</AvatarFallback>
                                 </Avatar>
                                 <div>
                                   <p className="text-sm font-medium">{uName}</p>
@@ -462,31 +550,37 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-3">
           {members.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No team members assigned yet</p>
+            <div className="text-center py-8">
+              <div className="h-10 w-10 mx-auto rounded-full bg-muted/50 flex items-center justify-center mb-2">
+                <Users className="h-5 w-5 text-muted-foreground/30" />
+              </div>
+              <p className="text-sm text-muted-foreground/70 font-medium">No team members assigned yet</p>
+            </div>
           ) : (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2.5">
               {members.map((member) => {
                 const mId = extractStr(member, "id", "");
                 const mUserId = extractStr(member, "userId", "");
                 const mRole = extractStr(member, "role", "");
                 const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
                 const initials = mUserName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+                const avatarColor = mRole === "LEAD" ? "from-amber-400 to-orange-500" : "from-primary/60 to-primary/40";
                 return (
-                  <div key={mId} className="flex items-center gap-2 p-2 pr-1 rounded-lg border bg-card">
+                  <div key={mId} className="flex items-center gap-2 p-2 pr-1.5 rounded-xl border bg-card/80 hover:bg-card hover:shadow-sm transition-all group/member">
                     <Avatar className="h-7 w-7">
-                      <AvatarFallback className="text-xs">{initials || "?"}</AvatarFallback>
+                      <AvatarFallback className={cn("text-[10px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
                     </Avatar>
-                    <div>
-                      <p className="text-xs font-medium">{mUserName}</p>
+                    <div className="mr-1">
+                      <p className="text-xs font-semibold">{mUserName}</p>
                       <p className="text-[10px] text-muted-foreground">{safeText(mRole)}</p>
                     </div>
                     {isAdminUser && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-red-500"
+                        className="h-5 w-5 text-muted-foreground/50 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-all"
                         onClick={() => handleRemoveMember(mUserId)}
                         aria-label="Remove member"
                       >
@@ -503,11 +597,16 @@ export default function ProjectDetailPage() {
 
       {/* Task Board */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Task Board</h2>
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
+            <ListTodo className="h-4 w-4 text-primary" />
+          </div>
+          <h2 className="text-lg font-bold">Task Board</h2>
+        </div>
         {(isAdminUser || members.length > 0) && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button>
+              <Button size="sm" className="gap-1.5 shadow-sm"><Plus className="h-4 w-4" /> Add Task</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -583,43 +682,45 @@ export default function ProjectDetailPage() {
               <>
                 <DialogHeader>
                   <div className="flex items-center justify-between pr-6">
-                    <DialogTitle className="text-lg">{safeText(dtTitle, "Untitled")}</DialogTitle>
-                    <Badge className={`shrink-0 ${priorityColors[dtPriority] || ""}`}>
+                    <DialogTitle className="text-lg font-bold">{safeText(dtTitle, "Untitled")}</DialogTitle>
+                    <Badge className={`shrink-0 font-semibold ${priorityColors[dtPriority] || ""}`}>
                       {safeText(dtPriority, "MEDIUM")}
                     </Badge>
                   </div>
-                  <DialogDescription className="text-xs text-muted-foreground">
-                    {safeText(dtStatus, "TODO").replace("_", " ")} · Created {dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}
-                  </DialogDescription>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-xs font-medium`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
+                    <DialogDescription className="text-xs text-muted-foreground">
+                      Created {dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}
+                    </DialogDescription>
+                  </div>
                 </DialogHeader>
                 <div className="space-y-4 mt-2">
-                  {/* Status & Meta */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-xs`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
+                  {/* Assignee & Deadline Meta */}
+                  <div className="flex flex-wrap items-center gap-3 p-2.5 rounded-lg bg-muted/30 border">
                     {dtAssigneeType === "AI" ? (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><Bot className="h-3 w-3" /> System</span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Bot className="h-3.5 w-3.5" /> System</span>
                     ) : (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><User className="h-3.5 w-3.5" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
                     )}
                     {dtDeadline && (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" /> {safeDate(dtDeadline, "")}</span>
                     )}
                   </div>
 
                   {/* Approval Info */}
                   {isDone && dtApprovedBy && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-900/30">
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-200/80 dark:border-green-900/30">
                       <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                       <div className="text-xs">
-                        <p className="font-medium text-green-700 dark:text-green-300">Approved</p>
-                        <p className="text-green-600/70 dark:text-green-400/70">
+                        <p className="font-semibold text-green-700 dark:text-green-300">Approved</p>
+                        <p className="text-green-600/70 dark:text-green-400/70 mt-0.5">
                           Approved by {extractStr(selectedTask, "approvedByName", "") || safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
                         </p>
                       </div>
                     </div>
                   )}
                   {isAwaitingApproval && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-900/30">
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-orange-50 dark:bg-orange-900/10 border border-orange-200/80 dark:border-orange-900/30">
                       <Clock className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
                       <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
                         Pending approval from admin/superadmin
@@ -629,9 +730,9 @@ export default function ProjectDetailPage() {
 
                   {/* Description */}
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Description</p>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Description</p>
                     {dtDesc ? (
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap bg-muted/50 rounded-lg p-3 border">
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap bg-muted/40 rounded-xl p-3.5 border">
                         {safeText(dtDesc)}
                       </div>
                     ) : (
@@ -640,35 +741,38 @@ export default function ProjectDetailPage() {
                   </div>
 
                   {/* Timestamps */}
-                  <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
-                    <div>
-                      <p className="font-medium">Created</p>
-                      <p>{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">Last Updated</p>
-                      <p>{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
-                    </div>
-                    {dtCompletedAt && (
-                      <div>
-                        <p className="font-medium">Completed</p>
-                        <p>{safeDate(dtCompletedAt, "N/A")}</p>
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Timeline</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-lg bg-muted/30 p-2.5 border">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Created</p>
+                        <p className="text-xs font-medium mt-0.5">{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
                       </div>
-                    )}
-                    {dtApprovedAt && (
-                      <div>
-                        <p className="font-medium">Approved</p>
-                        <p>{safeDate(dtApprovedAt, "N/A")}</p>
+                      <div className="rounded-lg bg-muted/30 p-2.5 border">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Last Updated</p>
+                        <p className="text-xs font-medium mt-0.5">{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
                       </div>
-                    )}
+                      {dtCompletedAt && (
+                        <div className="rounded-lg bg-green-50/50 dark:bg-green-900/10 p-2.5 border border-green-200/50 dark:border-green-900/20">
+                          <p className="text-[10px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Completed</p>
+                          <p className="text-xs font-medium mt-0.5">{safeDate(dtCompletedAt, "N/A")}</p>
+                        </div>
+                      )}
+                      {dtApprovedAt && (
+                        <div className="rounded-lg bg-green-50/50 dark:bg-green-900/10 p-2.5 border border-green-200/50 dark:border-green-900/20">
+                          <p className="text-[10px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Approved</p>
+                          <p className="text-xs font-medium mt-0.5">{safeDate(dtApprovedAt, "N/A")}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Approve / Reject Actions (for admin/superadmin) */}
                   {canApprove && (
-                    <div className="flex gap-2 p-3 rounded-lg border bg-muted/30">
+                    <div className="flex gap-2 p-3 rounded-xl border-2 border-green-200 dark:border-green-900/40 bg-green-50/50 dark:bg-green-900/10">
                       <Button
                         size="sm"
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-sm shadow-green-600/20"
                         onClick={() => {
                           handleMoveTask(dtId, "DONE");
                           setTaskDetailOpen(false);
@@ -679,7 +783,7 @@ export default function ProjectDetailPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1"
+                        className="flex-1 border-orange-200 dark:border-orange-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
                         onClick={() => {
                           handleMoveTask(dtId, "REVIEW");
                           setTaskDetailOpen(false);
@@ -693,7 +797,7 @@ export default function ProjectDetailPage() {
                   {/* Move Task (hide Done when awaiting approval — use Approve instead) */}
                   {!isAwaitingApproval && (
                     <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-2">Move to</p>
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Move to</p>
                       <div className="flex flex-wrap gap-2">
                         {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
                           <Button
@@ -742,15 +846,17 @@ export default function ProjectDetailPage() {
           const columnTasks = (tasks as Record<string, unknown>[]).filter(
             (t) => extractStr(t, "status", "") === statusStr
           );
+          const accentColor = taskStatusAccentColors[statusStr] || "bg-gray-400";
+          const ringColor = taskStatusRingColors[statusStr] || "ring-gray-400/20";
           return (
             <div key={statusStr} className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
-              <div className={`rounded-t-lg px-3 py-2 ${taskStatusColors[statusStr] || ""}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm">{statusStr.replace("_", " ")}</h3>
-                  <Badge variant="secondary" className="text-xs">{String(columnTasks.length)}</Badge>
-                </div>
+              <div className={`rounded-t-xl px-3.5 py-2.5 flex items-center gap-2 relative overflow-hidden ${taskStatusColors[statusStr] || ""}`}>
+                <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
+                <CircleDot className={cn("h-3.5 w-3.5", statusStr === "TODO" ? "text-gray-500" : statusStr === "IN_PROGRESS" ? "text-blue-500" : statusStr === "REVIEW" ? "text-yellow-500" : statusStr === "AWAITING_APPROVAL" ? "text-orange-500" : "text-green-500")} />
+                <h3 className="font-bold text-[13px] tracking-tight">{statusStr.replace("_", " ")}</h3>
+                <Badge variant="secondary" className="text-[10px] font-bold ml-auto bg-muted/80">{String(columnTasks.length)}</Badge>
               </div>
-              <div className="flex-1 space-y-2 p-2 bg-muted/30 rounded-b-lg min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
+              <div className="flex-1 space-y-2 p-2 bg-muted/20 rounded-b-xl min-h-[150px] max-h-[calc(100vh-24rem)] overflow-y-auto custom-scrollbar">
                 {columnTasks.map((task) => {
                   const tId = extractStr(task, "id", "");
                   const tTitle = extractStr(task, "title", "Untitled");
@@ -764,22 +870,23 @@ export default function ProjectDetailPage() {
                   const tApprovedBy = extractStr(task, "approvedBy", "");
                   const isThisAwaiting = statusStr === "AWAITING_APPROVAL";
                   const canApproveThis = isAdminUser && isThisAwaiting && !(userRole === "ADMIN" && tAssignedTo === userId);
+                  const borderL = priorityBorderColors[tPriority] || "border-l-gray-300 dark:border-l-gray-600";
 
                   return (
                     <Card
                       key={tId}
-                      className="hover:shadow-md transition-shadow cursor-pointer"
+                      className={cn("hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px]", borderL)}
                       onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
                     >
                       <CardContent className="p-3 space-y-2">
-                        <div className="flex items-start justify-between">
-                          <p className="text-sm font-medium">{safeText(tTitle, "Untitled")}</p>
-                          <Badge className={`text-[10px] shrink-0 ${priorityColors[tPriority] || ""}`}>
+                        <div className="flex items-start justify-between gap-1.5">
+                          <p className="text-sm font-semibold leading-snug">{safeText(tTitle, "Untitled")}</p>
+                          <Badge className={`text-[10px] shrink-0 font-semibold ${priorityColors[tPriority] || ""}`}>
                             {safeText(tPriority, "MEDIUM")}
                           </Badge>
                         </div>
                         {tDesc && (
-                          <p className="text-xs text-muted-foreground line-clamp-2">{safeText(tDesc)}</p>
+                          <p className="text-xs text-muted-foreground/80 line-clamp-2 leading-relaxed">{safeText(tDesc)}</p>
                         )}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -799,7 +906,7 @@ export default function ProjectDetailPage() {
                         </div>
                         {/* Approved by badge on DONE tasks */}
                         {statusStr === "DONE" && tApprovedBy && (
-                          <div className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                          <div className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400 font-medium">
                             <ShieldCheck className="h-3 w-3" />
                             <span>Approved by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
                           </div>
@@ -812,7 +919,7 @@ export default function ProjectDetailPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 text-[10px] px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                  className="h-6 text-[10px] px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 font-semibold"
                                   onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "DONE"); }}
                                 >
                                   <CheckCircle2 className="h-3 w-3 mr-0.5" /> Approve
@@ -820,14 +927,14 @@ export default function ProjectDetailPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 text-[10px] px-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                  className="h-6 text-[10px] px-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
                                   onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "REVIEW"); }}
                                 >
                                   <X className="h-3 w-3 mr-0.5" /> Reject
                                 </Button>
                               </>
                             ) : (
-                              <span className="text-[10px] text-orange-500 flex items-center gap-0.5 px-1">
+                              <span className="text-[10px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
                                 <Clock className="h-2.5 w-2.5" /> Waiting for approval
                               </span>
                             )

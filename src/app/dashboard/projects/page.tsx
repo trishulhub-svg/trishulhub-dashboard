@@ -12,7 +12,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, ArrowRight, Pencil, Trash2, MoreHorizontal,
-  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X,
+  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2, LayoutGrid,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,16 +45,25 @@ const statusColors: Record<string, string> = {
   COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
 };
 
+const statusDotColors: Record<string, string> = {
+  PLANNING: "bg-gray-400",
+  IN_PROGRESS: "bg-blue-400",
+  REVIEW: "bg-yellow-400",
+  APPROVAL: "bg-orange-400",
+  DEPLOYED: "bg-green-400",
+  COMPLETED: "bg-emerald-400",
+};
+
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
 // ━━ Kanban column configuration ━━
 const KANBAN_COLUMNS = [
-  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10" },
-  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10" },
-  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10" },
-  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10" },
-  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10" },
-  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10" },
+  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10", accentBar: "bg-gray-400", accentRing: "ring-gray-400/20" },
+  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10", accentBar: "bg-blue-400", accentRing: "ring-blue-400/20" },
+  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10", accentBar: "bg-yellow-400", accentRing: "ring-yellow-400/20" },
+  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10", accentBar: "bg-orange-400", accentRing: "ring-orange-400/20" },
+  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10", accentBar: "bg-green-400", accentRing: "ring-green-400/20" },
+  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
 ] as const;
 
 // ━━ Credential form type ━━
@@ -68,6 +77,12 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getProgressColor(progress: number) {
+  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
 }
 
 // ━━ Kanban Project Card (visual only — used in both sortable cards and DragOverlay) ━━
@@ -96,13 +111,19 @@ function KanbanProjectCard({
   return (
     <div
       className={cn(
-        "group/card relative rounded-lg border p-3.5 cursor-pointer transition-all duration-200",
-        "bg-white/50 dark:bg-white/[0.03] backdrop-blur-sm",
-        "border-gray-200/60 dark:border-gray-700/40",
+        "group/card relative rounded-xl border-l-[3px] p-3.5 cursor-pointer transition-all duration-200",
+        "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
+        "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
         "hover:border-gray-300 dark:hover:border-gray-600",
-        "hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/20",
-        !isDragging && "hover:-translate-y-0.5",
-        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20"
+        "hover:shadow-lg hover:shadow-black/[0.06] dark:hover:shadow-black/20",
+        !isDragging && "hover:-translate-y-0.5 hover:scale-[1.01]",
+        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
+        pStatus === "IN_PROGRESS" && "border-l-blue-400 dark:border-l-blue-500",
+        pStatus === "REVIEW" && "border-l-yellow-400 dark:border-l-yellow-500",
+        pStatus === "APPROVAL" && "border-l-orange-400 dark:border-l-orange-500",
+        pStatus === "DEPLOYED" && "border-l-green-400 dark:border-l-green-500",
+        pStatus === "COMPLETED" && "border-l-emerald-400 dark:border-l-emerald-500",
+        pStatus === "PLANNING" && "border-l-gray-400 dark:border-l-gray-500",
       )}
       onClick={onClick}
       style={isDragging ? { pointerEvents: "none" as const } : undefined}
@@ -135,20 +156,22 @@ function KanbanProjectCard({
         </div>
       )}
 
-      {/* Project Title + Icon */}
-      <div className="flex items-start gap-2 pr-7">
-        <FolderKanban className="h-4 w-4 text-muted-foreground/60 shrink-0 mt-0.5" />
-        <h4
-          className="text-sm font-semibold leading-snug line-clamp-2"
-          title={pName}
-        >
-          {pName}
-        </h4>
+      {/* Project Title + Status Dot */}
+      <div className="flex items-start gap-2.5 pr-7">
+        <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+        <div className="flex-1 min-w-0">
+          <h4
+            className="text-sm font-semibold leading-snug line-clamp-2"
+            title={pName}
+          >
+            {pName}
+          </h4>
+        </div>
       </div>
 
       {/* Status Badge + Client Name */}
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <Badge className={`text-[10px] px-1.5 py-0 leading-4 ${statusColors[pStatus] || ""}`}>
+      <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+        <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
         <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
@@ -157,12 +180,12 @@ function KanbanProjectCard({
       </div>
 
       {/* Progress Bar */}
-      <div className="mt-3 space-y-1">
+      <div className="mt-3 space-y-1.5">
         <div className="flex justify-between text-[11px]">
           <span className="text-muted-foreground">Progress</span>
-          <span className="font-semibold tabular-nums">{pProgress}%</span>
+          <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
         </div>
-        <Progress value={pProgress} className="h-1.5" />
+        <Progress value={pProgress} className={cn("h-1.5 rounded-full shadow-sm", getProgressColor(pProgress))} />
       </div>
 
       {/* Deadline */}
@@ -175,8 +198,8 @@ function KanbanProjectCard({
 
       {/* View Action */}
       <div className="mt-3 pt-2.5 border-t border-gray-200/30 dark:border-gray-700/30">
-        <span className="text-xs font-medium text-primary/70 group-hover/card:text-primary transition-colors inline-flex items-center gap-1">
-          View <ArrowRight className="h-3 w-3" />
+        <span className="text-xs font-semibold text-primary/60 group-hover/card:text-primary transition-all duration-200 inline-flex items-center gap-1 group-hover/card:gap-2">
+          View <ArrowRight className="h-3 w-3 transition-transform duration-200 group-hover/card:translate-x-0.5" />
         </span>
       </div>
     </div>
@@ -245,24 +268,27 @@ function DroppableKanbanColumn({
   return (
     <div
       className={cn(
-        "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start",
-        "bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl",
+        "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
         col.glowColor,
         isDimmed && "opacity-40 pointer-events-none",
-        isOver && !isDimmed && "ring-2 ring-primary/30 border-primary/40 bg-primary/[0.03] dark:bg-primary/[0.06]"
+        isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
       )}
       style={{ minHeight: "calc(100vh - 300px)" }}
     >
+      {/* Left accent bar */}
+      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
+
       {/* Column Header */}
-      <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/40">
+      <div className="px-4 py-3.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-5">
         <div className="flex items-center gap-2.5">
-          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", col.dot)} />
-          <h3 className="font-semibold text-sm tracking-tight">{col.label}</h3>
+          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
+          <h3 className="font-bold text-[13px] tracking-tight">{col.label}</h3>
           <Badge
             variant="secondary"
-            className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center"
+            className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
           >
             {projects.length}
           </Badge>
@@ -273,15 +299,17 @@ function DroppableKanbanColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "p-2.5 space-y-2.5 overflow-y-auto transition-colors duration-200",
-          isOver && !isDimmed && "bg-primary/[0.02] dark:bg-primary/[0.04]"
+          "p-2.5 space-y-2.5 overflow-y-auto transition-all duration-300 pl-5",
+          isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
         style={{ maxHeight: "calc(100vh - 380px)" }}
       >
         {projects.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
-            <FolderKanban className="h-8 w-8 text-muted-foreground/20 mb-2" />
-            <p className="text-[11px] text-muted-foreground/40">No projects</p>
+            <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+              <FolderKanban className="h-5 w-5 text-muted-foreground/30" />
+            </div>
+            <p className="text-[11px] text-muted-foreground/50 font-medium">No projects</p>
           </div>
         )}
         <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
@@ -750,18 +778,39 @@ export default function ProjectsPage() {
     ),
   }));
 
+  // ━━ Stats computation ━━
+  const allProjects = projects as Record<string, unknown>[];
+  const totalProjects = allProjects.length;
+  const inProgressCount = allProjects.filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
+  const completedCount = allProjects.filter(p => safeText(p.status, "") === "COMPLETED").length;
+
   // ━━ Loading skeleton (Kanban-style) ━━
   if (sessionStatus === "loading" || projectsLoading) {
     return (
       <div className="space-y-5">
-        <Skeleton className="h-8 w-48" />
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        {/* Stats bar skeleton */}
+        <div className="grid grid-cols-3 gap-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-xl border p-3 bg-gradient-to-br from-muted/50 to-muted/20">
+              <Skeleton className="h-3 w-16 mb-2" />
+              <Skeleton className="h-6 w-8" />
+            </div>
+          ))}
+        </div>
         <Skeleton className="h-9 w-72" />
         <div className="flex gap-4 overflow-hidden">
           {KANBAN_COLUMNS.slice(0, 4).map((col) => (
             <div key={col.key} className="flex-shrink-0 w-[300px] space-y-3">
               <Skeleton className="h-10 w-full rounded-xl" />
-              <Skeleton className="h-44 w-full rounded-lg" />
-              <Skeleton className="h-36 w-full rounded-lg" />
+              <Skeleton className="h-44 w-full rounded-lg animate-pulse" />
+              <Skeleton className="h-36 w-full rounded-lg animate-pulse" />
             </div>
           ))}
         </div>
@@ -774,13 +823,21 @@ export default function ProjectsPage() {
       {/* ━━━━ Header ━━━━ */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground text-sm">Manage your web development projects</p>
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+              <LayoutGrid className="h-5 w-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-foreground via-foreground/90 to-foreground/70 bg-clip-text">Projects</h1>
+          </div>
+          <p className="text-muted-foreground/70 text-sm mt-1 ml-[46px]">Manage your web development projects</p>
         </div>
         {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5"><Plus className="h-4 w-4" /> New Project</Button>
+              <Button size="sm" className="gap-1.5 relative overflow-hidden bg-gradient-to-r from-primary to-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
+                <span className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-primary opacity-0 hover:opacity-100 transition-opacity" />
+                <Plus className="h-4 w-4 relative z-10" /> <span className="relative z-10">New Project</span>
+              </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
@@ -819,45 +876,86 @@ export default function ProjectsPage() {
         )}
       </div>
 
+      {/* ━━━━ Stats Bar ━━━━ */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border bg-gradient-to-br from-slate-50/80 to-slate-100/50 dark:from-slate-900/40 dark:to-slate-800/20 p-3.5 transition-all hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/10">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="h-6 w-6 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+              <FolderKanban className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+            </div>
+            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
+          </div>
+          <p className="text-2xl font-bold tracking-tight">{totalProjects}</p>
+        </div>
+        <div className="rounded-xl border bg-gradient-to-br from-blue-50/80 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 p-3.5 transition-all hover:shadow-md hover:shadow-blue-500/[0.06] dark:hover:shadow-blue-500/10">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="h-6 w-6 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Activity className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
+          </div>
+          <p className="text-2xl font-bold tracking-tight text-blue-700 dark:text-blue-300">{inProgressCount}</p>
+        </div>
+        <div className="rounded-xl border bg-gradient-to-br from-emerald-50/80 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-900/10 p-3.5 transition-all hover:shadow-md hover:shadow-emerald-500/[0.06] dark:hover:shadow-emerald-500/10">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="h-6 w-6 rounded-md bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>
+          </div>
+          <p className="text-2xl font-bold tracking-tight text-emerald-700 dark:text-emerald-300">{completedCount}</p>
+        </div>
+      </div>
+
       {/* ━━━━ Search & Status Filters ━━━━ */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
           <Input
             placeholder="Search projects..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 w-56"
+            className="pl-9 w-64 bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
             aria-label="Search projects"
           />
         </div>
         <div className="flex gap-1.5 flex-wrap">
-          {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => (
-            <Button
-              key={s}
-              variant={filter === s ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => setFilter(s)}
-            >
-              {s === "ALL" ? "All" : s.replace("_", " ")}
-            </Button>
-          ))}
+          {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => {
+            const isActive = filter === s;
+            const dotColor = s === "ALL" ? "bg-gray-400" : statusDotColors[s] || "bg-gray-400";
+            return (
+              <Button
+                key={s}
+                variant={isActive ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-8 text-xs transition-all duration-200 gap-1.5",
+                  isActive ? "shadow-md shadow-primary/20" : "hover:bg-muted/80 border-gray-200/80 dark:border-gray-700/50",
+                )}
+                onClick={() => setFilter(s)}
+              >
+                <span className={cn("h-1.5 w-1.5 rounded-full", dotColor)} />
+                {s === "ALL" ? "All" : s.replace("_", " ")}
+              </Button>
+            );
+          })}
         </div>
       </div>
 
       {/* ━━━━ Kanban Board ━━━━ */}
       {filtered.length === 0 ? (
-        <div className="text-center py-20">
-          <FolderKanban className="h-14 w-14 mx-auto text-muted-foreground/30 mb-4" />
-          <p className="text-lg font-medium text-muted-foreground">
+        <div className="text-center py-24">
+          <div className="h-20 w-20 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-5">
+            <FolderKanban className="h-10 w-10 text-primary/40" />
+          </div>
+          <p className="text-xl font-bold text-foreground/80">
             {projects.length === 0 ? "No projects yet" : "No projects match your search"}
           </p>
-          <p className="text-sm text-muted-foreground/60 mt-1">
+          <p className="text-sm text-muted-foreground/60 mt-2 max-w-sm mx-auto">
             {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
           </p>
           {projects.length === 0 && isAdminUser && (
-            <Button variant="outline" className="mt-5 gap-2" onClick={() => setAddOpen(true)}>
+            <Button variant="outline" className="mt-6 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
               <Plus className="h-4 w-4" /> Create your first project
             </Button>
           )}
@@ -915,12 +1013,14 @@ export default function ProjectsPage() {
           <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, and credentials.</DialogDescription></DialogHeader>
           {editProject && (
             <Tabs defaultValue="details">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="details">Details</TabsTrigger>
-                <TabsTrigger value="attachments" className="gap-1">
+              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
+                <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
+                  <Pencil className="h-3 w-3" /> Details
+                </TabsTrigger>
+                <TabsTrigger value="attachments" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
                   <Paperclip className="h-3 w-3" /> Attachments
                 </TabsTrigger>
-                <TabsTrigger value="credentials" className="gap-1">
+                <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
                   <Key className="h-3 w-3" /> Credentials
                 </TabsTrigger>
               </TabsList>
