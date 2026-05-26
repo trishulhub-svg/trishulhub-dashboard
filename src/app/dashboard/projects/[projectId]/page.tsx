@@ -5,8 +5,8 @@ import { useParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag, CheckCircle2, ShieldCheck,
-  DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck, LayoutDashboard,
+  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
+  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck, LayoutDashboard,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { TASK_COLUMNS } from "@/lib/types";
-import type { TaskStatus, TaskPriority } from "@/lib/types";
 import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,6 +144,8 @@ export default function ProjectDetailPage() {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  // Audit fix: delete confirmation state for tasks
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -311,7 +312,8 @@ export default function ProjectDetailPage() {
     return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
   }, [teamUsers, memberUserIds]);
 
-  const isLoading = sessionStatus === "loading" || projectLoading;
+  // Fix: Include tasksLoading and membersLoading to prevent layout shift
+  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
 
   // ── Loading state ──
   if (isLoading) {
@@ -901,16 +903,13 @@ export default function ProjectDetailPage() {
                     </div>
                   )}
 
-                  {/* Delete */}
+                  {/* Delete — with confirmation (audit fix) */}
                   <div className="flex justify-end pt-2 border-t">
                     <Button
                       variant="ghost"
                       size="sm"
                       className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      onClick={() => {
-                        handleDeleteTask(dtId);
-                        setTaskDetailOpen(false);
-                      }}
+                      onClick={() => { setDeleteTaskId(dtId); setTaskDetailOpen(false); }}
                     >
                       <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Task
                     </Button>
@@ -921,6 +920,31 @@ export default function ProjectDetailPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Task Confirmation (audit fix) */}
+      {deleteTaskId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-background rounded-xl border p-6 max-w-sm w-full mx-4 shadow-2xl space-y-4">
+            <div>
+              <h3 className="font-bold text-base">Delete Task?</h3>
+              <p className="text-sm text-muted-foreground mt-1">This action cannot be undone. The task will be permanently deleted.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteTaskId(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={async () => {
+                  await handleDeleteTask(deleteTaskId);
+                  setDeleteTaskId(null);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Task Columns — Responsive Grid Layout (TASK 4) ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">

@@ -63,12 +63,14 @@ function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
   return typeof current === "string" ? current : (typeof current === "number" || typeof current === "boolean" ? String(current) : fallback);
 }
 
-type FilterTab = "ALL" | "TODO" | "IN_PROGRESS" | "DONE";
+type FilterTab = "ALL" | "TODO" | "IN_PROGRESS" | "REVIEW" | "AWAITING_APPROVAL" | "DONE";
 
 const FILTER_TABS: { key: FilterTab; label: string; count?: number }[] = [
   { key: "ALL", label: "All" },
   { key: "TODO", label: "To Do" },
   { key: "IN_PROGRESS", label: "In Progress" },
+  { key: "REVIEW", label: "Review" },
+  { key: "AWAITING_APPROVAL", label: "Pending Approval" },
   { key: "DONE", label: "Completed" },
 ];
 
@@ -140,13 +142,8 @@ export default function TodosPage() {
   const project = projectData;
   const projectName = project ? extractStr(project, "name", "Untitled") : "";
 
-  // Filter tasks: hide REVIEW and AWAITING_APPROVAL from developers
-  const visibleTasks = useMemo(() => {
-    return tasksData.filter((t) => {
-      const status = extractStr(t, "status", "");
-      return status !== "REVIEW" && status !== "AWAITING_APPROVAL";
-    });
-  }, [tasksData]);
+  // Audit fix: show ALL task statuses so developers can see REVIEW and AWAITING_APPROVAL
+  const visibleTasks = tasksData;
 
   // Apply search and filter
   const filteredTasks = useMemo(() => {
@@ -163,6 +160,8 @@ export default function TodosPage() {
   // Group filtered tasks by section
   const todoTasks = filteredTasks.filter((t) => extractStr(t, "status", "") === "TODO");
   const inProgressTasks = filteredTasks.filter((t) => extractStr(t, "status", "") === "IN_PROGRESS");
+  const reviewTasks = filteredTasks.filter((t) => extractStr(t, "status", "") === "REVIEW");
+  const awaitingTasks = filteredTasks.filter((t) => extractStr(t, "status", "") === "AWAITING_APPROVAL");
   const doneTasks = filteredTasks.filter((t) => extractStr(t, "status", "") === "DONE");
   const remainingCount = visibleTasks.filter((t) => extractStr(t, "status", "") !== "DONE").length;
 
@@ -188,6 +187,8 @@ export default function TodosPage() {
           toast.success("Task moved back to To Do");
         }
         queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+        // Audit fix: also invalidate global todos cache for consistency
+        queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
       } else {
         if (handle401(res)) return;
         const err = await res.json().catch(() => null);
@@ -318,6 +319,8 @@ export default function TodosPage() {
               tab.key === "ALL" ? visibleTasks.length :
               tab.key === "TODO" ? visibleTasks.filter((t) => extractStr(t, "status", "") === "TODO").length :
               tab.key === "IN_PROGRESS" ? visibleTasks.filter((t) => extractStr(t, "status", "") === "IN_PROGRESS").length :
+              tab.key === "REVIEW" ? visibleTasks.filter((t) => extractStr(t, "status", "") === "REVIEW").length :
+              tab.key === "AWAITING_APPROVAL" ? visibleTasks.filter((t) => extractStr(t, "status", "") === "AWAITING_APPROVAL").length :
               visibleTasks.filter((t) => extractStr(t, "status", "") === "DONE").length;
             return (
               <Button
@@ -401,6 +404,52 @@ export default function TodosPage() {
         </section>
       )}
 
+      {/* ── Review Section (audit fix: was hidden) ── */}
+      {(filter === "ALL" || filter === "REVIEW") && reviewTasks.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-3 px-1">
+            <div className="h-3.5 w-3.5 rounded-sm bg-yellow-400" />
+            <h2 className="text-sm font-bold text-muted-foreground">In Review</h2>
+            <Badge variant="secondary" className="text-[10px] font-bold">{String(reviewTasks.length)}</Badge>
+          </div>
+          <div className="space-y-2">
+            {reviewTasks.map((task) => (
+              <TaskCard
+                key={extractStr(task, "id", "")}
+                task={task}
+                isDone={false}
+                isToggling={togglingId === extractStr(task, "id", "")}
+                onToggle={() => handleToggleDone(extractStr(task, "id", ""), extractStr(task, "status", ""))}
+                onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Awaiting Approval Section (audit fix: was hidden) ── */}
+      {(filter === "ALL" || filter === "AWAITING_APPROVAL") && awaitingTasks.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-3 px-1">
+            <Clock className="h-4 w-4 text-orange-400" />
+            <h2 className="text-sm font-bold text-muted-foreground">Pending Approval</h2>
+            <Badge variant="secondary" className="text-[10px] font-bold">{String(awaitingTasks.length)}</Badge>
+          </div>
+          <div className="space-y-2">
+            {awaitingTasks.map((task) => (
+              <TaskCard
+                key={extractStr(task, "id", "")}
+                task={task}
+                isDone={false}
+                isToggling={togglingId === extractStr(task, "id", "")}
+                onToggle={() => handleToggleDone(extractStr(task, "id", ""), extractStr(task, "status", ""))}
+                onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ── Completed Section ── */}
       {(filter === "ALL" || filter === "DONE") && doneTasks.length > 0 && (
         <section>
@@ -427,7 +476,7 @@ export default function TodosPage() {
       {/* ── Single filter view (flat list) ── */}
       {filter !== "ALL" && (
         <div className="space-y-2">
-          {(filter === "TODO" ? todoTasks : filter === "IN_PROGRESS" ? inProgressTasks : doneTasks).map((task) => (
+          {(filter === "TODO" ? todoTasks : filter === "IN_PROGRESS" ? inProgressTasks : filter === "REVIEW" ? reviewTasks : filter === "AWAITING_APPROVAL" ? awaitingTasks : doneTasks).map((task) => (
             <TaskCard
               key={extractStr(task, "id", "")}
               task={task}

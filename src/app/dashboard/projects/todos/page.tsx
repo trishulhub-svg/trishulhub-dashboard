@@ -79,6 +79,20 @@ export default function GlobalTodosPage() {
     retry: 1,
   });
 
+  // ── Fetch projects for name resolution (audit fix: replaces raw ID fallback) ──
+  const { data: projectsData = [] } = useQuery({
+    queryKey: ["projects"],
+    queryFn: async () => {
+      const res = await fetch("/api/projects", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load projects");
+      const data = await res.json();
+      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    },
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
   // ── Fetch training assignments ──
   const { data: trainingData = [], isLoading: trainingLoading } = useQuery({
     queryKey: ["my-training-assignments"],
@@ -100,6 +114,17 @@ export default function GlobalTodosPage() {
       return status !== "DONE";
     });
   }, [tasksData]);
+
+  // ── Project name lookup map (audit fix) ──
+  const projectNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of projectsData as Record<string, unknown>[]) {
+      const pid = extractStr(p, "id", "");
+      const name = extractStr(p, "name", "");
+      if (pid && name) map.set(pid, name);
+    }
+    return map;
+  }, [projectsData]);
 
   // ── Active (non-completed) training assignments ──
   const activeTraining = useMemo(() => {
@@ -145,7 +170,7 @@ export default function GlobalTodosPage() {
     return map;
   }, [filteredTasks]);
 
-  // ── Sort training by due date ──
+  // ── Sort training by due date, also filter by search (audit fix) ──
   const sortedTraining = useMemo(() => {
     return [...activeTraining].sort((a, b) => {
       const aDue = extractStr(a, "dueDate", "");
@@ -153,8 +178,14 @@ export default function GlobalTodosPage() {
       const aDate = aDue ? new Date(aDue).getTime() : Infinity;
       const bDate = bDue ? new Date(bDue).getTime() : Infinity;
       return aDate - bDate;
+    }).filter((t) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      const topic = extractNestedStr(t, ["document", "topic"], "").toLowerCase();
+      const status = extractStr(t, "status", "").toLowerCase();
+      return topic.includes(q) || status.includes(q);
     });
-  }, [activeTraining]);
+  }, [activeTraining, search]);
 
   // ── Stats ──
   const totalActive = activeTasks.length + activeTraining.length;
@@ -284,8 +315,8 @@ export default function GlobalTodosPage() {
         </div>
       )}
 
-      {/* Training Section */}
-      {sortedTraining.length > 0 && !search && (
+      {/* Training Section — visible even during search (audit fix) */}
+      {sortedTraining.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
             <GraduationCap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
@@ -357,10 +388,8 @@ export default function GlobalTodosPage() {
           </div>
           <div className="space-y-4">
             {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
-              // Get project name from first task's nested data (if available) or use ID
-              const firstTask = tasks[0] || {};
-              // We need to figure out the project name - use the project name from task if available
-              const projectName = extractStr(firstTask, "projectName", projectId.length > 12 ? projectId.slice(0, 12) + "..." : projectId);
+              // Use project name from lookup map (audit fix: no more raw ID fallback)
+              const projectName = projectNameMap.get(projectId) || "Unknown Project";
 
               return (
                 <div key={projectId}>

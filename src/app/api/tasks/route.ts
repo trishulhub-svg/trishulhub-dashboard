@@ -52,10 +52,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (projectId) {
-    where.projectId = assignedProjectIds
-      ? { in: [...(assignedProjectIds as string[])].filter(id => id === projectId) }
-      : projectId
-    // If projectId filter + assignedProjectIds, ensure we only get tasks for this project if user has access
+    // If user has access restrictions, verify project access first
     if (assignedProjectIds && !(assignedProjectIds as string[]).includes(projectId)) {
       return NextResponse.json([])
     }

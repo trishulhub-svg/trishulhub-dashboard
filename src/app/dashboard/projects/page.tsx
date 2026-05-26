@@ -762,8 +762,7 @@ export default function ProjectsPage() {
 
     if (!VALID_STATUSES.includes(newStatus)) return;
 
-    const allProjects = projects as Record<string, unknown>[];
-    const project = allProjects.find((p) => safeText(p.id, "") === projectId);
+    const project = (projects as Record<string, unknown>[]).find((p) => safeText(p.id, "") === projectId);
     if (!project) return;
 
     const currentStatus = safeText(project.status, "");
@@ -826,11 +825,10 @@ export default function ProjectsPage() {
     ),
   }));
 
-  // ━━ Stats computation ━━
-  const allProjects = projects as Record<string, unknown>[];
-  const totalProjects = allProjects.length;
-  const inProgressCount = allProjects.filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
-  const completedCount = allProjects.filter(p => safeText(p.status, "") === "COMPLETED").length;
+  // ━━ Stats computation (reuse projects directly — was duplicate 'allProjects' variable) ━━
+  const totalProjects = projects.length;
+  const inProgressCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
+  const completedCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "COMPLETED").length;
 
   // ━━ Loading skeleton (Kanban-style) ━━
   if (sessionStatus === "loading" || projectsLoading) {
