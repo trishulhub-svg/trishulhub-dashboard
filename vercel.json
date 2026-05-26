@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "src/app/api/task-git-sync/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/execute-tasks",

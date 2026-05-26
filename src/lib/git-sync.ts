@@ -324,6 +324,21 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: "Repository URL not configured" };
     }
 
+    // ── 1.5 DEDUPLICATION: skip if a sync is already running or completed recently ──
+    const lastStatus = config.lastSyncStatus as string | null;
+    const lastSync = config.lastSyncAt ? new Date(config.lastSyncAt) : null;
+    const now = Date.now();
+
+    if (lastStatus === 'PENDING' && lastSync && (now - lastSync.getTime()) < 60000) {
+      console.log("[git-sync] Sync already in progress (PENDING < 60s ago) — skipping");
+      return { success: true, filesUpdated: 0, error: "Sync already in progress" };
+    }
+
+    if (lastStatus === 'SUCCESS' && lastSync && (now - lastSync.getTime()) < 15000) {
+      console.log("[git-sync] Sync completed recently (< 15s ago) — skipping to avoid API rate limits");
+      return { success: true, filesUpdated: 0, error: "Recently synced" };
+    }
+
     // ── 2. Load encryption key from DB if stored ────────────────────────
     //    The saveConfig route stores the key in DB. We must load it here
     //    so that decrypt() can find it in process.env.ENCRYPTION_KEY.
@@ -705,7 +720,8 @@ export async function syncTasksToGit(): Promise<{
       const combinedError = errors.join("; ");
       console.error(`[git-sync] ✗ Sync failed — all files failed`);
       await db.$executeRawUnsafe(
-        `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE "TaskGitConfig" SET "lastSyncAt" = ?, "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+        timestamp,
         combinedError,
         config.id
       );
@@ -739,6 +755,7 @@ export async function syncTasksToGit(): Promise<{
 /** Items to keep at the repo root during cleanup */
 const KEEP_ROOT_ITEMS = new Set([
   "projects", "_archive", "_sync-info.json",
+  "worklogs", "sessions", "blueprints",
   ".gitignore", ".github", "README.md", "LICENSE",
 ]);
 

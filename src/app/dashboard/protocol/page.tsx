@@ -260,36 +260,33 @@ export default function ProtocolPage() {
       });
       if (res.ok) {
         setGitConfig({ ...gitConfig, isEnabled: newValue });
-        toast.success(newValue ? "Git sync enabled — syncing now..." : "Git sync disabled");
+        toast.success(newValue ? "Auto-sync enabled — syncing now..." : "Auto-sync disabled");
 
-        // If enabling, poll for sync status
+        // If enabling, trigger a full sync using the dedicated endpoint
         if (newValue) {
           setGitSyncing(true);
-          const pollInterval = setInterval(async () => {
-            try {
-              const pollRes = await fetch("/api/task-git-config");
-              if (pollRes.ok) {
-                const data = await pollRes.json();
-                setGitConfig(data);
-                if (data.lastSyncStatus && data.lastSyncStatus !== "PENDING") {
-                  clearInterval(pollInterval);
-                  setGitSyncing(false);
-                  if (data.lastSyncStatus === "SUCCESS") {
-                    toast.success("Auto-sync completed successfully");
-                  } else if (data.lastSyncStatus === "ERROR" || data.lastSyncStatus === "FAILED" || data.lastSyncStatus === "PARTIAL") {
-                    toast.error("Sync " + data.lastSyncStatus.toLowerCase() + (data.lastSyncError ? `: ${data.lastSyncError}` : ""));
-                  }
-                }
-              }
-            } catch {
-              clearInterval(pollInterval);
+          fetch("/api/task-git-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          })
+            .then(async (syncRes) => {
               setGitSyncing(false);
-            }
-          }, 3000);
-          setTimeout(() => {
-            clearInterval(pollInterval);
-            setGitSyncing(false);
-          }, 90000);
+              if (syncRes.ok) {
+                const syncData = await syncRes.json();
+                if (syncData.success) {
+                  toast.success(`Sync completed — ${syncData.filesUpdated} file(s) updated`);
+                } else {
+                  toast.error("Sync failed: " + (syncData.error || "Unknown error"));
+                }
+              } else {
+                toast.error("Sync request failed");
+              }
+              await fetchGitConfig();
+            })
+            .catch(() => {
+              setGitSyncing(false);
+              toast.error("Sync request failed");
+            });
         }
       } else {
         toast.error("Failed to toggle git sync");
@@ -299,46 +296,27 @@ export default function ProtocolPage() {
     }
   };
 
-  // ── Trigger manual sync ──
+  // ── Trigger manual sync (uses dedicated endpoint with extended timeout) ──
   const handleManualSync = async () => {
     setGitSyncing(true);
     try {
-      const res = await fetch("/api/task-git-config", {
-        method: "PATCH",
+      const res = await fetch("/api/task-git-sync", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ triggerSync: true }),
       });
       if (res.ok) {
-        toast.success("Task sync triggered");
-        // Poll for status update
-        const pollInterval = setInterval(async () => {
-          try {
-            const pollRes = await fetch("/api/task-git-config");
-            if (pollRes.ok) {
-              const data = await pollRes.json();
-              setGitConfig(data);
-              if (data.lastSyncStatus && data.lastSyncStatus !== "PENDING") {
-                clearInterval(pollInterval);
-                setGitSyncing(false);
-                if (data.lastSyncStatus === "SUCCESS" || data.lastSyncStatus === "NO_CHANGES") {
-                  toast.success(data.lastSyncStatus === "SUCCESS" ? "Sync completed" : "No changes to sync");
-                } else if (data.lastSyncStatus === "ERROR" || data.lastSyncStatus === "FAILED" || data.lastSyncStatus === "PARTIAL") {
-                  toast.error("Sync " + data.lastSyncStatus.toLowerCase() + (data.lastSyncError ? `: ${data.lastSyncError}` : ""));
-                }
-              }
-            }
-          } catch {
-            clearInterval(pollInterval);
-            setGitSyncing(false);
-          }
-        }, 3000);
-        // Safety timeout: stop polling after 60 seconds
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          setGitSyncing(false);
-        }, 60000);
+        const data = await res.json();
+        setGitSyncing(false);
+        if (data.success) {
+          toast.success(`Sync completed — ${data.filesUpdated} file(s) updated`);
+        } else {
+          toast.error("Sync failed: " + (data.error || "Unknown error"));
+        }
+        // Refresh config to get latest status
+        await fetchGitConfig();
       } else {
-        toast.error("Failed to trigger sync");
+        const errData = await res.json().catch(() => ({ error: "Request failed" }));
+        toast.error(errData.error || "Failed to trigger sync");
         setGitSyncing(false);
       }
     } catch {
@@ -683,11 +661,11 @@ export default function ProtocolPage() {
               Save Configuration
             </Button>
 
-            {/* Detected branch info */}
-            {gitConfig?.branch && (
+            {/* Sync info (read-only) */}
+            {gitConfig?.repoUrl && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <GitBranch className="h-3 w-3" />
-                <span>Branch: <span className="font-medium text-foreground">{gitConfig.branch}</span> (auto-detected)</span>
+                <span>Branch: <span className="font-medium text-foreground">{gitConfig.branch || "main"}</span> (auto-detected)</span>
               </div>
             )}
 

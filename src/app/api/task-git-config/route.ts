@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       const staleRows: any[] = await db.$queryRawUnsafe(
         `SELECT id, "updatedAt" FROM "TaskGitConfig"
          WHERE "lastSyncStatus" = 'PENDING'
-           AND "updatedAt" < datetime('now', '-3 minutes')
+           AND "updatedAt" < datetime('now', '-45 seconds')
          LIMIT 1`
       );
       if (staleRows.length > 0) {
@@ -307,7 +307,7 @@ export async function PATCH(request: NextRequest) {
         process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
       }
 
-      // Trigger async sync — just set a pending status and let the caller handle the actual sync
+      // Set status to PENDING and run sync directly within this request
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'PENDING', "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
         existing[0].id
@@ -329,26 +329,8 @@ export async function PATCH(request: NextRequest) {
         existing[0].id
       );
 
-      // When enabling autosync, also trigger an immediate sync
-      if (isEnabled) {
-        // Load encryption key from DB if stored
-        const keyRow: any[] = await db.$queryRawUnsafe(
-          `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
-          existing[0].id
-        );
-        if (keyRow.length > 0 && keyRow[0].encryptionKey) {
-          process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
-        }
-
-        await db.$executeRawUnsafe(
-          `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'PENDING', "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-          existing[0].id
-        );
-        const { syncTasksToGit } = await import("@/lib/git-sync");
-        syncTasksToGit().catch((err: any) => {
-          console.error("[task-git-config] Auto-sync on enable failed:", err?.message);
-        });
-      }
+      // Note: The frontend now triggers sync via the dedicated /api/task-git-sync endpoint
+      // after enabling, so we don't fire sync here anymore. This avoids timeout issues.
 
       return NextResponse.json({ success: true, isEnabled });
     }
