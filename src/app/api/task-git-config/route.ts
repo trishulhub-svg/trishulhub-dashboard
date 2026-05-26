@@ -23,6 +23,23 @@ export async function GET(request: NextRequest) {
 
     await ensureProtocolTables();
 
+    // Auto-reset stale PENDING status (if sync timed out, status gets stuck)
+    try {
+      const staleRows: any[] = await db.$queryRawUnsafe(
+        `SELECT id, "updatedAt" FROM "TaskGitConfig"
+         WHERE "lastSyncStatus" = 'PENDING'
+           AND "updatedAt" < datetime('now', '-3 minutes')
+         LIMIT 1`
+      );
+      if (staleRows.length > 0) {
+        await db.$executeRawUnsafe(
+          `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = 'Sync timed out (serverless function limit). Click Sync Now to retry.', "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+          staleRows[0].id
+        );
+        console.log("[task-git-config] Auto-reset stale PENDING status to ERROR");
+      }
+    } catch { /* non-fatal */ }
+
     const rows: any[] = await db.$queryRawUnsafe(
       `SELECT "repoUrl", "branch", "isEnabled", "lastSyncAt", "lastSyncStatus", "lastSyncError", "createdAt", "updatedAt", "encryptionKey"
        FROM "TaskGitConfig" LIMIT 1`
