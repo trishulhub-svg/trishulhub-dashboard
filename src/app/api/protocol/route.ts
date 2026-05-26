@@ -7,9 +7,9 @@ import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 async function getActiveProtocol() {
   try {
     await ensureProtocolTables();
-    // Use raw query to access fileName, fileSize, mimeType columns safely
+    // Use raw query to access fileName, fileSize, mimeType, downloadEnabled columns safely
     const rows: any[] = await db.$queryRawUnsafe(
-      `SELECT id, version, title, content as data, stageDescriptions, agentSkills, isActive, createdBy, createdAt, updatedAt
+      `SELECT id, version, title, content as data, stageDescriptions, agentSkills, isActive, createdBy, createdAt, updatedAt, "downloadEnabled"
        FROM "ProtocolVersion" WHERE isActive = true LIMIT 1`
     );
     if (!rows.length) return null;
@@ -30,13 +30,14 @@ async function getActiveProtocol() {
       mimeType: meta.mimeType || "application/pdf",
       uploadedBy: meta.uploadedBy || "",
       uploadedAt: row.updatedAt || row.createdAt,
+      downloadEnabled: row.downloadEnabled !== false,
     };
   } catch {
     return null;
   }
 }
 
-// GET — fetch active protocol metadata (or PDF data if ?download=true)
+// GET — fetch active protocol metadata (or binary PDF if ?download=true)
 export async function GET(request: NextRequest) {
   try {
     const protocol = await getActiveProtocol();
@@ -44,26 +45,85 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "No protocol uploaded" }, { status: 404 });
     }
 
-    // If download requested, include the base64 data
+    // If download requested, return binary stream
     if (request.nextUrl.searchParams.get("download") === "true") {
       const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
       if (!token) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
+
+      // Check downloadEnabled — SUPER_ADMIN always bypasses
+      if (!protocol.downloadEnabled && (token as any).role !== "SUPER_ADMIN") {
+        return NextResponse.json(
+          { error: "Download disabled by administration" },
+          { status: 403 }
+        );
+      }
+
       // Fetch the raw content (base64 data) from DB
       const rows: any[] = await db.$queryRawUnsafe(
         `SELECT content FROM "ProtocolVersion" WHERE isActive = true LIMIT 1`
       );
-      return NextResponse.json({
-        ...protocol,
-        data: rows[0]?.content || "",
+      const base64Data = rows[0]?.content || "";
+
+      if (!base64Data) {
+        return NextResponse.json({ error: "No PDF content found" }, { status: 404 });
+      }
+
+      // Convert base64 to binary buffer
+      const buffer = Buffer.from(base64Data, "base64");
+
+      return new NextResponse(buffer, {
+        headers: {
+          "Content-Type": protocol.mimeType || "application/pdf",
+          "Content-Disposition": `attachment; filename="${protocol.fileName}"`,
+          "Content-Length": String(buffer.length),
+        },
       });
     }
 
-    // Otherwise just return metadata
+    // Otherwise just return metadata (including downloadEnabled)
     return NextResponse.json(protocol);
   } catch (error: any) {
     console.error("[protocol] GET error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// PATCH — toggle downloadEnabled for active protocol (SUPER_ADMIN only)
+export async function PATCH(request: NextRequest) {
+  try {
+    await ensureProtocolTables();
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    if (!token || token.role !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { downloadEnabled } = body;
+
+    if (typeof downloadEnabled !== "boolean") {
+      return NextResponse.json({ error: "downloadEnabled must be a boolean" }, { status: 400 });
+    }
+
+    // Check an active protocol exists
+    const existing: any[] = await db.$queryRawUnsafe(
+      `SELECT id FROM "ProtocolVersion" WHERE isActive = true LIMIT 1`
+    );
+
+    if (!existing.length) {
+      return NextResponse.json({ error: "No active protocol found" }, { status: 404 });
+    }
+
+    await db.$executeRawUnsafe(
+      `UPDATE "ProtocolVersion" SET "downloadEnabled" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+      downloadEnabled ? 1 : 0,
+      existing[0].id
+    );
+
+    return NextResponse.json({ success: true, downloadEnabled });
+  } catch (error: any) {
+    console.error("[protocol] PATCH error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

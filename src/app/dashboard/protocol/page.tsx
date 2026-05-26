@@ -6,10 +6,14 @@ import { useSession } from "next-auth/react";
 import {
   FileText, Upload, Download, Trash2, Loader2,
   FileUp, CheckCircle2, AlertCircle, Clock,
+  Shield, GitBranch, Ban, RefreshCw, Save, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { safeText, safeDate } from "@/lib/utils";
@@ -21,6 +25,7 @@ interface ProtocolFile {
   mimeType: string;
   uploadedAt: string;
   uploadedBy: string;
+  downloadEnabled: boolean;
 }
 
 export default function ProtocolPage() {
@@ -33,6 +38,22 @@ export default function ProtocolPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [downloadEnabled, setDownloadEnabled] = useState(true);
+
+  // ── Git config state ──
+  const [gitConfig, setGitConfig] = useState<{
+    repoUrl: string;
+    tokenMasked: string;
+    branch: string;
+    isEnabled: boolean;
+    lastSyncAt: string | null;
+    lastSyncStatus: string | null;
+    lastSyncError: string | null;
+  } | null>(null);
+  const [gitForm, setGitForm] = useState({ repoUrl: "", token: "", branch: "main" });
+  const [gitSaving, setGitSaving] = useState(false);
+  const [gitSyncing, setGitSyncing] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   // ── Fetch current protocol PDF ──
   const fetchProtocol = useCallback(async () => {
@@ -40,20 +61,44 @@ export default function ProtocolPage() {
       const res = await fetch("/api/protocol");
       if (res.ok) {
         const data = await res.json();
-        if (data?.id) setProtocol(data);
-        else setProtocol(null);
+        if (data?.id) {
+          setProtocol(data);
+          setDownloadEnabled(data.downloadEnabled !== false);
+        } else {
+          setProtocol(null);
+          setDownloadEnabled(true);
+        }
       }
     } catch {
       console.error("Failed to fetch protocol");
     }
   }, []);
 
+  // ── Fetch git config ──
+  const fetchGitConfig = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch("/api/task-git-config");
+      if (res.ok) {
+        const data = await res.json();
+        setGitConfig(data);
+        setGitForm({
+          repoUrl: data.repoUrl || "",
+          token: "",
+          branch: data.branch || "main",
+        });
+      }
+    } catch {
+      /* silent */
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     if (status === "authenticated") {
       setLoading(true);
-      fetchProtocol().finally(() => setLoading(false));
+      Promise.all([fetchProtocol(), fetchGitConfig()]).finally(() => setLoading(false));
     }
-  }, [status, fetchProtocol]);
+  }, [status, fetchProtocol, fetchGitConfig]);
 
   // ── Upload PDF ──
   const handleUpload = async (file: File) => {
@@ -107,24 +152,16 @@ export default function ProtocolPage() {
     try {
       const res = await fetch("/api/protocol?download=true");
       if (res.ok) {
-        const data = await res.json();
-        if (data.data) {
-          const binary = atob(data.data);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          const blob = new Blob([bytes], { type: protocol.mimeType });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = protocol.fileName || "trishul-protocol.pdf";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          toast.success("Download started");
-        } else {
-          toast.error("No PDF data found");
-        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = protocol.fileName || "trishul-protocol.pdf";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success("Download started");
       } else {
         toast.error("Failed to download protocol");
       }
@@ -150,6 +187,130 @@ export default function ProtocolPage() {
     }
   };
 
+  // ── Toggle download enabled ──
+  const handleToggleDownload = async () => {
+    try {
+      const res = await fetch("/api/protocol", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ downloadEnabled: !downloadEnabled }),
+      });
+      if (res.ok) {
+        setDownloadEnabled(!downloadEnabled);
+        toast.success(!downloadEnabled ? "Downloads enabled" : "Downloads disabled");
+      } else {
+        toast.error("Failed to toggle download");
+      }
+    } catch {
+      toast.error("Failed to toggle download");
+    }
+  };
+
+  // ── Save git config ──
+  const handleSaveGitConfig = async () => {
+    if (!gitForm.repoUrl.trim()) {
+      toast.error("Repository URL is required");
+      return;
+    }
+    if (!gitForm.token.trim()) {
+      toast.error("Access token is required");
+      return;
+    }
+
+    setGitSaving(true);
+    try {
+      const res = await fetch("/api/task-git-config", {
+        method: gitConfig ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoUrl: gitForm.repoUrl.trim(),
+          token: gitForm.token,
+          branch: gitForm.branch.trim() || "main",
+          isEnabled: gitConfig?.isEnabled ?? false,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Git configuration saved");
+        await fetchGitConfig();
+        setGitForm((prev) => ({ ...prev, token: "" }));
+      } else {
+        const data = await res.json();
+        toast.error(safeText(data.error, "Failed to save configuration"));
+      }
+    } catch {
+      toast.error("Failed to save configuration");
+    }
+    setGitSaving(false);
+  };
+
+  // ── Toggle git sync ──
+  const handleToggleGitSync = async () => {
+    if (!gitConfig) return;
+    try {
+      const res = await fetch("/api/task-git-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isEnabled: !gitConfig.isEnabled }),
+      });
+      if (res.ok) {
+        setGitConfig({ ...gitConfig, isEnabled: !gitConfig.isEnabled });
+        toast.success(!gitConfig.isEnabled ? "Git sync enabled" : "Git sync disabled");
+      } else {
+        toast.error("Failed to toggle git sync");
+      }
+    } catch {
+      toast.error("Failed to toggle git sync");
+    }
+  };
+
+  // ── Trigger manual sync ──
+  const handleManualSync = async () => {
+    setGitSyncing(true);
+    try {
+      const res = await fetch("/api/task-git-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triggerSync: true }),
+      });
+      if (res.ok) {
+        toast.success("Task sync triggered");
+        // Poll for status update
+        const pollInterval = setInterval(async () => {
+          try {
+            const pollRes = await fetch("/api/task-git-config");
+            if (pollRes.ok) {
+              const data = await pollRes.json();
+              setGitConfig(data);
+              if (data.lastSyncStatus && data.lastSyncStatus !== "PENDING") {
+                clearInterval(pollInterval);
+                setGitSyncing(false);
+                if (data.lastSyncStatus === "SUCCESS" || data.lastSyncStatus === "NO_CHANGES") {
+                  toast.success(data.lastSyncStatus === "SUCCESS" ? "Sync completed" : "No changes to sync");
+                } else if (data.lastSyncStatus === "FAILED") {
+                  toast.error("Sync failed: " + (data.lastSyncError || "Unknown error"));
+                }
+              }
+            }
+          } catch {
+            clearInterval(pollInterval);
+            setGitSyncing(false);
+          }
+        }, 3000);
+        // Safety timeout: stop polling after 60 seconds
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setGitSyncing(false);
+        }, 60000);
+      } else {
+        toast.error("Failed to trigger sync");
+        setGitSyncing(false);
+      }
+    } catch {
+      toast.error("Failed to trigger sync");
+      setGitSyncing(false);
+    }
+  };
+
   // ── Drag & Drop handlers ──
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
   const onDragLeave = () => setDragOver(false);
@@ -164,6 +325,18 @@ export default function ProtocolPage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const formatRelativeTime = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (seconds < 60) return "Just now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return date.toLocaleDateString();
   };
 
   // ── Loading ──
@@ -227,10 +400,17 @@ export default function ProtocolPage() {
 
               {/* Actions */}
               <div className="flex items-center gap-2 pt-3 border-t">
-                <Button onClick={handleDownload} className="flex-1">
-                  <Download className="h-4 w-4 mr-2" />
-                  Download PDF
-                </Button>
+                {!isAdmin && protocol && !downloadEnabled ? (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg w-full">
+                    <Ban className="h-4 w-4 text-red-500" />
+                    <span className="text-sm text-red-600 dark:text-red-400">Download disabled by administration</span>
+                  </div>
+                ) : (
+                  <Button onClick={handleDownload} className="flex-1">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                )}
                 {isAdmin && (
                   <>
                     <Button
@@ -332,6 +512,183 @@ export default function ProtocolPage() {
             <p className="text-sm font-medium">Uploading protocol...</p>
           </div>
         </div>
+      )}
+
+      {/* ── Download Control (SUPER_ADMIN only) ── */}
+      {isAdmin && protocol && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base">Download Control</CardTitle>
+              </div>
+              <Switch
+                checked={downloadEnabled}
+                onCheckedChange={handleToggleDownload}
+              />
+            </div>
+            <CardDescription>Control whether team members can download the protocol PDF</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex items-center gap-2">
+              {downloadEnabled ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm text-emerald-600 dark:text-emerald-400">Downloads enabled for all users</span>
+                </>
+              ) : (
+                <>
+                  <Ban className="h-4 w-4 text-red-500" />
+                  <span className="text-sm text-red-600 dark:text-red-400">Downloads disabled by administration</span>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Save Task System - Git Config (SUPER_ADMIN only) ── */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base">Save Task System</CardTitle>
+            </div>
+            <CardDescription>Bind a Git repository to automatically sync task status. Another system can read live task data from this repo.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Repo URL */}
+            <div className="space-y-2">
+              <Label htmlFor="git-repo-url">Repository URL</Label>
+              <Input
+                id="git-repo-url"
+                type="url"
+                placeholder="https://github.com/owner/repo"
+                value={gitForm.repoUrl}
+                onChange={(e) => setGitForm((prev) => ({ ...prev, repoUrl: e.target.value }))}
+              />
+            </div>
+
+            {/* Token */}
+            <div className="space-y-2">
+              <Label htmlFor="git-token">Access Token</Label>
+              <div className="relative">
+                <Input
+                  id="git-token"
+                  type={showToken ? "text" : "password"}
+                  placeholder={gitConfig?.tokenMasked || "ghp_xxxxxxxxxxxx"}
+                  value={gitForm.token}
+                  onChange={(e) => setGitForm((prev) => ({ ...prev, token: e.target.value }))}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowToken(!showToken)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {gitConfig?.tokenMasked && !gitForm.token && (
+                <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
+              )}
+            </div>
+
+            {/* Branch */}
+            <div className="space-y-2">
+              <Label htmlFor="git-branch">Branch</Label>
+              <Input
+                id="git-branch"
+                placeholder="main"
+                value={gitForm.branch}
+                onChange={(e) => setGitForm((prev) => ({ ...prev, branch: e.target.value }))}
+              />
+            </div>
+
+            {/* Save button */}
+            <Button
+              onClick={handleSaveGitConfig}
+              disabled={gitSaving || !gitForm.repoUrl.trim() || (!gitForm.token && !gitConfig?.tokenMasked)}
+              className="w-full"
+            >
+              {gitSaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save Configuration
+            </Button>
+
+            {/* Enable/Disable toggle + Manual sync */}
+            {gitConfig && (
+              <div className="pt-3 border-t space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={gitConfig.isEnabled}
+                      onCheckedChange={handleToggleGitSync}
+                      disabled={!gitConfig.repoUrl}
+                    />
+                    <span className="text-sm font-medium">
+                      Auto-sync on task changes
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleManualSync}
+                    disabled={gitSyncing || !gitConfig.repoUrl}
+                  >
+                    {gitSyncing ? (
+                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                    )}
+                    Sync Now
+                  </Button>
+                </div>
+
+                {/* Sync status */}
+                {gitConfig.lastSyncStatus && (
+                  <div className="flex items-center gap-2">
+                    {gitConfig.lastSyncStatus === "SUCCESS" || gitConfig.lastSyncStatus === "NO_CHANGES" ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        <span className="text-sm text-emerald-600 dark:text-emerald-400">
+                          {gitConfig.lastSyncStatus === "SUCCESS" ? "Last sync successful" : "No changes since last sync"}
+                        </span>
+                      </>
+                    ) : gitConfig.lastSyncStatus === "FAILED" ? (
+                      <>
+                        <AlertCircle className="h-4 w-4 text-red-500" />
+                        <span className="text-sm text-red-600 dark:text-red-400">
+                          Last sync failed{gitConfig.lastSyncError ? `: ${gitConfig.lastSyncError}` : ""}
+                        </span>
+                      </>
+                    ) : gitConfig.lastSyncStatus === "PENDING" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+                        <span className="text-sm text-amber-600 dark:text-amber-400">Sync in progress...</span>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Last sync time */}
+                {gitConfig.lastSyncAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Last synced: {formatRelativeTime(gitConfig.lastSyncAt)}
+                    {gitConfig.lastSyncAt && (
+                      <> ({safeDate(gitConfig.lastSyncAt)})</>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { syncTasksToGit } from "@/lib/git-sync"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -174,6 +175,8 @@ export async function POST(req: NextRequest) {
   }
 
   const task = await db.task.create({ data })
+  // Background: sync tasks to Git (fire-and-forget)
+  syncTasksToGit().catch(() => {})
   return NextResponse.json(JSON.parse(JSON.stringify(task)), { status: 201 })
   } catch (error: any) {
     console.error("[tasks] POST error:", error?.message)
@@ -383,6 +386,8 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // Background: sync tasks to Git (fire-and-forget)
+  syncTasksToGit().catch(() => {})
   return NextResponse.json(JSON.parse(JSON.stringify(updatedTask)))
   } catch (error: any) {
     console.error("[tasks] PATCH error:", error?.message)
@@ -424,6 +429,8 @@ export async function DELETE(req: NextRequest) {
   }
 
   await db.task.delete({ where: { id } })
+  // Background: sync tasks to Git (fire-and-forget)
+  syncTasksToGit().catch(() => {})
   return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error("[tasks] DELETE error:", error?.message)
