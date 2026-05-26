@@ -20,3 +20,25 @@ Stage Summary:
 - All TypeScript checks pass
 - Commit: b5b3026 "feat: protocol download fix, toggle control + save task system (git sync)"
 - Push blocked by expired GitHub token — user needs to provide new token
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix 3 critical bugs preventing git sync from working
+
+Work Log:
+- Read and analyzed git-sync.ts, task-git-config/route.ts, protocol/page.tsx, encryption.ts, ensure-protocol-tables.ts
+- Identified Bug 1: syncTasksToGit() never loads encryption key from DB before decrypting token
+- Identified Bug 2: Toggling autosync ON doesn't trigger an immediate sync
+- Identified Bug 3: UI checks for status "FAILED" but sync sets "ERROR" — errors never shown
+- Fixed git-sync.ts: Added encryption key loading from DB config row
+- Fixed task-git-config/route.ts: Added auto-sync trigger when enabling, + encryption key loading in both triggerSync and isEnabled handlers
+- Fixed protocol/page.tsx: Added ERROR/PARTIAL status handling, toggle now polls for sync result
+- TypeScript check passed with 0 errors
+- Pushed as commit 7873a7a
+
+Stage Summary:
+- 3 files changed: git-sync.ts, task-git-config/route.ts, protocol/page.tsx
+- 90 insertions, 18 deletions
+- Key: sync will now work because encryption key is properly loaded before decryption
+- Key: enabling autosync now immediately triggers first sync with UI feedback
+- Key: error states now properly visible to user via toast messages
