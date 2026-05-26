@@ -42,3 +42,29 @@ Stage Summary:
 - Key: sync will now work because encryption key is properly loaded before decryption
 - Key: enabling autosync now immediately triggers first sync with UI feedback
 - Key: error states now properly visible to user via toast messages
+---
+Task ID: 1
+Agent: main
+Task: Auto-sync system overhaul per trishul-protocol.git specification
+
+Work Log:
+- Analyzed current git-sync.ts implementation and compared with user-provided specification
+- Identified root cause of missing data: Vercel Hobby plan 10s timeout killing sync mid-execution
+- Added worklogs/, sessions/, blueprints/ to KEEP_ROOT_ITEMS for workspace folder preservation
+- Created dedicated /api/task-git-sync endpoint with maxDuration=60 for extended timeout
+- Added sync deduplication logic: skip if PENDING <60s or SUCCESS <15s
+- Reduced stale PENDING detection from 3min to 45s for faster recovery
+- Moved auto-sync trigger from PATCH handler to dedicated POST endpoint
+- Updated manual sync in protocol page to use dedicated endpoint
+- Removed branch input field from Save Task System UI (auto-detected)
+- Fixed ERROR status to also set lastSyncAt timestamp
+- Updated vercel.json with functions.maxDuration config
+- Build passed successfully, pushed to GitHub as commit 7c81527
+
+Stage Summary:
+- Key architectural change: dedicated sync endpoint avoids 10s serverless timeout
+- Sync deduplication prevents API rate limiting from multiple rapid syncs
+- Workspace folders (worklogs/, sessions/, blueprints/) now preserved during cleanup
+- Stuck "sync in progress" state resolved via 45s stale timeout + direct endpoint
+- All changes pushed to main branch
+
