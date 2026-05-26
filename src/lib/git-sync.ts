@@ -111,9 +111,59 @@ async function githubPut(
 ): Promise<{ ok: boolean; status: number; error?: string }> {
   const base64Content = Buffer.from(content, "utf-8").toString("base64");
 
+  /** Helper: fetch current file SHA and retry the PUT */
+  const retryWithSha = async (retryMessage: string): Promise<{ ok: boolean; status: number; error?: string }> => {
+    const getRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${branch}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "TrishulHub-CRM",
+        },
+      }
+    );
+
+    if (getRes.ok) {
+      const fileData = await getRes.json();
+      const retryRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "TrishulHub-CRM",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: retryMessage,
+            content: base64Content,
+            branch,
+            sha: fileData.sha,
+          }),
+        }
+      );
+
+      if (!retryRes.ok) {
+        const errBody = await retryRes.text();
+        return { ok: false, status: retryRes.status, error: errBody };
+      }
+      return { ok: true, status: retryRes.status };
+    }
+
+    const status = getRes.status;
+    if (status === 404) {
+      // File doesn't exist — original PUT should have worked as a create.
+      // Something else is wrong; return original error.
+      return { ok: false, status, error: `Could not resolve SHA: file not found at ${path}` };
+    }
+    return { ok: false, status, error: `Could not resolve SHA: GET returned ${status}` };
+  };
+
   try {
     const response = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
       {
         method: "PUT",
         headers: {
@@ -130,60 +180,19 @@ async function githubPut(
       }
     );
 
-    if (response.status === 409) {
-      // Conflict: file may have changed since last read — try once more with SHA
-      const getRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/vnd.github.v3+json",
-            "User-Agent": "TrishulHub-CRM",
-          },
-        }
-      );
-
-      if (getRes.ok) {
-        const fileData = await getRes.json();
-        const retryRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/vnd.github.v3+json",
-              "User-Agent": "TrishulHub-CRM",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              message: `${message} (retry)`,
-              content: base64Content,
-              branch,
-              sha: fileData.sha,
-            }),
-          }
-        );
-
-        if (!retryRes.ok) {
-          const errBody = await retryRes.text();
-          return { ok: false, status: retryRes.status, error: errBody };
-        }
-        return { ok: true, status: retryRes.status };
-      }
-
-      return {
-        ok: false,
-        status: 409,
-        error: "Conflict and could not resolve SHA",
-      };
+    if (response.ok) {
+      return { ok: true, status: response.status };
     }
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      return { ok: false, status: response.status, error: errBody };
+    // 422 = "sha wasn't supplied" → file already exists, fetch SHA and retry
+    // 409 = Conflict → file changed, fetch latest SHA and retry
+    if (response.status === 422 || response.status === 409) {
+      console.log(`[git-sync] File ${path} returned ${response.status} — fetching SHA and retrying...`);
+      return retryWithSha(`${message} (update)`);
     }
 
-    return { ok: true, status: response.status };
+    const errBody = await response.text();
+    return { ok: false, status: response.status, error: errBody };
   } catch (err: any) {
     return { ok: false, status: 0, error: err?.message || String(err) };
   }
