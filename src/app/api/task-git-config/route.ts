@@ -82,7 +82,16 @@ async function saveConfig(request: NextRequest) {
     }
 
     // Encrypt the token
-    const encrypted = encrypt(gitToken);
+    let encrypted: { encrypted: string; iv: string; tag: string };
+    try {
+      encrypted = encrypt(gitToken);
+    } catch (encError: any) {
+      console.error("[task-git-config] Encryption error:", encError?.message);
+      return NextResponse.json(
+        { error: "Encryption key not configured. Set ENCRYPTION_KEY environment variable." },
+        { status: 500 }
+      );
+    }
 
     // Parse owner/repo from URL
     let repoOwner = "";
@@ -114,7 +123,7 @@ async function saveConfig(request: NextRequest) {
         encrypted.encrypted,
         encrypted.iv,
         encrypted.tag,
-        isEnabled !== false,
+        isEnabled !== false ? 1 : 0,
         existing[0].id
       );
     } else {
@@ -130,15 +139,15 @@ async function saveConfig(request: NextRequest) {
         encrypted.encrypted,
         encrypted.iv,
         encrypted.tag,
-        isEnabled !== false,
+        isEnabled !== false ? 1 : 0,
         (token as any).sub || (token as any).id || "unknown"
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("[task-git-config] POST error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("[task-git-config] POST error:", error?.message || error);
+    return NextResponse.json({ error: "Failed to save git configuration" }, { status: 500 });
   }
 }
 
@@ -178,7 +187,7 @@ export async function PATCH(request: NextRequest) {
     if (typeof isEnabled === "boolean") {
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "isEnabled" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-        isEnabled,
+        isEnabled ? 1 : 0,
         existing[0].id
       );
       return NextResponse.json({ success: true, isEnabled });
@@ -186,7 +195,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ error: "No valid action specified" }, { status: 400 });
   } catch (error: any) {
-    console.error("[task-git-config] PATCH error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("[task-git-config] PATCH error:", error?.message || error);
+    return NextResponse.json({ error: "Failed to update git configuration" }, { status: 500 });
   }
 }

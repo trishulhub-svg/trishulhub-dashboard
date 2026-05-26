@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { syncTasksToGit } from "@/lib/git-sync"
 
 // GET /api/projects/[projectId]/members - List project members
 export async function GET(
@@ -113,6 +114,9 @@ export async function POST(
       },
     })
 
+    // Background: sync team & task data to Git (fire-and-forget)
+    syncTasksToGit().catch(() => {})
+
     // Notify the user about project assignment
     try {
       await db.notification.create({
@@ -168,6 +172,9 @@ export async function DELETE(
     await db.projectMember.deleteMany({
       where: { userId, projectId },
     })
+
+    // Background: sync team & task data to Git (fire-and-forget)
+    syncTasksToGit().catch(() => {})
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {

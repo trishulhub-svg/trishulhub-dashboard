@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { syncTasksToGit } from "@/lib/git-sync"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
@@ -177,6 +178,8 @@ export async function POST(req: NextRequest) {
         deadline: deadline ? new Date(deadline) : null,
       },
     })
+    // Background: sync project data to Git (fire-and-forget)
+    syncTasksToGit().catch(() => {})
     return NextResponse.json(JSON.parse(JSON.stringify(project)), { status: 201 })
   } catch (error: any) {
     console.error("[projects] POST error:", error?.message)

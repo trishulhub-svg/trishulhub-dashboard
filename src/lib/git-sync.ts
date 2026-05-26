@@ -216,7 +216,15 @@ export async function testGitConnection(config: {
 }
 
 /**
- * Main sync function — reads ALL tasks from DB and pushes to GitHub.
+ * Main sync function — reads ALL projects, team members, and tasks from DB
+ * and pushes a structured folder layout to GitHub.
+ *
+ * Structure pushed:
+ *   projects/index.json              ← Master index with summary & project list
+ *   projects/{slug}/project.json     ← Project metadata
+ *   projects/{slug}/team.json        ← Team members for the project
+ *   projects/{slug}/tasks.json       ← Tasks for the project
+ *
  * Called automatically when tasks change.
  * Runs asynchronously (fire-and-forget from the caller).
  *
@@ -242,7 +250,8 @@ export async function syncTasksToGit(): Promise<{
 
     const config = rows[0];
 
-    if (!config.isEnabled) {
+    // SQLite stores booleans as 0/1 — handle both
+    if (!config.isEnabled || config.isEnabled === 0) {
       console.log("[git-sync] Git sync is disabled — skipping");
       return { success: false, error: "Git sync is disabled" };
     }
@@ -293,17 +302,18 @@ export async function syncTasksToGit(): Promise<{
     const { owner, repo } = parsed;
     const branch = config.branch || "main";
 
-    // ── 4. Query all projects and tasks ────────────────────────────────────
+    // ── 4. Query projects (with client info) ──────────────────────────────
     console.log(
       `[git-sync] Starting sync to ${owner}/${repo} (branch: ${branch})`
     );
 
     let projects: any[];
-    let tasks: any[];
-
     try {
       projects = await db.$queryRawUnsafe(
-        `SELECT p.id, p.name, p.status, p.deadline, p.progress, p.budget FROM "Project" p`
+        `SELECT p.id, p.name, p.description, p.status, p.progress, p.deadline, p.budget, p."createdAt", p."updatedAt",
+                c.name as "clientName", c.email as "clientEmail", c.company as "clientCompany"
+         FROM "Project" p
+         LEFT JOIN "Client" c ON p."clientId" = c.id`
       );
     } catch (err: any) {
       const errMsg = `Failed to query projects: ${err?.message || String(err)}`;
@@ -316,9 +326,34 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
+    // ── 5. Query team members per project ──────────────────────────────────
+    let teamMembers: any[];
+    try {
+      teamMembers = await db.$queryRawUnsafe(
+        `SELECT pm."projectId", pm."userId", pm.role as "projectRole", pm."createdAt" as "addedAt",
+                u.name, u.email, u.role, u.department
+         FROM "ProjectMember" pm
+         LEFT JOIN "User" u ON pm."userId" = u.id`
+      );
+    } catch (err: any) {
+      const errMsg = `Failed to query team members: ${err?.message || String(err)}`;
+      console.error(`[git-sync] ${errMsg}`);
+      await db.$executeRawUnsafe(
+        `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+        errMsg,
+        config.id
+      );
+      return { success: false, error: errMsg };
+    }
+
+    // ── 6. Query tasks (with assignee details) ─────────────────────────────
+    let tasks: any[];
     try {
       tasks = await db.$queryRawUnsafe(
-        `SELECT t.id, t.title, t.description, t."projectId", t."assignedTo", t."assigneeType", t.status, t.priority, t.deadline, t."completedAt", t."approvedBy", t."approvedAt", t."createdAt", t."updatedAt", u.name as "assigneeName" FROM "Task" t LEFT JOIN "User" u ON t."assignedTo" = u.id`
+        `SELECT t.id, t.title, t.description, t."projectId", t."assignedTo", t."assigneeType", t.status, t.priority, t.deadline, t."completedAt", t."approvedBy", t."approvedAt", t."createdAt", t."updatedAt",
+                u.name as "assigneeName", u.id as "assigneeId"
+         FROM "Task" t
+         LEFT JOIN "User" u ON t."assignedTo" = u.id`
       );
     } catch (err: any) {
       const errMsg = `Failed to query tasks: ${err?.message || String(err)}`;
@@ -331,120 +366,233 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
-    // ── 5. Build the JSON structure ────────────────────────────────────────
-    const byStatus: Record<string, number> = {
+    // ── 7. Build data structures ──────────────────────────────────────────
+
+    // Count tasks by status globally
+    const tasksByStatus: Record<string, number> = {
       TODO: 0,
       IN_PROGRESS: 0,
       REVIEW: 0,
       AWAITING_APPROVAL: 0,
       DONE: 0,
     };
-
-    // Count tasks by status
     for (const task of tasks) {
       const s = task.status as string;
-      if (s in byStatus) {
-        byStatus[s]++;
+      if (s in tasksByStatus) {
+        tasksByStatus[s]++;
       }
     }
 
-    const gitContent: any = {
-      lastUpdated: new Date().toISOString(),
-      summary: {
-        totalProjects: projects.length,
-        totalTasks: tasks.length,
-        byStatus,
-      },
-      projects: {} as Record<string, any>,
-    };
+    // Build per-project lookups
+    const tasksByProject = new Map<string, any[]>();
+    for (const task of tasks) {
+      const pid = task.projectId;
+      if (!tasksByProject.has(pid)) tasksByProject.set(pid, []);
+      tasksByProject.get(pid)!.push(task);
+    }
 
-    // Group tasks by project
-    for (const project of projects) {
-      const slug = slugify(project.name) || project.id;
-      const projectTasks = tasks.filter(
-        (t: any) => t.projectId === project.id
-      );
+    const teamByProject = new Map<string, any[]>();
+    for (const member of teamMembers) {
+      const pid = member.projectId;
+      if (!teamByProject.has(pid)) teamByProject.set(pid, []);
+      teamByProject.get(pid)!.push(member);
+    }
 
-      gitContent.projects[slug] = {
-        id: project.id,
-        name: project.name,
-        status: project.status,
-        progress: project.progress,
-        deadline: project.deadline,
-        budget: project.budget,
-        tasks: projectTasks.map((t: any) => ({
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          status: t.status,
-          priority: t.priority,
-          assignee: t.assigneeName || null,
-          assigneeType: t.assigneeType || null,
-          deadline: t.deadline,
-          createdAt: t.createdAt,
-          updatedAt: t.updatedAt,
-          completedAt: t.completedAt,
-          approvedBy: t.approvedBy,
-          approvedAt: t.approvedAt,
-        })),
-      };
+    // Count unique team members across all projects (deduplicated by userId)
+    const uniqueMemberIds = new Set<string>();
+    for (const member of teamMembers) {
+      if (member.userId) uniqueMemberIds.add(member.userId);
     }
 
     const timestamp = new Date().toISOString();
     let filesUpdated = 0;
     const errors: string[] = [];
 
-    // ── 6. Push master index ───────────────────────────────────────────────
+    // ── 8. Build and push projects/index.json ─────────────────────────────
+    const indexProjects = projects.map((p: any) => {
+      const slug = slugify(p.name) || p.id;
+      const projectTasks = tasksByProject.get(p.id) || [];
+      const projectTeam = teamByProject.get(p.id) || [];
+      return {
+        slug,
+        name: p.name,
+        status: p.status,
+        progress: p.progress,
+        teamCount: projectTeam.length,
+        taskCount: projectTasks.length,
+        deadline: p.deadline || null,
+        client: p.clientName || null,
+      };
+    });
+
+    const indexData = {
+      lastUpdated: timestamp,
+      summary: {
+        totalProjects: projects.length,
+        totalTeamMembers: uniqueMemberIds.size,
+        totalTasks: tasks.length,
+        tasksByStatus,
+      },
+      projects: indexProjects,
+    };
+
     console.log(
-      `[git-sync] Pushing /tasks/index.json (${tasks.length} tasks across ${projects.length} projects)...`
+      `[git-sync] Pushing projects/index.json (${projects.length} projects, ${uniqueMemberIds.size} team members, ${tasks.length} tasks)...`
     );
     const indexResult = await githubPut(
       token,
       owner,
       repo,
-      "tasks/index.json",
-      JSON.stringify(gitContent, null, 2),
+      "projects/index.json",
+      JSON.stringify(indexData, null, 2),
       branch,
-      `Sync tasks - ${timestamp}`
+      `Sync projects index - ${timestamp}`
     );
 
     if (indexResult.ok) {
       filesUpdated++;
-      console.log(`[git-sync] ✓ tasks/index.json pushed`);
+      console.log(`[git-sync] ✓ projects/index.json pushed`);
     } else {
-      const errMsg = `Failed to push tasks/index.json: ${indexResult.error}`;
+      const errMsg = `Failed to push projects/index.json: ${indexResult.error}`;
       console.error(`[git-sync] ${errMsg}`);
       errors.push(errMsg);
     }
 
-    // ── 7. Push individual project files ───────────────────────────────────
-    for (const [slug, projectData] of Object.entries(gitContent.projects)) {
-      const projectTasks = (projectData as any).tasks as any[];
-      console.log(
-        `[git-sync] Pushing /tasks/${slug}/tasks.json (${projectTasks.length} tasks)...`
-      );
+    // ── 9. Push individual project files ──────────────────────────────────
+    for (const project of projects) {
+      const slug = slugify(project.name) || project.id;
+      const projectTasks = tasksByProject.get(project.id) || [];
+      const projectTeam = teamByProject.get(project.id) || [];
 
-      const result = await githubPut(
+      // --- project.json ---
+      const projectData = {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        progress: project.progress,
+        deadline: project.deadline || null,
+        budget: project.budget,
+        client: {
+          name: project.clientName || null,
+          email: project.clientEmail || null,
+          company: project.clientCompany || null,
+        },
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      };
+
+      console.log(
+        `[git-sync] Pushing projects/${slug}/project.json...`
+      );
+      const projectResult = await githubPut(
         token,
         owner,
         repo,
-        `tasks/${slug}/tasks.json`,
+        `projects/${slug}/project.json`,
         JSON.stringify(projectData, null, 2),
         branch,
-        `Sync project "${(projectData as any).name}" - ${timestamp}`
+        `Sync project "${project.name}" - ${timestamp}`
       );
 
-      if (result.ok) {
+      if (projectResult.ok) {
         filesUpdated++;
-        console.log(`[git-sync] ✓ tasks/${slug}/tasks.json pushed`);
+        console.log(`[git-sync] ✓ projects/${slug}/project.json pushed`);
       } else {
-        const errMsg = `Failed to push tasks/${slug}/tasks.json: ${result.error}`;
+        const errMsg = `Failed to push projects/${slug}/project.json: ${projectResult.error}`;
+        console.error(`[git-sync] ${errMsg}`);
+        errors.push(errMsg);
+      }
+
+      // --- team.json ---
+      const teamData = {
+        lastUpdated: timestamp,
+        projectSlug: slug,
+        projectName: project.name,
+        members: projectTeam.map((m: any) => ({
+          userId: m.userId,
+          name: m.name || null,
+          email: m.email || null,
+          role: m.role || null,
+          projectRole: m.projectRole || "MEMBER",
+          department: m.department || null,
+          addedAt: m.addedAt || null,
+        })),
+      };
+
+      console.log(
+        `[git-sync] Pushing projects/${slug}/team.json (${teamData.members.length} members)...`
+      );
+      const teamResult = await githubPut(
+        token,
+        owner,
+        repo,
+        `projects/${slug}/team.json`,
+        JSON.stringify(teamData, null, 2),
+        branch,
+        `Sync team for "${project.name}" - ${timestamp}`
+      );
+
+      if (teamResult.ok) {
+        filesUpdated++;
+        console.log(`[git-sync] ✓ projects/${slug}/team.json pushed`);
+      } else {
+        const errMsg = `Failed to push projects/${slug}/team.json: ${teamResult.error}`;
+        console.error(`[git-sync] ${errMsg}`);
+        errors.push(errMsg);
+      }
+
+      // --- tasks.json ---
+      const tasksData = {
+        lastUpdated: timestamp,
+        projectSlug: slug,
+        projectName: project.name,
+        tasks: projectTasks.map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          status: t.status,
+          priority: t.priority,
+          assignee: t.assignedTo
+            ? {
+                id: t.assignedTo,
+                name: t.assigneeName || null,
+                type: t.assigneeType || "HUMAN",
+              }
+            : null,
+          deadline: t.deadline || null,
+          completedAt: t.completedAt || null,
+          approvedBy: t.approvedBy || null,
+          approvedAt: t.approvedAt || null,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        })),
+      };
+
+      console.log(
+        `[git-sync] Pushing projects/${slug}/tasks.json (${tasksData.tasks.length} tasks)...`
+      );
+      const tasksResult = await githubPut(
+        token,
+        owner,
+        repo,
+        `projects/${slug}/tasks.json`,
+        JSON.stringify(tasksData, null, 2),
+        branch,
+        `Sync tasks for "${project.name}" - ${timestamp}`
+      );
+
+      if (tasksResult.ok) {
+        filesUpdated++;
+        console.log(`[git-sync] ✓ projects/${slug}/tasks.json pushed`);
+      } else {
+        const errMsg = `Failed to push projects/${slug}/tasks.json: ${tasksResult.error}`;
         console.error(`[git-sync] ${errMsg}`);
         errors.push(errMsg);
       }
     }
 
-    // ── 8. Update sync status in DB ───────────────────────────────────────
+    // ── 10. Update sync status in DB ──────────────────────────────────────
     if (errors.length === 0) {
       // Full success
       console.log(
