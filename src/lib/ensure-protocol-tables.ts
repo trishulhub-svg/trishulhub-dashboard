@@ -271,4 +271,45 @@ export async function ensureProtocolTables(): Promise<void> {
       console.error("[protocol] Failed to add encryptionKey column:", err?.message);
     }
   }
+
+  // ── WorkspaceConfig (workspace-level tokens, e.g. ZAI workspace token) ──
+  if (!(await tableExists("WorkspaceConfig"))) {
+    console.log("[protocol] WorkspaceConfig table missing, creating...");
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE "WorkspaceConfig" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "configToken" TEXT NOT NULL DEFAULT '',
+          "configTokenLabel" TEXT NOT NULL DEFAULT 'Workspace Token',
+          "updatedBy" TEXT NOT NULL DEFAULT '',
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log("[protocol] WorkspaceConfig table created.");
+    } catch (err: any) {
+      console.error("[protocol] Failed to create WorkspaceConfig:", err?.message);
+    }
+  }
+
+  // ── UserCode (unique code per user, set by SUPER_ADMIN) ──
+  if (!(await tableExists("UserCode"))) {
+    console.log("[protocol] UserCode table missing, creating...");
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE "UserCode" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "userId" TEXT NOT NULL,
+          "code" TEXT NOT NULL DEFAULT '',
+          "updatedBy" TEXT NOT NULL DEFAULT '',
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "UserCode_userId_key" UNIQUE ("userId")
+        )
+      `);
+      console.log("[protocol] UserCode table created.");
+    } catch (err: any) {
+      console.error("[protocol] Failed to create UserCode:", err?.message);
+    }
+  }
 }

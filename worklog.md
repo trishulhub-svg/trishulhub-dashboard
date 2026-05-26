@@ -67,4 +67,41 @@ Stage Summary:
 - Workspace folders (worklogs/, sessions/, blueprints/) now preserved during cleanup
 - Stuck "sync in progress" state resolved via 45s stale timeout + direct endpoint
 - All changes pushed to main branch
+---
+Task ID: 2
+Agent: Main Agent
+Task: Protocol Page Full Overhaul — Access Control Verification, Workspace Config/User Code Features, Visual Redesign
 
+Work Log:
+- Step 1: Verified SUPER_ADMIN-only access for all sensitive sections
+  - Frontend: All admin sections (Git config, encryption key, download toggle, upload/replace/delete) properly guarded with `{isAdmin && (...)}`
+  - Backend: All admin operations in /api/protocol (PUT/DELETE/PATCH), /api/task-git-config (GET/POST/PUT/PATCH), /api/task-git-sync (POST) check for SUPER_ADMIN role via `getToken`
+  - Non-admin users can only see: protocol download (if enabled), workspace config token (masked), their own user code
+  - No security issues found — all controls are correct
+
+- Step 2: Added Workspace Config Token and User Code features
+  - DB: Added `WorkspaceConfig` and `UserCode` tables to `ensure-protocol-tables.ts`
+  - API: Created `/api/workspace-config` (GET/PATCH), `/api/user-code` (GET/PATCH), `/api/user-code/all` (GET)
+  - Workspace token: SUPER_ADMIN sets/edits, all users see (masked), can copy
+  - User codes: SUPER_ADMIN sets per-user, each user sees only their own code (masked), can copy
+
+- Step 3: Complete visual redesign of protocol page
+  - Added Tabs navigation for admin users (Your Access / Admin Panel)
+  - Gradient color bars on all cards for visual distinction
+  - Icon badges with colored backgrounds for each section
+  - Admin user codes management with scrollable list and set/edit dialog
+  - Non-admin users see a clean single-panel view (no tabs)
+  - Improved spacing, typography hierarchy, and empty states
+  - Copy-to-clipboard functionality with visual feedback
+
+- Step 4: Full audit and bug fix
+  - TypeScript check: 0 errors
+  - ESLint check: 0 errors for protocol-related files
+  - All API routes properly handle errors and check authentication
+  - No sensitive data leaks (codes masked for non-admin, raw codes never sent to frontend)
+
+Stage Summary:
+- 6 files modified/created: protocol/page.tsx, workspace-config/route.ts, user-code/route.ts, user-code/all/route.ts, ensure-protocol-tables.ts, worklog.md
+- Security audit: All access controls verified correct
+- New features: Workspace config token + user codes (DB + API + UI)
+- Visual overhaul: Tabbed admin panel, gradient cards, modern design
