@@ -39,6 +39,67 @@ function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
 
 // ─── GitHub API helpers ─────────────────────────────────────────────────────
 
+async function githubGet(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string,
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const url = path
+      ? `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${branch}`
+      : `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "TrishulHub-CRM",
+      },
+    });
+    if (!response.ok) {
+      return { ok: false, error: `GET ${path} failed: ${response.status}` };
+    }
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+async function githubDelete(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  sha: string,
+  branch: string,
+  message: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "TrishulHub-CRM",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message, sha, branch }),
+      }
+    );
+    if (!response.ok) {
+      const errBody = await response.text();
+      return { ok: false, error: errBody };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 async function githubPut(
   token: string,
   owner: string,
@@ -132,7 +193,6 @@ async function githubPut(
 
 /**
  * Test the GitHub connection by fetching repo info.
- * Used by the settings UI to validate the configured credentials.
  */
 export async function testGitConnection(config: {
   repoUrl: string;
@@ -143,7 +203,6 @@ export async function testGitConnection(config: {
   try {
     await ensureProtocolTables();
 
-    // Decrypt the token
     let token: string;
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
@@ -158,7 +217,6 @@ export async function testGitConnection(config: {
       return { success: false, error: "Decrypted token is empty" };
     }
 
-    // Parse the repo URL
     const parsed = parseRepoUrl(config.repoUrl);
     if (!parsed) {
       return {
@@ -169,7 +227,6 @@ export async function testGitConnection(config: {
 
     const { owner, repo } = parsed;
 
-    // Fetch repo info from GitHub
     console.log(`[git-sync] Testing connection to ${owner}/${repo}...`);
     const response = await fetch(
       `https://api.github.com/repos/${owner}/${repo}`,
@@ -220,13 +277,23 @@ export async function testGitConnection(config: {
  * and pushes a structured folder layout to GitHub.
  *
  * Structure pushed:
- *   projects/index.json              ← Master index with summary & project list
- *   projects/{slug}/project.json     ← Project metadata
- *   projects/{slug}/team.json        ← Team members for the project
- *   projects/{slug}/tasks.json       ← Tasks for the project
+ *   _sync-info.json                ← Metadata about this sync (created on first sync)
+ *   _archive/                      ← Any pre-existing repo files (moved here on first sync)
+ *   projects/index.json            ← Master index with summary & project list
+ *   projects/{slug}/project.json   ← Project metadata
+ *   projects/{slug}/team.json      ← Team members for the project
+ *   projects/{slug}/tasks.json     ← Tasks for the project
  *
- * Called automatically when tasks change.
- * Runs asynchronously (fire-and-forget from the caller).
+ * FIRST-TIME BEHAVIOR:
+ *   When lastSyncAt is null (never synced before), the system:
+ *   1. Scans the repo root for existing files
+ *   2. Archives important pre-existing files to _archive/
+ *   3. Deletes any old projects/ folder
+ *   4. Creates _sync-info.json to mark setup as done
+ *   5. Then proceeds with the normal full sync
+ *
+ * SUBSEQUENT SYNCS:
+ *   Just update files in-place. No cleanup needed.
  *
  * NEVER throws — always catches errors and returns them gracefully.
  */
@@ -302,9 +369,19 @@ export async function syncTasksToGit(): Promise<{
     const { owner, repo } = parsed;
     const branch = config.branch || "main";
 
+    // ── 3.5 FIRST-TIME SYNC: cleanup existing repo content ─────────────────
+    //    When lastSyncAt is null, this is the very first sync.
+    //    We scan the repo for existing files, archive anything important,
+    //    delete our old projects/ folder, then start fresh.
+    const isFirstSync = !config.lastSyncAt;
+    if (isFirstSync) {
+      console.log(`[git-sync] ⚡ First-time sync detected — scanning repo contents...`);
+      await firstTimeRepoSetup(token, owner, repo, branch);
+    }
+
     // ── 4. Query projects (with client info) ──────────────────────────────
     console.log(
-      `[git-sync] Starting sync to ${owner}/${repo} (branch: ${branch})`
+      `[git-sync] Starting sync to ${owner}/${repo} (branch: ${branch})${isFirstSync ? " [FIRST SYNC]" : ""}`
     );
 
     let projects: any[];
@@ -594,7 +671,6 @@ export async function syncTasksToGit(): Promise<{
 
     // ── 10. Update sync status in DB ──────────────────────────────────────
     if (errors.length === 0) {
-      // Full success
       console.log(
         `[git-sync] ✓ Sync complete — ${filesUpdated} file(s) updated`
       );
@@ -605,7 +681,6 @@ export async function syncTasksToGit(): Promise<{
       );
       return { success: true, filesUpdated };
     } else if (filesUpdated > 0) {
-      // Partial success — some files pushed, some failed
       const combinedError = errors.join("; ");
       console.warn(
         `[git-sync] Partial sync — ${filesUpdated} file(s) updated, ${errors.length} error(s)`
@@ -622,7 +697,6 @@ export async function syncTasksToGit(): Promise<{
         error: `${errors.length} file(s) failed: ${combinedError}`,
       };
     } else {
-      // Complete failure
       const combinedError = errors.join("; ");
       console.error(`[git-sync] ✗ Sync failed — all files failed`);
       await db.$executeRawUnsafe(
@@ -633,11 +707,9 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: combinedError };
     }
   } catch (err: any) {
-    // Top-level catch — this should never happen, but just in case
     const message = err?.message || String(err);
     console.error(`[git-sync] Unexpected error:`, message);
 
-    // Try to update the DB status if possible
     try {
       const rows: any[] = await db.$queryRawUnsafe(
         `SELECT id FROM "TaskGitConfig" LIMIT 1`
@@ -654,5 +726,181 @@ export async function syncTasksToGit(): Promise<{
     }
 
     return { success: false, error: message };
+  }
+}
+
+// ─── First-time repo setup ──────────────────────────────────────────────────
+/**
+ * On the very first sync, scan the repo and clean it up:
+ * 1. List all files/folders in the repo root
+ * 2. Move any pre-existing non-projects content to _archive/ (one level deep)
+ * 3. Delete any existing projects/ folder content (our old data, if any)
+ * 4. Create _sync-info.json to mark setup as done
+ *
+ * This only runs ONCE when lastSyncAt is null.
+ * After this, subsequent syncs just update files in-place.
+ */
+async function firstTimeRepoSetup(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<void> {
+  try {
+    // List repo root contents
+    const rootResult = await githubGet(token, owner, repo, "", branch);
+    if (!rootResult.ok || !Array.isArray(rootResult.data)) {
+      // Repo might be empty — that's fine, nothing to clean
+      console.log(`[git-sync] Repo is empty or cannot list root — skipping cleanup`);
+      return;
+    }
+
+    const rootItems: any[] = rootResult.data;
+    const dirsToDelete: Array<{ path: string; sha: string }> = [];
+    const itemsToArchive: Array<{ path: string; sha: string; type: string }> = [];
+
+    for (const item of rootItems) {
+      const name = item.name;
+
+      // Our own managed folder — always clean on first sync
+      if (name === "projects") {
+        dirsToDelete.push({ path: item.path, sha: item.sha });
+        continue;
+      }
+
+      // Skip hidden GitHub files, _archive folder, and common top-level files
+      if (
+        name.startsWith(".") ||
+        name === "_archive" ||
+        name === "README" ||
+        name === "LICENSE" ||
+        name === ".gitignore" ||
+        name === ".github" ||
+        name === "_sync-info.json"
+      ) {
+        continue;
+      }
+
+      // Everything else is pre-existing content — archive it
+      itemsToArchive.push({ path: item.path, sha: item.sha, type: item.type });
+    }
+
+    // Archive pre-existing files (move them to _archive/)
+    for (const item of itemsToArchive) {
+      console.log(`[git-sync] Archiving existing item: ${item.path} (${item.type})`);
+      if (item.type === "file") {
+        // Read file content, then re-create under _archive/
+        const fileResult = await githubGet(token, owner, repo, item.path, branch);
+        if (fileResult.ok && fileResult.data?.content) {
+          let fileContent: string;
+          try {
+            fileContent = Buffer.from(fileResult.data.content, "base64").toString("utf-8");
+          } catch {
+            fileContent = fileResult.data.content;
+          }
+          const archivePath = `_archive/${item.path}`;
+          const putRes = await githubPut(
+            token, owner, repo, archivePath, fileContent, branch,
+            `Archive: move ${item.path} to _archive (first-time setup)`
+          );
+          if (putRes.ok) {
+            await githubDelete(
+              token, owner, repo, item.path, item.sha, branch,
+              `Remove original after archiving: ${item.path}`
+            );
+            console.log(`[git-sync] Archived ${item.path} → _archive/${item.path}`);
+          }
+        }
+      } else if (item.type === "dir") {
+        // For directories, archive each file inside
+        const dirResult = await githubGet(token, owner, repo, item.path, branch);
+        if (dirResult.ok && Array.isArray(dirResult.data)) {
+          for (const subItem of dirResult.data) {
+            if (subItem.type === "file") {
+              const subFileResult = await githubGet(token, owner, repo, subItem.path, branch);
+              if (subFileResult.ok && subFileResult.data?.content) {
+                let fileContent: string;
+                try {
+                  fileContent = Buffer.from(subFileResult.data.content, "base64").toString("utf-8");
+                } catch {
+                  fileContent = subFileResult.data.content;
+                }
+                const archivePath = `_archive/${subItem.path}`;
+                const putRes = await githubPut(
+                  token, owner, repo, archivePath, fileContent, branch,
+                  `Archive: move ${subItem.path} to _archive (first-time setup)`
+                );
+                if (putRes.ok) {
+                  await githubDelete(
+                    token, owner, repo, subItem.path, subItem.sha, branch,
+                    `Remove original after archiving: ${subItem.path}`
+                  );
+                }
+              }
+            }
+          }
+          // Try to delete the now-empty directory entry
+          await githubDelete(
+            token, owner, repo, item.path, item.sha, branch,
+            `Remove empty dir after archiving: ${item.path}`
+          );
+          console.log(`[git-sync] Archived directory ${item.path} → _archive/${item.path}/`);
+        }
+      }
+    }
+
+    // Delete existing projects/ folder recursively (our old data)
+    for (const item of dirsToDelete) {
+      console.log(`[git-sync] Cleaning up existing projects/ folder...`);
+      const dirResult = await githubGet(token, owner, repo, item.path, branch);
+      if (dirResult.ok && Array.isArray(dirResult.data)) {
+        // Collect all files recursively using BFS
+        const filesToDelete: { path: string; sha: string }[] = [];
+        const queue = [...dirResult.data];
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (current.type === "file") {
+            filesToDelete.push({ path: current.path, sha: current.sha });
+          } else if (current.type === "dir") {
+            const subResult = await githubGet(token, owner, repo, current.path, branch);
+            if (subResult.ok && Array.isArray(subResult.data)) {
+              queue.push(...subResult.data);
+            }
+          }
+        }
+        // Delete all files
+        for (const file of filesToDelete) {
+          await githubDelete(
+            token, owner, repo, file.path, file.sha, branch,
+            `Clean old projects data: ${file.path}`
+          );
+        }
+        console.log(`[git-sync] Deleted ${filesToDelete.length} file(s) from old projects/ folder`);
+      }
+      // Also delete the folder entry itself
+      await githubDelete(
+        token, owner, repo, item.path, item.sha, branch,
+        `Clean old projects folder: ${item.path}`
+      );
+    }
+
+    // Create _sync-info.json to mark that setup is complete
+    const syncInfo = {
+      setupDate: new Date().toISOString(),
+      managedBy: "TrishulHub-CRM",
+      version: "1.0",
+      structure: "projects/{slug}/{project,team,tasks}.json",
+      note: "This repo is auto-managed. Do not manually edit files in the projects/ folder.",
+    };
+    await githubPut(
+      token, owner, repo, "_sync-info.json",
+      JSON.stringify(syncInfo, null, 2),
+      branch,
+      "Initialize TrishulHub sync metadata"
+    );
+    console.log(`[git-sync] ✓ First-time setup complete — repo is ready for sync`);
+  } catch (err: any) {
+    console.error(`[git-sync] First-time setup error (non-fatal): ${err?.message || err}`);
+    // Don't fail the whole sync — first-time setup is best-effort
   }
 }
