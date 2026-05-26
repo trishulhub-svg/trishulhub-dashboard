@@ -101,7 +101,9 @@ export async function PUT(req: NextRequest) {
     if (body.currentSpend !== undefined) data.currentSpend = body.currentSpend
 
     const key = await db.apiKey.update({ where: { id }, data })
-    return NextResponse.json(key)
+    // SECURITY: Always mask key values in PUT response (consistent with GET)
+    const masked = { ...key, keyValue: key.keyValue ? `****${key.keyValue.slice(-4)}` : "" }
+    return NextResponse.json(JSON.parse(JSON.stringify(masked)))
   } catch (error: any) {
     console.error("[api-keys] PUT error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

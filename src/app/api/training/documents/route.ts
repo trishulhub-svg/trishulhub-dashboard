@@ -238,6 +238,6 @@ ${attachmentText ? "- Base the content primarily on the provided reference mater
     }, { status: 201 })
   } catch (error: any) {
     console.error("[training/documents] POST error:", error.message, error.stack)
-    return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
+    return NextResponse.json({ error: "Failed to generate document" }, { status: 500 })
   }
 }

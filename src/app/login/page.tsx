@@ -59,7 +59,7 @@ function LoginForm() {
 
   // SECURITY: Validate callbackUrl — must be a relative path to prevent open redirects
   const rawCallbackUrl = searchParams.get("callbackUrl") || "/dashboard";
-  const callbackUrl = rawCallbackUrl.startsWith("/") && !rawCallbackUrl.startsWith("//")
+  const callbackUrl = rawCallbackUrl.startsWith("/") && !rawCallbackUrl.startsWith("//") && !rawCallbackUrl.startsWith("/\\")
     ? rawCallbackUrl
     : "/dashboard";
 
@@ -81,14 +81,14 @@ function LoginForm() {
       .then(r => r.json())
       .then(data => {
         setDbReady(
-          data.status === "already_setup" || data.status === "success" || data.status === "error"
+          data.status === "already_setup" || data.status === "success"
             ? true
             : data.status === "needs_setup"
               ? false
               : true // Unknown status — allow login attempt
         );
       })
-      .catch(() => setDbReady(true)); // Network error — don't block login
+      .catch(() => setDbReady(null)); // Network error — show checking state
   }, []);
 
   // While session is loading or authenticated+redirecting, show shared loading screen

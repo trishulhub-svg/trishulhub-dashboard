@@ -33,6 +33,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "Only admins can approve or reject leave requests" }, { status: 403 })
     }
 
+    // SECURITY: Self-approval prevention — admins cannot approve their own leave
+    if ((status === "APPROVED" || status === "REJECTED") && existingLeave.userId === userId) {
+      return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
+    }
+
     // Only the requester or admin can cancel
     if (status === "CANCELLED" && !isAdmin(userRole) && existingLeave.userId !== userId) {
       return NextResponse.json({ error: "You can only cancel your own leave requests" }, { status: 403 })

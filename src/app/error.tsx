@@ -28,22 +28,17 @@ export default function GlobalError({
           <p className="text-muted-foreground text-sm">
             An unexpected error occurred. This has been logged and our team will investigate.
           </p>
-          {error.message && (
-            <details className="text-left mt-3">
-              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                Error details
-              </summary>
-              <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
-                {error.message}
-              </pre>
-            </details>
+          {error.digest && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Error reference: {error.digest}
+            </p>
           )}
         </div>
         <div className="flex gap-3 justify-center">
           <Button onClick={reset} className="gap-2">
             <RefreshCw className="h-4 w-4" /> Try Again
           </Button>
-          <Button variant="outline" onClick={() => (window.location.href = "/dashboard")} className="gap-2">
+          <Button variant="outline" onClick={() => (window.location.href = "/")} className="gap-2">
             <Home className="h-4 w-4" /> Go Home
           </Button>
         </div>

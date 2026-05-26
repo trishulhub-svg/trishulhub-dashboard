@@ -17,8 +17,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import type { TaskStatus, TaskPriority } from "@/lib/types";
-import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
+import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Todos Page: Clean, minimal task list view for DEVELOPERS.
@@ -382,7 +381,7 @@ export default function TodosPage() {
       )}
 
       {/* ── In Progress Section ── */}
-      {(filter === "ALL" || filter === "IN_PROGRESS") && inProgressTasks.length > 0 && (
+      {filter === "ALL" && inProgressTasks.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
             <div className="h-3.5 w-3.5 rounded-sm bg-blue-400" />
@@ -405,7 +404,7 @@ export default function TodosPage() {
       )}
 
       {/* ── Review Section (audit fix: was hidden) ── */}
-      {(filter === "ALL" || filter === "REVIEW") && reviewTasks.length > 0 && (
+      {filter === "ALL" && reviewTasks.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
             <div className="h-3.5 w-3.5 rounded-sm bg-yellow-400" />
@@ -428,7 +427,7 @@ export default function TodosPage() {
       )}
 
       {/* ── Awaiting Approval Section (audit fix: was hidden) ── */}
-      {(filter === "ALL" || filter === "AWAITING_APPROVAL") && awaitingTasks.length > 0 && (
+      {filter === "ALL" && awaitingTasks.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
             <Clock className="h-4 w-4 text-orange-400" />
@@ -451,7 +450,7 @@ export default function TodosPage() {
       )}
 
       {/* ── Completed Section ── */}
-      {(filter === "ALL" || filter === "DONE") && doneTasks.length > 0 && (
+      {filter === "ALL" && doneTasks.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
             <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -473,8 +472,8 @@ export default function TodosPage() {
         </section>
       )}
 
-      {/* ── Single filter view (flat list) ── */}
-      {filter !== "ALL" && (
+      {/* ── Single filter view (flat list) — only when NOT ALL, since ALL uses grouped sections above ── */}
+      {filter !== "ALL" && filteredTasks.length > 0 && (
         <div className="space-y-2">
           {(filter === "TODO" ? todoTasks : filter === "IN_PROGRESS" ? inProgressTasks : filter === "REVIEW" ? reviewTasks : filter === "AWAITING_APPROVAL" ? awaitingTasks : doneTasks).map((task) => (
             <TaskCard

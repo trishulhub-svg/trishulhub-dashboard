@@ -110,8 +110,8 @@ export default function PortalProjectDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Progress</p>
             <div className="flex items-center gap-2 mt-1">
-              <Progress value={safeNumber(project.progress)} className="h-2 flex-1" />
-              <span className="text-sm font-medium">{safeNumber(project.progress)}%</span>
+              <Progress value={Math.min(100, Math.max(0, safeNumber(project.progress, 0)))} className="h-2 flex-1" />
+              <span className="text-sm font-medium">{Math.min(100, Math.max(0, safeNumber(project.progress, 0)))}%</span>
             </div>
           </CardContent>
         </Card>

@@ -79,7 +79,7 @@ export default function PortalProjectsPage() {
             const pName = safeText(project.name, "Untitled");
             const pDesc = safeText(project.description, "");
             const pStatus = safeText(project.status, "PLANNING");
-            const pProgress = safeNumber(project.progress, 0);
+            const pProgress = Math.min(100, Math.max(0, safeNumber(project.progress, 0)));
             const pDeadline = safeText(project.deadline, "");
             return (
               <Card

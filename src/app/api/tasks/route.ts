@@ -104,7 +104,10 @@ export async function POST(req: NextRequest) {
 
   const userRole = session.user.role
   const userId = session.user.id
-  const body = await req.json()
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
   // projectId is required by schema
   if (!body.projectId) {
@@ -119,7 +122,7 @@ export async function POST(req: NextRequest) {
   // Developers can only create tasks in projects they're assigned to
   if (!isAdmin(userRole)) {
     const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: body.projectId }
+      where: { userId, projectId: String(body.projectId) }
     })
     if (!membership) {
       return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
@@ -127,27 +130,27 @@ export async function POST(req: NextRequest) {
   }
 
   // Validate status
-  const taskStatus = body.status || "TODO"
+  const taskStatus = body.status ? String(body.status) : "TODO"
   if (!VALID_TASK_STATUSES.includes(taskStatus)) {
     return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
   }
 
   // Validate priority
-  const taskPriority = body.priority || "MEDIUM"
+  const taskPriority = body.priority ? String(body.priority) : "MEDIUM"
   if (!VALID_TASK_PRIORITIES.includes(taskPriority)) {
     return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data = {
-    title: body.title as string,
-    description: (body.description as string | null) || null,
+    title: String(body.title),
+    description: body.description ? String(body.description) : null,
     status: taskStatus,
     priority: taskPriority,
-    projectId: body.projectId as string,
-    assignedTo: (body.assignedTo as string | null) || null,
-    assigneeType: (body.assigneeType as string) || "HUMAN",
-    deadline: body.deadline ? new Date(body.deadline as string) : null,
+    projectId: String(body.projectId),
+    assignedTo: body.assignedTo ? String(body.assignedTo) : null,
+    assigneeType: body.assigneeType ? String(body.assigneeType) : "HUMAN",
+    deadline: body.deadline ? new Date(String(body.deadline)) : null,
   }
 
   // Check if assignee is on approved leave during the task period
@@ -192,8 +195,11 @@ export async function PATCH(req: NextRequest) {
   const userRole = session.user.role
   const userId = session.user.id
   const userName = session.user.name || "User"
-  const body = await req.json()
-  const id = body.id
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+  const id = body.id ? String(body.id) : ""
 
   if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
 
@@ -203,23 +209,23 @@ export async function PATCH(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data: Parameters<typeof db.task.update>[0]["data"] = {}
-  if (body.title !== undefined) data.title = body.title
-  if (body.description !== undefined) data.description = body.description
+  if (body.title !== undefined) data.title = String(body.title)
+  if (body.description !== undefined) data.description = body.description ? String(body.description) : null
   if (body.priority !== undefined) {
-    if (!VALID_TASK_PRIORITIES.includes(body.priority)) {
+    if (!VALID_TASK_PRIORITIES.includes(String(body.priority))) {
       return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
     }
-    data.priority = body.priority
+    data.priority = String(body.priority)
   }
-  if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo
-  if (body.assigneeType !== undefined) data.assigneeType = body.assigneeType
-  if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(body.deadline) : null
+  if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo ? String(body.assignedTo) : null
+  if (body.assigneeType !== undefined) data.assigneeType = String(body.assigneeType)
+  if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(String(body.deadline)) : null
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // APPROVAL FLOW — status change logic
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (body.status !== undefined) {
-    if (!VALID_TASK_STATUSES.includes(body.status)) {
+    if (!VALID_TASK_STATUSES.includes(String(body.status))) {
       return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
     }
 
@@ -270,7 +276,7 @@ export async function PATCH(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Only admins can move tasks between projects" }, { status: 403 })
     }
-    data.projectId = body.projectId
+    data.projectId = String(body.projectId)
   }
 
   // Developers can only update tasks in projects they're assigned to

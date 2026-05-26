@@ -144,7 +144,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 {userName.split(" ").map((n) => n[0]).join("")}
               </AvatarFallback>
             </Avatar>
-            <Button variant="ghost" size="icon" onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }} aria-label="Sign out">
+            <Button variant="ghost" size="icon" onClick={() => { signOut({ callbackUrl: "/login" }); }} aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
