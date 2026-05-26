@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     await ensureProtocolTables();
 
     const rows: any[] = await db.$queryRawUnsafe(
-      `SELECT "repoUrl", "branch", "isEnabled", "lastSyncAt", "lastSyncStatus", "lastSyncError", "createdAt", "updatedAt"
+      `SELECT "repoUrl", "branch", "isEnabled", "lastSyncAt", "lastSyncStatus", "lastSyncError", "createdAt", "updatedAt", "encryptionKey"
        FROM "TaskGitConfig" LIMIT 1`
     );
 
@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
         lastSyncAt: null,
         lastSyncStatus: null,
         lastSyncError: null,
+        encryptionKeyMasked: "",
+        hasEncryptionKey: !!(process.env.ENCRYPTION_KEY),
       });
     }
 
@@ -49,6 +51,8 @@ export async function GET(request: NextRequest) {
       lastSyncAt: row.lastSyncAt || null,
       lastSyncStatus: row.lastSyncStatus || null,
       lastSyncError: row.lastSyncError || null,
+      encryptionKeyMasked: row.encryptionKey ? "••••••••••••••••••••" : "",
+      hasEncryptionKey: !!(row.encryptionKey || process.env.ENCRYPTION_KEY),
     });
   } catch (error: any) {
     console.error("[task-git-config] GET error:", error);
@@ -81,6 +85,14 @@ async function saveConfig(request: NextRequest) {
       return NextResponse.json({ error: "Repository URL and access token are required" }, { status: 400 });
     }
 
+    // Use DB-stored encryption key if available
+    const configCheck: any[] = await db.$queryRawUnsafe(
+      `SELECT "encryptionKey" FROM "TaskGitConfig" LIMIT 1`
+    );
+    if (configCheck.length > 0 && configCheck[0].encryptionKey) {
+      process.env.ENCRYPTION_KEY = configCheck[0].encryptionKey;
+    }
+
     // Encrypt the token
     let encrypted: { encrypted: string; iv: string; tag: string };
     try {
@@ -104,7 +116,28 @@ async function saveConfig(request: NextRequest) {
       }
     } catch { /* ignore */ }
 
-    const configBranch = branch || "main";
+    // Auto-detect default branch from GitHub
+    let detectedBranch = "main";
+    try {
+      const repoRes = await fetch(
+        `https://api.github.com/repos/${repoOwner}/${repoName}`,
+        {
+          headers: {
+            Authorization: `Bearer ${gitToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "TrishulHub-CRM",
+          },
+        }
+      );
+      if (repoRes.ok) {
+        const repoData = await repoRes.json();
+        if (repoData.default_branch) {
+          detectedBranch = repoData.default_branch;
+        }
+      }
+    } catch { /* fallback to "main" */ }
+
+    const configBranch = detectedBranch;
 
     // Check if config exists
     const existing: any[] = await db.$queryRawUnsafe(`SELECT id FROM "TaskGitConfig" LIMIT 1`);
@@ -128,9 +161,10 @@ async function saveConfig(request: NextRequest) {
       );
     } else {
       const id = "tgc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      const currentEncKey = process.env.ENCRYPTION_KEY || "";
       await db.$executeRawUnsafe(
-        `INSERT INTO "TaskGitConfig" (id, "repoUrl", "repoOwner", "repoName", "branch", "tokenEncrypted", "tokenIv", "tokenTag", "isEnabled", "createdBy")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO "TaskGitConfig" (id, "repoUrl", "repoOwner", "repoName", "branch", "tokenEncrypted", "tokenIv", "tokenTag", "encryptionKey", "isEnabled", "createdBy")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         repoUrl,
         repoOwner,
@@ -139,6 +173,7 @@ async function saveConfig(request: NextRequest) {
         encrypted.encrypted,
         encrypted.iv,
         encrypted.tag,
+        currentEncKey,
         isEnabled !== false ? 1 : 0,
         (token as any).sub || (token as any).id || "unknown"
       );
@@ -168,6 +203,81 @@ export async function PATCH(request: NextRequest) {
     const existing: any[] = await db.$queryRawUnsafe(`SELECT id FROM "TaskGitConfig" LIMIT 1`);
     if (!existing.length) {
       return NextResponse.json({ error: "No git config found. Save configuration first." }, { status: 400 });
+    }
+
+    // ── Manage Encryption Key ──
+    if (body.encryptionKey !== undefined) {
+      const newKey = String(body.encryptionKey).trim();
+      if (!newKey || newKey.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(newKey)) {
+        return NextResponse.json(
+          { error: "Encryption key must be a valid 64-character hex string" },
+          { status: 400 }
+        );
+      }
+
+      const oldKey = process.env.ENCRYPTION_KEY || "";
+
+      // If there's an existing git token, re-encrypt with new key
+      const configRow: any[] = await db.$queryRawUnsafe(
+        `SELECT "tokenEncrypted", "tokenIv", "tokenTag" FROM "TaskGitConfig" WHERE id = ?`,
+        existing[0].id
+      );
+
+      let needsReEncrypt = false;
+      let plainToken = "";
+
+      if (configRow.length > 0 && configRow[0].tokenEncrypted) {
+        try {
+          // Decrypt with OLD key
+          const oldIv = configRow[0].tokenIv;
+          const oldTag = configRow[0].tokenTag;
+          const oldEnc = configRow[0].tokenEncrypted;
+
+          if (oldIv && oldTag && oldEnc && oldKey && oldKey.length === 64) {
+            const crypto = require("crypto");
+            const keyBuffer = Buffer.from(oldKey, "hex");
+            const ivBuffer = Buffer.from(oldIv, "base64");
+            const tagBuffer = Buffer.from(oldTag, "base64");
+            const decipher = crypto.createDecipheriv("aes-256-gcm", keyBuffer, ivBuffer);
+            decipher.setAuthTag(tagBuffer);
+            plainToken = decipher.update(oldEnc, "base64", "utf8");
+            plainToken += decipher.final("utf8");
+            needsReEncrypt = true;
+          }
+        } catch {
+          // Old key might not work — user will need to re-enter the git token
+          console.warn("[task-git-config] Could not decrypt git token with old key for re-encryption");
+        }
+      }
+
+      // Set new key in process.env
+      process.env.ENCRYPTION_KEY = newKey;
+
+      // Re-encrypt git token with new key if needed
+      if (needsReEncrypt && plainToken) {
+        try {
+          const { encrypt: encryptFn } = await import("@/lib/encryption");
+          const reEncrypted = encryptFn(plainToken);
+          await db.$executeRawUnsafe(
+            `UPDATE "TaskGitConfig" SET "tokenEncrypted" = ?, "tokenIv" = ?, "tokenTag" = ? WHERE id = ?`,
+            reEncrypted.encrypted,
+            reEncrypted.iv,
+            reEncrypted.tag,
+            existing[0].id
+          );
+        } catch (err: any) {
+          console.error("[task-git-config] Failed to re-encrypt git token:", err?.message);
+        }
+      }
+
+      // Store the new key in DB
+      await db.$executeRawUnsafe(
+        `UPDATE "TaskGitConfig" SET "encryptionKey" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+        newKey,
+        existing[0].id
+      );
+
+      return NextResponse.json({ success: true, encryptionKeyUpdated: true });
     }
 
     if (triggerSync) {

@@ -245,6 +245,7 @@ export async function ensureProtocolTables(): Promise<void> {
           "tokenEncrypted" TEXT NOT NULL DEFAULT '',
           "tokenIv" TEXT NOT NULL DEFAULT '',
           "tokenTag" TEXT NOT NULL DEFAULT '',
+          "encryptionKey" TEXT NOT NULL DEFAULT '',
           "isEnabled" BOOLEAN NOT NULL DEFAULT false,
           "lastSyncAt" DATETIME,
           "lastSyncStatus" TEXT,
@@ -257,6 +258,17 @@ export async function ensureProtocolTables(): Promise<void> {
       console.log("[protocol] TaskGitConfig table created.");
     } catch (err: any) {
       console.error("[protocol] Failed to create TaskGitConfig:", err?.message);
+    }
+  }
+
+  // ── Add encryptionKey column to TaskGitConfig ──
+  if (await tableExists("TaskGitConfig") && !(await columnExists("TaskGitConfig", "encryptionKey"))) {
+    console.log("[protocol] TaskGitConfig missing 'encryptionKey' column, adding...");
+    try {
+      await db.$executeRawUnsafe(`ALTER TABLE "TaskGitConfig" ADD COLUMN "encryptionKey" TEXT NOT NULL DEFAULT ''`);
+      console.log("[protocol] TaskGitConfig 'encryptionKey' column added.");
+    } catch (err: any) {
+      console.error("[protocol] Failed to add encryptionKey column:", err?.message);
     }
   }
 }

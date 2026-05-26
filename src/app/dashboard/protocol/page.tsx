@@ -50,10 +50,16 @@ export default function ProtocolPage() {
     lastSyncStatus: string | null;
     lastSyncError: string | null;
   } | null>(null);
-  const [gitForm, setGitForm] = useState({ repoUrl: "", token: "", branch: "main" });
+  const [gitForm, setGitForm] = useState({ repoUrl: "", token: "" });
   const [gitSaving, setGitSaving] = useState(false);
   const [gitSyncing, setGitSyncing] = useState(false);
   const [showToken, setShowToken] = useState(false);
+
+  // ── Encryption key state ──
+  const [encKeyForm, setEncKeyForm] = useState("");
+  const [showEncKey, setShowEncKey] = useState(false);
+  const [encKeySaving, setEncKeySaving] = useState(false);
+  const [hasEncryptionKey, setHasEncryptionKey] = useState(false);
 
   // ── Fetch current protocol PDF ──
   const fetchProtocol = useCallback(async () => {
@@ -82,10 +88,10 @@ export default function ProtocolPage() {
       if (res.ok) {
         const data = await res.json();
         setGitConfig(data);
+        setHasEncryptionKey(!!data.hasEncryptionKey);
         setGitForm({
           repoUrl: data.repoUrl || "",
           token: "",
-          branch: data.branch || "main",
         });
       }
     } catch {
@@ -225,7 +231,6 @@ export default function ProtocolPage() {
         body: JSON.stringify({
           repoUrl: gitForm.repoUrl.trim(),
           token: gitForm.token,
-          branch: gitForm.branch.trim() || "main",
           isEnabled: gitConfig?.isEnabled ?? false,
         }),
       });
@@ -309,6 +314,43 @@ export default function ProtocolPage() {
       toast.error("Failed to trigger sync");
       setGitSyncing(false);
     }
+  };
+
+  // ── Save encryption key ──
+  const handleSaveEncKey = async () => {
+    const key = encKeyForm.trim();
+    if (!key || key.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(key)) {
+      toast.error("Encryption key must be a 64-character hex string");
+      return;
+    }
+    setEncKeySaving(true);
+    try {
+      const res = await fetch("/api/task-git-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ encryptionKey: key }),
+      });
+      if (res.ok) {
+        toast.success("Encryption key updated. Make sure to set the same key in Vercel environment variables.");
+        setEncKeyForm("");
+        setHasEncryptionKey(true);
+      } else {
+        const data = await res.json();
+        toast.error(safeText(data.error, "Failed to update encryption key"));
+      }
+    } catch {
+      toast.error("Failed to update encryption key");
+    }
+    setEncKeySaving(false);
+  };
+
+  // ── Generate new encryption key ──
+  const handleGenerateKey = () => {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    const hex = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+    setEncKeyForm(hex);
+    toast.success("New key generated. Click 'Save Key' to apply.");
   };
 
   // ── Drag & Drop handlers ──
@@ -596,17 +638,6 @@ export default function ProtocolPage() {
               )}
             </div>
 
-            {/* Branch */}
-            <div className="space-y-2">
-              <Label htmlFor="git-branch">Branch</Label>
-              <Input
-                id="git-branch"
-                placeholder="main"
-                value={gitForm.branch}
-                onChange={(e) => setGitForm((prev) => ({ ...prev, branch: e.target.value }))}
-              />
-            </div>
-
             {/* Save button */}
             <Button
               onClick={handleSaveGitConfig}
@@ -620,6 +651,14 @@ export default function ProtocolPage() {
               )}
               Save Configuration
             </Button>
+
+            {/* Detected branch info */}
+            {gitConfig?.branch && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <GitBranch className="h-3 w-3" />
+                <span>Branch: <span className="font-medium text-foreground">{gitConfig.branch}</span> (auto-detected)</span>
+              </div>
+            )}
 
             {/* Enable/Disable toggle + Manual sync */}
             {gitConfig && (
@@ -687,6 +726,85 @@ export default function ProtocolPage() {
                 )}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Encryption Key Management (SUPER_ADMIN only) ── */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base">Encryption Key</CardTitle>
+            </div>
+            <CardDescription>
+              AES-256-GCM key used to encrypt sensitive data (git tokens). Must match your Vercel ENCRYPTION_KEY.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Current status */}
+            <div className="flex items-center gap-2">
+              {hasEncryptionKey ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm text-emerald-600 dark:text-emerald-400">Encryption key is configured</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm text-amber-600 dark:text-amber-400">No encryption key set — using environment variable</span>
+                </>
+              )}
+            </div>
+
+            {/* Key input */}
+            <div className="space-y-2">
+              <Label htmlFor="enc-key">New Encryption Key (64-char hex)</Label>
+              <div className="relative">
+                <Input
+                  id="enc-key"
+                  type={showEncKey ? "text" : "password"}
+                  placeholder="64-character hex string"
+                  value={encKeyForm}
+                  onChange={(e) => setEncKeyForm(e.target.value)}
+                  className="pr-20 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowEncKey(!showEncKey)}
+                  className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showEncKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerateKey}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                  title="Generate random key"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Click the refresh icon to generate a new key. Then save and copy the same value to Vercel.
+              </p>
+            </div>
+
+            {/* Save button */}
+            <Button
+              onClick={handleSaveEncKey}
+              disabled={encKeySaving || !encKeyForm.trim()}
+              variant="outline"
+              className="w-full"
+            >
+              {encKeySaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save Key
+            </Button>
           </CardContent>
         </Card>
       )}
