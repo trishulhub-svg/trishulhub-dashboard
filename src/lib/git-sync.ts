@@ -327,7 +327,15 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: "Repository URL not configured" };
     }
 
-    // ── 2. Decrypt token ──────────────────────────────────────────────────
+    // ── 2. Load encryption key from DB if stored ────────────────────────
+    //    The saveConfig route stores the key in DB. We must load it here
+    //    so that decrypt() can find it in process.env.ENCRYPTION_KEY.
+    if (config.encryptionKey && config.encryptionKey.length === 64) {
+      process.env.ENCRYPTION_KEY = config.encryptionKey;
+      console.log("[git-sync] Loaded encryption key from DB config");
+    }
+
+    // ── 3. Decrypt token ──────────────────────────────────────────────────
     let token: string;
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
@@ -353,7 +361,7 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
-    // ── 3. Parse repo URL ─────────────────────────────────────────────────
+    // ── 4. Parse repo URL ─────────────────────────────────────────────────
     const parsed = parseRepoUrl(config.repoUrl);
     if (!parsed) {
       const errMsg = `Invalid GitHub repo URL: ${config.repoUrl}`;
@@ -369,7 +377,7 @@ export async function syncTasksToGit(): Promise<{
     const { owner, repo } = parsed;
     const branch = config.branch || "main";
 
-    // ── 3.5 FIRST-TIME SYNC: cleanup existing repo content ─────────────────
+    // ── 4.5 FIRST-TIME SYNC: cleanup existing repo content ────────────────
     //    When lastSyncAt is null, this is the very first sync.
     //    We scan the repo for existing files, archive anything important,
     //    delete our old projects/ folder, then start fresh.
@@ -379,7 +387,7 @@ export async function syncTasksToGit(): Promise<{
       await firstTimeRepoSetup(token, owner, repo, branch);
     }
 
-    // ── 4. Query projects (with client info) ──────────────────────────────
+    // ── 5. Query projects (with client info) ──────────────────────────────
     console.log(
       `[git-sync] Starting sync to ${owner}/${repo} (branch: ${branch})${isFirstSync ? " [FIRST SYNC]" : ""}`
     );
@@ -403,7 +411,7 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
-    // ── 5. Query team members per project ──────────────────────────────────
+    // ── 6. Query team members per project ──────────────────────────────────
     let teamMembers: any[];
     try {
       teamMembers = await db.$queryRawUnsafe(
@@ -423,7 +431,7 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
-    // ── 6. Query tasks (with assignee details) ─────────────────────────────
+    // ── 7. Query tasks (with assignee details) ─────────────────────────────
     let tasks: any[];
     try {
       tasks = await db.$queryRawUnsafe(
@@ -443,7 +451,7 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: errMsg };
     }
 
-    // ── 7. Build data structures ──────────────────────────────────────────
+    // ── 8. Build data structures ──────────────────────────────────────────
 
     // Count tasks by status globally
     const tasksByStatus: Record<string, number> = {
@@ -485,7 +493,7 @@ export async function syncTasksToGit(): Promise<{
     let filesUpdated = 0;
     const errors: string[] = [];
 
-    // ── 8. Build and push projects/index.json ─────────────────────────────
+    // ── 9. Build and push projects/index.json ─────────────────────────────
     const indexProjects = projects.map((p: any) => {
       const slug = slugify(p.name) || p.id;
       const projectTasks = tasksByProject.get(p.id) || [];
@@ -535,7 +543,7 @@ export async function syncTasksToGit(): Promise<{
       errors.push(errMsg);
     }
 
-    // ── 9. Push individual project files ──────────────────────────────────
+    // ── 10. Push individual project files ──────────────────────────────────
     for (const project of projects) {
       const slug = slugify(project.name) || project.id;
       const projectTasks = tasksByProject.get(project.id) || [];
@@ -669,7 +677,7 @@ export async function syncTasksToGit(): Promise<{
       }
     }
 
-    // ── 10. Update sync status in DB ──────────────────────────────────────
+    // ── 11. Update sync status in DB ──────────────────────────────────────
     if (errors.length === 0) {
       console.log(
         `[git-sync] ✓ Sync complete — ${filesUpdated} file(s) updated`

@@ -281,6 +281,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (triggerSync) {
+      // Load encryption key from DB before triggering sync
+      const keyRow: any[] = await db.$queryRawUnsafe(
+        `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
+        existing[0].id
+      );
+      if (keyRow.length > 0 && keyRow[0].encryptionKey) {
+        process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
+      }
+
       // Trigger async sync — just set a pending status and let the caller handle the actual sync
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'PENDING', "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -289,7 +298,9 @@ export async function PATCH(request: NextRequest) {
 
       // Fire-and-forget sync
       const { syncTasksToGit } = await import("@/lib/git-sync");
-      syncTasksToGit().catch(() => {});
+      syncTasksToGit().catch((err: any) => {
+        console.error("[task-git-config] Manual sync failed:", err?.message);
+      });
 
       return NextResponse.json({ success: true, message: "Sync triggered" });
     }
@@ -300,6 +311,28 @@ export async function PATCH(request: NextRequest) {
         isEnabled ? 1 : 0,
         existing[0].id
       );
+
+      // When enabling autosync, also trigger an immediate sync
+      if (isEnabled) {
+        // Load encryption key from DB if stored
+        const keyRow: any[] = await db.$queryRawUnsafe(
+          `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
+          existing[0].id
+        );
+        if (keyRow.length > 0 && keyRow[0].encryptionKey) {
+          process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
+        }
+
+        await db.$executeRawUnsafe(
+          `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'PENDING', "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+          existing[0].id
+        );
+        const { syncTasksToGit } = await import("@/lib/git-sync");
+        syncTasksToGit().catch((err: any) => {
+          console.error("[task-git-config] Auto-sync on enable failed:", err?.message);
+        });
+      }
+
       return NextResponse.json({ success: true, isEnabled });
     }
 

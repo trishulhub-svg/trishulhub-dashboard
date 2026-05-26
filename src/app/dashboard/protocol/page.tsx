@@ -251,15 +251,46 @@ export default function ProtocolPage() {
   // ── Toggle git sync ──
   const handleToggleGitSync = async () => {
     if (!gitConfig) return;
+    const newValue = !gitConfig.isEnabled;
     try {
       const res = await fetch("/api/task-git-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isEnabled: !gitConfig.isEnabled }),
+        body: JSON.stringify({ isEnabled: newValue }),
       });
       if (res.ok) {
-        setGitConfig({ ...gitConfig, isEnabled: !gitConfig.isEnabled });
-        toast.success(!gitConfig.isEnabled ? "Git sync enabled" : "Git sync disabled");
+        setGitConfig({ ...gitConfig, isEnabled: newValue });
+        toast.success(newValue ? "Git sync enabled — syncing now..." : "Git sync disabled");
+
+        // If enabling, poll for sync status
+        if (newValue) {
+          setGitSyncing(true);
+          const pollInterval = setInterval(async () => {
+            try {
+              const pollRes = await fetch("/api/task-git-config");
+              if (pollRes.ok) {
+                const data = await pollRes.json();
+                setGitConfig(data);
+                if (data.lastSyncStatus && data.lastSyncStatus !== "PENDING") {
+                  clearInterval(pollInterval);
+                  setGitSyncing(false);
+                  if (data.lastSyncStatus === "SUCCESS") {
+                    toast.success("Auto-sync completed successfully");
+                  } else if (data.lastSyncStatus === "ERROR" || data.lastSyncStatus === "FAILED" || data.lastSyncStatus === "PARTIAL") {
+                    toast.error("Sync " + data.lastSyncStatus.toLowerCase() + (data.lastSyncError ? `: ${data.lastSyncError}` : ""));
+                  }
+                }
+              }
+            } catch {
+              clearInterval(pollInterval);
+              setGitSyncing(false);
+            }
+          }, 3000);
+          setTimeout(() => {
+            clearInterval(pollInterval);
+            setGitSyncing(false);
+          }, 90000);
+        }
       } else {
         toast.error("Failed to toggle git sync");
       }
@@ -291,8 +322,8 @@ export default function ProtocolPage() {
                 setGitSyncing(false);
                 if (data.lastSyncStatus === "SUCCESS" || data.lastSyncStatus === "NO_CHANGES") {
                   toast.success(data.lastSyncStatus === "SUCCESS" ? "Sync completed" : "No changes to sync");
-                } else if (data.lastSyncStatus === "FAILED") {
-                  toast.error("Sync failed: " + (data.lastSyncError || "Unknown error"));
+                } else if (data.lastSyncStatus === "ERROR" || data.lastSyncStatus === "FAILED" || data.lastSyncStatus === "PARTIAL") {
+                  toast.error("Sync " + data.lastSyncStatus.toLowerCase() + (data.lastSyncError ? `: ${data.lastSyncError}` : ""));
                 }
               }
             }
@@ -699,11 +730,11 @@ export default function ProtocolPage() {
                           {gitConfig.lastSyncStatus === "SUCCESS" ? "Last sync successful" : "No changes since last sync"}
                         </span>
                       </>
-                    ) : gitConfig.lastSyncStatus === "FAILED" ? (
+                    ) : gitConfig.lastSyncStatus === "ERROR" || gitConfig.lastSyncStatus === "FAILED" || gitConfig.lastSyncStatus === "PARTIAL" ? (
                       <>
                         <AlertCircle className="h-4 w-4 text-red-500" />
                         <span className="text-sm text-red-600 dark:text-red-400">
-                          Last sync failed{gitConfig.lastSyncError ? `: ${gitConfig.lastSyncError}` : ""}
+                          Last sync {gitConfig.lastSyncStatus.toLowerCase()}{gitConfig.lastSyncError ? `: ${gitConfig.lastSyncError}` : ""}
                         </span>
                       </>
                     ) : gitConfig.lastSyncStatus === "PENDING" ? (
