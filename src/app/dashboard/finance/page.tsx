@@ -276,6 +276,9 @@ export default function FinancePage() {
         const json = deepSanitize<{ subscriptions?: Subscription[]; totalMonthlyCost?: number }>(raw);
         setSubscriptions(json.subscriptions || []);
         setSubTotalMonthly(json.totalMonthlyCost || 0);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Failed to load subscriptions");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -399,15 +402,6 @@ export default function FinancePage() {
     };
   }, [expSearch]);
 
-  // Re-fetch expenses and stats when filters change
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchAllExpenses(controller.signal);
-    fetchExpenses(controller.signal);
-    fetchStats(controller.signal);
-    return () => controller.abort();
-  }, [fetchExpenses, fetchStats, fetchAllExpenses]);
-
   // PERF: Lazy-load dashboard data only when Overview tab is opened
   const [dashLoaded, setDashLoaded] = useState(false);
   useEffect(() => {
@@ -419,7 +413,7 @@ export default function FinancePage() {
     }
   }, [activeTab, dashLoaded, data, loading, fetchData]);
 
-  // Initial data load (runs once) — skip heavy dashboard fetch
+  // Initial data load (runs once) — fetch all finance data in parallel
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
@@ -480,7 +474,7 @@ export default function FinancePage() {
       frequency: subForm.frequency || "MONTHLY",
       status: subForm.status,
       category: subForm.category || undefined,
-      projectId: subForm.projectId === "" ? undefined : subForm.projectId || undefined,
+      projectId: (subForm.projectId && subForm.projectId !== "NONE") ? subForm.projectId : undefined,
       startDate: subForm.startDate || undefined,
       endDate: subForm.endDate || undefined,
       notes: subForm.notes || undefined,
@@ -529,8 +523,8 @@ export default function FinancePage() {
       description: expForm.description,
       amount: parseFloat(expForm.amount) || 0,
       date: expForm.date || new Date().toISOString().split("T")[0],
-      projectId: expForm.projectId || undefined,
-      employeeId: expForm.employeeId || undefined,
+      projectId: (expForm.projectId && expForm.projectId !== "NONE") ? expForm.projectId : undefined,
+      employeeId: (expForm.employeeId && expForm.employeeId !== "NONE") ? expForm.employeeId : undefined,
       paymentRef: expForm.paymentRef || undefined,
       receiptUrl: expForm.receiptUrl || undefined,
     };
@@ -661,7 +655,8 @@ export default function FinancePage() {
   const totalManualExpenses = statsTotal; // From expense stats API — already computed
   const totalSubscriptionMonthly = subTotalMonthly;
   const totalCosts = totalManualExpenses + totalSubscriptionMonthly;
-  const netProfit = (stats.totalRevenue || 0) - totalCosts;
+  const hasDashData = !!data?.stats;
+  const netProfit = hasDashData ? (stats.totalRevenue || 0) - totalCosts : null;
 
   // Total of currently displayed expenses
   const displayedExpTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
@@ -770,17 +765,21 @@ export default function FinancePage() {
         </Card>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.15 }}>
-        <Card className={`border-l-4 ${netProfit >= 0 ? "border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/10" : "border-l-red-600 bg-gradient-to-br from-red-50 to-pink-50/50 dark:from-red-950/20 dark:to-pink-950/10"} transition-shadow hover:shadow-lg`}>
+        <Card className={`border-l-4 ${netProfit === null ? "border-l-gray-400" : netProfit >= 0 ? "border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/10" : "border-l-red-600 bg-gradient-to-br from-red-50 to-pink-50/50 dark:from-red-950/20 dark:to-pink-950/10"} transition-shadow hover:shadow-lg`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Net Profit (est.)</p>
-                <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {formatCurrency(safeNumber(netProfit))}
-                </p>
+                {netProfit === null ? (
+                  <Skeleton className="h-8 w-28 mt-1" />
+                ) : (
+                  <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {formatCurrency(safeNumber(netProfit))}
+                  </p>
+                )}
               </div>
-              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${netProfit >= 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
-                {netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-emerald-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${netProfit === null ? "bg-gray-100 dark:bg-gray-900/30" : netProfit >= 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
+                {netProfit === null ? <DollarSign className="h-5 w-5 text-gray-400" /> : netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-emerald-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
               </div>
             </div>
           </CardContent>
@@ -822,7 +821,7 @@ export default function FinancePage() {
               </CardContent>
             </Card>
           ) : (
-          <React.Fragment>
+          <>
           {/* Quick Stats Row */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="transition-shadow hover:shadow-md">
@@ -948,7 +947,7 @@ export default function FinancePage() {
               </div>
             </CardContent>
           </Card>
-          </React.Fragment>
+          </>
           )}
         </motion.div>
         </TabsContent>
