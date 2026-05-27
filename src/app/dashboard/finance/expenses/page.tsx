@@ -205,7 +205,7 @@ export default function ExpensesPage() {
                 <Label className="text-xs">Description *</Label>
                 <Input name="description" required />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Amount (₹) *</Label>
                   <Input name="amount" type="number" step="0.01" required />
@@ -234,7 +234,7 @@ export default function ExpensesPage() {
       </PageHeader>
 
       {/* Summary */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Total Expenses</p>
@@ -256,7 +256,7 @@ export default function ExpensesPage() {
         {(expenses as { id: string; category: string; description: string; amount: number; date: string }[]).map((expense) => (
           <Card key={expense.id}>
             <CardContent className="p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Badge className={`text-xs ${categoryColors[expense.category] || ""}`}>
                     {expense.category.replace("_", " ")}

@@ -118,17 +118,17 @@ export default function InvoicesPage() {
       if (handleFetchError(invRes, router)) return;
       if (invRes.ok) {
         const invData = await invRes.json().catch(() => null);
-        setInvoices(Array.isArray(invData) ? invData : invData.data || []);
+        setInvoices(Array.isArray(invData) ? invData : invData?.data || []);
       }
       if (handleFetchError(clientRes, router)) return;
       if (clientRes.ok) {
         const clientData = await clientRes.json().catch(() => null);
-        setClients(Array.isArray(clientData) ? clientData : clientData.data || []);
+        setClients(Array.isArray(clientData) ? clientData : clientData?.data || []);
       }
       if (handleFetchError(projRes, router)) return;
       if (projRes.ok) {
         const projData = await projRes.json().catch(() => null);
-        setProjects(Array.isArray(projData) ? projData : projData.data || []);
+        setProjects(Array.isArray(projData) ? projData : projData?.data || []);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -440,7 +440,7 @@ export default function InvoicesPage() {
                     <Plus className="h-3 w-3 mr-1" /> Add Item
                   </Button>
                 </div>
-                <div className="border rounded-md overflow-hidden">
+                <div className="border rounded-md overflow-hidden overflow-x-auto">
                   <div className="grid grid-cols-12 gap-1 p-2 bg-muted/50 text-xs font-medium text-muted-foreground">
                     <div className="col-span-5">Description</div>
                     <div className="col-span-2 text-right">Qty</div>
@@ -580,7 +580,7 @@ export default function InvoicesPage() {
         {(filtered as { id: string; invoiceNumber: string; status: string; total: number; subtotal: number; tax: number; client: { name: string }; project?: { name: string }; dueDate: string; paidAt?: string; items: string; paymentMethod?: string; paymentStatus?: string; gst?: number; gstPercent?: number; notes?: string }[]).map((inv) => (
           <Card key={inv.id}>
             <CardContent className="p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <FileText className="h-5 w-5 text-muted-foreground" />
                   <div>
@@ -588,7 +588,7 @@ export default function InvoicesPage() {
                     <p className="text-xs text-muted-foreground">{inv.client?.name} {inv.project ? `• ${inv.project.name}` : ""}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                   <div className="text-right">
                     <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
                     <p className="text-xs text-muted-foreground">Due: {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "N/A"}</p>
@@ -599,7 +599,7 @@ export default function InvoicesPage() {
                       <Badge className={`text-[10px] ${paymentStatusColors[inv.paymentStatus] || ""}`}>{inv.paymentStatus === "UNPAID" ? "Unpaid" : inv.paymentStatus === "PAID" ? "Paid" : inv.paymentStatus === "DUE" ? "Due" : inv.paymentStatus}</Badge>
                     )}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(inv as unknown as Record<string, unknown>)} aria-label="Edit invoice">
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -638,7 +638,7 @@ export default function InvoicesPage() {
       {/* Invoice Preview */}
       {previewInvoice && (
         <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setPreviewInvoice(null)}>
-          <div className="fixed right-0 top-0 h-full w-[500px] bg-background border-l shadow-xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed right-0 top-0 h-full w-full sm:w-[500px] bg-background border-l shadow-xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 space-y-6">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold">Invoice Preview</h2>
@@ -669,7 +669,7 @@ export default function InvoicesPage() {
                     <p className="text-xs text-muted-foreground">Payment Status: {(previewInvoice as { paymentStatus: string }).paymentStatus === "UNPAID" ? "Unpaid" : (previewInvoice as { paymentStatus: string }).paymentStatus === "PAID" ? "Paid" : (previewInvoice as { paymentStatus: string }).paymentStatus === "DUE" ? "Due" : (previewInvoice as { paymentStatus: string }).paymentStatus}</p>
                   )}
                 </div>
-                <div className="border-t pt-4">
+                <div className="border-t pt-4 overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-xs text-muted-foreground">
@@ -766,7 +766,7 @@ export default function InvoicesPage() {
                   <Plus className="h-3 w-3 mr-1" /> Add Item
                 </Button>
               </div>
-              <div className="border rounded-md overflow-hidden">
+              <div className="border rounded-md overflow-hidden overflow-x-auto">
                 <div className="grid grid-cols-12 gap-1 p-2 bg-muted/50 text-xs font-medium text-muted-foreground">
                   <div className="col-span-5">Description</div>
                   <div className="col-span-2 text-right">Qty</div>

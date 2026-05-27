@@ -175,7 +175,8 @@ export default function FinancePage() {
   const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [dashLoading, setDashLoading] = useState(false);
+  const [dashError, setDashError] = useState<string | null>(null);
 
   // Subscriptions
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -240,28 +241,28 @@ export default function FinancePage() {
     receiptUrl: "",
   });
 
-  const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
 
   // ─── Fetch dashboard data (deferred — only for Overview tab charts) ────
   const [activeTab, setActiveTab] = useState("subscriptions");
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      setLoading(true);
+      setDashLoading(true);
+      setDashError(null);
       const res = await fetch("/api/dashboard", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const raw = await res.json().catch(() => null);
         setData(deepSanitize<DashboardData | null>(raw));
       } else {
-        setError("Failed to load dashboard data. Please refresh the page.");
+        setDashError("Failed to load dashboard data. Please refresh the page.");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
-      setError("Network error. Please check your connection and refresh.");
+      setDashError("Network error. Please check your connection and refresh.");
     } finally {
-      setLoading(false);
+      setDashLoading(false);
     }
   }, [router]);
 
@@ -405,11 +406,11 @@ export default function FinancePage() {
   // PERF: Lazy-load dashboard data only when Overview tab is opened
   const dashLoadedRef = useRef(false);
   useEffect(() => {
-    if (activeTab === "overview" && !dashLoadedRef.current && !data && !loading) {
+    if (activeTab === "overview" && !dashLoadedRef.current && !data) {
       dashLoadedRef.current = true;
       fetchData();
     }
-  }, [activeTab, data, loading, fetchData]);
+  }, [activeTab, data, fetchData]);
 
   // Initial data load (runs once) — fetch all finance data in parallel
   useEffect(() => {
@@ -798,22 +799,22 @@ export default function FinancePage() {
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-          {loading ? (
+          {dashLoading ? (
             <div className="grid gap-4 md:grid-cols-3">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
               <Skeleton className="h-64 rounded-lg md:col-span-2" />
             </div>
-          ) : error ? (
+          ) : dashError ? (
             <Card className="border-l-4 border-l-red-500">
               <CardContent className="p-6">
                 <div className="flex items-center gap-3">
                   <AlertCircle className="h-6 w-6 text-red-500" />
                   <div>
                     <p className="font-medium text-red-600">Failed to load overview data</p>
-                    <p className="text-sm text-muted-foreground">{error}</p>
+                    <p className="text-sm text-muted-foreground">{dashError}</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); dashLoadedRef.current = false; fetchData(); }}>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setDashError(null); dashLoadedRef.current = false; fetchData(); }}>
                   Retry
                 </Button>
               </CardContent>
@@ -1091,8 +1092,8 @@ export default function FinancePage() {
           {/* Filters */}
           <Card>
             <CardContent className="p-4">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="flex-1 min-w-[200px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="sm:col-span-2 lg:col-span-1">
                   <Label className="text-xs mb-1 block">Search</Label>
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1105,15 +1106,15 @@ export default function FinancePage() {
                     />
                   </div>
                 </div>
-                <div className="min-w-[140px]">
+                <div>
                   <Label className="text-xs mb-1 block">Start Date</Label>
                   <Input type="date" value={expStartDate} onChange={(e) => setExpStartDate(e.target.value)} />
                 </div>
-                <div className="min-w-[140px]">
+                <div>
                   <Label className="text-xs mb-1 block">End Date</Label>
                   <Input type="date" value={expEndDate} onChange={(e) => setExpEndDate(e.target.value)} />
                 </div>
-                <div className="min-w-[160px]">
+                <div>
                   <Label className="text-xs mb-1 block">Category</Label>
                   <Select value={expCategory} onValueChange={setExpCategory}>
                     <SelectTrigger><SelectValue placeholder="All Categories" /></SelectTrigger>
@@ -1125,16 +1126,18 @@ export default function FinancePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setExpSearch(""); setExpStartDate(""); setExpEndDate(""); setExpCategory(""); }}
-                >
-                  Clear
-                </Button>
-                <Button size="sm" onClick={() => setExpDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Expense
-                </Button>
+                <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setExpSearch(""); setExpStartDate(""); setExpEndDate(""); setExpCategory(""); }}
+                  >
+                    Clear
+                  </Button>
+                  <Button size="sm" onClick={() => setExpDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-1" /> Add Expense
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1451,7 +1454,7 @@ export default function FinancePage() {
                 placeholder="e.g., Google One UK"
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Rate *</Label>
                 <Input
@@ -1485,7 +1488,7 @@ export default function FinancePage() {
               </div>
             </div>
             {/* Status dropdown */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Status</Label>
                 <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
@@ -1526,7 +1529,7 @@ export default function FinancePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Start Date</Label>
                 <Input
@@ -1568,7 +1571,7 @@ export default function FinancePage() {
             <DialogDescription>Add a new expense record with optional employee and payment reference.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Category *</Label>
                 <Select value={expForm.category} onValueChange={(v) => setExpForm((f) => ({ ...f, category: v }))}>
@@ -1599,7 +1602,7 @@ export default function FinancePage() {
                 placeholder="What was this expense for?"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Date</Label>
                 <Input
@@ -1621,7 +1624,7 @@ export default function FinancePage() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Employee</Label>
                 <Select value={expForm.employeeId} onValueChange={(v) => setExpForm((f) => ({ ...f, employeeId: v }))}>
