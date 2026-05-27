@@ -1,14 +1,25 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { ArrowUpRight, KeyRound, Zap, Shield, Globe } from "lucide-react";
+import {
+  ArrowUpRight,
+  KeyRound,
+  Zap,
+  Shield,
+  Globe,
+  Cpu,
+  Rocket,
+  Activity,
+  Users,
+} from "lucide-react";
 
-/* ══════════════════════════════════════════════════════
-   NEXUS — Original TrishulHub Workspace
-   ══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   TRISHULHUB WORKSPACE v2.0 — Bento Grid + Glassmorphism
+   Inspired by Linear · Raycast · Notion · Vercel
+   ═══════════════════════════════════════════════════════════════ */
 
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
@@ -28,14 +39,14 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* ── Entrance animation trigger ── */
+  /* ── Entrance stagger ── */
   const [entered, setEntered] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setEntered(true), 100);
+    const t = setTimeout(() => setEntered(true), 50);
     return () => clearTimeout(t);
   }, []);
 
-  /* ── Typewriter effect for tagline ── */
+  /* ── Typewriter ── */
   const tagline = "I am ready to cook.";
   const [typedText, setTypedText] = useState("");
   const [typingDone, setTypingDone] = useState(false);
@@ -50,23 +61,22 @@ export default function TrishulWorkspacePage() {
         clearInterval(interval);
         setTypingDone(true);
       }
-    }, 55);
+    }, 50);
     return () => clearInterval(interval);
   }, [entered]);
 
-  /* ── Floating particles (pure CSS via refs) ── */
-  const particleCount = 30;
-  const particles = useRef(
-    Array.from({ length: particleCount }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 3 + 1,
-      duration: Math.random() * 20 + 15,
-      delay: Math.random() * 10,
-      opacity: Math.random() * 0.4 + 0.1,
-    }))
-  );
+  /* ── Mouse-following glow ── */
+  const glowRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!glowRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    glowRef.current.style.setProperty("--glow-x", `${x}px`);
+    glowRef.current.style.setProperty("--glow-y", `${y}px`);
+  }, []);
 
   /* ── Handlers ── */
   const handleStart = useCallback(() => {
@@ -76,883 +86,1155 @@ export default function TrishulWorkspacePage() {
     router.push("/dashboard/credentials");
   }, [router]);
 
+  /* ── Time-based greeting ── */
+  const [greeting, setGreeting] = useState("Good evening");
+  useEffect(() => {
+    const h = new Date().getHours();
+    if (h < 12) setGreeting("Good morning");
+    else if (h < 17) setGreeting("Good afternoon");
+    else setGreeting("Good evening");
+  }, []);
+
+  /* ── Current time ── */
+  const [time, setTime] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTime(
+        now.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <>
-      <div className={`nx-root nx-root--${mode}`}>
-        {/* ═══ ANIMATED BACKGROUND LAYERS ═══ */}
+      <div
+        ref={containerRef}
+        className={`ws-root ws-root--${mode}`}
+        onMouseMove={handleMouseMove}
+      >
+        {/* ═══ AMBIENT BACKGROUND ═══ */}
 
-        {/* Mesh gradient — slow-moving color blobs */}
-        <div className="nx-mesh" aria-hidden>
-          <div className="nx-mesh-blob nx-mesh-blob--1" />
-          <div className="nx-mesh-blob nx-mesh-blob--2" />
-          <div className="nx-mesh-blob nx-mesh-blob--3" />
-          <div className="nx-mesh-blob nx-mesh-blob--4" />
+        {/* Mouse-following radial glow */}
+        <div ref={glowRef} className="ws-glow" aria-hidden />
+
+        {/* Gradient orbs */}
+        <div className="ws-orbs" aria-hidden>
+          <div className="ws-orb ws-orb--1" />
+          <div className="ws-orb ws-orb--2" />
+          <div className="ws-orb ws-orb--3" />
         </div>
 
-        {/* Dot grid overlay */}
-        <div className="nx-grid" aria-hidden />
+        {/* Dot pattern */}
+        <div className="ws-dots" aria-hidden />
 
-        {/* Floating particles */}
-        <div className="nx-particles" aria-hidden>
-          {particles.current.map((p) => (
-            <span
-              key={p.id}
-              className="nx-particle"
-              style={{
-                left: `${p.x}%`,
-                top: `${p.y}%`,
-                width: `${p.size}px`,
-                height: `${p.size}px`,
-                opacity: p.opacity,
-                animationDuration: `${p.duration}s`,
-                animationDelay: `${p.delay}s`,
-              }}
-            />
-          ))}
-        </div>
+        {/* Subtle noise */}
+        <div className="ws-noise" aria-hidden />
 
-        {/* Noise texture */}
-        <div className="nx-noise" aria-hidden />
-
-        {/* Vignette */}
-        <div className={`nx-vignette nx-vignette--${mode}`} aria-hidden />
-
-        {/* ═══ MAIN CONTENT ═══ */}
-        <div className="nx-content">
-          {/* ── Top bar ── */}
-          <div className={`nx-topbar ${entered ? "nx-topbar--visible" : ""}`}>
-            <div className="nx-topbar-left">
-              <div className={`nx-logo-dot nx-logo-dot--${mode}`} />
-              <span className={`nx-logo-text nx-logo-text--${mode}`}>TrishulHub</span>
-            </div>
-            <div className="nx-topbar-right">
-              <span className={`nx-badge nx-badge--${mode}`}>Protocol v5.0</span>
-            </div>
-          </div>
-
-          {/* ── Hero Section ── */}
-          <section className="nx-hero">
-            {/* Central pulsing orb */}
-            <div className="nx-orb-wrap" aria-hidden>
-              <div className={`nx-orb nx-orb--${mode} ${entered ? "nx-orb--active" : ""}`}>
-                <div className={`nx-orb-ring nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-ring nx-orb-ring--2 nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-ring nx-orb-ring--3 nx-orb-ring--${mode}`} />
-                <div className={`nx-orb-core nx-orb-core--${mode}`} />
+        {/* ═══ MAIN GRID LAYOUT ═══ */}
+        <div className="ws-layout">
+          {/* ── HEADER BAR ── */}
+          <header className={`ws-header ${entered ? "ws-in" : ""}`}>
+            <div className="ws-header-left">
+              <div className={`ws-logo ${entered ? "ws-in" : ""}`}>
+                <div className={`ws-logo-icon ws-logo-icon--${mode}`} />
+                <span className={`ws-logo-label ws-logo-label--${mode}`}>
+                  TrishulHub
+                </span>
               </div>
             </div>
+            <div className="ws-header-right">
+              <span className={`ws-time ws-time--${mode}`}>{time}</span>
+              <div className={`ws-header-badge ws-header-badge--${mode}`}>
+                <div className={`ws-pulse-dot ws-pulse-dot--${mode}`} />
+                <span>Protocol v5.0</span>
+              </div>
+            </div>
+          </header>
 
-            {/* Title cluster */}
-            <div className="nx-title-cluster">
-              <h1 className={`nx-title nx-title--${mode} ${entered ? "nx-title--visible" : ""}`}>
-                {"TrishulHub".split("").map((char, i) => (
-                  <span
-                    key={i}
-                    className="nx-char"
-                    style={{ animationDelay: `${0.3 + i * 0.06}s` }}
-                  >
-                    {char}
+          {/* ── BENTO GRID ════════════════════════════════ */}
+          <main className="ws-bento">
+            {/* ─── ROW 1: Hero + Stats ─── */}
+
+            {/* HERO CARD — spans 3 cols */}
+            <div
+              className={`ws-card ws-hero-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.1s" }}
+            >
+              <div className={`ws-hero-glow ws-hero-glow--${mode}`} />
+              <div className="ws-hero-content">
+                <p className={`ws-greeting ws-greeting--${mode}`}>
+                  {greeting}
+                </p>
+                <h1 className={`ws-hero-title ws-hero-title--${mode}`}>
+                  <span className={`ws-name-highlight ws-name-highlight--${mode}`}>
+                    {userName}
                   </span>
-                ))}
-              </h1>
+                </h1>
+                <div className={`ws-tagline ws-tagline--${mode}`}>
+                  <span className="ws-tagline-bar" />
+                  <span>{typedText}</span>
+                  <span
+                    className={`ws-cursor ${typingDone ? "ws-cursor--blink" : ""}`}
+                  />
+                </div>
+                <div className="ws-hero-actions">
+                  <button
+                    onClick={handleStart}
+                    className={`ws-btn-primary ws-btn-primary--${mode}`}
+                    type="button"
+                  >
+                    <Zap size={16} strokeWidth={2.5} />
+                    <span>START</span>
+                    <ArrowUpRight size={14} />
+                  </button>
+                  <button
+                    onClick={handleCredentials}
+                    className={`ws-btn-ghost ws-btn-ghost--${mode}`}
+                    type="button"
+                  >
+                    <KeyRound size={15} />
+                    <span>Claim Credentials</span>
+                  </button>
+                </div>
+              </div>
+              {/* Decorative ring cluster */}
+              <div className={`ws-hero-rings ws-hero-rings--${mode}`} aria-hidden>
+                <svg viewBox="0 0 200 200" fill="none">
+                  <circle cx="100" cy="100" r="90" stroke="currentColor" strokeWidth="0.5" opacity="0.15" />
+                  <circle cx="100" cy="100" r="70" stroke="currentColor" strokeWidth="0.5" opacity="0.10" strokeDasharray="4 6" />
+                  <circle cx="100" cy="100" r="50" stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
+                  <circle cx="100" cy="100" r="6" fill="currentColor" opacity="0.25" />
+                </svg>
+              </div>
+            </div>
 
-              <p className={`nx-subtitle nx-subtitle--${mode} ${entered ? "nx-subtitle--visible" : ""}`}>
-                Your Personal Workspace
-              </p>
-
-              {/* Typewriter tagline */}
-              <div className={`nx-tagline nx-tagline--${mode} ${entered ? "nx-tagline--visible" : ""}`}>
-                <span className="nx-tagline-line" />
-                <span className={`nx-tagline-text nx-tagline-text--${mode}`}>
-                  {typedText}
-                  <span className={`nx-cursor nx-cursor--${mode} ${typingDone ? "nx-cursor--blink" : ""}`} />
+            {/* STAT CARD 1 */}
+            <div
+              className={`ws-card ws-stat-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.2s" }}
+            >
+              <div className="ws-stat-icon-wrap ws-stat-icon-wrap--cyan">
+                <Activity size={18} />
+              </div>
+              <div className="ws-stat-body">
+                <span className={`ws-stat-label ws-stat-label--${mode}`}>
+                  Workspace
+                </span>
+                <span className={`ws-stat-value ws-stat-value--${mode}`}>
+                  Your Personal Workspace
                 </span>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className={`nx-actions ${entered ? "nx-actions--visible" : ""}`}>
-              {/* START — primary CTA */}
-              <button
-                onClick={handleStart}
-                className={`nx-start-btn nx-start-btn--${mode}`}
-                type="button"
-              >
-                <span className="nx-start-ring" aria-hidden />
-                <span className="nx-start-icon" aria-hidden>
-                  <Zap size={18} strokeWidth={2.5} />
+            {/* STAT CARD 2 */}
+            <div
+              className={`ws-card ws-stat-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.25s" }}
+            >
+              <div className="ws-stat-icon-wrap ws-stat-icon-wrap--purple">
+                <Cpu size={18} />
+              </div>
+              <div className="ws-stat-body">
+                <span className={`ws-stat-label ws-stat-label--${mode}`}>
+                  AI Engine
                 </span>
-                <span className="nx-start-label">START</span>
-                <span className="nx-start-arrow" aria-hidden>
-                  <ArrowUpRight size={16} />
+                <span className={`ws-stat-value ws-stat-value--${mode}`}>
+                  7 Agents Active
                 </span>
-              </button>
+              </div>
+            </div>
 
-              <p className={`nx-start-hint nx-start-hint--${mode}`}>
-                Opens workspace in a new tab
-              </p>
+            {/* STAT CARD 3 */}
+            <div
+              className={`ws-card ws-stat-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.3s" }}
+            >
+              <div className="ws-stat-icon-wrap ws-stat-icon-wrap--pink">
+                <Rocket size={18} />
+              </div>
+              <div className="ws-stat-body">
+                <span className={`ws-stat-label ws-stat-label--${mode}`}>
+                  Role
+                </span>
+                <span className={`ws-stat-value ws-stat-value--${mode}`}>
+                  {userRole}
+                </span>
+              </div>
+            </div>
 
-              {/* Credential card */}
+            {/* ─── ROW 2: Feature cards ─── */}
+
+            {/* CREDENTIALS CARD — spans 2 cols */}
+            <div
+              className={`ws-card ws-cred-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.35s" }}
+            >
               <button
                 onClick={handleCredentials}
-                className={`nx-cred-btn nx-cred-btn--${mode}`}
+                className="ws-cred-card-inner"
                 type="button"
               >
-                <div className="nx-cred-icon-wrap">
-                  <KeyRound className="nx-cred-icon" />
+                <div className="ws-cred-left">
+                  <div className={`ws-cred-icon-box ws-cred-icon-box--${mode}`}>
+                    <KeyRound size={20} />
+                  </div>
+                  <div>
+                    <h3 className={`ws-cred-heading ws-cred-heading--${mode}`}>
+                      Claim Credentials
+                    </h3>
+                    <p className={`ws-cred-sub ws-cred-sub--${mode}`}>
+                      Get your workspace ID & password to access all tools and
+                      services
+                    </p>
+                  </div>
                 </div>
-                <div className="nx-cred-text">
-                  <span className={`nx-cred-title nx-cred-title--${mode}`}>Claim Credentials</span>
-                  <span className={`nx-cred-desc nx-cred-desc--${mode}`}>Get your ID & Password</span>
+                <div className={`ws-cred-arrow-wrap ws-cred-arrow-wrap--${mode}`}>
+                  <ArrowUpRight size={16} />
                 </div>
-                <ArrowUpRight size={16} className={`nx-cred-arrow nx-cred-arrow--${mode}`} />
               </button>
+              {/* Decorative gradient line */}
+              <div className="ws-cred-gradient-line" />
             </div>
-          </section>
 
-          {/* ── Feature pills ── */}
-          <div className={`nx-pills ${entered ? "nx-pills--visible" : ""}`}>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Shield size={14} />
-              <span>Secured</span>
+            {/* FEATURE GRID CARD */}
+            <div
+              className={`ws-card ws-features-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.4s" }}
+            >
+              <h3 className={`ws-features-heading ws-features-heading--${mode}`}>
+                Capabilities
+              </h3>
+              <div className="ws-features-grid">
+                <div className={`ws-feature-item ws-feature-item--${mode}`}>
+                  <Shield size={14} />
+                  <span>Secured</span>
+                </div>
+                <div className={`ws-feature-item ws-feature-item--${mode}`}>
+                  <Zap size={14} />
+                  <span>AI Powered</span>
+                </div>
+                <div className={`ws-feature-item ws-feature-item--${mode}`}>
+                  <Globe size={14} />
+                  <span>Cloud Native</span>
+                </div>
+                <div className={`ws-feature-item ws-feature-item--${mode}`}>
+                  <Users size={14} />
+                  <span>Team Ready</span>
+                </div>
+              </div>
             </div>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Zap size={14} />
-              <span>AI Powered</span>
-            </div>
-            <div className={`nx-pill nx-pill--${mode}`}>
-              <Globe size={14} />
-              <span>Cloud Native</span>
-            </div>
-          </div>
 
-          {/* ── Footer ── */}
-          <footer className={`nx-footer ${entered ? "nx-footer--visible" : ""}`}>
-            <div className="nx-footer-inner">
-              <p className={`nx-footer-text nx-footer-text--${mode}`}>
-                Welcome back, <span className={`nx-footer-name nx-footer-name--${mode}`}>{userName}</span>
-              </p>
-              <div className="nx-footer-divider" />
-              <span className={`nx-footer-role nx-footer-role--${mode}`}>{userRole}</span>
+            {/* START CARD — spans 2 cols */}
+            <div
+              className={`ws-card ws-start-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.45s" }}
+            >
+              <button
+                onClick={handleStart}
+                className="ws-start-card-inner"
+                type="button"
+              >
+                <div className="ws-start-left">
+                  <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
+                    <Zap size={20} />
+                  </div>
+                  <div>
+                    <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
+                      Launch Workspace
+                    </h3>
+                    <p className={`ws-start-sub ws-start-sub--${mode}`}>
+                      Opens workspace in a new tab — full AI agent environment
+                    </p>
+                  </div>
+                </div>
+                <div className={`ws-start-badge ws-start-badge--${mode}`}>
+                  <span>Open</span>
+                  <ArrowUpRight size={14} />
+                </div>
+              </button>
+              {/* Animated accent border */}
+              <div className="ws-start-accent" />
             </div>
+
+            {/* STATUS INDICATOR CARD */}
+            <div
+              className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.5s" }}
+            >
+              <div className="ws-status-row">
+                <div className={`ws-status-dot ws-status-dot--${mode}`} />
+                <span className={`ws-status-text ws-status-text--${mode}`}>
+                  All Systems Operational
+                </span>
+              </div>
+              <div className="ws-status-bars">
+                <div className={`ws-status-bar-item`}>
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: "92%" }} />
+                  </div>
+                </div>
+                <div className="ws-status-bar-item">
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: "100%" }} />
+                  </div>
+                </div>
+                <div className="ws-status-bar-item">
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: "88%" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* ── FOOTER ── */}
+          <footer
+            className={`ws-footer ${entered ? "ws-in" : ""}`}
+            style={{ transitionDelay: "0.6s" }}
+          >
+            <span className={`ws-footer-brand ws-footer-brand--${mode}`}>
+              TrishulHub
+            </span>
+            <span className={`ws-footer-sep`}>·</span>
+            <span className={`ws-footer-text ws-footer-text--${mode}`}>
+              Workspace v2.0
+            </span>
+            <span className={`ws-footer-sep`}>·</span>
+            <span className={`ws-footer-text ws-footer-text--${mode}`}>
+              {userRole}
+            </span>
           </footer>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════
-         STYLES — NEXUS ORIGINAL
-         ═══════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════
+         STYLES — BENTO GRID + GLASSMORPHISM DESIGN SYSTEM
+         ═══════════════════════════════════════════════════════════════ */}
       <style jsx global>{`
-        /* ── Reset cursor on touch ── */
         @media (pointer: coarse) {
-          .nx-root, .nx-root * { cursor: auto !important; }
+          .ws-root, .ws-root * { cursor: auto !important; }
         }
 
-        /* ═══════════════════════
-           ROOT
-           ═══════════════════════ */
-        .nx-root {
+        /* ═══════════════════════════════════════
+           DESIGN TOKENS
+           ═══════════════════════════════════════ */
+
+        /* ── ROOT ── */
+        .ws-root {
           position: relative;
           min-height: 100vh;
           overflow-x: hidden;
           margin: -1.25rem;
-          margin-top: -1.25rem;
-          background: #06060a;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: var(--ws-bg);
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          color: var(--ws-text);
+          --ws-bg: #09090b;
+          --ws-text: #fafafa;
+          --ws-text-muted: rgba(255,255,255,0.45);
+          --ws-text-dim: rgba(255,255,255,0.22);
+          --ws-card-bg: rgba(255,255,255,0.03);
+          --ws-card-border: rgba(255,255,255,0.06);
+          --ws-card-hover: rgba(255,255,255,0.05);
+          --ws-card-border-hover: rgba(255,255,255,0.10);
+          --ws-accent-cyan: #06b6d4;
+          --ws-accent-purple: #8b5cf6;
+          --ws-accent-pink: #ec4899;
+          --ws-accent-cyan-dim: rgba(6,182,212,0.10);
+          --ws-accent-purple-dim: rgba(139,92,246,0.10);
+          --ws-accent-pink-dim: rgba(236,72,153,0.10);
         }
         @media (min-width: 768px) {
-          .nx-root { margin: -2rem; margin-top: -2rem; }
+          .ws-root { margin: -2rem; }
         }
-        .nx-root--light { background: #f4f5f8; }
-        .nx-root--bluelight { background: #0a0808; }
 
-        /* ═══════════════════════
-           ANIMATED MESH GRADIENT
-           ═══════════════════════ */
-        .nx-mesh {
-          position: fixed; inset: 0; z-index: 0;
-          overflow: hidden;
-          pointer-events: none;
+        .ws-root--light {
+          --ws-bg: #f8f9fb;
+          --ws-text: #0a0a0a;
+          --ws-text-muted: rgba(0,0,0,0.45);
+          --ws-text-dim: rgba(0,0,0,0.20);
+          --ws-card-bg: rgba(255,255,255,0.70);
+          --ws-card-border: rgba(0,0,0,0.06);
+          --ws-card-hover: rgba(255,255,255,0.90);
+          --ws-card-border-hover: rgba(0,0,0,0.10);
         }
-        .nx-mesh-blob {
+        .ws-root--bluelight {
+          --ws-bg: #0c0a08;
+          --ws-text: #fbbf24;
+          --ws-text-muted: rgba(251,191,36,0.45);
+          --ws-text-dim: rgba(251,191,36,0.22);
+          --ws-card-bg: rgba(251,191,36,0.03);
+          --ws-card-border: rgba(251,191,36,0.07);
+          --ws-card-hover: rgba(251,191,36,0.05);
+          --ws-card-border-hover: rgba(251,191,36,0.12);
+          --ws-accent-cyan: #f59e0b;
+          --ws-accent-purple: #d97706;
+          --ws-accent-pink: #fbbf24;
+        }
+
+        /* ═══════════════════════════════════════
+           AMBIENT BACKGROUND
+           ═══════════════════════════════════════ */
+
+        /* Mouse glow */
+        .ws-glow {
+          position: fixed;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          background: radial-gradient(
+            600px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+            rgba(6,182,212,0.04), transparent 60%
+          );
+          transition: opacity 0.3s;
+          opacity: 0;
+        }
+        .ws-root:hover .ws-glow { opacity: 1; }
+        .ws-root--light .ws-glow {
+          background: radial-gradient(
+            600px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+            rgba(6,182,212,0.05), transparent 60%
+          );
+        }
+        .ws-root--bluelight .ws-glow {
+          background: radial-gradient(
+            600px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+            rgba(251,191,36,0.04), transparent 60%
+          );
+        }
+
+        /* Orbs */
+        .ws-orbs {
+          position: fixed; inset: 0; z-index: 0;
+          pointer-events: none; overflow: hidden;
+        }
+        .ws-orb {
           position: absolute;
           border-radius: 50%;
-          filter: blur(100px);
+          filter: blur(120px);
           will-change: transform;
         }
-        /* Blob 1 — top left cyan */
-        .nx-mesh-blob--1 {
-          width: 600px; height: 600px;
-          top: -20%; left: -10%;
-          background: rgba(6, 182, 212, 0.12);
-          animation: nx-float-1 18s ease-in-out infinite;
-        }
-        /* Blob 2 — bottom right purple */
-        .nx-mesh-blob--2 {
+        .ws-orb--1 {
           width: 500px; height: 500px;
-          bottom: -15%; right: -8%;
-          background: rgba(139, 92, 246, 0.10);
-          animation: nx-float-2 22s ease-in-out infinite;
+          top: -15%; right: -5%;
+          background: rgba(6,182,212,0.08);
+          animation: ws-drift-1 25s ease-in-out infinite;
         }
-        /* Blob 3 — center-right pink */
-        .nx-mesh-blob--3 {
+        .ws-orb--2 {
           width: 400px; height: 400px;
-          top: 30%; right: 20%;
-          background: rgba(236, 72, 153, 0.06);
-          animation: nx-float-3 25s ease-in-out infinite;
+          bottom: -10%; left: -5%;
+          background: rgba(139,92,246,0.06);
+          animation: ws-drift-2 30s ease-in-out infinite;
         }
-        /* Blob 4 — center-left blue */
-        .nx-mesh-blob--4 {
-          width: 350px; height: 350px;
-          top: 60%; left: 15%;
-          background: rgba(59, 130, 246, 0.07);
-          animation: nx-float-4 20s ease-in-out infinite;
+        .ws-orb--3 {
+          width: 300px; height: 300px;
+          top: 40%; left: 40%;
+          background: rgba(236,72,153,0.04);
+          animation: ws-drift-3 35s ease-in-out infinite;
+        }
+        .ws-root--light .ws-orb--1 { background: rgba(6,182,212,0.06); }
+        .ws-root--light .ws-orb--2 { background: rgba(139,92,246,0.04); }
+        .ws-root--light .ws-orb--3 { background: rgba(236,72,153,0.03); }
+        .ws-root--bluelight .ws-orb--1 { background: rgba(251,191,36,0.06); }
+        .ws-root--bluelight .ws-orb--2 { background: rgba(217,119,6,0.05); }
+        .ws-root--bluelight .ws-orb--3 { background: rgba(245,158,11,0.03); }
+
+        @keyframes ws-drift-1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-60px, 50px) scale(1.1); }
+        }
+        @keyframes ws-drift-2 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(50px, -40px) scale(1.08); }
+        }
+        @keyframes ws-drift-3 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-30px, 30px) scale(1.15); }
         }
 
-        /* Light mode blobs */
-        .nx-root--light .nx-mesh-blob--1 { background: rgba(6, 182, 212, 0.08); }
-        .nx-root--light .nx-mesh-blob--2 { background: rgba(139, 92, 246, 0.06); }
-        .nx-root--light .nx-mesh-blob--3 { background: rgba(236, 72, 153, 0.04); }
-        .nx-root--light .nx-mesh-blob--4 { background: rgba(59, 130, 246, 0.05); }
-
-        /* Bluelight blobs */
-        .nx-root--bluelight .nx-mesh-blob--1 { background: rgba(251, 191, 36, 0.10); }
-        .nx-root--bluelight .nx-mesh-blob--2 { background: rgba(217, 119, 6, 0.08); }
-        .nx-root--bluelight .nx-mesh-blob--3 { background: rgba(245, 158, 11, 0.05); }
-        .nx-root--bluelight .nx-mesh-blob--4 { background: rgba(180, 83, 9, 0.06); }
-
-        @keyframes nx-float-1 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(80px, 60px) scale(1.1); }
-          66% { transform: translate(-40px, 100px) scale(0.95); }
-        }
-        @keyframes nx-float-2 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(-70px, -50px) scale(1.05); }
-          66% { transform: translate(50px, -80px) scale(0.9); }
-        }
-        @keyframes nx-float-3 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(-60px, 40px) scale(1.15); }
-        }
-        @keyframes nx-float-4 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(40px, -60px) scale(1.1); }
-        }
-
-        /* ═══════════════════════
-           DOT GRID
-           ═══════════════════════ */
-        .nx-grid {
-          position: fixed; inset: 0; z-index: 1;
+        /* Dot pattern */
+        .ws-dots {
+          position: fixed; inset: 0; z-index: 0;
           pointer-events: none;
-          background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
-          background-size: 40px 40px;
-          mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 0%, transparent 100%);
-          -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 0%, transparent 100%);
+          background-image: radial-gradient(circle, rgba(255,255,255,0.025) 1px, transparent 1px);
+          background-size: 32px 32px;
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 0%, transparent 100%);
+          -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 0%, transparent 100%);
         }
-        .nx-root--light .nx-grid {
-          background-image: radial-gradient(circle, rgba(0,0,0,0.04) 1px, transparent 1px);
+        .ws-root--light .ws-dots {
+          background-image: radial-gradient(circle, rgba(0,0,0,0.03) 1px, transparent 1px);
         }
-        .nx-root--bluelight .nx-grid {
-          background-image: radial-gradient(circle, rgba(251,191,36,0.025) 1px, transparent 1px);
-        }
-
-        /* ═══════════════════════
-           FLOATING PARTICLES
-           ═══════════════════════ */
-        .nx-particles {
-          position: fixed; inset: 0; z-index: 2;
-          pointer-events: none;
-        }
-        .nx-particle {
-          position: absolute;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.6);
-          animation: nx-particle-drift linear infinite;
-        }
-        .nx-root--light .nx-particle { background: rgba(0,0,0,0.3); }
-        .nx-root--bluelight .nx-particle { background: rgba(251,191,36,0.5); }
-
-        @keyframes nx-particle-drift {
-          0% { transform: translateY(0) translateX(0); opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { transform: translateY(-120px) translateX(40px); opacity: 0; }
+        .ws-root--bluelight .ws-dots {
+          background-image: radial-gradient(circle, rgba(251,191,36,0.02) 1px, transparent 1px);
         }
 
-        /* ═══════════════════════
-           NOISE & VIGNETTE
-           ═══════════════════════ */
-        .nx-noise {
+        /* Noise */
+        .ws-noise {
           position: fixed; inset: 0; z-index: 8000;
           pointer-events: none;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-repeat: repeat; background-size: 200px;
-          opacity: 0.025;
-        }
-        .nx-vignette {
-          position: fixed; inset: 0; z-index: 7999;
-          pointer-events: none;
-        }
-        .nx-vignette--dark, .nx-vignette--bluelight {
-          background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, rgba(0,0,0,0.6) 100%);
-        }
-        .nx-vignette--light {
-          background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, rgba(180,190,220,0.25) 100%);
+          opacity: 0.018;
         }
 
-        /* ═══════════════════════
-           CONTENT LAYOUT
-           ═══════════════════════ */
-        .nx-content {
+        /* ═══════════════════════════════════════
+           LAYOUT
+           ═══════════════════════════════════════ */
+        .ws-layout {
           position: relative; z-index: 10;
           display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
           min-height: 100vh;
-          padding: 2rem 1.5rem;
+          padding: 1.25rem 1.5rem 1rem;
+          max-width: 1280px;
+          margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        @media (min-width: 768px) {
+          .ws-layout { padding: 1.5rem 2rem 1.25rem; }
+        }
+        @media (min-width: 1024px) {
+          .ws-layout { padding: 2rem 2.5rem 1.5rem; }
         }
 
-        /* ═══════════════════════
-           TOP BAR
-           ═══════════════════════ */
-        .nx-topbar {
-          position: fixed; top: 0; left: 0; right: 0;
-          z-index: 100;
+        /* ═══════════════════════════════════════
+           ENTRANCE ANIMATION
+           ═══════════════════════════════════════ */
+        .ws-in {
+          opacity: 1 !important;
+          transform: translateY(0) !important;
+        }
+
+        /* ═══════════════════════════════════════
+           HEADER
+           ═══════════════════════════════════════ */
+        .ws-header {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 1rem 2rem;
-          opacity: 0; transform: translateY(-20px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-          pointer-events: none;
+          padding-bottom: 1.5rem;
+          opacity: 0; transform: translateY(-12px);
+          transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nx-topbar--visible { opacity: 1; transform: translateY(0); }
+        .ws-header-left { display: flex; align-items: center; gap: 0.5rem; }
 
-        .nx-topbar-left {
-          display: flex; align-items: center; gap: 0.6rem;
+        .ws-logo {
+          display: flex; align-items: center; gap: 0.5rem;
+          opacity: 0; transform: translateX(-8px);
+          transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.05s;
         }
-        .nx-logo-dot {
-          width: 10px; height: 10px; border-radius: 50%;
-          background: linear-gradient(135deg, #06b6d4, #8b5cf6);
-          box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
-        }
-        .nx-logo-dot--bluelight {
-          background: linear-gradient(135deg, #f59e0b, #d97706);
-          box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
-        }
-        .nx-logo-text {
-          font-size: 0.9rem; font-weight: 700;
-          letter-spacing: 0.5px;
-          color: rgba(255,255,255,0.7);
-        }
-        .nx-logo-text--light { color: rgba(0,0,0,0.6); }
-        .nx-logo-text--bluelight { color: rgba(251,191,36,0.7); }
-
-        .nx-badge {
-          font-size: 0.65rem; font-weight: 600;
-          letter-spacing: 0.12em; text-transform: uppercase;
-          padding: 0.3rem 0.75rem;
-          border-radius: 100px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.03);
-          color: rgba(255,255,255,0.35);
-        }
-        .nx-badge--light {
-          border-color: rgba(0,0,0,0.08);
-          background: rgba(0,0,0,0.03);
-          color: rgba(0,0,0,0.35);
-        }
-        .nx-badge--bluelight {
-          border-color: rgba(251,191,36,0.12);
-          background: rgba(251,191,36,0.03);
-          color: rgba(251,191,36,0.4);
-        }
-
-        /* ═══════════════════════
-           HERO SECTION
-           ═══════════════════════ */
-        .nx-hero {
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          gap: 0;
-          text-align: center;
-          position: relative;
-        }
-
-        /* ── Central Orb ── */
-        .nx-orb-wrap {
-          position: absolute;
-          top: 50%; left: 50%;
-          transform: translate(-50%, -50%);
-          z-index: 0;
-          pointer-events: none;
-        }
-        .nx-orb {
-          position: relative;
-          width: 300px; height: 300px;
-          display: flex; align-items: center; justify-content: center;
-          opacity: 0;
-          transition: opacity 1.2s ease;
-        }
-        .nx-orb--active { opacity: 1; }
-
-        .nx-orb-ring {
-          position: absolute;
-          border-radius: 50%;
-          border: 1px solid rgba(6, 182, 212, 0.15);
-          animation: nx-orb-spin 20s linear infinite;
-        }
-        .nx-orb-ring--2 {
-          inset: 20px;
-          border-color: rgba(139, 92, 246, 0.12);
-          animation-duration: 28s;
-          animation-direction: reverse;
-        }
-        .nx-orb-ring--3 {
-          inset: 50px;
-          border-color: rgba(236, 72, 153, 0.08);
-          animation-duration: 35s;
-        }
-
-        .nx-orb-ring--bluelight {
-          border-color: rgba(251, 191, 36, 0.12);
-        }
-        .nx-orb-ring--2.nx-orb-ring--bluelight {
-          border-color: rgba(217, 119, 6, 0.10);
-        }
-        .nx-orb-ring--3.nx-orb-ring--bluelight {
-          border-color: rgba(245, 158, 11, 0.06);
-        }
-
-        .nx-orb-core {
-          width: 8px; height: 8px;
-          border-radius: 50%;
-          background: rgba(6, 182, 212, 0.6);
-          box-shadow: 0 0 40px rgba(6, 182, 212, 0.3), 0 0 80px rgba(139, 92, 246, 0.15);
-          animation: nx-orb-pulse 4s ease-in-out infinite;
-        }
-        .nx-orb-core--light {
-          background: rgba(6, 182, 212, 0.4);
-          box-shadow: 0 0 40px rgba(6, 182, 212, 0.15);
-        }
-        .nx-orb-core--bluelight {
-          background: rgba(251, 191, 36, 0.5);
-          box-shadow: 0 0 40px rgba(251, 191, 36, 0.25), 0 0 80px rgba(217, 119, 6, 0.1);
-        }
-
-        @keyframes nx-orb-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes nx-orb-pulse {
-          0%, 100% { transform: scale(1); opacity: 0.6; }
-          50% { transform: scale(1.5); opacity: 1; }
-        }
-
-        /* ── Title ── */
-        .nx-title-cluster {
-          position: relative; z-index: 1;
-          display: flex; flex-direction: column;
-          align-items: center;
-        }
-
-        .nx-title {
-          font-size: clamp(3rem, 10vw, 7rem);
-          font-weight: 800;
-          letter-spacing: -0.02em;
-          line-height: 1;
-          display: flex;
-          justify-content: center;
-          opacity: 0;
-          transform: translateY(30px);
-          transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .nx-title--visible { opacity: 1; transform: translateY(0); }
-
-        .nx-title--dark {
-          color: transparent;
-          background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 40%, #e2e8f0 80%);
-          -webkit-background-clip: text;
-          background-clip: text;
-        }
-        .nx-title--light {
-          color: transparent;
-          background: linear-gradient(135deg, #1e293b 0%, #475569 40%, #1e293b 80%);
-          -webkit-background-clip: text;
-          background-clip: text;
-        }
-        .nx-title--bluelight {
-          color: transparent;
-          background: linear-gradient(135deg, #fbbf24 0%, #d97706 40%, #fbbf24 80%);
-          -webkit-background-clip: text;
-          background-clip: text;
-        }
-
-        .nx-char {
-          display: inline-block;
-          opacity: 0;
-          transform: translateY(25px) scale(0.9);
-          animation: nx-char-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-        }
-        @keyframes nx-char-in {
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        .nx-subtitle {
-          font-size: clamp(0.9rem, 2.5vw, 1.15rem);
-          font-weight: 400;
-          letter-spacing: 0.15em;
-          text-transform: uppercase;
-          margin-top: 0.75rem;
-          opacity: 0; transform: translateY(15px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s;
-        }
-        .nx-subtitle--visible { opacity: 1; transform: translateY(0); }
-
-        .nx-subtitle--dark { color: rgba(255,255,255,0.35); }
-        .nx-subtitle--light { color: rgba(0,0,0,0.3); }
-        .nx-subtitle--bluelight { color: rgba(251,191,36,0.4); }
-
-        /* ── Typewriter Tagline ── */
-        .nx-tagline {
-          display: flex; align-items: center; gap: 0.75rem;
-          margin-top: 1.25rem;
-          opacity: 0; transform: translateY(10px);
-          transition: all 0.8s ease 0.8s;
-        }
-        .nx-tagline--visible { opacity: 1; transform: translateY(0); }
-
-        .nx-tagline-line {
-          width: 24px; height: 1px;
-          background: rgba(255,255,255,0.15);
+        .ws-logo-icon {
+          width: 28px; height: 28px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, var(--ws-accent-cyan), var(--ws-accent-purple));
+          box-shadow: 0 0 20px rgba(6,182,212,0.20), 0 0 40px rgba(139,92,246,0.10);
           flex-shrink: 0;
         }
-        .nx-root--light .nx-tagline-line { background: rgba(0,0,0,0.12); }
-        .nx-root--bluelight .nx-tagline-line { background: rgba(251,191,36,0.2); }
-
-        .nx-tagline-text {
-          font-size: clamp(0.85rem, 2vw, 1rem);
-          font-weight: 300;
-          letter-spacing: 0.02em;
-          font-style: italic;
-          display: inline;
+        .ws-logo-icon--bluelight {
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          box-shadow: 0 0 20px rgba(245,158,11,0.20);
         }
-        .nx-tagline-text--dark { color: rgba(255,255,255,0.5); }
-        .nx-tagline-text--light { color: rgba(0,0,0,0.4); }
-        .nx-tagline-text--bluelight { color: rgba(251,191,36,0.55); }
+        .ws-logo-label {
+          font-size: 0.95rem; font-weight: 700;
+          letter-spacing: -0.01em;
+          color: var(--ws-text);
+          opacity: 0.7;
+        }
 
-        .nx-cursor {
+        .ws-header-right { display: flex; align-items: center; gap: 0.75rem; }
+
+        .ws-time {
+          font-size: 0.78rem; font-weight: 500;
+          font-variant-numeric: tabular-nums;
+          color: var(--ws-text-dim);
+          letter-spacing: 0.02em;
+        }
+
+        .ws-header-badge {
+          display: flex; align-items: center; gap: 0.4rem;
+          font-size: 0.65rem; font-weight: 600;
+          letter-spacing: 0.08em; text-transform: uppercase;
+          padding: 0.3rem 0.7rem;
+          border-radius: 100px;
+          background: var(--ws-card-bg);
+          border: 1px solid var(--ws-card-border);
+          color: var(--ws-text-muted);
+        }
+        .ws-pulse-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 8px rgba(34,197,94,0.4);
+          animation: ws-pulse 2s ease-in-out infinite;
+        }
+        .ws-pulse-dot--bluelight { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.4); }
+        @keyframes ws-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.85); }
+        }
+
+        /* ═══════════════════════════════════════
+           BENTO GRID
+           ═══════════════════════════════════════ */
+        .ws-bento {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 0.875rem;
+          flex: 1;
+        }
+        @media (min-width: 640px) {
+          .ws-bento { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (min-width: 1024px) {
+          .ws-bento {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+          }
+        }
+
+        /* ═══════════════════════════════════════
+           CARD BASE
+           ═══════════════════════════════════════ */
+        .ws-card {
+          position: relative;
+          border-radius: 16px;
+          background: var(--ws-card-bg);
+          border: 1px solid var(--ws-card-border);
+          overflow: hidden;
+          opacity: 0;
+          transform: translateY(16px);
+          transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+          /* Subtle glass effect */
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+        }
+        .ws-card:hover {
+          background: var(--ws-card-hover);
+          border-color: var(--ws-card-border-hover);
+        }
+        .ws-root--light .ws-card {
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.02);
+        }
+
+        /* ═══════════════════════════════════════
+           HERO CARD
+           ═══════════════════════════════════════ */
+        .ws-hero-card {
+          grid-column: 1 / -1;
+          padding: 2rem 2rem 1.75rem;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          min-height: 220px;
+        }
+        @media (min-width: 640px) {
+          .ws-hero-card { padding: 2.5rem; min-height: 240px; }
+        }
+        @media (min-width: 1024px) {
+          .ws-hero-card { grid-column: span 3; min-height: 260px; }
+        }
+
+        .ws-hero-glow {
+          position: absolute;
+          top: -60px; right: -40px;
+          width: 300px; height: 300px;
+          border-radius: 50%;
+          filter: blur(100px);
+          pointer-events: none;
+          z-index: 0;
+        }
+        .ws-hero-glow--dark,
+        .ws-hero-glow--bluelight {
+          background: radial-gradient(circle, rgba(6,182,212,0.08), transparent 70%);
+        }
+        .ws-hero-glow--light {
+          background: radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%);
+        }
+
+        .ws-hero-content { position: relative; z-index: 1; }
+
+        .ws-greeting {
+          font-size: 0.8rem; font-weight: 500;
+          letter-spacing: 0.06em; text-transform: uppercase;
+          color: var(--ws-text-dim);
+          margin-bottom: 0.4rem;
+        }
+        .ws-hero-title {
+          font-size: clamp(1.8rem, 5vw, 2.8rem);
+          font-weight: 800;
+          letter-spacing: -0.025em;
+          line-height: 1.1;
+          margin-bottom: 0.75rem;
+        }
+        .ws-hero-title--dark {
+          color: transparent;
+          background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 50%, #e2e8f0 100%);
+          -webkit-background-clip: text; background-clip: text;
+        }
+        .ws-hero-title--light {
+          color: transparent;
+          background: linear-gradient(135deg, #0f172a 0%, #475569 50%, #0f172a 100%);
+          -webkit-background-clip: text; background-clip: text;
+        }
+        .ws-hero-title--bluelight {
+          color: transparent;
+          background: linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #fbbf24 100%);
+          -webkit-background-clip: text; background-clip: text;
+        }
+        .ws-name-highlight {
+          /* Same gradient as parent title */
+        }
+
+        .ws-tagline {
+          display: flex; align-items: center; gap: 0.6rem;
+          margin-bottom: 1.5rem;
+        }
+        .ws-tagline-bar {
+          width: 20px; height: 1px;
+          background: var(--ws-text-dim);
+          flex-shrink: 0;
+        }
+        .ws-tagline--dark { color: rgba(255,255,255,0.40); font-size: 0.9rem; font-style: italic; letter-spacing: 0.01em; }
+        .ws-tagline--light { color: rgba(0,0,0,0.35); font-size: 0.9rem; font-style: italic; letter-spacing: 0.01em; }
+        .ws-tagline--bluelight { color: rgba(251,191,36,0.45); font-size: 0.9rem; font-style: italic; letter-spacing: 0.01em; }
+
+        .ws-cursor {
           display: inline-block;
           width: 2px; height: 1em;
-          margin-left: 2px;
-          vertical-align: text-bottom;
           background: currentColor;
+          vertical-align: text-bottom;
+          margin-left: 1px;
         }
-        .nx-cursor--blink {
-          animation: nx-blink 1s step-end infinite;
-        }
-        @keyframes nx-blink {
-          50% { opacity: 0; }
+        .ws-cursor--blink { animation: ws-blink 1s step-end infinite; }
+        @keyframes ws-blink { 50% { opacity: 0; } }
+
+        .ws-hero-actions {
+          display: flex; align-items: center; gap: 0.6rem;
+          flex-wrap: wrap;
         }
 
-        /* ═══════════════════════
-           ACTION BUTTONS
-           ═══════════════════════ */
-        .nx-actions {
-          position: relative; z-index: 1;
-          display: flex; flex-direction: column;
-          align-items: center; gap: 1rem;
-          margin-top: 3rem;
-          opacity: 0; transform: translateY(20px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s;
+        /* Primary button */
+        .ws-btn-primary {
+          display: inline-flex; align-items: center; gap: 0.5rem;
+          padding: 0.65rem 1.4rem;
+          border-radius: 10px;
+          border: none;
+          font-family: inherit;
+          font-size: 0.82rem; font-weight: 600;
+          letter-spacing: 0.08em; text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nx-actions--visible { opacity: 1; transform: translateY(0); }
-
-        /* START button */
-        .nx-start-btn {
-          position: relative;
-          display: flex; align-items: center; gap: 0.65rem;
-          padding: 0.9rem 2.2rem;
-          border-radius: 60px;
-          border: 1px solid rgba(6, 182, 212, 0.3);
-          background: rgba(6, 182, 212, 0.06);
+        .ws-btn-primary--dark {
+          background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(139,92,246,0.15));
           color: #06b6d4;
-          font-size: 0.95rem; font-weight: 600;
-          letter-spacing: 0.15em;
-          font-family: inherit;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-          overflow: hidden;
+          border: 1px solid rgba(6,182,212,0.20);
         }
-        .nx-start-btn:hover {
-          border-color: rgba(6, 182, 212, 0.6);
-          background: rgba(6, 182, 212, 0.12);
-          box-shadow: 0 0 30px rgba(6, 182, 212, 0.15), inset 0 0 30px rgba(6, 182, 212, 0.05);
-          transform: scale(1.03);
+        .ws-btn-primary--dark:hover {
+          background: linear-gradient(135deg, rgba(6,182,212,0.25), rgba(139,92,246,0.20));
+          border-color: rgba(6,182,212,0.40);
+          box-shadow: 0 0 24px rgba(6,182,212,0.12);
+          transform: translateY(-1px);
         }
-        .nx-start-btn:active { transform: scale(0.98); }
-
-        /* Light mode */
-        .nx-start-btn--light {
-          border-color: rgba(6, 182, 212, 0.4);
-          background: rgba(6, 182, 212, 0.08);
+        .ws-btn-primary--light {
+          background: linear-gradient(135deg, rgba(6,182,212,0.10), rgba(139,92,246,0.08));
           color: #0891b2;
+          border: 1px solid rgba(6,182,212,0.20);
         }
-        .nx-start-btn--light:hover {
-          border-color: rgba(6, 182, 212, 0.7);
-          background: rgba(6, 182, 212, 0.14);
-          box-shadow: 0 0 30px rgba(6, 182, 212, 0.1);
+        .ws-btn-primary--light:hover {
+          background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(139,92,246,0.14));
+          border-color: rgba(6,182,212,0.35);
+          transform: translateY(-1px);
         }
-
-        /* Bluelight mode */
-        .nx-start-btn--bluelight {
-          border-color: rgba(251, 191, 36, 0.3);
-          background: rgba(251, 191, 36, 0.06);
+        .ws-btn-primary--bluelight {
+          background: linear-gradient(135deg, rgba(251,191,36,0.12), rgba(217,119,6,0.10));
           color: #f59e0b;
+          border: 1px solid rgba(251,191,36,0.20);
         }
-        .nx-start-btn--bluelight:hover {
-          border-color: rgba(251, 191, 36, 0.6);
-          background: rgba(251, 191, 36, 0.12);
-          box-shadow: 0 0 30px rgba(251, 191, 36, 0.15), inset 0 0 30px rgba(251, 191, 36, 0.05);
-        }
-
-        /* Orbiting ring */
-        .nx-start-ring {
-          position: absolute;
-          inset: -4px;
-          border-radius: 60px;
-          border: 1.5px solid transparent;
-          border-top-color: rgba(6, 182, 212, 0.4);
-          animation: nx-ring-spin 3s linear infinite;
-          pointer-events: none;
-        }
-        .nx-start-btn--bluelight .nx-start-ring {
-          border-top-color: rgba(251, 191, 36, 0.4);
-        }
-        @keyframes nx-ring-spin {
-          to { transform: rotate(360deg); }
+        .ws-btn-primary--bluelight:hover {
+          background: linear-gradient(135deg, rgba(251,191,36,0.22), rgba(217,119,6,0.18));
+          border-color: rgba(251,191,36,0.40);
+          box-shadow: 0 0 24px rgba(251,191,36,0.12);
+          transform: translateY(-1px);
         }
 
-        .nx-start-icon {
-          display: flex; align-items: center;
-        }
-        .nx-start-arrow {
-          display: flex; align-items: center;
-          opacity: 0.5;
-          transition: opacity 0.3s, transform 0.3s;
-        }
-        .nx-start-btn:hover .nx-start-arrow {
-          opacity: 1; transform: translate(2px, -2px);
-        }
-
-        .nx-start-hint {
-          font-size: 0.72rem;
-          letter-spacing: 0.05em;
-          margin-top: -0.25rem;
-        }
-        .nx-start-hint--dark { color: rgba(255,255,255,0.2); }
-        .nx-start-hint--light { color: rgba(0,0,0,0.25); }
-        .nx-start-hint--bluelight { color: rgba(251,191,36,0.25); }
-
-        /* ── Credential Button ── */
-        .nx-cred-btn {
-          display: flex; align-items: center; gap: 0.85rem;
-          padding: 0.85rem 1.5rem;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.06);
-          background: rgba(255,255,255,0.02);
+        /* Ghost button */
+        .ws-btn-ghost {
+          display: inline-flex; align-items: center; gap: 0.45rem;
+          padding: 0.65rem 1.2rem;
+          border-radius: 10px;
+          border: 1px solid var(--ws-card-border);
+          background: transparent;
           font-family: inherit;
-          transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-          margin-top: 0.25rem;
-          text-align: left;
+          font-size: 0.82rem; font-weight: 500;
+          cursor: pointer;
+          color: var(--ws-text-muted);
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nx-cred-btn:hover {
-          border-color: rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-          transform: translateX(4px);
-        }
-        .nx-root--light .nx-cred-btn {
-          border-color: rgba(0,0,0,0.06);
-          background: rgba(255,255,255,0.6);
-        }
-        .nx-root--light .nx-cred-btn:hover {
-          border-color: rgba(0,0,0,0.1);
-          background: rgba(255,255,255,0.85);
-        }
-        .nx-root--bluelight .nx-cred-btn {
-          border-color: rgba(251,191,36,0.08);
-          background: rgba(251,191,36,0.02);
-        }
-        .nx-root--bluelight .nx-cred-btn:hover {
-          border-color: rgba(251,191,36,0.15);
-          background: rgba(251,191,36,0.04);
+        .ws-btn-ghost:hover {
+          background: var(--ws-card-hover);
+          border-color: var(--ws-card-border-hover);
+          color: var(--ws-text);
+          transform: translateY(-1px);
         }
 
-        .nx-cred-icon-wrap {
+        /* Hero decorative rings */
+        .ws-hero-rings {
+          position: absolute;
+          right: 1.5rem; top: 50%;
+          transform: translateY(-50%);
+          width: 180px; height: 180px;
+          opacity: 0.5;
+          color: var(--ws-accent-cyan);
+          animation: ws-ring-rotate 40s linear infinite;
+        }
+        .ws-hero-rings--bluelight { color: #f59e0b; }
+        @media (max-width: 767px) {
+          .ws-hero-rings { display: none; }
+        }
+        @keyframes ws-ring-rotate {
+          to { transform: translateY(-50%) rotate(360deg); }
+        }
+
+        /* ═══════════════════════════════════════
+           STAT CARDS
+           ═══════════════════════════════════════ */
+        .ws-stat-card {
+          padding: 1.25rem;
+          display: flex; align-items: center; gap: 0.85rem;
+        }
+        @media (min-width: 1024px) {
+          .ws-stat-card { padding: 1.4rem; }
+        }
+        .ws-stat-icon-wrap {
           width: 40px; height: 40px;
           display: flex; align-items: center; justify-content: center;
-          border-radius: 12px;
-          background: rgba(139, 92, 246, 0.08);
-          border: 1px solid rgba(139, 92, 246, 0.12);
-          flex-shrink: 0;
-          transition: all 0.3s;
+          border-radius: 10px; flex-shrink: 0;
+          transition: transform 0.3s;
         }
-        .nx-cred-btn:hover .nx-cred-icon-wrap {
-          background: rgba(139, 92, 246, 0.12);
-          border-color: rgba(139, 92, 246, 0.2);
+        .ws-stat-card:hover .ws-stat-icon-wrap { transform: scale(1.08); }
+        .ws-stat-icon-wrap--cyan {
+          background: var(--ws-accent-cyan-dim);
+          color: var(--ws-accent-cyan);
         }
-        .nx-root--bluelight .nx-cred-icon-wrap {
-          background: rgba(251,191,36,0.06);
-          border-color: rgba(251,191,36,0.1);
+        .ws-stat-icon-wrap--purple {
+          background: var(--ws-accent-purple-dim);
+          color: var(--ws-accent-purple);
         }
-        .nx-root--bluelight .nx-cred-btn:hover .nx-cred-icon-wrap {
-          background: rgba(251,191,36,0.10);
-          border-color: rgba(251,191,36,0.18);
+        .ws-stat-icon-wrap--pink {
+          background: var(--ws-accent-pink-dim);
+          color: var(--ws-accent-pink);
         }
-        .nx-cred-icon {
-          width: 18px; height: 18px;
-          color: #8b5cf6;
-        }
-        .nx-root--bluelight .nx-cred-icon { color: #f59e0b; }
 
-        .nx-cred-text {
-          display: flex; flex-direction: column; gap: 0.15rem;
+        .ws-stat-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+        .ws-stat-label {
+          font-size: 0.68rem; font-weight: 600;
+          letter-spacing: 0.06em; text-transform: uppercase;
+          color: var(--ws-text-dim);
         }
-        .nx-cred-title {
+        .ws-stat-value {
           font-size: 0.85rem; font-weight: 600;
+          color: var(--ws-text);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .nx-cred-title--dark { color: rgba(255,255,255,0.8); }
-        .nx-cred-title--light { color: rgba(0,0,0,0.75); }
-        .nx-cred-title--bluelight { color: rgba(251,191,36,0.8); }
 
-        .nx-cred-desc {
-          font-size: 0.72rem;
+        /* ═══════════════════════════════════════
+           CREDENTIALS CARD
+           ═══════════════════════════════════════ */
+        .ws-cred-card { position: relative; }
+        @media (min-width: 1024px) {
+          .ws-cred-card { grid-column: span 2; }
         }
-        .nx-cred-desc--dark { color: rgba(255,255,255,0.3); }
-        .nx-cred-desc--light { color: rgba(0,0,0,0.35); }
-        .nx-cred-desc--bluelight { color: rgba(251,191,36,0.35); }
+        .ws-cred-card-inner {
+          width: 100%; display: flex; align-items: center;
+          justify-content: space-between; gap: 1rem;
+          padding: 1.5rem; background: none; border: none;
+          font-family: inherit; cursor: pointer;
+          text-align: left;
+        }
+        .ws-cred-left { display: flex; align-items: center; gap: 1rem; min-width: 0; }
 
-        .nx-cred-arrow {
-          opacity: 0.3;
+        .ws-cred-icon-box {
+          width: 44px; height: 44px;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 12px; flex-shrink: 0;
           transition: all 0.3s;
-          flex-shrink: 0;
         }
-        .nx-cred-arrow--dark { color: #fff; }
-        .nx-cred-arrow--light { color: #000; }
-        .nx-cred-arrow--bluelight { color: #f59e0b; }
-        .nx-cred-btn:hover .nx-cred-arrow {
-          opacity: 0.7; transform: translate(2px, -2px);
+        .ws-cred-icon-box--dark {
+          background: var(--ws-accent-purple-dim);
+          border: 1px solid rgba(139,92,246,0.15);
+          color: var(--ws-accent-purple);
+        }
+        .ws-cred-icon-box--light {
+          background: rgba(139,92,246,0.08);
+          border: 1px solid rgba(139,92,246,0.12);
+          color: #7c3aed;
+        }
+        .ws-cred-icon-box--bluelight {
+          background: rgba(251,191,36,0.06);
+          border: 1px solid rgba(251,191,36,0.10);
+          color: #f59e0b;
+        }
+        .ws-cred-card:hover .ws-cred-icon-box { transform: scale(1.05); }
+
+        .ws-cred-heading {
+          font-size: 0.9rem; font-weight: 600;
+          margin-bottom: 0.2rem;
+        }
+        .ws-cred-heading--dark { color: rgba(255,255,255,0.85); }
+        .ws-cred-heading--light { color: rgba(0,0,0,0.80); }
+        .ws-cred-heading--bluelight { color: rgba(251,191,36,0.85); }
+
+        .ws-cred-sub {
+          font-size: 0.75rem; line-height: 1.4;
+        }
+        .ws-cred-sub--dark { color: rgba(255,255,255,0.30); }
+        .ws-cred-sub--light { color: rgba(0,0,0,0.35); }
+        .ws-cred-sub--bluelight { color: rgba(251,191,36,0.35); }
+
+        .ws-cred-arrow-wrap {
+          width: 32px; height: 32px;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 8px; flex-shrink: 0;
+          transition: all 0.3s;
+        }
+        .ws-cred-arrow-wrap--dark {
+          background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.30);
+        }
+        .ws-cred-arrow-wrap--light {
+          background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.30);
+        }
+        .ws-cred-arrow-wrap--bluelight {
+          background: rgba(251,191,36,0.04); color: rgba(251,191,36,0.30);
+        }
+        .ws-cred-card:hover .ws-cred-arrow-wrap {
+          background: var(--ws-card-hover);
+          transform: translate(2px, -2px);
         }
 
-        /* ═══════════════════════
-           FEATURE PILLS
-           ═══════════════════════ */
-        .nx-pills {
-          position: relative; z-index: 1;
-          display: flex; align-items: center; gap: 0.6rem;
-          margin-top: 2.5rem;
-          opacity: 0; transform: translateY(15px);
-          transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.3s;
-          flex-wrap: wrap; justify-content: center;
+        /* Gradient accent line at bottom */
+        .ws-cred-gradient-line {
+          height: 2px;
+          background: linear-gradient(90deg, var(--ws-accent-cyan), var(--ws-accent-purple), var(--ws-accent-pink));
+          opacity: 0; transition: opacity 0.4s;
         }
-        .nx-pills--visible { opacity: 1; transform: translateY(0); }
+        .ws-cred-card:hover .ws-cred-gradient-line { opacity: 0.6; }
 
-        .nx-pill {
+        /* ═══════════════════════════════════════
+           FEATURES CARD
+           ═══════════════════════════════════════ */
+        .ws-features-card {
+          padding: 1.25rem;
+        }
+        .ws-features-heading {
+          font-size: 0.72rem; font-weight: 600;
+          letter-spacing: 0.08em; text-transform: uppercase;
+          color: var(--ws-text-dim);
+          margin-bottom: 1rem;
+        }
+        .ws-features-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.5rem;
+        }
+        .ws-feature-item {
           display: flex; align-items: center; gap: 0.4rem;
-          padding: 0.35rem 0.85rem;
-          border-radius: 100px;
-          font-size: 0.7rem; font-weight: 500;
-          letter-spacing: 0.04em;
-          border: 1px solid rgba(255,255,255,0.06);
-          background: rgba(255,255,255,0.02);
-          color: rgba(255,255,255,0.35);
+          padding: 0.5rem 0.65rem;
+          border-radius: 8px;
+          font-size: 0.72rem; font-weight: 500;
+          color: var(--ws-text-muted);
+          border: 1px solid var(--ws-card-border);
+          transition: all 0.25s;
+        }
+        .ws-feature-item:hover {
+          background: var(--ws-card-hover);
+          border-color: var(--ws-card-border-hover);
+          color: var(--ws-text);
+        }
+
+        /* ═══════════════════════════════════════
+           START CARD
+           ═══════════════════════════════════════ */
+        .ws-start-card { position: relative; }
+        @media (min-width: 1024px) {
+          .ws-start-card { grid-column: span 2; }
+        }
+        .ws-start-card-inner {
+          width: 100%; display: flex; align-items: center;
+          justify-content: space-between; gap: 1rem;
+          padding: 1.5rem; background: none; border: none;
+          font-family: inherit; cursor: pointer;
+          text-align: left;
+        }
+        .ws-start-left { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+
+        .ws-start-icon-box {
+          width: 44px; height: 44px;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 12px; flex-shrink: 0;
           transition: all 0.3s;
         }
-        .nx-pill:hover {
-          border-color: rgba(255,255,255,0.12);
-          color: rgba(255,255,255,0.6);
+        .ws-start-icon-box--dark {
+          background: var(--ws-accent-cyan-dim);
+          border: 1px solid rgba(6,182,212,0.15);
+          color: var(--ws-accent-cyan);
         }
-        .nx-pill--light {
-          border-color: rgba(0,0,0,0.06);
-          background: rgba(0,0,0,0.02);
-          color: rgba(0,0,0,0.35);
+        .ws-start-icon-box--light {
+          background: rgba(6,182,212,0.08);
+          border: 1px solid rgba(6,182,212,0.12);
+          color: #0891b2;
         }
-        .nx-pill--light:hover {
-          border-color: rgba(0,0,0,0.1);
-          color: rgba(0,0,0,0.6);
+        .ws-start-icon-box--bluelight {
+          background: rgba(251,191,36,0.06);
+          border: 1px solid rgba(251,191,36,0.10);
+          color: #f59e0b;
         }
-        .nx-pill--bluelight {
-          border-color: rgba(251,191,36,0.08);
-          background: rgba(251,191,36,0.02);
-          color: rgba(251,191,36,0.35);
-        }
-        .nx-pill--bluelight:hover {
-          border-color: rgba(251,191,36,0.15);
-          color: rgba(251,191,36,0.6);
+        .ws-start-card:hover .ws-start-icon-box {
+          transform: scale(1.05);
+          box-shadow: 0 0 20px rgba(6,182,212,0.15);
         }
 
-        /* ═══════════════════════
+        .ws-start-heading {
+          font-size: 0.9rem; font-weight: 600;
+          margin-bottom: 0.2rem;
+        }
+        .ws-start-heading--dark { color: rgba(255,255,255,0.85); }
+        .ws-start-heading--light { color: rgba(0,0,0,0.80); }
+        .ws-start-heading--bluelight { color: rgba(251,191,36,0.85); }
+
+        .ws-start-sub {
+          font-size: 0.75rem; line-height: 1.4;
+        }
+        .ws-start-sub--dark { color: rgba(255,255,255,0.30); }
+        .ws-start-sub--light { color: rgba(0,0,0,0.35); }
+        .ws-start-sub--bluelight { color: rgba(251,191,36,0.35); }
+
+        .ws-start-badge {
+          display: flex; align-items: center; gap: 0.3rem;
+          padding: 0.4rem 0.85rem;
+          border-radius: 8px; flex-shrink: 0;
+          font-size: 0.72rem; font-weight: 600;
+          letter-spacing: 0.04em;
+          transition: all 0.3s;
+        }
+        .ws-start-badge--dark {
+          background: rgba(6,182,212,0.08);
+          border: 1px solid rgba(6,182,212,0.15);
+          color: #06b6d4;
+        }
+        .ws-start-badge--light {
+          background: rgba(6,182,212,0.08);
+          border: 1px solid rgba(6,182,212,0.15);
+          color: #0891b2;
+        }
+        .ws-start-badge--bluelight {
+          background: rgba(251,191,36,0.06);
+          border: 1px solid rgba(251,191,36,0.10);
+          color: #f59e0b;
+        }
+        .ws-start-card:hover .ws-start-badge {
+          transform: translate(2px, -2px);
+        }
+
+        /* Animated accent border at bottom */
+        .ws-start-accent {
+          position: absolute; bottom: 0; left: 0; right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, var(--ws-accent-cyan), transparent);
+          opacity: 0; transition: opacity 0.4s;
+        }
+        .ws-start-card:hover .ws-start-accent { opacity: 0.7; }
+
+        /* ═══════════════════════════════════════
+           STATUS CARD
+           ═══════════════════════════════════════ */
+        .ws-status-card {
+          padding: 1.25rem;
+        }
+        .ws-status-row {
+          display: flex; align-items: center; gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        .ws-status-dot {
+          width: 7px; height: 7px; border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 8px rgba(34,197,94,0.3);
+          animation: ws-pulse 2s ease-in-out infinite;
+        }
+        .ws-status-dot--bluelight {
+          background: #fbbf24;
+          box-shadow: 0 0 8px rgba(251,191,36,0.3);
+        }
+        .ws-status-text {
+          font-size: 0.78rem; font-weight: 500;
+          color: var(--ws-text-muted);
+        }
+        .ws-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
+        .ws-status-bar-item { display: flex; align-items: center; gap: 0.5rem; }
+        .ws-bar-label {
+          font-size: 0.65rem; font-weight: 600;
+          letter-spacing: 0.06em; text-transform: uppercase;
+          color: var(--ws-text-dim);
+          width: 28px; flex-shrink: 0;
+        }
+        .ws-bar-track {
+          flex: 1; height: 4px;
+          border-radius: 100px;
+          background: var(--ws-card-border);
+          overflow: hidden;
+        }
+        .ws-bar-fill {
+          height: 100%; border-radius: 100px;
+          transition: width 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s;
+          width: 0;
+        }
+        .ws-in .ws-bar-fill { width: inherit; }
+        .ws-bar-fill--cyan { background: var(--ws-accent-cyan); box-shadow: 0 0 8px rgba(6,182,212,0.3); }
+        .ws-bar-fill--purple { background: var(--ws-accent-purple); box-shadow: 0 0 8px rgba(139,92,246,0.3); }
+        .ws-bar-fill--pink { background: var(--ws-accent-pink); box-shadow: 0 0 8px rgba(236,72,153,0.3); }
+
+        /* ═══════════════════════════════════════
            FOOTER
-           ═══════════════════════ */
-        .nx-footer {
-          position: fixed; bottom: 0; left: 0; right: 0;
-          z-index: 100;
-          display: flex; justify-content: center;
-          padding: 1.25rem 2rem;
-          opacity: 0;
-          transition: opacity 0.8s ease 1.5s;
-          pointer-events: none;
+           ═══════════════════════════════════════ */
+        .ws-footer {
+          display: flex; align-items: center; justify-content: center;
+          gap: 0.5rem;
+          padding-top: 1.5rem;
+          padding-bottom: 0.25rem;
+          opacity: 0; transform: translateY(8px);
+          transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+          flex-wrap: wrap;
         }
-        .nx-footer--visible { opacity: 1; }
+        .ws-footer-brand {
+          font-size: 0.72rem; font-weight: 700;
+          color: var(--ws-text-muted);
+          letter-spacing: 0.01em;
+        }
+        .ws-footer-sep {
+          font-size: 0.65rem;
+          color: var(--ws-text-dim);
+        }
+        .ws-footer-text {
+          font-size: 0.68rem;
+          color: var(--ws-text-dim);
+        }
 
-        .nx-footer-inner {
-          display: flex; align-items: center; gap: 1rem;
-        }
-        .nx-footer-text {
-          font-size: 0.8rem;
-        }
-        .nx-footer-text--dark { color: rgba(255,255,255,0.25); }
-        .nx-footer-text--light { color: rgba(0,0,0,0.3); }
-        .nx-footer-text--bluelight { color: rgba(251,191,36,0.3); }
-
-        .nx-footer-name {
-          font-weight: 600;
-        }
-        .nx-footer-name--dark { color: rgba(255,255,255,0.5); }
-        .nx-footer-name--light { color: rgba(0,0,0,0.55); }
-        .nx-footer-name--bluelight { color: rgba(251,191,36,0.55); }
-
-        .nx-footer-divider {
-          width: 3px; height: 3px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.15);
-        }
-        .nx-root--light .nx-footer-divider { background: rgba(0,0,0,0.12); }
-        .nx-root--bluelight .nx-footer-divider { background: rgba(251,191,36,0.2); }
-
-        .nx-footer-role {
-          font-size: 0.7rem;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-        }
-        .nx-footer-role--dark { color: rgba(255,255,255,0.18); }
-        .nx-footer-role--light { color: rgba(0,0,0,0.22); }
-        .nx-footer-role--bluelight { color: rgba(251,191,36,0.22); }
-
-        /* ═══════════════════════
+        /* ═══════════════════════════════════════
            RESPONSIVE
-           ═══════════════════════ */
-        @media (max-width: 640px) {
-          .nx-topbar { padding: 0.75rem 1rem; }
-          .nx-orb { width: 220px; height: 220px; }
-          .nx-actions { gap: 0.75rem; }
-          .nx-start-btn { padding: 0.75rem 1.75rem; font-size: 0.85rem; }
-          .nx-cred-btn { padding: 0.7rem 1rem; }
-          .nx-footer { padding: 1rem; }
-          .nx-pills { gap: 0.4rem; }
-        }
-        @media (max-width: 380px) {
-          .nx-orb { width: 160px; height: 160px; }
-          .nx-orb-ring--2 { inset: 12px; }
-          .nx-orb-ring--3 { inset: 30px; }
+           ═══════════════════════════════════════ */
+        @media (max-width: 639px) {
+          .ws-hero-card { min-height: auto; padding: 1.5rem; }
+          .ws-hero-actions { flex-direction: column; align-items: flex-start; }
+          .ws-btn-primary, .ws-btn-ghost { width: 100%; justify-content: center; }
+          .ws-status-card { grid-column: 1 / -1; }
         }
       `}</style>
     </>
