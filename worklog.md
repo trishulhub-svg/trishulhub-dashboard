@@ -105,3 +105,35 @@ Stage Summary:
 - Security audit: All access controls verified correct
 - New features: Workspace config token + user codes (DB + API + UI)
 - Visual overhaul: Tabbed admin panel, gradient cards, modern design
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Remove Rahul Sharma dummy user from system & redesign workspace page
+
+Work Log:
+- Investigated how Rahul Sharma appeared in User Codes section
+- Found 3 seed scripts creating him: seed.js, api/seed/route.ts, api/setup/route.ts
+- Removed Rahul Sharma (CLIENT role, rahul@example.com) from all 3 seed files
+- Removed associated Sharma Electronics client + project + invoice references
+- Fixed client index references after removal (clients[0] shifted)
+- Added WHERE role != 'CLIENT' filter to protocol init user codes query
+- Updated seed counts: 4 users, 2 clients, 2 projects
+- Pushed as commit caeb17f
+
+- Researched workspace UI designs from Linear, Raycast, Notion, Vercel, Slack
+- Key design patterns identified: Bento Grid, Glassmorphism, Gradient Accents, Warm Minimalism
+- Completely rewrote workspace page (src/app/dashboard/agents/page.tsx)
+- New design: Bento Grid layout with 7 cards (hero, 3 stats, credentials, features, start, status)
+- Added: mouse-following glow, gradient orbs, dot pattern, live clock, time-based greeting
+- Added: glassmorphism cards with backdrop-filter, staggered entrance animations
+- Added: status bars with animated fills, SVG decorative rings, gradient accent lines
+- Preserved all original content: branding, buttons, tagline, feature pills, user info
+- Zero TypeScript errors from workspace page
+- Pushed as commit acf9890
+
+Stage Summary:
+- Rahul Sharma removed from all seed scripts + filtered from user codes query
+- Workspace page completely redesigned with Bento Grid + Glassmorphism design system
+- All original content preserved, zero new errors introduced
+- Both commits pushed to main branch
