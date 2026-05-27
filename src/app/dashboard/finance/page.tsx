@@ -128,17 +128,6 @@ const CATEGORY_BADGE_COLORS: Record<string, string> = {
   OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 };
 
-const CATEGORY_CHART_COLORS: Record<string, string> = {
-  HOSTING: "#a855f7",
-  DOMAINS: "#3b82f6",
-  API_COSTS: "#ef4444",
-  TOOLS: "#06b6d4",
-  MARKETING: "#f97316",
-  SALARY: "#10b981",
-  SOFTWARE: "#6366f1",
-  OTHER: "#6b7280",
-};
-
 const SUB_STATUS_COLORS: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   STOPPED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
@@ -295,6 +284,7 @@ export default function FinancePage() {
       const params = new URLSearchParams();
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
+      params.set("limit", "10000");
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -425,6 +415,15 @@ export default function FinancePage() {
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetch expenses and stats when date/category filters change (not search — that uses debounce)
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAllExpenses(controller.signal);
+    fetchExpenses(controller.signal);
+    fetchStats(controller.signal);
+    return () => controller.abort();
+  }, [expStartDate, expEndDate, expCategory, fetchAllExpenses, fetchExpenses, fetchStats]);
 
   // ─── Subscription form helpers (Fix 1: state-based form) ────
   const resetSubForm = useCallback(() => {
@@ -557,6 +556,7 @@ export default function FinancePage() {
   };
 
   const handleToggleSubscription = async (sub: Subscription) => {
+    if (sub.status === "COMPLETED") return; // Cannot resume a completed subscription
     const newStatus = sub.status === "ACTIVE" ? "STOPPED" : "ACTIVE";
     try {
       const res = await fetch(`/api/subscriptions/${sub.id}`, {
@@ -657,8 +657,8 @@ export default function FinancePage() {
   const hasDashData = !!data?.stats;
   const netProfit = hasDashData ? (stats.totalRevenue || 0) - totalCosts : null;
 
-  // Total of currently displayed expenses
-  const displayedExpTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  // Use statsTotal (from stats API) for accurate total, not just paginated expenses
+  const displayedExpTotal = statsTotal;
 
   // ─── Chart data for Overview tab (memoized, only recomputes when dashboard data loads) ────
   const { recentInvoices, revenueData, expenseData } = useMemo(() => {
@@ -853,7 +853,7 @@ export default function FinancePage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">API Spend</p>
+                    <p className="text-sm text-muted-foreground">API Spend <span className="text-xs">(this month)</span></p>
                     <p className="text-2xl font-bold">{formatCurrency(safeNumber(stats.totalApiSpend))}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">

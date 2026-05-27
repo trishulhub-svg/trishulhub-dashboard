@@ -81,7 +81,7 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -136,7 +136,7 @@ export default function ExpensesPage() {
   const executeDelete = async () => {
     if (!pendingDelete) return;
     try {
-      const res = await fetch(`/api/expenses?id=${pendingDelete}`, { method: "DELETE", credentials: 'include' });
+      const res = await fetch(`/api/expenses`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: 'include', body: JSON.stringify({ id: pendingDelete }) });
       if (handleFetchError(res, router)) return;
       if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); }
       else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }

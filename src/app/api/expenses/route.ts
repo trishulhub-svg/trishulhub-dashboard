@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
     }
 
-    const parsed = parseFloat(amount as unknown as string)
+    const parsed = typeof amount === "number" ? amount : parseFloat(String(amount ?? ""))
     if (isNaN(parsed) || parsed < 0) {
       return NextResponse.json({ error: "Amount must be a valid non-negative number" }, { status: 400 })
     }

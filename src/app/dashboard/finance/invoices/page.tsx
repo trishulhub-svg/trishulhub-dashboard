@@ -137,7 +137,7 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -309,7 +309,8 @@ export default function InvoicesPage() {
 
   const openEditDialog = (inv: Record<string, unknown>) => {
     const typed = inv as { items: string; gstPercent?: number; paymentMethod?: string; paymentStatus?: string; notes?: string; clientId: string; projectId?: string; dueDate?: string };
-    const items = JSON.parse(typed.items || "[]") as LineItem[];
+    let items: LineItem[];
+    try { items = JSON.parse(typed.items || "[]") as LineItem[]; } catch { items = []; }
     setEditInvoice(inv);
     setEditLineItems(items.length > 0 ? items : [{ description: "", quantity: 1, rate: 0, amount: 0 }]);
     setEditGstPercent(typed.gstPercent || 18);
@@ -636,7 +637,11 @@ export default function InvoicesPage() {
       </div>
 
       {/* Invoice Preview */}
-      {previewInvoice && (
+      {previewInvoice && (() => {
+        let previewItems: { description: string; quantity: number; rate: number; amount: number }[];
+        try { previewItems = JSON.parse((previewInvoice as { items: string }).items || "[]"); }
+        catch { previewItems = []; }
+        return (
         <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setPreviewInvoice(null)}>
           <div className="fixed right-0 top-0 h-full w-full sm:w-[500px] bg-background border-l shadow-xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 space-y-6">
@@ -680,7 +685,7 @@ export default function InvoicesPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(JSON.parse((previewInvoice as { items: string }).items || "[]") as { description: string; quantity: number; rate: number; amount: number }[]).map((item, i) => (
+                      {previewItems.map((item, i) => (
                         <tr key={i} className="border-t">
                           <td className="py-2">{item.description}</td>
                           <td className="text-right py-2">{item.quantity}</td>
@@ -710,7 +715,8 @@ export default function InvoicesPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
         <AlertDialogContent>

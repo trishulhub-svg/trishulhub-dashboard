@@ -66,6 +66,11 @@ export async function PATCH(
     sanitizedData.endDate = new Date()
   }
 
+  // If status changed to ACTIVE, clear endDate so it doesn't show as expired
+  if (sanitizedData.status === "ACTIVE") {
+    sanitizedData.endDate = null
+  }
+
   const existing = await db.subscription.findUnique({ where: { id } })
   if (!existing) {
     return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
