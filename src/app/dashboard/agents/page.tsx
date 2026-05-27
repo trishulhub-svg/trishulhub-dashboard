@@ -532,6 +532,25 @@ export default function TrishulWorkspacePage() {
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
+  /* ── Bar rank for smooth position reordering ── */
+  const barRanks = (() => {
+    const entries = [
+      { key: "ai" as const, value: barValues.ai, domIdx: 0 },
+      { key: "sync" as const, value: barValues.sync, domIdx: 1 },
+      { key: "api" as const, value: barValues.api, domIdx: 2 },
+    ];
+    const sorted = [...entries].sort((a, b) => b.value - a.value);
+    const rankOf: Record<string, number> = {};
+    sorted.forEach((e, i) => { rankOf[e.key] = i; });
+    // Each bar gets translateY offset = (rank - domIndex) * step
+    const step = 1.85; // rem — matches item height + gap
+    return {
+      ai: (rankOf["ai"] - 0) * step,
+      sync: (rankOf["sync"] - 1) * step,
+      api: (rankOf["api"] - 2) * step,
+    };
+  })();
+
   return (
     <>
       <div
@@ -751,21 +770,21 @@ export default function TrishulWorkspacePage() {
                 </span>
               </div>
               <div className="ws-status-bars">
-                <div className="ws-status-bar-item">
+                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.ai}rem)` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
                   </div>
                   <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
                 </div>
-                <div className="ws-status-bar-item">
+                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.sync}rem)` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
                   </div>
                   <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
                 </div>
-                <div className="ws-status-bar-item">
+                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.api}rem)` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
@@ -1874,7 +1893,11 @@ export default function TrishulWorkspacePage() {
           color: var(--ws-text-muted);
         }
         .ws-status-bars { display: flex; flex-direction: column; gap: 0.45rem; }
-        .ws-status-bar-item { display: flex; align-items: center; gap: 0.45rem; }
+        .ws-status-bar-item {
+          display: flex; align-items: center; gap: 0.45rem;
+          transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+          will-change: transform;
+        }
         .ws-bar-label {
           font-size: 0.6rem; font-weight: 600;
           letter-spacing: 0.06em; text-transform: uppercase;
