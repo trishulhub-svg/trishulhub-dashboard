@@ -6,6 +6,13 @@ import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
+// Default exchange rates to INR
+const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
+  INR: 1,
+  USD: 83.5,
+  GBP: 105.5,
+}
+
 // PATCH /api/subscriptions/[id] - Update subscription
 export async function PATCH(
   req: NextRequest,
@@ -47,7 +54,7 @@ export async function PATCH(
   const { id: _id, ...updateFields } = data
 
   const sanitizedData: Record<string, unknown> = {}
-  const allowedFields = ["service", "rate", "currency", "frequency", "status", "category", "projectId", "endDate", "notes"]
+  const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "endDate", "notes"]
 
   for (const key of allowedFields) {
     if (updateFields[key as keyof typeof updateFields] !== undefined) {
@@ -59,6 +66,11 @@ export async function PATCH(
         sanitizedData[key] = updateFields[key as keyof typeof updateFields]
       }
     }
+  }
+
+  // If currency changed but exchangeRate not provided, use default
+  if (sanitizedData.currency && !sanitizedData.exchangeRate) {
+    sanitizedData.exchangeRate = DEFAULT_EXCHANGE_RATES[sanitizedData.currency as string] || 1
   }
 
   // If status changed to STOPPED, set endDate to now if not provided

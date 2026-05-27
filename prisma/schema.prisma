@@ -770,21 +770,22 @@ model Expense {
 
 // ━━ Subscriptions ━━
 model Subscription {
-  id          String    @id @default(cuid())
-  service     String    // Service name e.g., "Google One UK", "AI API CODEX"
-  amount      Float     // Cost per billing period (in the chosen currency)
-  currency    String    @default("INR") // INR, GBP, USD
-  frequency   String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
-  status      String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED
-  category    String?   // Software, Hosting, etc.
-  projectId   String?
-  startDate   DateTime  @default(now())
-  endDate     DateTime? // When subscription ends/stopped
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String    @id @default(cuid())
+  service      String    // Service name e.g., "ChatGPT Subscription"
+  amount       Float     // Actual cost in the selected currency
+  currency     String    @default("INR") // INR, GBP, USD
+  exchangeRate Float     @default(1) // Conversion rate to INR (1 for INR, ~105.5 for GBP, ~83.5 for USD)
+  frequency    String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
+  status       String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED
+  category     String?   // Software, Hosting, etc.
+  projectId    String?
+  startDate    DateTime  @default(now())
+  endDate      DateTime? // When subscription ends/stopped
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  project     Project?  @relation(fields: [projectId], references: [id])
+  project      Project?  @relation(fields: [projectId], references: [id])
 
   @@index([projectId])
   @@index([status])

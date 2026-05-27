@@ -60,6 +60,7 @@ interface Subscription {
   service: string;
   amount: number;
   currency: string;
+  exchangeRate: number;
   frequency: string;
   status: string;
   category: string | null;
@@ -104,7 +105,8 @@ interface EmployeeOption {
 // ─── Constants ───────────────────────────────────────────────────────
 const CURRENCY_SYMBOLS: Record<string, string> = { INR: "₹", USD: "$", GBP: "£" };
 
-const CURRENCY_TO_INR: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
+// Default exchange rates to INR (used as defaults when adding subscriptions)
+const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 
 const CATEGORY_COLORS: Record<string, string> = {
   HOSTING: "border-l-purple-500 bg-purple-50 dark:bg-purple-950/20",
@@ -174,11 +176,12 @@ export default function FinancePage() {
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
 
-  // Fix 1: Subscription form state (instead of FormData)
+  // Subscription form state
   const [subForm, setSubForm] = useState({
     service: "",
     amount: "",
     currency: "INR",
+    exchangeRate: "1",
     frequency: "MONTHLY",
     status: "ACTIVE",
     category: "",
@@ -425,12 +428,13 @@ export default function FinancePage() {
     return () => controller.abort();
   }, [expStartDate, expEndDate, expCategory, fetchAllExpenses, fetchExpenses, fetchStats]);
 
-  // ─── Subscription form helpers (Fix 1: state-based form) ────
+  // ─── Subscription form helpers ────
   const resetSubForm = useCallback(() => {
     setSubForm({
       service: "",
-      rate: "",
+      amount: "",
       currency: "INR",
+      exchangeRate: "1",
       frequency: "MONTHLY",
       status: "ACTIVE",
       category: "",
@@ -448,6 +452,7 @@ export default function FinancePage() {
         service: sub.service || "",
         amount: String(sub.amount) || "",
         currency: sub.currency || "INR",
+        exchangeRate: String(sub.exchangeRate || DEFAULT_EXCHANGE_RATES[sub.currency || "INR"] || 1),
         frequency: sub.frequency || "MONTHLY",
         status: sub.status || "ACTIVE",
         category: sub.category || "",
@@ -463,12 +468,17 @@ export default function FinancePage() {
     setSubDialogOpen(true);
   }, [resetSubForm]);
 
-  // Fix 1 & Fix 2: handleSaveSubscription uses state instead of FormData, includes status
+  // handleSaveSubscription with amount + exchangeRate
   const handleSaveSubscription = async () => {
+    if (!subForm.service.trim() || !subForm.amount) {
+      toast.error("Service name and amount are required");
+      return;
+    }
     const payload: Record<string, unknown> = {
       service: subForm.service,
       amount: parseFloat(subForm.amount) || 0,
       currency: subForm.currency || "INR",
+      exchangeRate: parseFloat(subForm.exchangeRate) || DEFAULT_EXCHANGE_RATES[subForm.currency] || 1,
       frequency: subForm.frequency || "MONTHLY",
       status: subForm.status,
       category: subForm.category || undefined,
@@ -984,15 +994,17 @@ export default function FinancePage() {
                       <TableRow>
                         <TableHead>Service</TableHead>
                         <TableHead>Amount</TableHead>
+                        <TableHead className="hidden sm:table-cell">Rate (to INR)</TableHead>
                         <TableHead>Frequency</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Monthly INR</TableHead>
-                        {subscriptions.some((s) => s.currency !== "INR") && <TableHead className="text-right">Converted INR</TableHead>}
+                        <TableHead className="text-right">INR</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {sortedSubscriptions.map((sub) => (
+                      {sortedSubscriptions.map((sub) => {
+                        const monthlyInr = sub.monthlyINR;
+                        return (
                         <TableRow key={sub.id} className={`${sub.status !== "ACTIVE" ? "opacity-60" : ""} transition-colors hover:bg-muted/50`}>
                           <TableCell>
                             <div>
@@ -1008,9 +1020,10 @@ export default function FinancePage() {
                           <TableCell className="text-sm">
                             <span className="font-medium">{CURRENCY_SYMBOLS[sub.currency] || ""}</span>
                             <span className="ml-0.5">{sub.amount.toLocaleString("en-IN", { minimumFractionDigits: sub.currency === "INR" ? 0 : 2, maximumFractionDigits: sub.currency === "INR" ? 0 : 2 })}</span>
-                            {sub.currency !== "INR" && sub.frequency !== "ONE_TIME" && (
-                              <span className="text-[10px] text-muted-foreground block">1 {sub.currency} = ₹{CURRENCY_TO_INR[sub.currency]?.toFixed(2)}</span>
-                            )}
+                            <span className="text-[10px] text-muted-foreground block">{sub.currency}</span>
+                          </TableCell>
+                          <TableCell className="text-sm hidden sm:table-cell">
+                            <span className="font-medium">1 {sub.currency} = ₹{(sub.exchangeRate || DEFAULT_EXCHANGE_RATES[sub.currency] || 1).toFixed(2)}</span>
                           </TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${SUB_FREQUENCY_COLORS[sub.frequency] || ""}`}>
@@ -1020,16 +1033,10 @@ export default function FinancePage() {
                           <TableCell>
                             <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
                           </TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(safeNumber(sub.monthlyINR))}</TableCell>
-                          {subscriptions.some((s) => s.currency !== "INR") && (
-                            <TableCell className="text-right text-xs text-muted-foreground">
-                              {sub.currency !== "INR" ? (
-                                <span>≈ ₹{safeNumber(sub.monthlyINR).toLocaleString("en-IN", { maximumFractionDigits: 0 })}/mo</span>
-                              ) : (
-                                <span className="text-muted-foreground/50">—</span>
-                              )}
-                            </TableCell>
-                          )}
+                          <TableCell className="text-right">
+                            <span className="font-medium">{formatCurrency(safeNumber(monthlyInr))}</span>
+                            {sub.frequency !== "ONE_TIME" && <span className="text-[10px] text-muted-foreground block">/mo</span>}
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button
@@ -1063,7 +1070,8 @@ export default function FinancePage() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1451,7 +1459,7 @@ export default function FinancePage() {
               <Input
                 value={subForm.service}
                 onChange={(e) => setSubForm((f) => ({ ...f, service: e.target.value }))}
-                placeholder="e.g., Google One UK"
+                placeholder="e.g., ChatGPT Subscription"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1464,15 +1472,55 @@ export default function FinancePage() {
                   onChange={(e) => setSubForm((f) => ({ ...f, amount: e.target.value }))}
                   placeholder="e.g., 10"
                 />
+                <p className="text-[9px] text-muted-foreground mt-0.5">Actual cost in selected currency</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Currency</Label>
-                <Select value={subForm.currency} onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v }))}>
+                <Select
+                  value={subForm.currency}
+                  onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v, exchangeRate: String(DEFAULT_EXCHANGE_RATES[v] || 1) }))}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="INR">INR ₹</SelectItem>
                     <SelectItem value="USD">USD $</SelectItem>
                     <SelectItem value="GBP">GBP £</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Rate (to INR)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={subForm.exchangeRate}
+                  onChange={(e) => setSubForm((f) => ({ ...f, exchangeRate: e.target.value }))}
+                  placeholder="1"
+                />
+                <p className="text-[9px] text-muted-foreground mt-0.5">
+                  1 {subForm.currency} = ₹{parseFloat(subForm.exchangeRate) || DEFAULT_EXCHANGE_RATES[subForm.currency] || 1}
+                  {subForm.currency !== "INR" && (
+                    <button
+                      type="button"
+                      className="ml-1 text-primary underline hover:no-underline"
+                      onClick={() => setSubForm((f) => ({ ...f, exchangeRate: String(DEFAULT_EXCHANGE_RATES[f.currency] || 1) }))}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </p>
+              </div>
+            </div>
+            {/* Status + Frequency + Category */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Status</Label>
+                <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="STOPPED">Stopped</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1484,20 +1532,6 @@ export default function FinancePage() {
                     <SelectItem value="MONTHLY">Monthly</SelectItem>
                     <SelectItem value="YEARLY">Yearly</SelectItem>
                     <SelectItem value="ONE_TIME">One Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {/* Status dropdown */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Status</Label>
-                <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="STOPPED">Stopped</SelectItem>
-                    <SelectItem value="COMPLETED">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

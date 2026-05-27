@@ -6,15 +6,15 @@ import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
-// Currency conversion rates to INR (approximate)
-const CURRENCY_TO_INR: Record<string, number> = {
+// Default exchange rates to INR (fallback for subscriptions without stored exchangeRate)
+const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   INR: 1,
   USD: 83.5,
   GBP: 105.5,
 }
 
-function getMonthlyINR(amount: number, currency: string, frequency: string): number {
-  const inrAmount = amount * (CURRENCY_TO_INR[currency] || 1)
+function getMonthlyINR(amount: number, exchangeRate: number, frequency: string): number {
+  const inrAmount = amount * exchangeRate
   if (frequency === "YEARLY") return inrAmount / 12
   if (frequency === "ONE_TIME") return 0 // One-time doesn't count as monthly
   return inrAmount // MONTHLY
@@ -61,10 +61,10 @@ export async function GET(req: NextRequest) {
     db.subscription.count({ where }),
   ])
 
-  // Compute monthly INR for each subscription
+  // Compute monthly INR for each subscription using stored exchangeRate
   const enriched = subscriptions.map((sub) => ({
     ...sub,
-    monthlyINR: getMonthlyINR(sub.amount, sub.currency, sub.frequency),
+    monthlyINR: getMonthlyINR(sub.amount as number, (sub.exchangeRate as number) || DEFAULT_EXCHANGE_RATES[sub.currency] || 1, sub.frequency),
   }))
 
   // Compute total monthly cost of active subscriptions
@@ -112,6 +112,8 @@ export async function POST(req: NextRequest) {
   }
 
   const data = validation.data
+  const currency = data.currency || "INR"
+  const exchangeRate = data.exchangeRate || DEFAULT_EXCHANGE_RATES[currency] || 1
 
   // FIX: Validate dates before creating (NaN check)
   if (data.startDate && isNaN(new Date(data.startDate).getTime())) {
@@ -134,7 +136,8 @@ export async function POST(req: NextRequest) {
     data: {
       service: data.service,
       amount: data.amount,
-      currency: data.currency || "INR",
+      currency,
+      exchangeRate,
       frequency: data.frequency || "MONTHLY",
       status: data.status || "ACTIVE",
       category: data.category || null,

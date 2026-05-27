@@ -27,6 +27,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   // Expense table columns (Finance page)
   { table: "Expense", column: "employeeId", sql: "ALTER TABLE Expense ADD COLUMN \"employeeId\" TEXT" },
   { table: "Expense", column: "paymentRef", sql: "ALTER TABLE Expense ADD COLUMN \"paymentRef\" TEXT" },
+  // Subscription table columns (amount/rate system)
+  { table: "Subscription", column: "exchangeRate", sql: "ALTER TABLE Subscription ADD COLUMN \"exchangeRate\" REAL NOT NULL DEFAULT 1" },
   // New columns from feature updates
   { table: "Client", column: "projectMethodId", sql: "ALTER TABLE Client ADD COLUMN projectMethodId TEXT" },
   { table: "Invoice", column: "paymentMethod", sql: "ALTER TABLE Invoice ADD COLUMN paymentMethod TEXT" },
