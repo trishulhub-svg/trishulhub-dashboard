@@ -813,7 +813,7 @@ export default function FinancePage() {
                     <p className="text-sm text-muted-foreground">{error}</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); setDashLoaded(false); }}>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); dashLoadedRef.current = false; fetchData(); }}>
                   Retry
                 </Button>
               </CardContent>
