@@ -330,6 +330,9 @@ export default function TrishulWorkspacePage() {
                 ? next.slice(-currentActivity.maxVisible)
                 : next;
             });
+            // Drive status bars from this operation
+            const bump = (window as unknown as Record<string, unknown>).__wsBarBump as ((p: string, t: LineType) => void) | undefined;
+            if (bump) bump(line.prefix, line.type);
           }, b * (randomBetween(200, 600)));
         }
         scheduleNext();
@@ -353,72 +356,128 @@ export default function TrishulWorkspacePage() {
     }
   }, [aiLogs]);
 
-  /* ── Dynamic status bars (AI / Sync / API) ── */
-  const [barValues, setBarValues] = useState({ ai: 88, sync: 95, api: 72 });
-  const barTargets = useRef({ ai: 88, sync: 95, api: 72 });
+  /* ── Dynamic status bars driven by live operations feed ── */
+  const [barValues, setBarValues] = useState({ ai: 85, sync: 90, api: 70 });
+  const barTargets = useRef({ ai: 85, sync: 90, api: 70 });
+  const barBaseRef = useRef({ ai: 70, sync: 80, api: 60 });
+
+  /* Compute time-based baseline ranges */
+  const getBaseRange = () => {
+    const h = new Date().getHours();
+    const t = h + new Date().getMinutes() / 60;
+    if (t >= 22 || t < 6) return { ai: [12, 30], sync: [15, 40], api: [8, 25] };
+    if (t >= 6 && t < 9) return { ai: [45, 65], sync: [55, 75], api: [35, 55] };
+    if (t >= 12 && t < 13.5) return { ai: [45, 70], sync: [55, 80], api: [35, 60] };
+    if (t >= 18 && t < 22) return { ai: [40, 65], sync: [50, 75], api: [30, 55] };
+    return { ai: [65, 88], sync: [75, 95], api: [55, 85] };
+  };
+
+  /* Map operation prefix → bar impact */
+  const getBarImpact = (prefix: string, type: LineType) => {
+    const r = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+    const impact = { ai: 0, sync: 0, api: 0 };
+    switch (prefix) {
+      case "ZAI":
+        impact.ai += type === "warn" ? -r(8, 15) : type === "idle" ? -r(3, 6) : r(8, 15);
+        break;
+      case "BLUEPRINT":
+        impact.ai += type === "idle" ? -r(2, 4) : r(3, 7);
+        impact.sync += type === "idle" ? 0 : r(1, 3);
+        break;
+      case "DEPLOY":
+        impact.api += type === "warn" ? -r(10, 16) : type === "idle" ? -r(3, 6) : r(6, 12);
+        impact.sync += type === "idle" ? 0 : r(2, 5);
+        break;
+      case "STACK":
+        impact.api += type === "warn" ? -r(8, 14) : type === "idle" ? -r(3, 5) : r(4, 9);
+        break;
+      case "COLLAB":
+        impact.sync += type === "warn" ? -r(6, 12) : type === "idle" ? -r(2, 5) : r(6, 12);
+        break;
+      case "WORKSPACE":
+        impact.sync += type === "idle" ? -r(3, 6) : r(3, 7);
+        impact.api += type === "idle" ? -r(1, 3) : r(1, 3);
+        break;
+      case "PROTOCOL":
+        impact.sync += type === "idle" ? -r(1, 3) : r(2, 5);
+        break;
+      case "TASK":
+        impact.ai += type === "idle" ? -r(1, 3) : r(2, 5);
+        impact.api += type === "idle" ? -r(1, 2) : r(1, 3);
+        break;
+    }
+    return impact;
+  };
 
   useEffect(() => {
     if (!entered) return;
-    const h = new Date().getHours();
-    const t = h + new Date().getMinutes() / 60;
-    const isNight = t >= 22 || t < 6;
-    const isQuiet = t >= 12 && t < 13.5;
 
-    const generateTarget = (key: "ai" | "sync" | "api") => {
-      if (isNight) {
-        const base: Record<string, [number, number]> = { ai: [15, 40], sync: [20, 55], api: [10, 30] };
-        const [lo, hi] = base[key];
-        return lo + Math.random() * (hi - lo);
-      }
-      if (isQuiet) {
-        const base: Record<string, [number, number]> = { ai: [50, 75], sync: [60, 85], api: [40, 65] };
-        const [lo, hi] = base[key];
-        return lo + Math.random() * (hi - lo);
-      }
-      const base: Record<string, [number, number]> = { ai: [70, 98], sync: [80, 100], api: [60, 95] };
-      const [lo, hi] = base[key];
-      return lo + Math.random() * (hi - lo);
+    const range = getBaseRange();
+    barBaseRef.current = {
+      ai: (range.ai[0] + range.ai[1]) / 2,
+      sync: (range.sync[0] + range.sync[1]) / 2,
+      api: (range.api[0] + range.api[1]) / 2,
     };
-
     barTargets.current = {
-      ai: generateTarget("ai"),
-      sync: generateTarget("sync"),
-      api: generateTarget("api"),
+      ai: barBaseRef.current.ai + Math.random() * 10,
+      sync: barBaseRef.current.sync + Math.random() * 10,
+      api: barBaseRef.current.api + Math.random() * 10,
     };
 
+    /* Lerp animation loop */
     let frame: number;
-    const lerp = (current: number, target: number, speed: number) =>
-      current + (target - current) * speed;
-
+    const lerp = (cur: number, target: number, speed: number) =>
+      cur + (target - cur) * speed;
     const animate = () => {
-      const speed = 0.02;
       setBarValues((prev) => ({
-        ai: Math.round(lerp(prev.ai, barTargets.current.ai, speed)),
-        sync: Math.round(lerp(prev.sync, barTargets.current.sync, speed)),
-        api: Math.round(lerp(prev.api, barTargets.current.api, speed)),
+        ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.025)),
+        sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.025)),
+        api: Math.round(lerp(prev.api, barTargets.current.api, 0.025)),
       }));
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
 
-    const timersRef = { current: [] as ReturnType<typeof setTimeout>[] };
-    const scheduleTarget = () => {
-      const delay = 3000 + Math.random() * 5000;
+    /* Natural decay: bars slowly drift back toward base */
+    const decayTimers: ReturnType<typeof setTimeout>[] = [];
+    const scheduleDecay = () => {
       const tid = setTimeout(() => {
         barTargets.current = {
-          ai: generateTarget("ai"),
-          sync: generateTarget("sync"),
-          api: generateTarget("api"),
+          ai: barTargets.current.ai * 0.96 + barBaseRef.current.ai * 0.04,
+          sync: barTargets.current.sync * 0.96 + barBaseRef.current.sync * 0.04,
+          api: barTargets.current.api * 0.96 + barBaseRef.current.api * 0.04,
         };
-        scheduleTarget();
-      }, delay);
-      timersRef.current.push(tid);
+        scheduleDecay();
+      }, 2000 + Math.random() * 3000);
+      decayTimers.push(tid);
     };
-    scheduleTarget();
+    scheduleDecay();
+
+    /* Update base range every 60s (adapts to time-of-day) */
+    const baseCheck = setInterval(() => {
+      const r = getBaseRange();
+      barBaseRef.current = {
+        ai: (r.ai[0] + r.ai[1]) / 2,
+        sync: (r.sync[0] + r.sync[1]) / 2,
+        api: (r.api[0] + r.api[1]) / 2,
+      };
+    }, 60000);
+
+    /* Expose react function so the feed can drive bars */
+    (window as unknown as Record<string, unknown>).__wsBarBump = (prefix: string, type: LineType) => {
+      const impact = getBarImpact(prefix, type);
+      barTargets.current = {
+        ai: Math.max(3, Math.min(99, barTargets.current.ai + impact.ai)),
+        sync: Math.max(3, Math.min(99, barTargets.current.sync + impact.sync)),
+        api: Math.max(3, Math.min(99, barTargets.current.api + impact.api)),
+      };
+    };
 
     return () => {
       cancelAnimationFrame(frame);
-      timersRef.current.forEach(clearTimeout);
+      decayTimers.forEach(clearTimeout);
+      clearInterval(baseCheck);
+      delete (window as unknown as Record<string, unknown>).__wsBarBump;
     };
   }, [entered]);
 
