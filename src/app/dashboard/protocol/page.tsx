@@ -6,9 +6,9 @@ import { useSession } from "next-auth/react";
 import {
   FileText, Upload, Download, Trash2, Loader2,
   FileUp, CheckCircle2, AlertCircle, Clock,
-  Shield, GitBranch, Ban, RefreshCw, Save, Eye, EyeOff,
-  Copy, Check, KeyRound, UserCog, Settings, Info, ChevronRight,
-  FileLock2, Users, Fingerprint, Sparkles,
+  Shield, Ban, Save, Eye, EyeOff,
+  Copy, Check, KeyRound, UserCog, Info,
+  Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,6 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -122,86 +121,36 @@ export default function ProtocolPage() {
   const [copiedWsToken, setCopiedWsToken] = useState(false);
   const [copiedMyCode, setCopiedMyCode] = useState(false);
 
-  // ── Fetch all data ──
-  const fetchProtocol = useCallback(async () => {
-    try {
-      const res = await fetch("/api/protocol");
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.id) {
-          setProtocol(data);
-          setDownloadEnabled(data.downloadEnabled !== false);
+  // ── Fetch all data in ONE combined request ──
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+    fetch("/api/protocol/init")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (data.protocol?.id) {
+          setProtocol(data.protocol);
+          setDownloadEnabled(data.protocol.downloadEnabled !== false);
         } else {
-          setProtocol(null);
           setDownloadEnabled(true);
         }
-      }
-    } catch {
-      console.error("Failed to fetch protocol");
-    }
-  }, []);
-
-  const fetchGitConfig = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
-      const res = await fetch("/api/task-git-config");
-      if (res.ok) {
-        const data = await res.json();
-        setGitConfig(data);
-        setHasEncryptionKey(!!data.hasEncryptionKey);
-        setGitForm({ repoUrl: data.repoUrl || "", token: "" });
-      }
-    } catch { /* silent */ }
-  }, [isAdmin]);
-
-  const fetchWsConfig = useCallback(async () => {
-    try {
-      const res = await fetch("/api/workspace-config");
-      if (res.ok) {
-        const data = await res.json();
-        setWsConfig(data);
-        if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel);
-      }
-    } catch { /* silent */ }
-  }, []);
-
-  const fetchMyUserCode = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user-code");
-      if (res.ok) {
-        const data = await res.json();
-        setMyUserCode(data);
-      }
-    } catch { /* silent */ }
-  }, []);
-
-  const fetchAllUserCodes = useCallback(async () => {
-    if (!isAdmin) return;
-    setUserCodesLoading(true);
-    try {
-      const res = await fetch("/api/user-code/all");
-      if (res.ok) {
-        const data = await res.json();
-        setAllUserCodes(data.userCodes || []);
-      }
-    } catch { /* silent */ }
-    setUserCodesLoading(false);
-  }, [isAdmin]);
-
-  useEffect(() => {
-    if (status === "authenticated") {
-      let cancelled = false;
-      const loadAll = () => Promise.all([
-        fetchProtocol(),
-        fetchGitConfig(),
-        fetchWsConfig(),
-        fetchMyUserCode(),
-        fetchAllUserCodes(),
-      ]).finally(() => { if (!cancelled) setLoading(false); });
-      void loadAll();
-      return () => { cancelled = true; };
-    }
-  }, [status, fetchProtocol, fetchGitConfig, fetchWsConfig, fetchMyUserCode, fetchAllUserCodes]);
+        if (data.wsConfig) {
+          setWsConfig(data.wsConfig);
+          if (data.wsConfig.configTokenLabel) setWsLabelForm(data.wsConfig.configTokenLabel);
+        }
+        if (data.myUserCode) setMyUserCode(data.myUserCode);
+        if (data.gitConfig) {
+          setGitConfig(data.gitConfig);
+          setHasEncryptionKey(!!data.gitConfig.hasEncryptionKey);
+          setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
+        }
+        if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
+      })
+      .catch(() => { /* silent */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [status]);
 
   // ── Upload PDF ──
   const handleUpload = async (file: File) => {
@@ -234,7 +183,7 @@ export default function ProtocolPage() {
       });
       if (res.ok) {
         toast.success("Protocol PDF uploaded successfully");
-        await fetchProtocol();
+        await refetchProtocol();
       } else {
         const data = await res.json();
         toast.error(safeText(data.error, "Upload failed"));
@@ -322,7 +271,7 @@ export default function ProtocolPage() {
       });
       if (res.ok) {
         toast.success("Git configuration saved");
-        await fetchGitConfig();
+        await refetchGitConfig();
         setGitForm((prev) => ({ ...prev, token: "" }));
       } else {
         const data = await res.json();
@@ -361,7 +310,7 @@ export default function ProtocolPage() {
                   toast.error("Sync failed: " + (syncData.error || "Unknown error"));
                 }
               } else { toast.error("Sync request failed"); }
-              await fetchGitConfig();
+              await refetchGitConfig();
             })
             .catch(() => { setGitSyncing(false); toast.error("Sync request failed"); });
         }
@@ -382,7 +331,7 @@ export default function ProtocolPage() {
         } else {
           toast.error("Sync failed: " + (data.error || "Unknown error"));
         }
-        await fetchGitConfig();
+        await refetchGitConfig();
       } else {
         const errData = await res.json().catch(() => ({ error: "Request failed" }));
         toast.error(errData.error || "Failed to trigger sync");
@@ -390,8 +339,6 @@ export default function ProtocolPage() {
       }
     } catch { toast.error("Failed to trigger sync"); setGitSyncing(false); }
   };
-
-  // ── Save encryption key ──
   const handleSaveEncKey = async () => {
     const key = encKeyForm.trim();
     if (!key || key.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(key)) {
@@ -444,7 +391,7 @@ export default function ProtocolPage() {
       if (res.ok) {
         toast.success("Workspace config updated");
         setWsTokenForm("");
-        await fetchWsConfig();
+        await refetchWsConfig();
       } else {
         const data = await res.json();
         toast.error(safeText(data.error, "Failed to update"));
@@ -489,8 +436,8 @@ export default function ProtocolPage() {
       if (res.ok) {
         toast.success(`Code set for ${setCodeTarget.userName}`);
         setSetCodeDialogOpen(false);
-        await fetchAllUserCodes();
-        await fetchMyUserCode();
+        await refetchAllUserCodes();
+        await refetchMyUserCode();
       } else {
         const data = await res.json();
         toast.error(safeText(data.error, "Failed to set code"));
@@ -523,6 +470,62 @@ export default function ProtocolPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // ── Refetch helpers (for individual actions) ──
+  const refetchProtocol = useCallback(async () => {
+    try {
+      const res = await fetch("/api/protocol");
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.id) { setProtocol(data); setDownloadEnabled(data.downloadEnabled !== false); }
+        else { setProtocol(null); setDownloadEnabled(true); }
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const refetchGitConfig = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch("/api/task-git-config");
+      if (res.ok) {
+        const data = await res.json();
+        setGitConfig(data);
+        setHasEncryptionKey(!!data.hasEncryptionKey);
+        setGitForm({ repoUrl: data.repoUrl || "", token: "" });
+      }
+    } catch { /* silent */ }
+  }, [isAdmin]);
+
+  const refetchWsConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workspace-config");
+      if (res.ok) {
+        const data = await res.json();
+        setWsConfig(data);
+        if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const refetchAllUserCodes = useCallback(async () => {
+    if (!isAdmin) return;
+    setUserCodesLoading(true);
+    try {
+      const res = await fetch("/api/user-code/all");
+      if (res.ok) {
+        const data = await res.json();
+        setAllUserCodes(data.userCodes || []);
+      }
+    } catch { /* silent */ }
+    setUserCodesLoading(false);
+  }, [isAdmin]);
+
+  const refetchMyUserCode = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user-code");
+      if (res.ok) setMyUserCode(await res.json());
+    } catch { /* silent */ }
+  }, []);
+
   const formatRelativeTime = (dateStr: string | null) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
@@ -535,14 +538,8 @@ export default function ProtocolPage() {
     return date.toLocaleDateString();
   };
 
-  // ── Loading ──
-  if (status === "loading" || loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // ── Loading — render immediately, don't block ──
+  if (status === "loading") return null;
   if (!session) return null;
 
   return (
