@@ -532,23 +532,31 @@ export default function TrishulWorkspacePage() {
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  /* ── Bar rank for smooth position reordering ── */
-  const barRanks = (() => {
+  /* ── Bar positions for smooth reordering (absolute positioning) ── */
+  const statusBarsRef = useRef<HTMLDivElement>(null);
+  const [barStep, setBarStep] = useState(28); // px — will be measured
+
+  /* Measure actual item spacing after mount */
+  useEffect(() => {
+    if (!entered || !statusBarsRef.current) return;
+    const items = statusBarsRef.current.querySelectorAll('.ws-status-bar-item');
+    if (items.length >= 2) {
+      const r0 = items[0].getBoundingClientRect();
+      const r1 = items[1].getBoundingClientRect();
+      setBarStep(Math.round(r1.top - r0.top));
+    }
+  }, [entered]);
+
+  const barPositions = (() => {
     const entries = [
-      { key: "ai" as const, value: barValues.ai, domIdx: 0 },
-      { key: "sync" as const, value: barValues.sync, domIdx: 1 },
-      { key: "api" as const, value: barValues.api, domIdx: 2 },
+      { key: "ai" as const, value: barValues.ai },
+      { key: "sync" as const, value: barValues.sync },
+      { key: "api" as const, value: barValues.api },
     ];
     const sorted = [...entries].sort((a, b) => b.value - a.value);
-    const rankOf: Record<string, number> = {};
-    sorted.forEach((e, i) => { rankOf[e.key] = i; });
-    // Each bar gets translateY offset = (rank - domIndex) * step
-    const step = 1.85; // rem — matches item height + gap
-    return {
-      ai: (rankOf["ai"] - 0) * step,
-      sync: (rankOf["sync"] - 1) * step,
-      api: (rankOf["api"] - 2) * step,
-    };
+    const pos: Record<string, number> = {};
+    sorted.forEach((e, i) => { pos[e.key] = i * barStep; });
+    return pos;
   })();
 
   return (
@@ -769,22 +777,22 @@ export default function TrishulWorkspacePage() {
                   All Systems Operational
                 </span>
               </div>
-              <div className="ws-status-bars">
-                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.ai}rem)` }}>
+              <div ref={statusBarsRef} className="ws-status-bars" style={{ height: barStep * 3 }}>
+                <div className="ws-status-bar-item" style={{ top: `${barPositions.ai}px` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
                   </div>
                   <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
                 </div>
-                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.sync}rem)` }}>
+                <div className="ws-status-bar-item" style={{ top: `${barPositions.sync}px` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
                   </div>
                   <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
                 </div>
-                <div className="ws-status-bar-item" style={{ transform: `translateY(${barRanks.api}rem)` }}>
+                <div className="ws-status-bar-item" style={{ top: `${barPositions.api}px` }}>
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
                     <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
@@ -1892,11 +1900,15 @@ export default function TrishulWorkspacePage() {
           font-size: 0.75rem; font-weight: 500;
           color: var(--ws-text-muted);
         }
-        .ws-status-bars { display: flex; flex-direction: column; gap: 0.45rem; }
+        .ws-status-bars {
+          position: relative;
+        }
         .ws-status-bar-item {
+          position: absolute;
+          left: 0; right: 0;
           display: flex; align-items: center; gap: 0.45rem;
-          transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-          will-change: transform;
+          transition: top 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+          will-change: top;
         }
         .ws-bar-label {
           font-size: 0.6rem; font-weight: 600;
