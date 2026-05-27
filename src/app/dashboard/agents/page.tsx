@@ -102,9 +102,9 @@ function getActivityLevel(): {
   // Night: 22:00–06:00 — very quiet, idle lines, long pauses
   if (t >= 22 || t < 6) {
     return {
-      intervalMin: 10000,
-      intervalMax: 25000,
-      burstChance: 0.05,
+      intervalMin: 4000,
+      intervalMax: 10000,
+      burstChance: 0.08,
       maxVisible: 5,
       linePool: ["idle", "idle", "idle", "success", "info"],
     };
@@ -112,49 +112,49 @@ function getActivityLevel(): {
   // Early morning: 06:00–09:00 — warming up
   if (t >= 6 && t < 9) {
     return {
-      intervalMin: 5000,
-      intervalMax: 12000,
-      burstChance: 0.15,
-      maxVisible: 7,
+      intervalMin: 2500,
+      intervalMax: 6000,
+      burstChance: 0.25,
+      maxVisible: 8,
       linePool: ["idle", "success", "info", "info", "success"],
     };
   }
   // Peak hours: 09:00–12:00 — busy morning
   if (t >= 9 && t < 12) {
     return {
-      intervalMin: 1200,
-      intervalMax: 3500,
-      burstChance: 0.45,
-      maxVisible: 12,
+      intervalMin: 600,
+      intervalMax: 1800,
+      burstChance: 0.55,
+      maxVisible: 15,
       linePool: ["success", "info", "info", "warn", "success", "info"],
     };
   }
   // Lunch dip: 12:00–13:30 — slightly less active
   if (t >= 12 && t < 13.5) {
     return {
-      intervalMin: 3000,
-      intervalMax: 7000,
-      burstChance: 0.2,
-      maxVisible: 8,
+      intervalMin: 1500,
+      intervalMax: 4000,
+      burstChance: 0.3,
+      maxVisible: 10,
       linePool: ["success", "info", "idle", "info", "success"],
     };
   }
   // Afternoon peak: 13:30–18:00 — busy
   if (t >= 13.5 && t < 18) {
     return {
-      intervalMin: 1500,
-      intervalMax: 4000,
-      burstChance: 0.4,
-      maxVisible: 11,
+      intervalMin: 800,
+      intervalMax: 2000,
+      burstChance: 0.5,
+      maxVisible: 14,
       linePool: ["success", "info", "info", "warn", "success", "info", "success"],
     };
   }
   // Evening wind-down: 18:00–22:00 — decreasing
   return {
-    intervalMin: 5000,
-    intervalMax: 12000,
-    burstChance: 0.15,
-    maxVisible: 7,
+    intervalMin: 2500,
+    intervalMax: 6000,
+    burstChance: 0.25,
+    maxVisible: 9,
     linePool: ["success", "info", "idle", "idle", "info", "success"],
   };
 }
@@ -430,9 +430,9 @@ export default function TrishulWorkspacePage() {
       cur + (target - cur) * speed;
     const animate = () => {
       setBarValues((prev) => ({
-        ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.025)),
-        sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.025)),
-        api: Math.round(lerp(prev.api, barTargets.current.api, 0.025)),
+        ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.06)),
+        sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.06)),
+        api: Math.round(lerp(prev.api, barTargets.current.api, 0.06)),
       }));
       frame = requestAnimationFrame(animate);
     };
@@ -480,6 +480,37 @@ export default function TrishulWorkspacePage() {
       delete (window as unknown as Record<string, unknown>).__wsBarBump;
     };
   }, [entered]);
+
+  /* ── 8hr Horizon long-running tasks ── */
+  const horizonStartRef = useRef(Date.now() - 1000 * 60 * 60 * 2.4 - 1000 * 47); // ~2h 47m ago
+  const [horizonElapsed, setHorizonElapsed] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const diff = Math.floor((Date.now() - horizonStartRef.current) / 1000);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      setHorizonElapsed(`${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [horizonStart2, setHorizonStart2] = useState(Date.now() - 1000 * 60 * 47);
+  const [horizonElapsed2, setHorizonElapsed2] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const diff = Math.floor((Date.now() - horizonStart2) / 1000);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      setHorizonElapsed2(`${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   /* ── Uptime counter ── */
   const [uptime, setUptime] = useState(0);
@@ -663,6 +694,37 @@ export default function TrishulWorkspacePage() {
                 </div>
               </div>
               <div ref={feedRef} className="ws-feed-scroll">
+                {/* 8hr Horizon persistent tasks */}
+                <div className="ws-feed-line ws-feed-line--horizon">
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>
+                    {new Date(horizonStartRef.current).toLocaleTimeString("en-US", {
+                      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+                    })}
+                  </span>
+                  <span className="ws-feed-prefix ws-feed-prefix--horizon">
+                    [ZAI]
+                  </span>
+                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                    8hr Horizon — Full-stack e-commerce build in progress
+                  </span>
+                  <span className="ws-horizon-timer">{horizonElapsed}</span>
+                  <span className="ws-horizon-badge">RUNNING</span>
+                </div>
+                <div className="ws-feed-line ws-feed-line--horizon">
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>
+                    {new Date(horizonStart2).toLocaleTimeString("en-US", {
+                      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+                    })}
+                  </span>
+                  <span className="ws-feed-prefix ws-feed-prefix--horizon">
+                    [BLUEPRINT]
+                  </span>
+                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                    8hr Horizon — SaaS dashboard scaffolding + auth flow
+                  </span>
+                  <span className="ws-horizon-timer">{horizonElapsed2}</span>
+                  <span className="ws-horizon-badge">RUNNING</span>
+                </div>
                 {aiLogs.map((line, i) => (
                   <div key={i} className={`ws-feed-line ws-feed-line--enter`}>
                     <span className={`ws-feed-time ws-feed-time--${mode}`}>
@@ -699,7 +761,45 @@ export default function TrishulWorkspacePage() {
               </div>
             </div>
 
-            {/* ─── ROW 4: Actions + Features ─── */}
+            {/* ─── ROW 4: Status bars (right after Live Ops) ─── */}
+
+            {/* STATUS INDICATOR CARD */}
+            <div
+              className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
+              style={{ transitionDelay: "0.38s" }}
+            >
+              <div className="ws-status-row">
+                <div className={`ws-status-dot ws-status-dot--${mode}`} />
+                <span className={`ws-status-text ws-status-text--${mode}`}>
+                  All Systems Operational
+                </span>
+              </div>
+              <div className="ws-status-bars">
+                <div className="ws-status-bar-item">
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
+                  </div>
+                  <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
+                </div>
+                <div className="ws-status-bar-item">
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
+                  </div>
+                  <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
+                </div>
+                <div className="ws-status-bar-item">
+                  <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
+                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
+                  </div>
+                  <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── ROW 5: Actions + Features ─── */}
 
             {/* START CARD */}
             <div
@@ -790,43 +890,6 @@ export default function TrishulWorkspacePage() {
               </div>
             </div>
 
-            {/* ─── ROW 5: Status bars ─── */}
-
-            {/* STATUS INDICATOR CARD */}
-            <div
-              className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
-              style={{ transitionDelay: "0.55s" }}
-            >
-              <div className="ws-status-row">
-                <div className={`ws-status-dot ws-status-dot--${mode}`} />
-                <span className={`ws-status-text ws-status-text--${mode}`}>
-                  All Systems Operational
-                </span>
-              </div>
-              <div className="ws-status-bars">
-                <div className="ws-status-bar-item">
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
-                </div>
-                <div className="ws-status-bar-item">
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
-                </div>
-                <div className="ws-status-bar-item">
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
-                </div>
-              </div>
-            </div>
           </main>
 
           {/* ── FOOTER ── */}
@@ -1466,6 +1529,54 @@ export default function TrishulWorkspacePage() {
           animation: ws-blink 1s step-end infinite;
         }
 
+        /* 8hr Horizon persistent task log */
+        .ws-feed-line--horizon {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: 0.4rem 1rem;
+          background: rgba(6,182,212,0.04);
+          border-bottom: 1px solid rgba(6,182,212,0.08);
+          position: relative;
+        }
+        .ws-feed-prefix--horizon {
+          font-size: 0.6rem; font-weight: 700;
+          letter-spacing: 0.04em; font-family: 'SF Mono','Fira Code','Cascadia Code',monospace;
+          color: #06b6d4;
+          flex-shrink: 0;
+        }
+        .ws-root--bluelight .ws-feed-prefix--horizon { color: #f59e0b; }
+        .ws-root--bluelight .ws-feed-line--horizon {
+          background: rgba(251,191,36,0.04);
+          border-bottom-color: rgba(251,191,36,0.08);
+        }
+        .ws-root--light .ws-feed-line--horizon {
+          background: rgba(6,182,212,0.06);
+          border-bottom-color: rgba(6,182,212,0.12);
+        }
+        .ws-horizon-timer {
+          font-size: 0.6rem; font-weight: 600;
+          font-family: 'SF Mono','Fira Code','Cascadia Code',monospace;
+          color: #06b6d4;
+          letter-spacing: 0.02em;
+          margin-left: auto;
+          flex-shrink: 0;
+        }
+        .ws-root--bluelight .ws-horizon-timer { color: #f59e0b; }
+        .ws-root--light .ws-horizon-timer { color: #0891b2; }
+        .ws-horizon-badge {
+          font-size: 0.5rem; font-weight: 700;
+          letter-spacing: 0.1em; text-transform: uppercase;
+          color: #22c55e;
+          background: rgba(34,197,94,0.1);
+          padding: 0.1rem 0.4rem;
+          border-radius: 4px;
+          flex-shrink: 0;
+          animation: ws-horizon-pulse 2s ease-in-out infinite;
+        }
+        @keyframes ws-horizon-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+
         /* ═══════════════════════════════════════
            START CARD
            ═══════════════════════════════════════ */
@@ -1659,7 +1770,10 @@ export default function TrishulWorkspacePage() {
         /* ═══════════════════════════════════════
            STATUS CARD
            ═══════════════════════════════════════ */
-        .ws-status-card { padding: 1rem 1.1rem; }
+        .ws-status-card { padding: 1rem 1.1rem; grid-column: 1 / -1; }
+        @media (min-width: 1024px) {
+          .ws-status-card { grid-column: span 3; }
+        }
         .ws-status-row {
           display: flex; align-items: center; gap: 0.45rem;
           margin-bottom: 0.85rem;
