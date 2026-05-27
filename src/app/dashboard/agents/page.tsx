@@ -353,6 +353,75 @@ export default function TrishulWorkspacePage() {
     }
   }, [aiLogs]);
 
+  /* ── Dynamic status bars (AI / Sync / API) ── */
+  const [barValues, setBarValues] = useState({ ai: 88, sync: 95, api: 72 });
+  const barTargets = useRef({ ai: 88, sync: 95, api: 72 });
+
+  useEffect(() => {
+    if (!entered) return;
+    const h = new Date().getHours();
+    const t = h + new Date().getMinutes() / 60;
+    const isNight = t >= 22 || t < 6;
+    const isQuiet = t >= 12 && t < 13.5;
+
+    const generateTarget = (key: "ai" | "sync" | "api") => {
+      if (isNight) {
+        const base: Record<string, [number, number]> = { ai: [15, 40], sync: [20, 55], api: [10, 30] };
+        const [lo, hi] = base[key];
+        return lo + Math.random() * (hi - lo);
+      }
+      if (isQuiet) {
+        const base: Record<string, [number, number]> = { ai: [50, 75], sync: [60, 85], api: [40, 65] };
+        const [lo, hi] = base[key];
+        return lo + Math.random() * (hi - lo);
+      }
+      const base: Record<string, [number, number]> = { ai: [70, 98], sync: [80, 100], api: [60, 95] };
+      const [lo, hi] = base[key];
+      return lo + Math.random() * (hi - lo);
+    };
+
+    barTargets.current = {
+      ai: generateTarget("ai"),
+      sync: generateTarget("sync"),
+      api: generateTarget("api"),
+    };
+
+    let frame: number;
+    const lerp = (current: number, target: number, speed: number) =>
+      current + (target - current) * speed;
+
+    const animate = () => {
+      const speed = 0.02;
+      setBarValues((prev) => ({
+        ai: Math.round(lerp(prev.ai, barTargets.current.ai, speed)),
+        sync: Math.round(lerp(prev.sync, barTargets.current.sync, speed)),
+        api: Math.round(lerp(prev.api, barTargets.current.api, speed)),
+      }));
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+
+    const timersRef = { current: [] as ReturnType<typeof setTimeout>[] };
+    const scheduleTarget = () => {
+      const delay = 3000 + Math.random() * 5000;
+      const tid = setTimeout(() => {
+        barTargets.current = {
+          ai: generateTarget("ai"),
+          sync: generateTarget("sync"),
+          api: generateTarget("api"),
+        };
+        scheduleTarget();
+      }, delay);
+      timersRef.current.push(tid);
+    };
+    scheduleTarget();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      timersRef.current.forEach(clearTimeout);
+    };
+  }, [entered]);
+
   /* ── Uptime counter ── */
   const [uptime, setUptime] = useState(0);
   useEffect(() => {
@@ -679,20 +748,23 @@ export default function TrishulWorkspacePage() {
                 <div className="ws-status-bar-item">
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: "92%" }} />
+                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
                   </div>
+                  <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
                 </div>
                 <div className="ws-status-bar-item">
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: "100%" }} />
+                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
                   </div>
+                  <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
                 </div>
                 <div className="ws-status-bar-item">
                   <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
                   <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: "88%" }} />
+                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
                   </div>
+                  <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
                 </div>
               </div>
             </div>
@@ -1571,6 +1643,19 @@ export default function TrishulWorkspacePage() {
         .ws-bar-fill--cyan { background: var(--ws-accent-cyan); box-shadow: 0 0 8px rgba(6,182,212,0.3); }
         .ws-bar-fill--purple { background: var(--ws-accent-purple); box-shadow: 0 0 8px rgba(139,92,246,0.3); }
         .ws-bar-fill--pink { background: var(--ws-accent-pink); box-shadow: 0 0 8px rgba(236,72,153,0.3); }
+        .ws-bar-pct {
+          font-size: 0.55rem; font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          width: 2.2rem; text-align: right;
+          flex-shrink: 0;
+          color: var(--ws-text-dim);
+        }
+        .ws-bar-pct--cyan { color: rgba(6,182,212,0.65); }
+        .ws-bar-pct--purple { color: rgba(139,92,246,0.65); }
+        .ws-bar-pct--pink { color: rgba(236,72,153,0.65); }
+        .ws-root--bluelight .ws-bar-pct--cyan { color: rgba(245,158,11,0.65); }
+        .ws-root--bluelight .ws-bar-pct--purple { color: rgba(217,119,6,0.65); }
+        .ws-root--bluelight .ws-bar-pct--pink { color: rgba(251,191,36,0.65); }
 
         /* ═══════════════════════════════════════
            FOOTER
