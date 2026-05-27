@@ -161,3 +161,24 @@ Stage Summary:
 - 30 old lines removed, 30 new lines added (same array structure preserved)
 - All prefixes now reference actual Zai workspace protocol concepts from TrishulHub Team Guide PDF
 - No other code changes — only the AI_LINES array was touched
+---
+Task ID: fin-2
+Agent: main
+Task: Fix all 7 Finance page issues
+
+Work Log:
+- Read and analyzed all finance files: page.tsx (1613 lines), subscription API routes, expense API routes, stats API, Prisma schema, validation schemas
+- Identified critical bugs: broken expense delete, empty category/project detail views, missing employee column, incomplete search
+- Delegated implementation to full-stack-developer subagent with detailed fix instructions
+- Subagent made all fixes and pushed to GitHub
+
+Stage Summary:
+- Bug A (Expense Delete): Changed from query param to JSON body - FIXED
+- Bug B (Category/Project Detail): Added allExpenses state for unfiltered data - FIXED
+- Bug C (Employee Name): Added employee column with avatar initial - FIXED
+- Bug D (Search): Added employee name + payment ref to search filter - FIXED
+- Issue 1 (INR/GBP Conversion): Improved rate display formatting with proper decimals - FIXED
+- Issue 2 (Status option): Already implemented, verified working - OK
+- Issue 3 (Sorting): Already implemented, verified working - OK
+- Issue 7 (Visuals): Added gradient cards, Framer Motion animations, better hover effects, improved empty states - DONE
+- Commit: 7df1b78 pushed to main
