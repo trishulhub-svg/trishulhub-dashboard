@@ -16,7 +16,7 @@ const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
 function getMonthlyINR(amount: number, exchangeRate: number, frequency: string): number {
   const inrAmount = amount * exchangeRate
   if (frequency === "YEARLY") return inrAmount / 12
-  if (frequency === "ONE_TIME") return 0 // One-time doesn't count as monthly
+  if (frequency === "ONE_TIME") return inrAmount // Show total INR for one-time payments
   return inrAmount // MONTHLY
 }
 

@@ -1476,12 +1476,12 @@ export default function FinancePage() {
 
       {/* ─── Subscription Dialog ──── */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
             <DialogTitle>{editingSub ? "Edit Subscription" : "Add Subscription"}</DialogTitle>
             <DialogDescription>{editingSub ? "Update subscription details." : "Add a new recurring subscription."}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
             <div className="space-y-1">
               <Label className="text-xs">Service Name *</Label>
               <Input
@@ -1644,12 +1644,12 @@ export default function FinancePage() {
 
       {/* ─── Expense Add Dialog ──── */}
       <Dialog open={expDialogOpen} onOpenChange={(open) => { setExpDialogOpen(open); if (!open) setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" }); }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
             <DialogTitle>Add Expense</DialogTitle>
             <DialogDescription>Add a new expense record with optional employee and payment reference.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Category *</Label>
