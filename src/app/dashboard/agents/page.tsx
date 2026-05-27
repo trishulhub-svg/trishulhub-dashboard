@@ -20,8 +20,10 @@ import {
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Protocol
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Simulated AI operational lines ── */
-const AI_LINES = [
+/* ── Simulated AI operational lines (expanded pool) ── */
+type LineType = "success" | "info" | "warn" | "idle";
+const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
+  /* Active operations */
   { prefix: "ZAI", msg: "GLM 5.1 deep reasoning engine initialized", type: "success" },
   { prefix: "BLUEPRINT", msg: "Loading e-commerce blueprint — smart execution mode", type: "info" },
   { prefix: "WORKSPACE", msg: "Session recovered — last state restored", type: "success" },
@@ -29,7 +31,7 @@ const AI_LINES = [
   { prefix: "TASK", msg: "Task queued — /tasks list refreshed", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
   { prefix: "STACK", msg: "Prisma migration applied to PostgreSQL", type: "success" },
-  { prefix: "PROTOCOL", msg: "ZAI Protocol v10.2 companion guide synced", type: "success" },
+  { prefix: "PROTOCOL", msg: "ZAI Protocol v10.4 companion guide synced", type: "success" },
   { prefix: "ZAI", msg: "GLM-5 Turbo fast execution — 2.1s response time", type: "success" },
   { prefix: "BLUEPRINT", msg: "SaaS dashboard blueprint loaded successfully", type: "info" },
   { prefix: "COLLAB", msg: "Workspace released — /release lock cleared", type: "success" },
@@ -52,7 +54,121 @@ const AI_LINES = [
   { prefix: "TASK", msg: "Priority re-sort: critical tasks elevated to top", type: "info" },
   { prefix: "DEPLOY", msg: "CI/CD pipeline passed — all 14 checks green", type: "success" },
   { prefix: "STACK", msg: "TypeScript strict mode — zero type errors", type: "success" },
+  /* Extra active lines for burst variety */
+  { prefix: "ZAI", msg: "Agentic loop: step 7/24 in progress", type: "info" },
+  { prefix: "DEPLOY", msg: "Edge function cold start — 142ms latency", type: "info" },
+  { prefix: "STACK", msg: "Redis cache hit ratio: 97.3% — healthy", type: "success" },
+  { prefix: "BLUEPRINT", msg: "Component tree diff: 12 files changed", type: "info" },
+  { prefix: "TASK", msg: "Auto-assigning task to available agent", type: "info" },
+  { prefix: "COLLAB", msg: "WebSocket heartbeat — 3 connections stable", type: "success" },
+  { prefix: "ZAI", msg: "Token usage this session: 14.2K / 128K", type: "info" },
+  { prefix: "PROTOCOL", msg: "Protocol integrity check passed — hash verified", type: "success" },
+  { prefix: "WORKSPACE", msg: "Auto-save triggered — state persisted to cloud", type: "success" },
+  { prefix: "DEPLOY", msg: "Docker image rebuilt — size 182MB", type: "success" },
+  { prefix: "STACK", msg: "Database index optimized — query time -40%", type: "success" },
+  { prefix: "BLUEPRINT", msg: "File watcher detected 3 changes in src/", type: "info" },
+  { prefix: "TASK", msg: "Dependency graph updated — 0 circular refs", type: "success" },
+  { prefix: "ZAI", msg: "Model response cached — TTL 300s", type: "success" },
+  { prefix: "COLLAB", msg: "Branch synced with upstream — up to date", type: "success" },
+  /* Warning lines (rare) */
+  { prefix: "STACK", msg: "Memory usage spike: 78% — monitoring", type: "warn" },
+  { prefix: "DEPLOY", msg: "Rate limit approaching: 450/500 requests/min", type: "warn" },
+  { prefix: "ZAI", msg: "Context window at 89% — auto-compact triggered", type: "warn" },
+  { prefix: "COLLAB", msg: "Merge conflict detected — auto-resolving", type: "warn" },
+  { prefix: "TASK", msg: "Task deadline in 2h — priority escalated", type: "warn" },
+  /* Idle / quiet lines (nighttime heavy) */
+  { prefix: "WORKSPACE", msg: "System idle — background sync paused", type: "idle" },
+  { prefix: "STACK", msg: "Health check OK — all services sleeping", type: "idle" },
+  { prefix: "WORKSPACE", msg: "No active sessions — monitoring only", type: "idle" },
+  { prefix: "ZAI", msg: "Model warming up — standby mode", type: "idle" },
+  { prefix: "STACK", msg: "Cron job skipped — next run at 06:00", type: "idle" },
+  { prefix: "WORKSPACE", msg: "Connection pool reduced to 2 — low traffic", type: "idle" },
+  { prefix: "DEPLOY", msg: "No deployments queued — pipeline idle", type: "idle" },
+  { prefix: "PROTOCOL", msg: "Backup completed — 0 changes since last sync", type: "idle" },
 ];
+
+/* ── Time-based activity level calculator ── */
+function getActivityLevel(): {
+  intervalMin: number;
+  intervalMax: number;
+  burstChance: number;   // 0–1 probability of adding 2-3 lines at once
+  maxVisible: number;    // max lines shown in feed
+  linePool: LineType[];  // weighted pool for random line selection
+} {
+  const h = new Date().getHours();
+  const m = new Date().getMinutes();
+  const t = h + m / 60;
+
+  // Night: 22:00–06:00 — very quiet, idle lines, long pauses
+  if (t >= 22 || t < 6) {
+    return {
+      intervalMin: 10000,
+      intervalMax: 25000,
+      burstChance: 0.05,
+      maxVisible: 5,
+      linePool: ["idle", "idle", "idle", "success", "info"],
+    };
+  }
+  // Early morning: 06:00–09:00 — warming up
+  if (t >= 6 && t < 9) {
+    return {
+      intervalMin: 5000,
+      intervalMax: 12000,
+      burstChance: 0.15,
+      maxVisible: 7,
+      linePool: ["idle", "success", "info", "info", "success"],
+    };
+  }
+  // Peak hours: 09:00–12:00 — busy morning
+  if (t >= 9 && t < 12) {
+    return {
+      intervalMin: 1200,
+      intervalMax: 3500,
+      burstChance: 0.45,
+      maxVisible: 12,
+      linePool: ["success", "info", "info", "warn", "success", "info"],
+    };
+  }
+  // Lunch dip: 12:00–13:30 — slightly less active
+  if (t >= 12 && t < 13.5) {
+    return {
+      intervalMin: 3000,
+      intervalMax: 7000,
+      burstChance: 0.2,
+      maxVisible: 8,
+      linePool: ["success", "info", "idle", "info", "success"],
+    };
+  }
+  // Afternoon peak: 13:30–18:00 — busy
+  if (t >= 13.5 && t < 18) {
+    return {
+      intervalMin: 1500,
+      intervalMax: 4000,
+      burstChance: 0.4,
+      maxVisible: 11,
+      linePool: ["success", "info", "info", "warn", "success", "info", "success"],
+    };
+  }
+  // Evening wind-down: 18:00–22:00 — decreasing
+  return {
+    intervalMin: 5000,
+    intervalMax: 12000,
+    burstChance: 0.15,
+    maxVisible: 7,
+    linePool: ["success", "info", "idle", "idle", "info", "success"],
+  };
+}
+
+/* Pick a random line weighted by activity pool */
+function pickLine(pool: LineType[]): typeof AI_LINES[number] {
+  const filtered = AI_LINES.filter((l) => pool.includes(l.type));
+  return filtered[Math.floor(Math.random() * filtered.length)];
+}
+
+/* Random interval in range */
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min);
+}
 
 export default function TrishulWorkspacePage() {
   const { data: session } = useSession();
@@ -162,37 +278,71 @@ export default function TrishulWorkspacePage() {
     return () => clearInterval(id);
   }, []);
 
-  /* ── Live AI Terminal Feed ── */
+  /* ── Live AI Terminal Feed (time-aware dynamic engine) ── */
   const [aiLogs, setAiLogs] = useState<typeof AI_LINES>([]);
   const feedRef = useRef<HTMLDivElement>(null);
-  const lineIdx = useRef(0);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const activityRef = useRef(getActivityLevel());
+
+  /* Periodically re-check activity level (every 60s) */
+  useEffect(() => {
+    if (!entered) return;
+    const check = setInterval(() => {
+      activityRef.current = getActivityLevel();
+    }, 60000);
+    return () => clearInterval(check);
+  }, [entered]);
 
   useEffect(() => {
     if (!entered) return;
-    // Start with 3 lines
-    const initial = AI_LINES.slice(0, 3);
-    setAiLogs(initial);
-    lineIdx.current = 3;
 
-    // Add new line every 2.5-4s
-    const addLine = () => {
-      const line = AI_LINES[lineIdx.current % AI_LINES.length];
-      lineIdx.current++;
-      setAiLogs((prev) => {
-        const next = [...prev, line];
-        // Keep max 12 lines visible
-        return next.length > 12 ? next.slice(-12) : next;
-      });
+    const activity = activityRef.current;
+    const startCount = Math.min(3, activity.maxVisible);
+    const initial: typeof AI_LINES = [];
+    for (let i = 0; i < startCount; i++) {
+      initial.push(pickLine(activity.linePool));
+    }
+    setAiLogs(initial);
+
+    /* Schedule the next line(s) with dynamic timing */
+    const scheduleNext = () => {
+      const a = activityRef.current;
+      // Occasionally inject a quiet pause (10% chance during non-peak)
+      const isQuietPause = Math.random() < 0.10 && a.intervalMin > 3000;
+      const delay = isQuietPause
+        ? randomBetween(a.intervalMax * 2, a.intervalMax * 3.5)
+        : randomBetween(a.intervalMin, a.intervalMax);
+
+      const tid = setTimeout(() => {
+        const currentActivity = activityRef.current;
+        // Determine burst size
+        let burstCount = 1;
+        if (Math.random() < currentActivity.burstChance) {
+          burstCount = Math.random() < 0.3 ? 3 : 2;
+        }
+        // For burst, stagger additions slightly
+        for (let b = 0; b < burstCount; b++) {
+          setTimeout(() => {
+            const line = pickLine(currentActivity.linePool);
+            setAiLogs((prev) => {
+              const next = [...prev, line];
+              return next.length > currentActivity.maxVisible
+                ? next.slice(-currentActivity.maxVisible)
+                : next;
+            });
+          }, b * (randomBetween(200, 600)));
+        }
+        scheduleNext();
+      }, delay);
+      timersRef.current.push(tid);
     };
 
-    const first = setTimeout(() => addLine(), 1500);
-    const interval = setInterval(() => {
-      addLine();
-    }, 2500 + Math.random() * 1500);
+    const firstTid = setTimeout(scheduleNext, 1200);
+    timersRef.current.push(firstTid);
 
     return () => {
-      clearTimeout(first);
-      clearInterval(interval);
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
     };
   }, [entered]);
 
@@ -404,6 +554,12 @@ export default function TrishulWorkspacePage() {
                     </span>
                     {line.type === "success" && (
                       <span className="ws-feed-check">&#10003;</span>
+                    )}
+                    {line.type === "warn" && (
+                      <span className="ws-feed-warn">&#9888;</span>
+                    )}
+                    {line.type === "idle" && (
+                      <span className="ws-feed-idle">···</span>
                     )}
                   </div>
                 ))}
@@ -1135,6 +1291,8 @@ export default function TrishulWorkspacePage() {
         }
         .ws-feed-prefix--info { color: var(--ws-accent-cyan); }
         .ws-feed-prefix--success { color: var(--ws-accent-green); }
+        .ws-feed-prefix--warn { color: #f59e0b; }
+        .ws-feed-prefix--idle { color: var(--ws-text-dim); }
 
         .ws-feed-msg {
           color: var(--ws-text-muted);
@@ -1146,6 +1304,26 @@ export default function TrishulWorkspacePage() {
           color: var(--ws-accent-green);
           font-size: 0.7rem;
           flex-shrink: 0;
+        }
+        .ws-feed-warn {
+          color: #f59e0b;
+          font-size: 0.7rem;
+          flex-shrink: 0;
+          animation: ws-warn-pulse 2s ease-in-out infinite;
+        }
+        @keyframes ws-warn-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        .ws-feed-idle {
+          color: var(--ws-text-dim);
+          font-size: 0.65rem;
+          flex-shrink: 0;
+          opacity: 0.6;
+        }
+        /* Dim the entire idle line slightly */
+        .ws-feed-line:has(.ws-feed-idle) .ws-feed-msg {
+          opacity: 0.5;
         }
 
         .ws-feed-line--cursor {
