@@ -58,7 +58,7 @@ interface DashboardData {
 interface Subscription {
   id: string;
   service: string;
-  rate: number;
+  amount: number;
   currency: string;
   frequency: string;
   status: string;
@@ -177,7 +177,7 @@ export default function FinancePage() {
   // Fix 1: Subscription form state (instead of FormData)
   const [subForm, setSubForm] = useState({
     service: "",
-    rate: "",
+    amount: "",
     currency: "INR",
     frequency: "MONTHLY",
     status: "ACTIVE",
@@ -446,7 +446,7 @@ export default function FinancePage() {
       setEditingSub(sub);
       setSubForm({
         service: sub.service || "",
-        rate: String(sub.rate) || "",
+        amount: String(sub.amount) || "",
         currency: sub.currency || "INR",
         frequency: sub.frequency || "MONTHLY",
         status: sub.status || "ACTIVE",
@@ -467,7 +467,7 @@ export default function FinancePage() {
   const handleSaveSubscription = async () => {
     const payload: Record<string, unknown> = {
       service: subForm.service,
-      rate: parseFloat(subForm.rate) || 0,
+      amount: parseFloat(subForm.amount) || 0,
       currency: subForm.currency || "INR",
       frequency: subForm.frequency || "MONTHLY",
       status: subForm.status,
@@ -983,7 +983,7 @@ export default function FinancePage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Service</TableHead>
-                        <TableHead>Rate</TableHead>
+                        <TableHead>Amount</TableHead>
                         <TableHead>Frequency</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Monthly INR</TableHead>
@@ -1007,7 +1007,7 @@ export default function FinancePage() {
                           </TableCell>
                           <TableCell className="text-sm">
                             <span className="font-medium">{CURRENCY_SYMBOLS[sub.currency] || ""}</span>
-                            <span className="ml-0.5">{sub.rate.toLocaleString("en-IN", { minimumFractionDigits: sub.currency === "INR" ? 0 : 2, maximumFractionDigits: sub.currency === "INR" ? 0 : 2 })}</span>
+                            <span className="ml-0.5">{sub.amount.toLocaleString("en-IN", { minimumFractionDigits: sub.currency === "INR" ? 0 : 2, maximumFractionDigits: sub.currency === "INR" ? 0 : 2 })}</span>
                             {sub.currency !== "INR" && sub.frequency !== "ONE_TIME" && (
                               <span className="text-[10px] text-muted-foreground block">1 {sub.currency} = ₹{CURRENCY_TO_INR[sub.currency]?.toFixed(2)}</span>
                             )}
@@ -1456,12 +1456,13 @@ export default function FinancePage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Rate *</Label>
+                <Label className="text-xs">Amount *</Label>
                 <Input
                   type="number"
                   step="0.01"
-                  value={subForm.rate}
-                  onChange={(e) => setSubForm((f) => ({ ...f, rate: e.target.value }))}
+                  value={subForm.amount}
+                  onChange={(e) => setSubForm((f) => ({ ...f, amount: e.target.value }))}
+                  placeholder="e.g., 10"
                 />
               </div>
               <div className="space-y-1">

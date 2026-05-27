@@ -13,11 +13,11 @@ const CURRENCY_TO_INR: Record<string, number> = {
   GBP: 105.5,
 }
 
-function getMonthlyINR(rate: number, currency: string, frequency: string): number {
-  const inrRate = rate * (CURRENCY_TO_INR[currency] || 1)
-  if (frequency === "YEARLY") return inrRate / 12
+function getMonthlyINR(amount: number, currency: string, frequency: string): number {
+  const inrAmount = amount * (CURRENCY_TO_INR[currency] || 1)
+  if (frequency === "YEARLY") return inrAmount / 12
   if (frequency === "ONE_TIME") return 0 // One-time doesn't count as monthly
-  return inrRate // MONTHLY
+  return inrAmount // MONTHLY
 }
 
 // GET /api/subscriptions - List subscriptions with filters
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
   // Compute monthly INR for each subscription
   const enriched = subscriptions.map((sub) => ({
     ...sub,
-    monthlyINR: getMonthlyINR(sub.rate, sub.currency, sub.frequency),
+    monthlyINR: getMonthlyINR(sub.amount, sub.currency, sub.frequency),
   }))
 
   // Compute total monthly cost of active subscriptions
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
   const subscription = await db.subscription.create({
     data: {
       service: data.service,
-      rate: data.rate,
+      amount: data.amount,
       currency: data.currency || "INR",
       frequency: data.frequency || "MONTHLY",
       status: data.status || "ACTIVE",

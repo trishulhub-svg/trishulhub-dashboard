@@ -772,7 +772,7 @@ model Expense {
 model Subscription {
   id          String    @id @default(cuid())
   service     String    // Service name e.g., "Google One UK", "AI API CODEX"
-  rate        Float     // Monthly/annual cost
+  amount      Float     // Cost per billing period (in the chosen currency)
   currency    String    @default("INR") // INR, GBP, USD
   frequency   String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
   status      String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED

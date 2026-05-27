@@ -248,7 +248,7 @@ export const updateMeetingSchema = z.object({
 // ━━ Subscriptions ━━
 export const createSubscriptionSchema = z.object({
   service: z.string().min(1, "Service name is required").max(200),
-  rate: z.number().min(0, "Rate must be positive"),
+  amount: z.number().min(0, "Amount must be positive"),
   currency: z.enum(["INR", "GBP", "USD"]).optional(),
   frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
   status: z.enum(["ACTIVE", "STOPPED", "COMPLETED"]).optional(),
@@ -262,7 +262,7 @@ export const createSubscriptionSchema = z.object({
 export const updateSubscriptionSchema = z.object({
   id: z.string().min(1),
   service: z.string().min(1).max(200).optional(),
-  rate: z.number().min(0).optional(),
+  amount: z.number().min(0).optional(),
   currency: z.enum(["INR", "GBP", "USD"]).optional(),
   frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
   status: z.enum(["ACTIVE", "STOPPED", "COMPLETED"]).optional(),

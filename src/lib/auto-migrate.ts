@@ -151,6 +151,21 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
+    // 1d. Rename Subscription.rate → Subscription.amount (column rename)
+    try {
+      const subCols = await db.$queryRawUnsafe(
+        `PRAGMA table_info("Subscription")`
+      ) as Array<{ name: string }>
+      const hasRate = subCols.some(c => c.name === "rate")
+      const hasAmount = subCols.some(c => c.name === "amount")
+      if (hasRate && !hasAmount) {
+        await db.$executeRawUnsafe(`ALTER TABLE "Subscription" RENAME COLUMN "rate" TO "amount"`)
+        console.log(`[auto-migrate] Renamed Subscription.rate → Subscription.amount`)
+      }
+    } catch (err: any) {
+      console.warn(`[auto-migrate] Subscription column rename: ${err?.message}`)
+    }
+
     // 2. Add missing columns to existing tables
     for (const colDef of CRITICAL_COLUMNS) {
       try {
