@@ -42,7 +42,10 @@ export async function GET(req: NextRequest) {
 
     const expenses = await db.expense.findMany({
       where,
-      include: { project: { select: { id: true, name: true, budget: true } } },
+      include: {
+        project: { select: { id: true, name: true, budget: true } },
+        employee: { select: { id: true, name: true } },
+      },
     })
 
     // Group by category

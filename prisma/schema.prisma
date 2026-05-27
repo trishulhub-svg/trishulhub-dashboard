@@ -49,6 +49,7 @@ model User {
   trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
   personalTimetableTasks PersonalTimetableTask[]
   timetableSettings      TimetableSettings?
+  expenses                Expense[]             @relation("ExpenseEmployee")
   protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
   protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
   protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
@@ -753,14 +754,18 @@ model Expense {
   date        DateTime
   receiptUrl  String?
   projectId   String?
+  employeeId   String?   // Employee associated with this expense (for salary tracking)
+  paymentRef   String?   // Payment reference number / transaction ID
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   project     Project? @relation(fields: [projectId], references: [id])
+  employee    User?    @relation("ExpenseEmployee", fields: [employeeId], references: [id])
 
   @@index([projectId])
   @@index([category])
   @@index([date])
+  @@index([employeeId])
 }
 
 // ━━ Subscriptions ━━

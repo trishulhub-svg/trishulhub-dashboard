@@ -57,7 +57,10 @@ export async function GET(req: NextRequest) {
     const [expenses, total] = await Promise.all([
       db.expense.findMany({
         where,
-        include: { project: { select: { id: true, name: true } } },
+        include: {
+          project: { select: { id: true, name: true } },
+          employee: { select: { id: true, name: true } },
+        },
         orderBy: { date: "desc" },
         skip: offset,
         take: limit,
@@ -109,13 +112,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    let body: { category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string }
+    let body: { category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string; employeeId?: string; paymentRef?: string }
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
-    const { category, description, amount, date, receiptUrl, projectId } = body
+    const { category, description, amount, date, receiptUrl, projectId, employeeId, paymentRef } = body
 
     if (!category || !description || amount === undefined) {
       return NextResponse.json({ error: "Category, description, and amount are required" }, { status: 400 })
@@ -156,8 +159,13 @@ export async function POST(req: NextRequest) {
         date: date ? new Date(date) : new Date(),
         receiptUrl: receiptUrl || null,
         projectId: projectId || null,
+        employeeId: employeeId || null,
+        paymentRef: paymentRef || null,
       },
-      include: { project: { select: { id: true, name: true } } },
+      include: {
+        project: { select: { id: true, name: true } },
+        employee: { select: { id: true, name: true } },
+      },
     })
     return NextResponse.json(expense)
   } catch {
@@ -184,7 +192,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    let body: { id?: string; category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string; [key: string]: unknown }
+    let body: { id?: string; category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string; employeeId?: string; paymentRef?: string; [key: string]: unknown }
     try {
       body = await req.json()
     } catch {
@@ -198,7 +206,7 @@ export async function PATCH(req: NextRequest) {
 
     const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
 
-    const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId"]
+    const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
     const sanitizedData: Record<string, unknown> = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
@@ -212,6 +220,10 @@ export async function PATCH(req: NextRequest) {
           sanitizedData[key] = new Date(data[key] as string)
         } else if (key === "projectId" && data[key] === "") {
           sanitizedData[key] = null
+        } else if (key === "employeeId" && data[key] === "") {
+          sanitizedData[key] = null
+        } else if (key === "paymentRef" && data[key] !== undefined) {
+          sanitizedData[key] = typeof data[key] === "string" && data[key].trim() === "" ? null : data[key]
         } else if (key === "category") {
           if (!validCategories.includes(data[key] as string)) {
             return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
@@ -251,7 +263,10 @@ export async function PATCH(req: NextRequest) {
         return tx.expense.update({
           where: { id },
           data: sanitizedData,
-          include: { project: { select: { id: true, name: true } } },
+          include: {
+            project: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
+          },
         })
       })
     } catch (error: unknown) {

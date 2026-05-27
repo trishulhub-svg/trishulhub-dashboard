@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -8,7 +8,7 @@ import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
-  CalendarDays, Filter, Receipt, FolderOpen, Tag,
+  Receipt, FolderOpen, Tag, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -77,6 +77,8 @@ interface ExpenseWithProject {
   amount: number;
   date: string;
   project?: { id: string; name: string } | null;
+  employee?: { id: string; name: string } | null;
+  paymentRef?: string | null;
 }
 
 interface CategoryStat {
@@ -91,6 +93,11 @@ interface ProjectStat {
   total: number;
   count: number;
   budget: number | null;
+}
+
+interface EmployeeOption {
+  id: string;
+  name: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -120,10 +127,27 @@ const CATEGORY_BADGE_COLORS: Record<string, string> = {
   OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 };
 
+const CATEGORY_CHART_COLORS: Record<string, string> = {
+  HOSTING: "#a855f7",
+  DOMAINS: "#3b82f6",
+  API_COSTS: "#ef4444",
+  TOOLS: "#06b6d4",
+  MARKETING: "#f97316",
+  SALARY: "#10b981",
+  SOFTWARE: "#6366f1",
+  OTHER: "#6b7280",
+};
+
 const SUB_STATUS_COLORS: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   STOPPED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
   COMPLETED: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+};
+
+const SUB_FREQUENCY_COLORS: Record<string, string> = {
+  MONTHLY: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  YEARLY: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  ONE_TIME: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 };
 
 const EXPENSE_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"];
@@ -159,13 +183,31 @@ export default function FinancePage() {
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
 
+  // Fix 1: Subscription form state (instead of FormData)
+  const [subForm, setSubForm] = useState({
+    service: "",
+    rate: "",
+    currency: "INR",
+    frequency: "MONTHLY",
+    status: "ACTIVE",
+    category: "",
+    projectId: "",
+    startDate: "",
+    endDate: "",
+    notes: "",
+  });
+
   // Expenses (for tab)
   const [expenses, setExpenses] = useState<ExpenseWithProject[]>([]);
   const [expLoading, setExpLoading] = useState(true);
   const [expSearch, setExpSearch] = useState("");
+  const [expSearchDebounced, setExpSearchDebounced] = useState("");
   const [expStartDate, setExpStartDate] = useState("");
   const [expEndDate, setExpEndDate] = useState("");
   const [expCategory, setExpCategory] = useState("");
+
+  // Fix 6: Search debounce timer ref
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stats
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
@@ -174,6 +216,26 @@ export default function FinancePage() {
 
   // Projects (for dropdown)
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+
+  // Fix 7: Employees (for expense form dropdown)
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+
+  // Fix 4: Interactive detail expansion for category/project tabs
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+
+  // Expense add dialog
+  const [expDialogOpen, setExpDialogOpen] = useState(false);
+  const [expForm, setExpForm] = useState({
+    category: "",
+    description: "",
+    amount: "",
+    date: "",
+    projectId: "",
+    employeeId: "",
+    paymentRef: "",
+    receiptUrl: "",
+  });
 
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
@@ -218,12 +280,12 @@ export default function FinancePage() {
     }
   }, [router]);
 
-  // ─── Fetch expenses with filters ────
+  // ─── Fetch expenses with filters (Fix 5: proper response parsing) ────
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
       setExpLoading(true);
       const params = new URLSearchParams();
-      if (expSearch) params.set("search", expSearch);
+      if (expSearchDebounced) params.set("search", expSearchDebounced);
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
@@ -231,7 +293,9 @@ export default function FinancePage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const raw = await res.json();
-        setExpenses(deepSanitize<ExpenseWithProject[]>(Array.isArray(raw) ? raw : []));
+        // Fix 5: API returns { data: [...], total, ... }, not a raw array
+        const arr = Array.isArray(raw) ? raw : (raw.data || raw.expenses || []);
+        setExpenses(deepSanitize<ExpenseWithProject[]>(arr));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -239,7 +303,7 @@ export default function FinancePage() {
     } finally {
       setExpLoading(false);
     }
-  }, [expSearch, expStartDate, expEndDate, expCategory, router]);
+  }, [expSearchDebounced, expStartDate, expEndDate, expCategory, router]);
 
   // ─── Fetch expense stats ────
   const fetchStats = useCallback(async (signal?: AbortSignal) => {
@@ -269,7 +333,7 @@ export default function FinancePage() {
       if (res.ok) {
         const json = await res.json();
         const arr = Array.isArray(json) ? json : (json.projects || json.data || []);
-        setProjects(arr.map((p: any) => ({ id: p.id, name: p.name })));
+        setProjects(arr.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -277,12 +341,45 @@ export default function FinancePage() {
     }
   }, [router]);
 
-  // Re-fetch expenses and stats when filters change (separate from initial load)
+  // ─── Fetch employees for expense form dropdown (Fix 7) ────
+  const fetchEmployees = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch("/api/users", { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        const json = await res.json();
+        const arr = Array.isArray(json) ? json : (json.users || json.data || []);
+        // Filter to non-admin users only (exclude SUPER_ADMIN and ADMIN)
+        const filtered = arr.filter(
+          (u: { role?: string; id?: string; name?: string }) =>
+            u.role && u.role !== "SUPER_ADMIN" && u.role !== "ADMIN"
+        );
+        setEmployees(filtered.map((u: { id: string; name: string }) => ({ id: u.id, name: u.name })));
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error(err);
+    }
+  }, [router]);
+
+  // Fix 6: Debounced search (300ms)
+  useEffect(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    searchTimerRef.current = setTimeout(() => {
+      setExpSearchDebounced(expSearch);
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [expSearch]);
+
+  // Re-fetch expenses and stats when filters change
   useEffect(() => {
     const controller = new AbortController();
-    const signal = controller.signal;
-    fetchExpenses(signal);
-    fetchStats(signal);
+    fetchExpenses(controller.signal);
+    fetchStats(controller.signal);
     return () => controller.abort();
   }, [fetchExpenses, fetchStats]);
 
@@ -293,27 +390,64 @@ export default function FinancePage() {
     fetchData(signal);
     fetchSubscriptions(signal);
     fetchProjects(signal);
+    fetchEmployees(signal);
     fetchExpenses(signal);
     fetchStats(signal);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Subscription handlers ────
-  const handleSaveSubscription = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const payload = {
-      service: form.get("service") as string,
-      rate: parseFloat(form.get("rate") as string) || 0,
-      currency: form.get("currency") as string || "INR",
-      frequency: form.get("frequency") as string || "MONTHLY",
-      status: editingSub ? undefined : "ACTIVE",
-      category: (form.get("category") as string) || undefined,
-      projectId: (form.get("projectId") as string) === "NONE" ? undefined : (form.get("projectId") as string) || undefined,
-      startDate: (form.get("startDate") as string) || undefined,
-      endDate: (form.get("endDate") as string) || undefined,
-      notes: (form.get("notes") as string) || undefined,
+  // ─── Subscription form helpers (Fix 1: state-based form) ────
+  const resetSubForm = useCallback(() => {
+    setSubForm({
+      service: "",
+      rate: "",
+      currency: "INR",
+      frequency: "MONTHLY",
+      status: "ACTIVE",
+      category: "",
+      projectId: "",
+      startDate: "",
+      endDate: "",
+      notes: "",
+    });
+  }, []);
+
+  const openSubDialog = useCallback((sub?: Subscription | null) => {
+    if (sub) {
+      setEditingSub(sub);
+      setSubForm({
+        service: sub.service || "",
+        rate: String(sub.rate) || "",
+        currency: sub.currency || "INR",
+        frequency: sub.frequency || "MONTHLY",
+        status: sub.status || "ACTIVE",
+        category: sub.category || "",
+        projectId: sub.projectId || "",
+        startDate: sub.startDate ? new Date(sub.startDate).toISOString().split("T")[0] : "",
+        endDate: sub.endDate ? new Date(sub.endDate).toISOString().split("T")[0] : "",
+        notes: sub.notes || "",
+      });
+    } else {
+      setEditingSub(null);
+      resetSubForm();
+    }
+    setSubDialogOpen(true);
+  }, [resetSubForm]);
+
+  // Fix 1 & Fix 2: handleSaveSubscription uses state instead of FormData, includes status
+  const handleSaveSubscription = async () => {
+    const payload: Record<string, unknown> = {
+      service: subForm.service,
+      rate: parseFloat(subForm.rate) || 0,
+      currency: subForm.currency || "INR",
+      frequency: subForm.frequency || "MONTHLY",
+      status: subForm.status,
+      category: subForm.category || undefined,
+      projectId: subForm.projectId === "" ? undefined : subForm.projectId || undefined,
+      startDate: subForm.startDate || undefined,
+      endDate: subForm.endDate || undefined,
+      notes: subForm.notes || undefined,
     };
 
     try {
@@ -352,6 +486,46 @@ export default function FinancePage() {
     }
   };
 
+  // ─── Expense add handler (Fix 7: includes employeeId + paymentRef) ────
+  const handleAddExpense = async () => {
+    const payload: Record<string, unknown> = {
+      category: expForm.category,
+      description: expForm.description,
+      amount: parseFloat(expForm.amount) || 0,
+      date: expForm.date || new Date().toISOString().split("T")[0],
+      projectId: expForm.projectId || undefined,
+      employeeId: expForm.employeeId || undefined,
+      paymentRef: expForm.paymentRef || undefined,
+      receiptUrl: expForm.receiptUrl || undefined,
+    };
+
+    if (!payload.category || !payload.description || !payload.amount) {
+      toast.error("Category, description, and amount are required");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        toast.success("Expense added");
+        setExpDialogOpen(false);
+        setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" });
+        fetchExpenses();
+        fetchStats();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to add expense");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    }
+  };
+
   const handleToggleSubscription = async (sub: Subscription) => {
     const newStatus = sub.status === "ACTIVE" ? "STOPPED" : "ACTIVE";
     try {
@@ -374,7 +548,6 @@ export default function FinancePage() {
     setPendingDelete({ type: "subscription", id });
   };
 
-  // ─── Expense delete handler ────
   const handleDeleteExpense = async (id: string) => {
     setPendingDelete({ type: "expense", id });
   };
@@ -385,26 +558,49 @@ export default function FinancePage() {
       try {
         const res = await fetch(`/api/subscriptions/${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
         if (res.ok) { toast.success("Subscription deleted"); fetchSubscriptions(); }
-        else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete subscription"); }
+        else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete subscription"); }
       } catch { toast.error("Failed to delete subscription"); }
     } else if (pendingDelete.type === "expense") {
       try {
         const res = await fetch(`/api/expenses?id=${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
         if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); }
-        else { const data = await res.json().catch(() => ({})); toast.error(data.error || "Failed to delete expense"); }
+        else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete expense"); }
       } catch { toast.error("Failed to delete expense"); }
     }
     setPendingDelete(null);
   };
 
-  // ─── Role guard (useEffect-based to avoid hydration flash) ────
+  // ─── Role guard ────
   useEffect(() => {
     if (status === "authenticated" && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       router.push("/dashboard");
     }
   }, [status, router, userRole]);
 
-  // ─── Session loading guard (before role guard to avoid flash) ────
+  // ─── Fix 3: Sorted subscriptions (active first, then stopped/completed) ────
+  const sortedSubscriptions = useMemo(() => {
+    const active = subscriptions
+      .filter((s) => s.status === "ACTIVE")
+      .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+    const inactive = subscriptions
+      .filter((s) => s.status !== "ACTIVE")
+      .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+    return [...active, ...inactive];
+  }, [subscriptions]);
+
+  // ─── Fix 4: Filtered expenses for category/project detail views ────
+  const expensesForCategory = useMemo(() => {
+    if (!selectedCategory) return [];
+    return expenses.filter((e) => e.category === selectedCategory);
+  }, [expenses, selectedCategory]);
+
+  const expensesForProject = useMemo(() => {
+    if (!selectedProject) return [];
+    if (selectedProject === "unassigned") return expenses.filter((e) => !e.project?.id);
+    return expenses.filter((e) => e.project?.id === selectedProject);
+  }, [expenses, selectedProject]);
+
+  // ─── Session loading guard ────
   if (status === "loading") {
     return (
       <div className="space-y-4">
@@ -438,7 +634,7 @@ export default function FinancePage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Finance Dashboard</h1>
-          <p className="text-muted-foreground text-sm">Track revenue, invoices, expenses & subscriptions</p>
+          <p className="text-muted-foreground text-sm">Track revenue, invoices, expenses &amp; subscriptions</p>
         </div>
         <Card className="border-l-4 border-l-red-500">
           <CardContent className="p-6">
@@ -462,12 +658,12 @@ export default function FinancePage() {
   const invoices = data.invoices || [];
   const recentInvoices = invoices.slice(0, 5);
 
-  // ─── Revenue chart data (preserved from original) ────
+  // ─── Revenue chart data ────
   const expenseData = [
     { name: "API Costs", value: stats.totalApiSpend, color: "#ef4444" },
     { name: "Expenses", value: stats.totalExpenses, color: "#f59e0b" },
     { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
-  ].filter(d => d.value > 0);
+  ].filter((d) => d.value > 0);
 
   const expenseItems = data.expenses || [];
   const now = new Date();
@@ -521,6 +717,9 @@ export default function FinancePage() {
   const totalCosts = totalManualExpenses + totalSubscriptionMonthly;
   const netProfit = totalRevenue - totalCosts;
 
+  // Total of currently displayed expenses
+  const displayedExpTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -535,9 +734,9 @@ export default function FinancePage() {
         </div>
       </PageHeader>
 
-      {/* ─── Top Summary Cards ──── */}
+      {/* ─── Fix 8: Top Summary Cards with hover animations ──── */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-green-500">
+        <Card className="border-l-4 border-l-green-500 transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -550,7 +749,7 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-red-500">
+        <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -563,7 +762,7 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-orange-500">
+        <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -576,7 +775,7 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className={`border-l-4 ${netProfit >= 0 ? "border-l-emerald-500" : "border-l-red-600"}`}>
+        <Card className={`border-l-4 ${netProfit >= 0 ? "border-l-emerald-500" : "border-l-red-600"} transition-shadow hover:shadow-md`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -593,21 +792,21 @@ export default function FinancePage() {
         </Card>
       </div>
 
-      {/* ─── Tab Navigation ──── */}
+      {/* ─── Fix 8: Reordered Tabs ──── */}
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="expenses">All Expenses</TabsTrigger>
           <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+          <TabsTrigger value="expenses">All Expenses</TabsTrigger>
           <TabsTrigger value="category">By Category</TabsTrigger>
           <TabsTrigger value="project">By Project</TabsTrigger>
         </TabsList>
 
-        {/* ─── Overview Tab (preserved from original) ──── */}
-        <TabsContent value="overview" className="space-y-4">
+        {/* ─── Overview Tab ──── */}
+        <TabsContent value="overview" className="space-y-6">
           {/* Quick Stats Row */}
           <div className="grid gap-4 md:grid-cols-3">
-            <Card>
+            <Card className="transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -620,7 +819,7 @@ export default function FinancePage() {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -633,7 +832,7 @@ export default function FinancePage() {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -648,9 +847,8 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2">
             {/* Revenue Chart */}
-            {/* Note: Revenue chart displays in INR as invoices are denominated in INR */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Revenue Trend</CardTitle>
@@ -662,7 +860,7 @@ export default function FinancePage() {
                     <BarChart data={revenueData}>
                       <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                       <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
                       <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Revenue"]} />
                       <Bar dataKey="revenue" fill="hsl(25, 80%, 50%)" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -681,16 +879,16 @@ export default function FinancePage() {
                   {expenseData.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No financial data yet</p>
                   ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ₹${(value / 1000).toFixed(0)}k`}>
-                        {expenseData.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`]} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }: { name: string; value: number }) => `${name}: ₹${(value / 1000).toFixed(0)}k`}>
+                          {expenseData.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`]} />
+                      </PieChart>
+                    </ResponsiveContainer>
                   )}
                 </div>
               </CardContent>
@@ -713,7 +911,7 @@ export default function FinancePage() {
                   <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
                 ) : (
                   recentInvoices.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
+                    <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-3">
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                         <div>
@@ -733,7 +931,131 @@ export default function FinancePage() {
           </Card>
         </TabsContent>
 
-        {/* ─── All Expenses Tab ──── */}
+        {/* ─── Subscriptions Tab (Fix 3: sorted, Fix 8: redesigned) ──── */}
+        <TabsContent value="subscriptions" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                {subscriptions.filter((s) => s.status === "ACTIVE").length} active of {subscriptions.length} total
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => openSubDialog(null)}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add Subscription
+            </Button>
+          </div>
+
+          <Card>
+            <CardContent className="p-0">
+              {subLoading ? (
+                <div className="p-4 space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : sortedSubscriptions.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <CreditCard className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                  <p>No subscriptions yet</p>
+                  <p className="text-xs">Add your first recurring subscription to track monthly costs</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Service</TableHead>
+                        <TableHead>Rate</TableHead>
+                        <TableHead>Frequency</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Monthly INR</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedSubscriptions.map((sub) => (
+                        <TableRow key={sub.id} className={sub.status !== "ACTIVE" ? "opacity-60" : ""}>
+                          <TableCell>
+                            <div>
+                              <p className="text-sm font-medium">{safeText(sub.service, "")}</p>
+                              {sub.category && (
+                                <Badge className={`text-[10px] mr-1 ${CATEGORY_BADGE_COLORS[sub.category] || ""}`}>
+                                  {safeText(sub.category, "").replace("_", " ")}
+                                </Badge>
+                              )}
+                              {sub.project && <p className="text-xs text-muted-foreground mt-0.5">{safeText(sub.project.name, "")}</p>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {CURRENCY_SYMBOLS[sub.currency] || sub.currency}{sub.rate.toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={`text-[10px] ${SUB_FREQUENCY_COLORS[sub.frequency] || ""}`}>
+                              {safeText(sub.frequency, "")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(safeNumber(sub.monthlyINR))}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => openSubDialog(sub)}
+                                aria-label="Edit subscription"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => handleToggleSubscription(sub)}
+                                title={sub.status === "ACTIVE" ? "Pause" : "Resume"}
+                                aria-label={sub.status === "ACTIVE" ? "Pause subscription" : "Resume subscription"}
+                              >
+                                {sub.status === "ACTIVE" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-red-500"
+                                onClick={() => handleDeleteSubscription(sub.id)}
+                                aria-label="Delete subscription"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Total Monthly Cost Card */}
+          {subscriptions.length > 0 && (
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Total Active Monthly Cost</p>
+                    <p className="text-xs text-muted-foreground">Based on {subscriptions.filter((s) => s.status === "ACTIVE").length} active subscriptions</p>
+                  </div>
+                  <p className="text-xl font-bold text-orange-600">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ─── All Expenses Tab (Fix 8: summary card, alternating rows, search debounce) ──── */}
         <TabsContent value="expenses" className="space-y-4">
           {/* Filters */}
           <Card>
@@ -779,12 +1101,27 @@ export default function FinancePage() {
                 >
                   Clear
                 </Button>
-                <Button size="sm" onClick={() => router.push("/dashboard/finance/expenses")}>
+                <Button size="sm" onClick={() => setExpDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-1" /> Add Expense
                 </Button>
               </div>
             </CardContent>
           </Card>
+
+          {/* Total Expenses Summary */}
+          {!expLoading && expenses.length > 0 && (
+            <Card className="border-l-4 border-l-red-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Total Displayed Expenses</p>
+                    <p className="text-xs text-muted-foreground">{expenses.length} expense(s) found</p>
+                  </div>
+                  <p className="text-xl font-bold text-red-600">{formatCurrency(safeNumber(displayedExpTotal))}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Expenses Table */}
           <Card>
@@ -794,162 +1131,63 @@ export default function FinancePage() {
                   {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
                 </div>
               ) : expenses.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">No expenses found</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-right">Amount (INR)</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {expenses.map((exp) => (
-                      <TableRow key={exp.id}>
-                        <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
-                        <TableCell>
-                          <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
-                            {safeText(exp.category, "").replace("_", " ")}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm">{exp.project ? safeText(exp.project.name, "—") : "—"}</TableCell>
-                        <TableCell className="text-sm max-w-[200px] truncate">{safeText(exp.description, "")}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)} aria-label="Delete expense">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── Subscriptions Tab ──── */}
-        <TabsContent value="subscriptions" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">
-                {subscriptions.filter((s) => s.status === "ACTIVE").length} active subscription(s)
-              </p>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => { setEditingSub(null); setSubDialogOpen(true); }}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add Subscription
-            </Button>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              {subLoading ? (
-                <div className="p-4 space-y-2">
-                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
-                </div>
-              ) : subscriptions.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
-                  <CreditCard className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>No subscriptions yet</p>
-                  <p className="text-xs">Add your first recurring subscription to track monthly costs</p>
+                  {expSearchDebounced ? "No expenses match your search" : "No expenses found"}
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Rate</TableHead>
-                      <TableHead>Frequency</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Monthly INR</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {subscriptions.map((sub) => (
-                      <TableRow key={sub.id}>
-                        <TableCell>
-                          <div>
-                            <p className="text-sm font-medium">{safeText(sub.service, "")}</p>
-                            {sub.category && <p className="text-xs text-muted-foreground">{safeText(sub.category, "")}</p>}
-                            {sub.project && <p className="text-xs text-muted-foreground">{safeText(sub.project.name, "")}</p>}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {CURRENCY_SYMBOLS[sub.currency] || sub.currency}{sub.rate.toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-[10px]">{safeText(sub.frequency, "")}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(safeNumber(sub.monthlyINR))}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => { setEditingSub(sub); setSubDialogOpen(true); }}
-                              aria-label="Edit subscription"
-                            >
-                              <Edit3 className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleToggleSubscription(sub)}
-                              title={sub.status === "ACTIVE" ? "Pause" : "Resume"}
-                              aria-label={sub.status === "ACTIVE" ? "Pause subscription" : "Resume subscription"}
-                            >
-                              {sub.status === "ACTIVE" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-500"
-                              onClick={() => handleDeleteSubscription(sub.id)}
-                              aria-label="Delete subscription"
-                            >
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Project</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead className="text-right">Amount (INR)</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {expenses.map((exp, idx) => (
+                        <TableRow key={exp.id} className={idx % 2 === 1 ? "bg-muted/30" : ""}>
+                          <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
+                          <TableCell>
+                            <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
+                              {safeText(exp.category, "").replace("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">{exp.project ? safeText(exp.project.name, "—") : "—"}</TableCell>
+                          <TableCell className="text-sm max-w-[200px] truncate">
+                            {safeText(exp.description, "")}
+                            {exp.paymentRef && (
+                              <span className="text-xs text-muted-foreground block">Ref: {safeText(exp.paymentRef, "")}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)} aria-label="Delete expense">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
-
-          {/* Total Monthly Cost */}
-          {subscriptions.length > 0 && (
-            <Card className="border-l-4 border-l-orange-500">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">Total Active Monthly Cost</p>
-                  <p className="text-xl font-bold text-orange-600">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
-        {/* ─── By Category Tab ──── */}
+        {/* ─── By Category Tab (Fix 4: interactive detail expansion, Fix 8: progress + percentage) ──── */}
         <TabsContent value="category" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">{categoryStats.length} categories • Total: {formatCurrency(safeNumber(statsTotal))}</p>
+            <p className="text-sm text-muted-foreground">{categoryStats.length} categories &bull; Total: {formatCurrency(safeNumber(statsTotal))}</p>
+            {selectedCategory && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)}>
+                Collapse All
+              </Button>
+            )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {categoryStats.length === 0 ? (
@@ -958,32 +1196,84 @@ export default function FinancePage() {
                 <p>No expense categories yet</p>
               </div>
             ) : (
-              categoryStats.map((cat) => (
-                <Card key={cat.category} className={`border-l-4 ${CATEGORY_COLORS[cat.category] || "border-l-gray-500"}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold text-sm">{safeText(cat.category, "").replace(/_/g, " ")}</h3>
-                      <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[cat.category] || ""}`}>{safeNumber(cat.count)}</Badge>
-                    </div>
-                    <p className="text-2xl font-bold">{formatCurrency(safeNumber(cat.total))}</p>
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>% of total</span>
-                        <span>{statsTotal > 0 ? ((cat.total / statsTotal) * 100).toFixed(1) : 0}%</span>
-                      </div>
-                      <Progress value={statsTotal > 0 ? (cat.total / statsTotal) * 100 : 0} className="mt-1 h-1.5" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
+              categoryStats.map((cat) => {
+                const pct = statsTotal > 0 ? ((cat.total / statsTotal) * 100) : 0;
+                const isExpanded = selectedCategory === cat.category;
+                const catExpenses = isExpanded ? expensesForCategory : [];
+                return (
+                  <div key={cat.category} className="space-y-0">
+                    <Card
+                      className={`border-l-4 cursor-pointer transition-shadow hover:shadow-md ${CATEGORY_COLORS[cat.category] || "border-l-gray-500"}`}
+                      onClick={() => setSelectedCategory(isExpanded ? null : cat.category)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-sm">{safeText(cat.category, "").replace(/_/g, " ")}</h3>
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </div>
+                          <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[cat.category] || ""}`}>{safeNumber(cat.count)}</Badge>
+                        </div>
+                        <p className="text-2xl font-bold">{formatCurrency(safeNumber(cat.total))}</p>
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>% of total</span>
+                            <span>{pct.toFixed(1)}%</span>
+                          </div>
+                          <Progress value={pct} className="mt-1 h-1.5" />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Fix 4: Expandable detail section */}
+                    {isExpanded && catExpenses.length > 0 && (
+                      <Card className="rounded-t-none border-t-0">
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {catExpenses.length} expense(s) &bull; Total: {formatCurrency(safeNumber(catExpenses.reduce((s, e) => s + (e.amount || 0), 0)))}
+                            </p>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); setSelectedCategory(null); }}>
+                              Collapse
+                            </Button>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {catExpenses.map((exp) => (
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium truncate">{safeText(exp.description, "")}</p>
+                                  <p className="text-muted-foreground">{formatDate(safeText(exp.date, ""))}{exp.project ? ` • ${safeText(exp.project.name, "")}` : ""}</p>
+                                </div>
+                                <span className="font-medium ml-2 shrink-0">{formatCurrency(safeNumber(exp.amount))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {isExpanded && catExpenses.length === 0 && (
+                      <Card className="rounded-t-none border-t-0">
+                        <CardContent className="p-3">
+                          <p className="text-xs text-muted-foreground text-center py-2">No individual expense records in this view. Try adjusting date filters.</p>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </TabsContent>
 
-        {/* ─── By Project Tab ──── */}
+        {/* ─── By Project Tab (Fix 4: interactive detail expansion) ──── */}
         <TabsContent value="project" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">{projectStats.length} project(s) • Total: {formatCurrency(safeNumber(statsTotal))}</p>
+            <p className="text-sm text-muted-foreground">{projectStats.length} project(s) &bull; Total: {formatCurrency(safeNumber(statsTotal))}</p>
+            {selectedProject && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedProject(null)}>
+                Collapse All
+              </Button>
+            )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projectStats.length === 0 ? (
@@ -995,30 +1285,80 @@ export default function FinancePage() {
               projectStats.map((proj) => {
                 const budgetPct = proj.budget && proj.budget > 0 ? Math.min((proj.total / proj.budget) * 100, 100) : 0;
                 const isOverBudget = proj.budget ? proj.total > proj.budget : false;
+                const projKey = proj.projectId || "unassigned";
+                const isExpanded = selectedProject === projKey;
+                const projExpenses = isExpanded ? expensesForProject : [];
                 return (
-                  <Card key={proj.projectId || "unassigned"} className={`border-l-4 ${isOverBudget ? "border-l-red-500" : "border-l-emerald-500"}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-sm truncate max-w-[180px]">{safeText(proj.projectName, "")}</h3>
-                        <Badge variant="outline" className="text-[10px]">{safeNumber(proj.count)} entries</Badge>
-                      </div>
-                      <p className="text-2xl font-bold">{formatCurrency(safeNumber(proj.total))}</p>
-                      {proj.budget ? (
-                        <div className="mt-2">
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>Budget: {formatCurrency(safeNumber(proj.budget))}</span>
-                            <span className={isOverBudget ? "text-red-500 font-medium" : ""}>{budgetPct.toFixed(0)}%</span>
+                  <div key={projKey} className="space-y-0">
+                    <Card
+                      className={`border-l-4 cursor-pointer transition-shadow hover:shadow-md ${isOverBudget ? "border-l-red-500" : "border-l-emerald-500"}`}
+                      onClick={() => setSelectedProject(isExpanded ? null : projKey)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-sm truncate max-w-[180px]">{safeText(proj.projectName, "")}</h3>
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                           </div>
-                          <Progress value={budgetPct} className={`mt-1 h-1.5 ${isOverBudget ? "[&>div]:bg-red-500" : ""}`} />
-                          {isOverBudget && (
-                            <p className="text-xs text-red-500 mt-1">Over budget by {formatCurrency(safeNumber(proj.total) - safeNumber(proj.budget))}</p>
-                          )}
+                          <Badge variant="outline" className="text-[10px]">{safeNumber(proj.count)} entries</Badge>
                         </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground mt-2">No budget set</p>
-                      )}
-                    </CardContent>
-                  </Card>
+                        <p className="text-2xl font-bold">{formatCurrency(safeNumber(proj.total))}</p>
+                        {proj.budget ? (
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Budget: {formatCurrency(safeNumber(proj.budget))}</span>
+                              <span className={isOverBudget ? "text-red-500 font-medium" : ""}>{budgetPct.toFixed(0)}%</span>
+                            </div>
+                            <Progress value={budgetPct} className={`mt-1 h-1.5 ${isOverBudget ? "[&>div]:bg-red-500" : ""}`} />
+                            {isOverBudget && (
+                              <p className="text-xs text-red-500 mt-1">Over budget by {formatCurrency(safeNumber(proj.total) - safeNumber(proj.budget))}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-2">No budget set</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Fix 4: Expandable detail section */}
+                    {isExpanded && projExpenses.length > 0 && (
+                      <Card className="rounded-t-none border-t-0">
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {projExpenses.length} expense(s) &bull; Total: {formatCurrency(safeNumber(projExpenses.reduce((s, e) => s + (e.amount || 0), 0)))}
+                            </p>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); setSelectedProject(null); }}>
+                              Collapse
+                            </Button>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {projExpenses.map((exp) => (
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium truncate">{safeText(exp.description, "")}</p>
+                                  <p className="text-muted-foreground">
+                                    {formatDate(safeText(exp.date, ""))}
+                                    <Badge className={`text-[9px] ml-1 ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
+                                      {safeText(exp.category, "").replace("_", " ")}
+                                    </Badge>
+                                  </p>
+                                </div>
+                                <span className="font-medium ml-2 shrink-0">{formatCurrency(safeNumber(exp.amount))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {isExpanded && projExpenses.length === 0 && (
+                      <Card className="rounded-t-none border-t-0">
+                        <CardContent className="p-3">
+                          <p className="text-xs text-muted-foreground text-center py-2">No individual expense records in this view. Try adjusting date filters.</p>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
                 );
               })
             )}
@@ -1026,26 +1366,35 @@ export default function FinancePage() {
         </TabsContent>
       </Tabs>
 
-      {/* ─── Subscription Dialog ──── */}
+      {/* ─── Subscription Dialog (Fix 1: state-based, Fix 2: status field) ──── */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingSub ? "Edit Subscription" : "Add Subscription"}</DialogTitle>
             <DialogDescription>{editingSub ? "Update subscription details." : "Add a new recurring subscription."}</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSaveSubscription} className="space-y-3">
+          <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">Service Name *</Label>
-              <Input name="service" required defaultValue={editingSub?.service || ""} placeholder="e.g., Google One UK" />
+              <Input
+                value={subForm.service}
+                onChange={(e) => setSubForm((f) => ({ ...f, service: e.target.value }))}
+                placeholder="e.g., Google One UK"
+              />
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Rate *</Label>
-                <Input name="rate" type="number" step="0.01" required defaultValue={editingSub?.rate || ""} />
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={subForm.rate}
+                  onChange={(e) => setSubForm((f) => ({ ...f, rate: e.target.value }))}
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Currency</Label>
-                <Select name="currency" defaultValue={editingSub?.currency || "INR"}>
+                <Select value={subForm.currency} onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="INR">INR ₹</SelectItem>
@@ -1056,7 +1405,7 @@ export default function FinancePage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Frequency</Label>
-                <Select name="frequency" defaultValue={editingSub?.frequency || "MONTHLY"}>
+                <Select value={subForm.frequency} onValueChange={(v) => setSubForm((f) => ({ ...f, frequency: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="MONTHLY">Monthly</SelectItem>
@@ -1066,10 +1415,22 @@ export default function FinancePage() {
                 </Select>
               </div>
             </div>
+            {/* Fix 2: Status dropdown */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
+                <Label className="text-xs">Status</Label>
+                <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="STOPPED">Stopped</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
                 <Label className="text-xs">Category</Label>
-                <Select name="category" defaultValue={editingSub?.category || ""}>
+                <Select value={subForm.category} onValueChange={(v) => setSubForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="SOFTWARE">Software</SelectItem>
@@ -1083,9 +1444,104 @@ export default function FinancePage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Project</Label>
+              <Select value={subForm.projectId} onValueChange={(v) => setSubForm((f) => ({ ...f, projectId: v }))}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">None</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Start Date</Label>
+                <Input
+                  type="date"
+                  value={subForm.startDate}
+                  onChange={(e) => setSubForm((f) => ({ ...f, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">End Date</Label>
+                <Input
+                  type="date"
+                  value={subForm.endDate}
+                  onChange={(e) => setSubForm((f) => ({ ...f, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Notes</Label>
+              <Input
+                value={subForm.notes}
+                onChange={(e) => setSubForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Optional notes"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button type="button" variant="outline" onClick={() => { setSubDialogOpen(false); setEditingSub(null); }}>Cancel</Button>
+              <Button type="button" onClick={handleSaveSubscription}>{editingSub ? "Update" : "Add"} Subscription</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Expense Add Dialog (Fix 7: employeeId + paymentRef) ──── */}
+      <Dialog open={expDialogOpen} onOpenChange={(open) => { setExpDialogOpen(open); if (!open) setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" }); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Expense</DialogTitle>
+            <DialogDescription>Add a new expense record with optional employee and payment reference.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Category *</Label>
+                <Select value={expForm.category} onValueChange={(v) => setExpForm((f) => ({ ...f, category: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat.replace("_", " ")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Amount (INR) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={expForm.amount}
+                  onChange={(e) => setExpForm((f) => ({ ...f, amount: e.target.value }))}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Description *</Label>
+              <Input
+                value={expForm.description}
+                onChange={(e) => setExpForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="What was this expense for?"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Date</Label>
+                <Input
+                  type="date"
+                  value={expForm.date}
+                  onChange={(e) => setExpForm((f) => ({ ...f, date: e.target.value }))}
+                />
+              </div>
               <div className="space-y-1">
                 <Label className="text-xs">Project</Label>
-                <Select name="projectId" defaultValue={editingSub?.projectId || ""}>
+                <Select value={expForm.projectId} onValueChange={(v) => setExpForm((f) => ({ ...f, projectId: v }))}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="NONE">None</SelectItem>
@@ -1098,25 +1554,42 @@ export default function FinancePage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Start Date</Label>
-                <Input name="startDate" type="date" defaultValue={editingSub?.startDate ? new Date(editingSub.startDate).toISOString().split("T")[0] : ""} />
+                <Label className="text-xs">Employee</Label>
+                <Select value={expForm.employeeId} onValueChange={(v) => setExpForm((f) => ({ ...f, employeeId: v }))}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">None</SelectItem>
+                    {employees.map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">End Date</Label>
-                <Input name="endDate" type="date" defaultValue={editingSub?.endDate ? new Date(editingSub.endDate).toISOString().split("T")[0] : ""} />
+                <Label className="text-xs">Payment Ref</Label>
+                <Input
+                  value={expForm.paymentRef}
+                  onChange={(e) => setExpForm((f) => ({ ...f, paymentRef: e.target.value }))}
+                  placeholder="Transaction ID / reference"
+                />
               </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Notes</Label>
-              <Input name="notes" defaultValue={editingSub?.notes || ""} placeholder="Optional notes" />
+              <Label className="text-xs">Receipt URL</Label>
+              <Input
+                value={expForm.receiptUrl}
+                onChange={(e) => setExpForm((f) => ({ ...f, receiptUrl: e.target.value }))}
+                placeholder="https://..."
+              />
             </div>
             <div className="flex gap-2 justify-end pt-2">
-              <Button type="button" variant="outline" onClick={() => { setSubDialogOpen(false); setEditingSub(null); }}>Cancel</Button>
-              <Button type="submit">{editingSub ? "Update" : "Add"} Subscription</Button>
+              <Button type="button" variant="outline" onClick={() => setExpDialogOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={handleAddExpense}>Add Expense</Button>
             </div>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null) }}>
         <AlertDialogContent>
