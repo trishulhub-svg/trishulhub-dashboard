@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       hasCode: !!code,
-      code: "", // never return raw code to frontend
+      code: code,
       codeMasked: code ? "••••••••" : "",
       updatedAt: row.updatedAt || null,
     });
