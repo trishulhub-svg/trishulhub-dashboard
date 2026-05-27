@@ -1334,9 +1334,9 @@ export default function FinancePage() {
                     )}
                   </motion.div>
                 );
-              })
-              )}
+              })}
               </AnimatePresence>
+            )}
           </div>
         </TabsContent>
 
@@ -1444,9 +1444,9 @@ export default function FinancePage() {
                     )}
                   </motion.div>
                 );
-              })
-              )}
+              })}
               </AnimatePresence>
+            )}
           </div>
         </TabsContent>
       </Tabs>
