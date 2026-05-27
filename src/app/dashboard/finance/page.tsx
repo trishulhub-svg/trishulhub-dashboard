@@ -243,9 +243,11 @@ export default function FinancePage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
 
-  // ─── Fetch dashboard data (existing) ────
+  // ─── Fetch dashboard data (deferred — only for Overview tab charts) ────
+  const [activeTab, setActiveTab] = useState("subscriptions");
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
+      setLoading(true);
       const res = await fetch("/api/dashboard", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -406,11 +408,21 @@ export default function FinancePage() {
     return () => controller.abort();
   }, [fetchExpenses, fetchStats, fetchAllExpenses]);
 
-  // Initial data load (runs once)
+  // PERF: Lazy-load dashboard data only when Overview tab is opened
+  const [dashLoaded, setDashLoaded] = useState(false);
+  useEffect(() => {
+    if (activeTab === "overview" && !dashLoaded && !data && !loading) {
+      const controller = new AbortController();
+      fetchData(controller.signal);
+      setDashLoaded(true);
+      return () => controller.abort();
+    }
+  }, [activeTab, dashLoaded, data, loading, fetchData]);
+
+  // Initial data load (runs once) — skip heavy dashboard fetch
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
-    fetchData(signal);
     fetchSubscriptions(signal);
     fetchProjects(signal);
     fetchEmployees(signal);
@@ -640,110 +652,61 @@ export default function FinancePage() {
 
   if (status !== "authenticated" || (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN")) return null;
 
-  // ─── Loading skeleton ────
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
-        </div>
-        <Skeleton className="h-64 rounded-lg" />
-      </div>
-    );
-  }
+  // PERF: Don't block entire page on dashboard data — it loads lazily for Overview tab
+  // Summary cards now compute from subscription/expense data directly
 
-  // ─── Error state ────
-  if (error || !data) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Finance Dashboard</h1>
-          <p className="text-muted-foreground text-sm">Track revenue, invoices, expenses &amp; subscriptions</p>
-        </div>
-        <Card className="border-l-4 border-l-red-500">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="h-6 w-6 text-red-500" />
-              <div>
-                <p className="font-medium text-red-600">Failed to load finance data</p>
-                <p className="text-sm text-muted-foreground">{error || "No data received from the server."}</p>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); setLoading(true); fetchData(); }}>
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const stats = data.stats;
-  const invoices = data.invoices || [];
-  const recentInvoices = invoices.slice(0, 5);
-
-  // ─── Revenue chart data ────
-  const expenseData = [
-    { name: "API Costs", value: stats.totalApiSpend, color: "#ef4444" },
-    { name: "Expenses", value: stats.totalExpenses, color: "#f59e0b" },
-    { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
-  ].filter((d) => d.value > 0);
-
-  const expenseItems = data.expenses || [];
-  const now = new Date();
-  const months: string[] = [];
-  const revenueByMonth: Record<string, number> = {};
-  const expenseByMonth: Record<string, number> = {};
-
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleString("default", { month: "short" });
-    months.push(label);
-    revenueByMonth[key] = 0;
-    expenseByMonth[key] = 0;
-  }
-
-  for (const inv of invoices) {
-    const invDate = new Date(inv.paidAt || inv.createdAt || inv.dueDate);
-    const key = `${invDate.getFullYear()}-${String(invDate.getMonth() + 1).padStart(2, "0")}`;
-    if (key in revenueByMonth && inv.status === "PAID") {
-      revenueByMonth[key] += inv.total;
-    }
-  }
-
-  for (const exp of expenseItems) {
-    const expDate = new Date(exp.date);
-    const key = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, "0")}`;
-    if (key in expenseByMonth) {
-      expenseByMonth[key] += exp.amount;
-    }
-  }
-
-  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  if (revenueByMonth[currentKey] === 0 && stats.totalRevenue > 0) {
-    revenueByMonth[currentKey] = stats.totalRevenue;
-  }
-  if (expenseByMonth[currentKey] === 0 && stats.totalExpenses > 0) {
-    expenseByMonth[currentKey] = stats.totalExpenses;
-  }
-
-  const revenueData = months.map((month, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return { month, revenue: revenueByMonth[key] || 0, expenses: expenseByMonth[key] || 0 };
-  });
-
-  // ─── Computed summary values ────
-  const totalRevenue = stats.totalRevenue;
-  const totalManualExpenses = stats.totalExpenses;
+  // ─── Computed summary values (from actual subscription + expense data, no heavy /api/dashboard call) ────
+  const stats = data?.stats || { totalRevenue: 0, pendingAmount: 0, overdueAmount: 0, totalExpenses: 0, totalApiSpend: 0, monthlyBudget: 0 };
+  const invoices = data?.invoices || [];
+  const totalManualExpenses = statsTotal; // From expense stats API — already computed
   const totalSubscriptionMonthly = subTotalMonthly;
   const totalCosts = totalManualExpenses + totalSubscriptionMonthly;
-  const netProfit = totalRevenue - totalCosts;
+  const netProfit = (stats.totalRevenue || 0) - totalCosts;
 
   // Total of currently displayed expenses
   const displayedExpTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+
+  // ─── Chart data for Overview tab (memoized, only recomputes when dashboard data loads) ────
+  const { recentInvoices, revenueData, expenseData } = useMemo(() => {
+    if (!data) return { recentInvoices: [] as typeof invoices, revenueData: [] as { month: string; revenue: number; expenses: number }[], expenseData: [] as { name: string; value: number; color: string }[] };
+    const inv = invoices.slice(0, 5);
+    const now = new Date();
+    const months: string[] = [];
+    const revenueByMonth: Record<string, number> = {};
+    const expenseByMonth: Record<string, number> = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      months.push(d.toLocaleString("default", { month: "short" }));
+      revenueByMonth[key] = 0;
+      expenseByMonth[key] = 0;
+    }
+    for (const invoice of invoices) {
+      const invDate = new Date(invoice.paidAt || invoice.createdAt || invoice.dueDate);
+      const key = `${invDate.getFullYear()}-${String(invDate.getMonth() + 1).padStart(2, "0")}`;
+      if (key in revenueByMonth && invoice.status === "PAID") revenueByMonth[key] += invoice.total;
+    }
+    const expItems = data.expenses || [];
+    for (const exp of expItems) {
+      const expDate = new Date(exp.date);
+      const key = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, "0")}`;
+      if (key in expenseByMonth) expenseByMonth[key] += exp.amount;
+    }
+    const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    if (revenueByMonth[currentKey] === 0 && stats.totalRevenue > 0) revenueByMonth[currentKey] = stats.totalRevenue;
+    if (expenseByMonth[currentKey] === 0 && stats.totalExpenses > 0) expenseByMonth[currentKey] = stats.totalExpenses;
+    const revData = months.map((month, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      return { month, revenue: revenueByMonth[k] || 0, expenses: expenseByMonth[k] || 0 };
+    });
+    const expData = [
+      { name: "API Costs", value: stats.totalApiSpend, color: "#ef4444" },
+      { name: "Expenses", value: stats.totalExpenses, color: "#f59e0b" },
+      { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
+    ].filter((d) => d.value > 0);
+    return { recentInvoices: inv, revenueData: revData, expenseData: expData };
+  }, [data, invoices, stats.totalRevenue, stats.totalExpenses, stats.totalApiSpend]);
 
   return (
     <div className="space-y-6">
@@ -767,7 +730,7 @@ export default function FinancePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Revenue</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(safeNumber(totalRevenue))}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <TrendingUp className="h-5 w-5 text-green-600" />
@@ -826,7 +789,7 @@ export default function FinancePage() {
       </div>
 
       {/* ─── Fix 8: Reordered Tabs ──── */}
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
@@ -838,6 +801,28 @@ export default function FinancePage() {
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          {loading ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
+              <Skeleton className="h-64 rounded-lg md:col-span-2" />
+            </div>
+          ) : error ? (
+            <Card className="border-l-4 border-l-red-500">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-6 w-6 text-red-500" />
+                  <div>
+                    <p className="font-medium text-red-600">Failed to load overview data</p>
+                    <p className="text-sm text-muted-foreground">{error}</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setError(null); setDashLoaded(false); }}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+          <React.Fragment>
           {/* Quick Stats Row */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="transition-shadow hover:shadow-md">
@@ -963,6 +948,8 @@ export default function FinancePage() {
               </div>
             </CardContent>
           </Card>
+          </React.Fragment>
+          )}
         </motion.div>
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">

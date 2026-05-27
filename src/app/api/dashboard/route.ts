@@ -7,10 +7,12 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 
 export async function GET() {
   try {
-    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
-    await ensureAllTables()
+    // PERF: Run auth + rbac + auto-migrate in parallel
+    const [session, _migrateResult] = await Promise.all([
+      getServerSession(authOptions),
+      ensureAllTables().catch(() => {}),
+    ])
 
-    const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const role = session.user.role
@@ -19,9 +21,11 @@ export async function GET() {
 
     const admin = isAdmin(role)
 
-    // Get project/client scope for developers
-    const assignedProjectIds = await getAssignedProjectIds(userId, role)
-    const assignedClientIds = await getAssignedClientIds(userId, role)
+    // PERF: Run rbac checks in parallel
+    const [assignedProjectIds, assignedClientIds] = await Promise.all([
+      getAssignedProjectIds(userId, role),
+      getAssignedClientIds(userId, role),
+    ])
 
     // Build where clauses based on role
     const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
@@ -36,8 +40,7 @@ export async function GET() {
       ? { userAccess: { some: { userId, canView: true } } }
       : {}
 
-    // OPTIMIZATION: Use Prisma where clauses instead of JS-side filtering.
-    // This reduces data transferred from Turso and avoids full-table scans.
+    // PERF: Single Promise.all — everything parallel including leads + aggregates
     const [
       agents,
       projects,
@@ -48,10 +51,15 @@ export async function GET() {
       usageLogs,
       supportTickets,
       tasks,
+      leads,
       newLeadsCount,
       activeProjects,
       openTickets,
       pendingTasks,
+      totalRevenue,
+      pendingAmount,
+      overdueAmount,
+      totalExpenses,
     ] = await Promise.all([
       db.agent.findMany({
         where: agentWhere,
@@ -66,7 +74,7 @@ export async function GET() {
       db.invoice.findMany({ where: invoiceWhere, take: 20, orderBy: { createdAt: "desc" } }),
       db.expense.findMany({ where: expenseWhere, take: 20, orderBy: { createdAt: "desc" } }),
       // API keys are SUPER_ADMIN only in the dashboard view
-      admin ? db.apiKey.findMany() : Promise.resolve([]),
+      admin ? db.apiKey.findMany() : Promise.resolve([] as unknown[]),
       db.apiUsageLog.findMany({
         where: !admin ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
         include: { agent: { select: { id: true, name: true, type: true } } },
@@ -75,7 +83,9 @@ export async function GET() {
       }),
       db.supportTicket.findMany({ where: ticketWhere, include: { client: true }, take: 50 }),
       db.task.findMany({ where: taskWhere, take: 50, orderBy: { createdAt: "desc" } }),
-      // OPTIMIZATION: Use count() instead of findMany+filter for aggregate queries
+      // PERF: Leads query moved into Promise.all (was sequential before)
+      admin ? db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : Promise.resolve([] as unknown[]),
+      // Counts
       ...(admin ? [
         db.lead.count({ where: { status: "NEW" } }),
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
@@ -87,20 +97,26 @@ export async function GET() {
         db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
         db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
       ]),
+      // PERF: Aggregate queries moved into Promise.all (were sequential before)
+      ...(admin ? [
+        db.invoice.aggregate({ where: { ...invoiceWhere, status: "PAID" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+        db.invoice.aggregate({ where: { ...invoiceWhere, status: "SENT" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+        db.invoice.aggregate({ where: { ...invoiceWhere, status: "OVERDUE" }, _sum: { total: true } }).then(r => r._sum.total || 0),
+        db.expense.aggregate({ where: expenseWhere, _sum: { amount: true } }).then(r => r._sum.amount || 0),
+      ] : [
+        Promise.resolve(0), Promise.resolve(0), Promise.resolve(0), Promise.resolve(0),
+      ]),
     ])
-
-    // Leads are admin-only
-    const leads = admin ? await db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : []
 
     // SECURITY: API keys visible only to SUPER_ADMIN
     const safeApiKeys = role === "SUPER_ADMIN"
       ? apiKeys
       : admin
-        ? apiKeys.map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
+        ? (apiKeys as Array<{ id: string; keyName: string; keyValue?: string; currentSpend: number; monthlyBudget: number }>).map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
         : []
 
     // Usage logs — same shape for all roles (agent details are already limited by include)
-    const safeUsageLogs = usageLogs.map(log => ({
+    const safeUsageLogs = (usageLogs as Array<{ id: string; model: string; inputTokens: number; outputTokens: number; cost: number; createdAt: Date; agent: { id: string; name: string; type: string } }>).map(log => ({
       id: log.id,
       model: log.model,
       inputTokens: log.inputTokens,
@@ -110,26 +126,15 @@ export async function GET() {
       agent: log.agent,
     }))
 
-    // Compute stats — invoices filtered by status via Prisma for efficiency
-    const [totalRevenue, pendingAmount, overdueAmount, totalExpenses] = admin
-      ? await Promise.all([
-          db.invoice.aggregate({ where: { ...invoiceWhere, status: "PAID" }, _sum: { total: true } }).then(r => r._sum.total || 0),
-          db.invoice.aggregate({ where: { ...invoiceWhere, status: "SENT" }, _sum: { total: true } }).then(r => r._sum.total || 0),
-          db.invoice.aggregate({ where: { ...invoiceWhere, status: "OVERDUE" }, _sum: { total: true } }).then(r => r._sum.total || 0),
-          db.expense.aggregate({ where: expenseWhere, _sum: { amount: true } }).then(r => r._sum.amount || 0),
-        ])
-      : [0, 0, 0, 0]
-
-    const totalApiSpend = admin ? apiKeys.reduce((sum, k) => sum + k.currentSpend, 0) : 0
-    const monthlyBudget = admin ? apiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
-    const totalLeads = admin ? (newLeadsCount + leads.length) : 0 // approximate
+    const totalApiSpend = admin ? (apiKeys as Array<{ currentSpend: number }>).reduce((sum, k) => sum + k.currentSpend, 0) : 0
+    const monthlyBudget = admin ? (apiKeys as Array<{ monthlyBudget: number }>).reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
+    const totalLeads = admin ? (newLeadsCount + leads.length) : 0
 
     // ZAI FIX #310: JSON round-trip to strip ALL non-serializable values
-    // (Date objects, circular refs from deep includes, etc.)
     const safeResponse = JSON.parse(JSON.stringify({
       agents,
       projects,
-      clients: admin ? clients : clients.map(c => ({ id: c.id, name: c.name, company: c.company })),
+      clients: admin ? clients : (clients as Array<{ id: string; name: string; company: string }>).map(c => ({ id: c.id, name: c.name, company: c.company })),
       leads,
       invoices: admin ? invoices : [],
       expenses: admin ? expenses : [],
@@ -148,14 +153,14 @@ export async function GET() {
         activeProjects,
         openTickets,
         pendingTasks,
-        totalClients: admin ? clients.length : 0,
+        totalClients: admin ? (clients as unknown[]).length : 0,
         totalLeads,
       },
     }))
 
     return NextResponse.json(safeResponse)
-  } catch (error: any) {
-    console.error("[dashboard] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[dashboard] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 })
   }
 }
