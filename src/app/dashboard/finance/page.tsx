@@ -105,7 +105,7 @@ interface EmployeeOption {
 // ─── Constants ───────────────────────────────────────────────────────
 const CURRENCY_SYMBOLS: Record<string, string> = { INR: "₹", USD: "$", GBP: "£" };
 
-// Default exchange rates to INR (used as defaults when adding subscriptions)
+// Fallback exchange rates to INR (used when live rates unavailable)
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -175,6 +175,10 @@ export default function FinancePage() {
   const [subTotalMonthly, setSubTotalMonthly] = useState(0);
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
+
+  // Live exchange rates (fetched from API, falls back to defaults)
+  const [liveRates, setLiveRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
+  const [ratesLoaded, setRatesLoaded] = useState(false);
 
   // Subscription form state
   const [subForm, setSubForm] = useState({
@@ -428,7 +432,31 @@ export default function FinancePage() {
     return () => controller.abort();
   }, [expStartDate, expEndDate, expCategory, fetchAllExpenses, fetchExpenses, fetchStats]);
 
+  // Fetch live exchange rates
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await fetch("/api/exchange-rates", { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.rates) {
+            setLiveRates(data.rates);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch exchange rates:", err);
+      } finally {
+        setRatesLoaded(true);
+      }
+    };
+    fetchRates();
+  }, []);
+
   // ─── Subscription form helpers ────
+  const getRateForCurrency = useCallback((currency: string) => {
+    return liveRates[currency] || DEFAULT_EXCHANGE_RATES[currency] || 1;
+  }, [liveRates]);
+
   const resetSubForm = useCallback(() => {
     setSubForm({
       service: "",
@@ -452,7 +480,7 @@ export default function FinancePage() {
         service: sub.service || "",
         amount: String(sub.amount) || "",
         currency: sub.currency || "INR",
-        exchangeRate: String(sub.exchangeRate || DEFAULT_EXCHANGE_RATES[sub.currency || "INR"] || 1),
+        exchangeRate: String(sub.exchangeRate || getRateForCurrency(sub.currency || "INR")),
         frequency: sub.frequency || "MONTHLY",
         status: sub.status || "ACTIVE",
         category: sub.category || "",
@@ -466,7 +494,7 @@ export default function FinancePage() {
       resetSubForm();
     }
     setSubDialogOpen(true);
-  }, [resetSubForm]);
+  }, [resetSubForm, getRateForCurrency]);
 
   // handleSaveSubscription with amount + exchangeRate
   const handleSaveSubscription = async () => {
@@ -478,7 +506,7 @@ export default function FinancePage() {
       service: subForm.service,
       amount: parseFloat(subForm.amount) || 0,
       currency: subForm.currency || "INR",
-      exchangeRate: parseFloat(subForm.exchangeRate) || DEFAULT_EXCHANGE_RATES[subForm.currency] || 1,
+      exchangeRate: parseFloat(subForm.exchangeRate) || getRateForCurrency(subForm.currency) || 1,
       frequency: subForm.frequency || "MONTHLY",
       status: subForm.status,
       category: subForm.category || undefined,
@@ -1023,7 +1051,7 @@ export default function FinancePage() {
                             <span className="text-[10px] text-muted-foreground block">{sub.currency}</span>
                           </TableCell>
                           <TableCell className="text-sm hidden sm:table-cell">
-                            <span className="font-medium">1 {sub.currency} = ₹{(sub.exchangeRate || DEFAULT_EXCHANGE_RATES[sub.currency] || 1).toFixed(2)}</span>
+                            <span className="font-medium">1 {sub.currency} = ₹{(sub.exchangeRate || liveRates[sub.currency] || DEFAULT_EXCHANGE_RATES[sub.currency] || 1).toFixed(2)}</span>
                           </TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${SUB_FREQUENCY_COLORS[sub.frequency] || ""}`}>
@@ -1478,7 +1506,7 @@ export default function FinancePage() {
                 <Label className="text-xs">Currency</Label>
                 <Select
                   value={subForm.currency}
-                  onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v, exchangeRate: String(DEFAULT_EXCHANGE_RATES[v] || 1) }))}
+                  onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v, exchangeRate: String(getRateForCurrency(v)) }))}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1498,14 +1526,30 @@ export default function FinancePage() {
                   placeholder="1"
                 />
                 <p className="text-[9px] text-muted-foreground mt-0.5">
-                  1 {subForm.currency} = ₹{parseFloat(subForm.exchangeRate) || DEFAULT_EXCHANGE_RATES[subForm.currency] || 1}
+                  1 {subForm.currency} = ₹{parseFloat(subForm.exchangeRate) || getRateForCurrency(subForm.currency)}
                   {subForm.currency !== "INR" && (
                     <button
                       type="button"
                       className="ml-1 text-primary underline hover:no-underline"
-                      onClick={() => setSubForm((f) => ({ ...f, exchangeRate: String(DEFAULT_EXCHANGE_RATES[f.currency] || 1) }))}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch("/api/exchange-rates", { credentials: "include" });
+                          if (res.ok) {
+                            const data = await res.json();
+                            if (data?.rates?.[subForm.currency]) {
+                              setLiveRates(data.rates);
+                              setSubForm((f) => ({ ...f, exchangeRate: String(data.rates[f.currency]) }));
+                              return;
+                            }
+                          }
+                        } catch (e) {
+                          console.error("Failed to fetch live rate:", e);
+                        }
+                        // Fallback to current liveRates state
+                        setSubForm((f) => ({ ...f, exchangeRate: String(getRateForCurrency(f.currency)) }));
+                      }}
                     >
-                      Reset
+                      {ratesLoaded ? "Reset to Today's Rate" : "Reset"}
                     </button>
                   )}
                 </p>
