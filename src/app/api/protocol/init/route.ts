@@ -130,10 +130,11 @@ export async function GET(request: NextRequest) {
                 SELECT uc.id, uc."userId", uc.code, uc."createdAt", uc."updatedAt",
                        u.name, u.email, u.role
                 FROM "UserCode" uc LEFT JOIN "User" u ON uc."userId" = u.id
+                WHERE u.role != 'CLIENT'
                 ORDER BY u.name ASC
               `);
               const allUsers: any[] = await db.$queryRawUnsafe(
-                `SELECT id, name, email, role FROM "User" ORDER BY name ASC`
+                `SELECT id, name, email, role FROM "User" WHERE role != 'CLIENT' ORDER BY name ASC`
               );
               const codedIds = new Set(coded.map((r: any) => r.userId));
               const userCodes = coded.map((r: any) => ({

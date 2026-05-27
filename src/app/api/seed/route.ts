@@ -51,11 +51,6 @@ export async function POST() {
       data: { name: "Akshat", email: "akshat@trishulhub.in", password: hashedPassword, role: "DEVELOPER" },
     })
 
-    // Create client user
-    const clientUser = await db.user.create({
-      data: { name: "Rahul Sharma", email: "rahul@example.com", password: hashedPassword, role: "CLIENT" },
-    })
-
     // No placeholder API key - user adds their real key from the API Keys page
     const agents = await Promise.all([
       db.agent.create({
@@ -133,9 +128,6 @@ export async function POST() {
     // Create sample clients
     const clients = await Promise.all([
       db.client.create({
-        data: { name: "Rahul Sharma", email: "rahul@example.com", phone: "+91-9876543210", company: "Sharma Electronics", website: "sharmaelectronics.in", status: "ACTIVE", userId: clientUser.id },
-      }),
-      db.client.create({
         data: { name: "Priya Patel", email: "priya@beautylounge.com", phone: "+91-9876543211", company: "Priya Beauty Lounge", website: "priyabeautylounge.com", status: "ACTIVE" },
       }),
       db.client.create({
@@ -146,13 +138,10 @@ export async function POST() {
     // Create sample projects
     await Promise.all([
       db.project.create({
-        data: { name: "Sharma Electronics Website", clientId: clients[0].id, status: "IN_PROGRESS", progress: 65, deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), budget: 15000 },
+        data: { name: "Priya Beauty Lounge Website", clientId: clients[0].id, status: "REVIEW", progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 },
       }),
       db.project.create({
-        data: { name: "Priya Beauty Lounge Website", clientId: clients[1].id, status: "REVIEW", progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 },
-      }),
-      db.project.create({
-        data: { name: "Verma Restaurant Website", clientId: clients[2].id, status: "PLANNING", progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 },
+        data: { name: "Verma Restaurant Website", clientId: clients[1].id, status: "PLANNING", progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 },
       }),
     ])
 
@@ -170,10 +159,10 @@ export async function POST() {
       data: {
         invoiceNumber: "INV-2026-001",
         clientId: clients[0].id,
-        items: JSON.stringify([{ description: "Website Development - Sharma Electronics", quantity: 1, rate: 15000 }]),
-        subtotal: 15000,
-        tax: 2700,
-        total: 17700,
+        items: JSON.stringify([{ description: "Website Development - Priya Beauty Lounge", quantity: 1, rate: 12000 }]),
+        subtotal: 12000,
+        tax: 2160,
+        total: 14160,
         status: "SENT",
         dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
       },
@@ -182,10 +171,10 @@ export async function POST() {
       data: {
         invoiceNumber: "INV-2026-002",
         clientId: clients[1].id,
-        items: JSON.stringify([{ description: "Website Development - Priya Beauty Lounge", quantity: 1, rate: 12000 }]),
-        subtotal: 12000,
-        tax: 2160,
-        total: 14160,
+        items: JSON.stringify([{ description: "Website Development - Verma Restaurant", quantity: 1, rate: 18000 }]),
+        subtotal: 18000,
+        tax: 3240,
+        total: 21240,
         status: "PAID",
         dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         paidAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
@@ -201,10 +190,10 @@ export async function POST() {
 
     return NextResponse.json({
       message: "Database seeded successfully!",
-      users: 5,
+      users: 4,
       agents: 7,
-      clients: 3,
-      projects: 3,
+      clients: 2,
+      projects: 2,
       leads: 5,
       invoices: 2,
     })

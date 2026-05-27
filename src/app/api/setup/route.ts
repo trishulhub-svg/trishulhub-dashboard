@@ -386,10 +386,7 @@ export async function POST() {
     const akshat = await db.user.create({
       data: { name: "Akshat", email: "akshat@trishulhub.in", password: hashedPassword, role: "DEVELOPER", department: "DEV", isActive: true },
     })
-    const clientUser = await db.user.create({
-      data: { name: "Rahul Sharma", email: "rahul@example.com", password: hashedPassword, role: "CLIENT", isActive: true },
-    })
-    logs.push("Created 5 users")
+    logs.push("Created 4 users")
 
     // Create AI agents
     const createdAgents: any[] = []
@@ -457,18 +454,16 @@ export async function POST() {
 
     // Create sample data
     const clients = await Promise.all([
-      db.client.create({ data: { name: "Rahul Sharma", email: "rahul@example.com", phone: "+91-9876543210", company: "Sharma Electronics", website: "sharmaelectronics.in", status: "ACTIVE", userId: clientUser.id } }),
       db.client.create({ data: { name: "Priya Patel", email: "priya@beautylounge.com", phone: "+91-9876543211", company: "Priya Beauty Lounge", website: "priyabeautylounge.com", status: "ACTIVE" } }),
       db.client.create({ data: { name: "Amit Verma", email: "amit@vermarestaurant.com", phone: "+91-9876543212", company: "Verma Restaurant", status: "ACTIVE" } }),
     ])
-    logs.push("Created 3 clients")
+    logs.push("Created 2 clients")
 
     await Promise.all([
-      db.project.create({ data: { name: "Sharma Electronics Website", clientId: clients[0].id, status: "IN_PROGRESS", progress: 65, deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), budget: 15000 } }),
-      db.project.create({ data: { name: "Priya Beauty Lounge Website", clientId: clients[1].id, status: "REVIEW", progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 } }),
-      db.project.create({ data: { name: "Verma Restaurant Website", clientId: clients[2].id, status: "PLANNING", progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 } }),
+      db.project.create({ data: { name: "Priya Beauty Lounge Website", clientId: clients[0].id, status: "REVIEW", progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 } }),
+      db.project.create({ data: { name: "Verma Restaurant Website", clientId: clients[1].id, status: "PLANNING", progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 } }),
     ])
-    logs.push("Created 3 projects")
+    logs.push("Created 2 projects")
 
     await Promise.all([
       db.lead.create({ data: { name: "Vikram Singh", email: "vikram@fitnessgym.com", company: "Fitness Gym", website: "fitnessgym.in", source: "AI_FOUND", score: 78, status: "CONTACTED" } }),
@@ -493,7 +488,7 @@ export async function POST() {
       // All users share this initial password and MUST change it on first login.
       _warning: "Save this password now. It will NOT be shown again. Force password change on first login.",
       generatedPassword,
-      created: { users: 5, agents: 7, clients: 3, projects: 3, leads: 3, expenses: 3 },
+      created: { users: 4, agents: 7, clients: 2, projects: 2, leads: 3, expenses: 3 },
       logs
     })
 

@@ -34,10 +34,7 @@ async function seed() {
     const akshat = await prisma.user.create({
       data: { name: 'Akshat', email: 'akshat@trishulhub.in', password: hashedPassword, role: 'DEVELOPER', department: 'DEV', isActive: true }
     });
-    const clientUser = await prisma.user.create({
-      data: { name: 'Rahul Sharma', email: 'rahul@example.com', password: hashedPassword, role: 'CLIENT', isActive: true }
-    });
-    console.log('[seed] ✅ 5 users created');
+    console.log('[seed] ✅ 4 users created');
 
     // ━━ Create AI Agents ━━
     const agents = [
@@ -256,19 +253,17 @@ async function seed() {
 
     // ━━ Create Sample Clients ━━
     const clients = await Promise.all([
-      prisma.client.create({ data: { name: 'Rahul Sharma', email: 'rahul@example.com', phone: '+91-9876543210', company: 'Sharma Electronics', website: 'sharmaelectronics.in', status: 'ACTIVE', userId: clientUser.id } }),
       prisma.client.create({ data: { name: 'Priya Patel', email: 'priya@beautylounge.com', phone: '+91-9876543211', company: 'Priya Beauty Lounge', website: 'priyabeautylounge.com', status: 'ACTIVE' } }),
       prisma.client.create({ data: { name: 'Amit Verma', email: 'amit@vermarestaurant.com', phone: '+91-9876543212', company: 'Verma Restaurant', status: 'ACTIVE' } }),
     ]);
-    console.log('[seed] ✅ 3 clients created');
+    console.log('[seed] ✅ 2 clients created');
 
     // ━━ Create Sample Projects ━━
     await Promise.all([
-      prisma.project.create({ data: { name: 'Sharma Electronics Website', clientId: clients[0].id, status: 'IN_PROGRESS', progress: 65, deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), budget: 15000 } }),
-      prisma.project.create({ data: { name: 'Priya Beauty Lounge Website', clientId: clients[1].id, status: 'REVIEW', progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 } }),
-      prisma.project.create({ data: { name: 'Verma Restaurant Website', clientId: clients[2].id, status: 'PLANNING', progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 } }),
+      prisma.project.create({ data: { name: 'Priya Beauty Lounge Website', clientId: clients[0].id, status: 'REVIEW', progress: 90, deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), budget: 12000 } }),
+      prisma.project.create({ data: { name: 'Verma Restaurant Website', clientId: clients[1].id, status: 'PLANNING', progress: 10, deadline: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), budget: 18000 } }),
     ]);
-    console.log('[seed] ✅ 3 projects created');
+    console.log('[seed] ✅ 2 projects created');
 
     // ━━ Create Sample Leads ━━
     await Promise.all([
