@@ -403,15 +403,13 @@ export default function FinancePage() {
   }, [expSearch]);
 
   // PERF: Lazy-load dashboard data only when Overview tab is opened
-  const [dashLoaded, setDashLoaded] = useState(false);
+  const dashLoadedRef = useRef(false);
   useEffect(() => {
-    if (activeTab === "overview" && !dashLoaded && !data && !loading) {
-      const controller = new AbortController();
-      fetchData(controller.signal);
-      setDashLoaded(true);
-      return () => controller.abort();
+    if (activeTab === "overview" && !dashLoadedRef.current && !data && !loading) {
+      dashLoadedRef.current = true;
+      fetchData();
     }
-  }, [activeTab, dashLoaded, data, loading, fetchData]);
+  }, [activeTab, data, loading, fetchData]);
 
   // Initial data load (runs once) — fetch all finance data in parallel
   useEffect(() => {
