@@ -543,7 +543,7 @@ export default function ProtocolPage() {
   if (!session) return null;
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl mx-auto px-1 sm:px-0">
       {/* Header */}
       <PageHeader
         title="Protocol"
@@ -552,7 +552,7 @@ export default function ProtocolPage() {
 
       {isAdmin ? (
         <Tabs defaultValue="user-view" className="space-y-6">
-          <TabsList className="bg-muted/50">
+          <TabsList className="bg-muted/50 w-full sm:w-auto">
             <TabsTrigger value="user-view" className="gap-1.5">
               <Users className="h-3.5 w-3.5" />
               Your Access
@@ -571,14 +571,14 @@ export default function ProtocolPage() {
               <CardContent className="p-5">
                 {protocol ? (
                   <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start justify-between gap-3 sm:gap-4">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center flex-shrink-0 shadow-sm">
                           <FileText className="h-5 w-5 text-white" />
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm truncate">{safeText(protocol.fileName)}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <Badge variant="secondary" className="text-xs bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 border-0">PDF</Badge>
                             <span className="text-xs text-muted-foreground">{formatSize(protocol.fileSize)}</span>
                           </div>
@@ -589,7 +589,7 @@ export default function ProtocolPage() {
                         Active
                       </Badge>
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                       <Clock className="h-3 w-3" />
                       Uploaded: {safeDate(protocol.uploadedAt)}
                       {protocol.uploadedBy && (<> &middot; by {safeText(protocol.uploadedBy)}</>)}
@@ -774,11 +774,11 @@ export default function ProtocolPage() {
                       </div>
                       <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400 flex-shrink-0">Active</Badge>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button onClick={handleDownload} variant="outline" size="sm" className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button onClick={handleDownload} variant="outline" size="sm" className="flex-1 min-w-[100px]">
                         <Download className="h-3.5 w-3.5 mr-1.5" /> Download
                       </Button>
-                      <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" className="flex-1">
+                      <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" className="flex-1 min-w-[100px]">
                         <Upload className="h-3.5 w-3.5 mr-1.5" /> Replace
                       </Button>
                       <Button onClick={handleDelete} variant="outline" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -953,7 +953,7 @@ export default function ProtocolPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleOpenSetCodeDialog(user)}
-                              className="h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="h-7 px-2 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                             >
                               <Settings className="h-3 w-3 mr-1" />
                               {user.hasCode ? "Edit" : "Set"}
@@ -1043,12 +1043,12 @@ export default function ProtocolPage() {
                 )}
                 {gitConfig && (
                   <div className="pt-3 border-t border-border/50 space-y-2.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Switch checked={gitConfig.isEnabled} onCheckedChange={handleToggleGitSync} disabled={!gitConfig.repoUrl} />
                         <span className="text-sm font-medium">Auto-sync</span>
                       </div>
-                      <Button variant="outline" size="sm" onClick={handleManualSync} disabled={gitSyncing || !gitConfig.repoUrl}>
+                      <Button variant="outline" size="sm" onClick={handleManualSync} disabled={gitSyncing || !gitConfig.repoUrl} className="shrink-0">
                         {gitSyncing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
                         Sync Now
                       </Button>
@@ -1175,14 +1175,14 @@ export default function ProtocolPage() {
             <CardContent className="p-5">
               {protocol ? (
                 <div className="space-y-4">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start justify-between gap-3 sm:gap-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center flex-shrink-0 shadow-sm">
                         <FileText className="h-5 w-5 text-white" />
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-sm truncate">{safeText(protocol.fileName)}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <Badge variant="secondary" className="text-xs bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 border-0">PDF</Badge>
                           <span className="text-xs text-muted-foreground">{formatSize(protocol.fileSize)}</span>
                         </div>
