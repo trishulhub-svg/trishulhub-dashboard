@@ -77,6 +77,8 @@ export async function GET(req: NextRequest) {
           e.description.toLowerCase().includes(searchLower) ||
           (e.category || "").toLowerCase().includes(searchLower) ||
           e.project?.name?.toLowerCase().includes(searchLower) ||
+          e.employee?.name?.toLowerCase().includes(searchLower) ||
+          (e.paymentRef || "").toLowerCase().includes(searchLower) ||
           e.amount.toString().includes(search)
       )
     }

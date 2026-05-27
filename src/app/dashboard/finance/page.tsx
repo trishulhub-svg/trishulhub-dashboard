@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -199,6 +200,8 @@ export default function FinancePage() {
 
   // Expenses (for tab)
   const [expenses, setExpenses] = useState<ExpenseWithProject[]>([]);
+  // Bug B: allExpenses for category/project detail views (unfiltered by search/category)
+  const [allExpenses, setAllExpenses] = useState<ExpenseWithProject[]>([]);
   const [expLoading, setExpLoading] = useState(true);
   const [expSearch, setExpSearch] = useState("");
   const [expSearchDebounced, setExpSearchDebounced] = useState("");
@@ -279,6 +282,25 @@ export default function FinancePage() {
       setSubLoading(false);
     }
   }, [router]);
+
+  // ─── Fetch ALL expenses with only date filters (Bug B: for category/project detail views) ────
+  const fetchAllExpenses = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const params = new URLSearchParams();
+      if (expStartDate) params.set("startDate", expStartDate);
+      if (expEndDate) params.set("endDate", expEndDate);
+      const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        const raw = await res.json();
+        const arr = Array.isArray(raw) ? raw : (raw.data || raw.expenses || []);
+        setAllExpenses(deepSanitize<ExpenseWithProject[]>(arr));
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error(err);
+    }
+  }, [expStartDate, expEndDate, router]);
 
   // ─── Fetch expenses with filters (Fix 5: proper response parsing) ────
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
@@ -378,10 +400,11 @@ export default function FinancePage() {
   // Re-fetch expenses and stats when filters change
   useEffect(() => {
     const controller = new AbortController();
+    fetchAllExpenses(controller.signal);
     fetchExpenses(controller.signal);
     fetchStats(controller.signal);
     return () => controller.abort();
-  }, [fetchExpenses, fetchStats]);
+  }, [fetchExpenses, fetchStats, fetchAllExpenses]);
 
   // Initial data load (runs once)
   useEffect(() => {
@@ -391,6 +414,7 @@ export default function FinancePage() {
     fetchSubscriptions(signal);
     fetchProjects(signal);
     fetchEmployees(signal);
+    fetchAllExpenses(signal);
     fetchExpenses(signal);
     fetchStats(signal);
     return () => controller.abort();
@@ -517,6 +541,7 @@ export default function FinancePage() {
         setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" });
         fetchExpenses();
         fetchStats();
+        fetchAllExpenses();
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to add expense");
@@ -562,8 +587,8 @@ export default function FinancePage() {
       } catch { toast.error("Failed to delete subscription"); }
     } else if (pendingDelete.type === "expense") {
       try {
-        const res = await fetch(`/api/expenses?id=${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
-        if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); }
+        const res = await fetch(`/api/expenses`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: pendingDelete.id }) });
+        if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); fetchAllExpenses(); }
         else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete expense"); }
       } catch { toast.error("Failed to delete expense"); }
     }
@@ -588,17 +613,17 @@ export default function FinancePage() {
     return [...active, ...inactive];
   }, [subscriptions]);
 
-  // ─── Fix 4: Filtered expenses for category/project detail views ────
+  // ─── Bug B: Filtered expenses for category/project detail views (use allExpenses, not filtered) ────
   const expensesForCategory = useMemo(() => {
     if (!selectedCategory) return [];
-    return expenses.filter((e) => e.category === selectedCategory);
-  }, [expenses, selectedCategory]);
+    return allExpenses.filter((e) => e.category === selectedCategory);
+  }, [allExpenses, selectedCategory]);
 
   const expensesForProject = useMemo(() => {
     if (!selectedProject) return [];
-    if (selectedProject === "unassigned") return expenses.filter((e) => !e.project?.id);
-    return expenses.filter((e) => e.project?.id === selectedProject);
-  }, [expenses, selectedProject]);
+    if (selectedProject === "unassigned") return allExpenses.filter((e) => !e.project?.id);
+    return allExpenses.filter((e) => e.project?.id === selectedProject);
+  }, [allExpenses, selectedProject]);
 
   // ─── Session loading guard ────
   if (status === "loading") {
@@ -734,9 +759,10 @@ export default function FinancePage() {
         </div>
       </PageHeader>
 
-      {/* ─── Fix 8: Top Summary Cards with hover animations ──── */}
+      {/* ─── Summary Cards with gradient backgrounds ──── */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-green-500 transition-shadow hover:shadow-md">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0 }}>
+        <Card className="border-l-4 border-l-green-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -749,7 +775,9 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-md">
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.05 }}>
+        <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-red-50 to-orange-50/50 dark:from-red-950/20 dark:to-orange-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -762,7 +790,9 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-md">
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
+        <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -775,7 +805,9 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card className={`border-l-4 ${netProfit >= 0 ? "border-l-emerald-500" : "border-l-red-600"} transition-shadow hover:shadow-md`}>
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.15 }}>
+        <Card className={`border-l-4 ${netProfit >= 0 ? "border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/10" : "border-l-red-600 bg-gradient-to-br from-red-50 to-pink-50/50 dark:from-red-950/20 dark:to-pink-950/10"} transition-shadow hover:shadow-lg`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -790,6 +822,7 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
       </div>
 
       {/* ─── Fix 8: Reordered Tabs ──── */}
@@ -804,6 +837,7 @@ export default function FinancePage() {
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
           {/* Quick Stats Row */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="transition-shadow hover:shadow-md">
@@ -881,7 +915,7 @@ export default function FinancePage() {
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }: { name: string; value: number }) => `${name}: ₹${(value / 1000).toFixed(0)}k`}>
+                        <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
                           {expenseData.map((entry, i) => (
                             <Cell key={i} fill={entry.color} />
                           ))}
@@ -929,9 +963,8 @@ export default function FinancePage() {
               </div>
             </CardContent>
           </Card>
+        </motion.div>
         </TabsContent>
-
-        {/* ─── Subscriptions Tab (Fix 3: sorted, Fix 8: redesigned) ──── */}
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -969,12 +1002,13 @@ export default function FinancePage() {
                         <TableHead>Frequency</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Monthly INR</TableHead>
+                        {subscriptions.some((s) => s.currency !== "INR") && <TableHead className="text-right">Converted INR</TableHead>}
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {sortedSubscriptions.map((sub) => (
-                        <TableRow key={sub.id} className={sub.status !== "ACTIVE" ? "opacity-60" : ""}>
+                        <TableRow key={sub.id} className={`${sub.status !== "ACTIVE" ? "opacity-60" : ""} transition-colors hover:bg-muted/50`}>
                           <TableCell>
                             <div>
                               <p className="text-sm font-medium">{safeText(sub.service, "")}</p>
@@ -987,7 +1021,11 @@ export default function FinancePage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {CURRENCY_SYMBOLS[sub.currency] || sub.currency}{sub.rate.toLocaleString()}
+                            <span className="font-medium">{CURRENCY_SYMBOLS[sub.currency] || ""}</span>
+                            <span className="ml-0.5">{sub.rate.toLocaleString("en-IN", { minimumFractionDigits: sub.currency === "INR" ? 0 : 2, maximumFractionDigits: sub.currency === "INR" ? 0 : 2 })}</span>
+                            {sub.currency !== "INR" && sub.frequency !== "ONE_TIME" && (
+                              <span className="text-[10px] text-muted-foreground block">1 {sub.currency} = ₹{CURRENCY_TO_INR[sub.currency]?.toFixed(2)}</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${SUB_FREQUENCY_COLORS[sub.frequency] || ""}`}>
@@ -998,6 +1036,15 @@ export default function FinancePage() {
                             <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
                           </TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(safeNumber(sub.monthlyINR))}</TableCell>
+                          {subscriptions.some((s) => s.currency !== "INR") && (
+                            <TableCell className="text-right text-xs text-muted-foreground">
+                              {sub.currency !== "INR" ? (
+                                <span>≈ ₹{safeNumber(sub.monthlyINR).toLocaleString("en-IN", { maximumFractionDigits: 0 })}/mo</span>
+                              ) : (
+                                <span className="text-muted-foreground/50">—</span>
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button
@@ -1041,7 +1088,7 @@ export default function FinancePage() {
 
           {/* Total Monthly Cost Card */}
           {subscriptions.length > 0 && (
-            <Card className="border-l-4 border-l-orange-500">
+            <Card className="border-l-4 border-l-orange-500 bg-gradient-to-r from-orange-50 to-amber-50/30 dark:from-orange-950/10 dark:to-amber-950/5">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1055,7 +1102,7 @@ export default function FinancePage() {
           )}
         </TabsContent>
 
-        {/* ─── All Expenses Tab (Fix 8: summary card, alternating rows, search debounce) ──── */}
+        {/* ─── All Expenses Tab ──── */}
         <TabsContent value="expenses" className="space-y-4">
           {/* Filters */}
           <Card>
@@ -1066,7 +1113,7 @@ export default function FinancePage() {
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search by description, project, category..."
+                      placeholder="Search by description, employee, project, ref..."
                       className="pl-8"
                       value={expSearch}
                       onChange={(e) => setExpSearch(e.target.value)}
@@ -1110,7 +1157,7 @@ export default function FinancePage() {
 
           {/* Total Expenses Summary */}
           {!expLoading && expenses.length > 0 && (
-            <Card className="border-l-4 border-l-red-500">
+            <Card className="border-l-4 border-l-red-500 bg-gradient-to-r from-red-50 to-orange-50/30 dark:from-red-950/10 dark:to-orange-950/5">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1132,7 +1179,9 @@ export default function FinancePage() {
                 </div>
               ) : expenses.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
-                  {expSearchDebounced ? "No expenses match your search" : "No expenses found"}
+                  <Receipt className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                  <p>{expSearchDebounced ? "No expenses match your search" : "No expenses recorded yet"}</p>
+                  <p className="text-xs mt-1">{expSearchDebounced ? "Try different keywords or clear filters" : "Click \"Add Expense\" to create your first record"}</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1142,6 +1191,7 @@ export default function FinancePage() {
                         <TableHead>Date</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Project</TableHead>
+                        <TableHead>Employee</TableHead>
                         <TableHead>Description</TableHead>
                         <TableHead className="text-right">Amount (INR)</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -1149,7 +1199,7 @@ export default function FinancePage() {
                     </TableHeader>
                     <TableBody>
                       {expenses.map((exp, idx) => (
-                        <TableRow key={exp.id} className={idx % 2 === 1 ? "bg-muted/30" : ""}>
+                        <TableRow key={exp.id} className={`${idx % 2 === 1 ? "bg-muted/30" : ""} transition-colors hover:bg-muted/50`}>
                           <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
@@ -1157,10 +1207,25 @@ export default function FinancePage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-sm">{exp.project ? safeText(exp.project.name, "—") : "—"}</TableCell>
-                          <TableCell className="text-sm max-w-[200px] truncate">
-                            {safeText(exp.description, "")}
+                          <TableCell className="text-sm">
+                            {exp.employee?.name ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">
+                                  {safeText(exp.employee.name, "").charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{safeText(exp.employee.name, "")}</span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm max-w-[200px]">
+                            <span className="truncate block">{safeText(exp.description, "")}</span>
                             {exp.paymentRef && (
-                              <span className="text-xs text-muted-foreground block">Ref: {safeText(exp.paymentRef, "")}</span>
+                              <Badge variant="outline" className="text-[9px] mt-0.5 font-normal gap-0.5">
+                                <CreditCard className="h-2.5 w-2.5" />
+                                {safeText(exp.paymentRef, "")}
+                              </Badge>
                             )}
                           </TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
@@ -1194,14 +1259,23 @@ export default function FinancePage() {
               <div className="col-span-full p-8 text-center text-muted-foreground">
                 <Tag className="h-12 w-12 mx-auto mb-2 opacity-30" />
                 <p>No expense categories yet</p>
+                <p className="text-xs mt-1">Add expenses to see category breakdowns</p>
               </div>
             ) : (
-              categoryStats.map((cat) => {
+              <AnimatePresence mode="popLayout">
+              {categoryStats.map((cat, catIdx) => {
                 const pct = statsTotal > 0 ? ((cat.total / statsTotal) * 100) : 0;
                 const isExpanded = selectedCategory === cat.category;
                 const catExpenses = isExpanded ? expensesForCategory : [];
                 return (
-                  <div key={cat.category} className="space-y-0">
+                  <motion.div
+                    key={cat.category}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2, delay: catIdx * 0.04 }}
+                    className="space-y-0"
+                  >
                     <Card
                       className={`border-l-4 cursor-pointer transition-shadow hover:shadow-md ${CATEGORY_COLORS[cat.category] || "border-l-gray-500"}`}
                       onClick={() => setSelectedCategory(isExpanded ? null : cat.category)}
@@ -1212,7 +1286,7 @@ export default function FinancePage() {
                             <h3 className="font-semibold text-sm">{safeText(cat.category, "").replace(/_/g, " ")}</h3>
                             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                           </div>
-                          <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[cat.category] || ""}`}>{safeNumber(cat.count)}</Badge>
+                          <Badge variant="outline" className="text-[10px] rounded-full px-2">{safeNumber(cat.count)}</Badge>
                         </div>
                         <p className="text-2xl font-bold">{formatCurrency(safeNumber(cat.total))}</p>
                         <div className="mt-2">
@@ -1258,14 +1332,15 @@ export default function FinancePage() {
                         </CardContent>
                       </Card>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })
-            )}
+              )}
+              </AnimatePresence>
           </div>
         </TabsContent>
 
-        {/* ─── By Project Tab (Fix 4: interactive detail expansion) ──── */}
+        {/* ─── By Project Tab ──── */}
         <TabsContent value="project" className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">{projectStats.length} project(s) &bull; Total: {formatCurrency(safeNumber(statsTotal))}</p>
@@ -1280,16 +1355,25 @@ export default function FinancePage() {
               <div className="col-span-full p-8 text-center text-muted-foreground">
                 <FolderOpen className="h-12 w-12 mx-auto mb-2 opacity-30" />
                 <p>No project expenses yet</p>
+                <p className="text-xs mt-1">Assign expenses to projects to see breakdowns</p>
               </div>
             ) : (
-              projectStats.map((proj) => {
+              <AnimatePresence mode="popLayout">
+              {projectStats.map((proj, projIdx) => {
                 const budgetPct = proj.budget && proj.budget > 0 ? Math.min((proj.total / proj.budget) * 100, 100) : 0;
                 const isOverBudget = proj.budget ? proj.total > proj.budget : false;
                 const projKey = proj.projectId || "unassigned";
                 const isExpanded = selectedProject === projKey;
                 const projExpenses = isExpanded ? expensesForProject : [];
                 return (
-                  <div key={projKey} className="space-y-0">
+                  <motion.div
+                    key={projKey}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2, delay: projIdx * 0.04 }}
+                    className="space-y-0"
+                  >
                     <Card
                       className={`border-l-4 cursor-pointer transition-shadow hover:shadow-md ${isOverBudget ? "border-l-red-500" : "border-l-emerald-500"}`}
                       onClick={() => setSelectedProject(isExpanded ? null : projKey)}
@@ -1300,7 +1384,7 @@ export default function FinancePage() {
                             <h3 className="font-semibold text-sm truncate max-w-[180px]">{safeText(proj.projectName, "")}</h3>
                             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                           </div>
-                          <Badge variant="outline" className="text-[10px]">{safeNumber(proj.count)} entries</Badge>
+                          <Badge variant="outline" className="text-[10px] rounded-full px-2">{safeNumber(proj.count)} entries</Badge>
                         </div>
                         <p className="text-2xl font-bold">{formatCurrency(safeNumber(proj.total))}</p>
                         {proj.budget ? (
@@ -1358,15 +1442,16 @@ export default function FinancePage() {
                         </CardContent>
                       </Card>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })
-            )}
+              )}
+              </AnimatePresence>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* ─── Subscription Dialog (Fix 1: state-based, Fix 2: status field) ──── */}
+      {/* ─── Subscription Dialog ──── */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -1415,7 +1500,7 @@ export default function FinancePage() {
                 </Select>
               </div>
             </div>
-            {/* Fix 2: Status dropdown */}
+            {/* Status dropdown */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Status</Label>
@@ -1491,7 +1576,7 @@ export default function FinancePage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Expense Add Dialog (Fix 7: employeeId + paymentRef) ──── */}
+      {/* ─── Expense Add Dialog ──── */}
       <Dialog open={expDialogOpen} onOpenChange={(open) => { setExpDialogOpen(open); if (!open) setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" }); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
