@@ -867,6 +867,9 @@ export default function FinancePage() {
         </TabsList>
 
         {/* ─── Overview Tab ──── */}
+        {/* FIX #310: Radix TabsContent renders ALL children even when hidden.
+             ResponsiveContainer inside a display:none container causes React error #310
+             ("Objects are not valid as a React child"). Only render charts when visible. */}
         <TabsContent value="overview" className="space-y-6">
           <div>
           {dashLoading ? (
@@ -934,6 +937,8 @@ export default function FinancePage() {
             </Card>
           </div>
 
+          {/* Charts — only render when this tab is visible (avoids ResponsiveContainer in display:none) */}
+          {activeTab === "overview" && (
           <div className="grid gap-6 md:grid-cols-2">
             {/* Revenue Chart */}
             <Card>
@@ -981,6 +986,7 @@ export default function FinancePage() {
               </CardContent>
             </Card>
           </div>
+          )}
 
           {/* Recent Invoices */}
           <Card>
