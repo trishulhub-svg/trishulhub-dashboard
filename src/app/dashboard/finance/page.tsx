@@ -865,6 +865,12 @@ export default function FinancePage() {
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
+          {!isHydrated ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <div className="w-12 h-12 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
+              <p className="text-sm text-muted-foreground">Loading overview data...</p>
+            </div>
+          ) : (
           <div>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
@@ -1015,7 +1021,8 @@ export default function FinancePage() {
           </Card>
           </>
           )}
-        </div>
+          </div>
+          )}
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">
