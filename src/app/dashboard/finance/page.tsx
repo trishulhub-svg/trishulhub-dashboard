@@ -675,13 +675,16 @@ export default function FinancePage() {
     return allExpenses.filter((e) => e.project?.id === selectedProject);
   }, [allExpenses, selectedProject]);
 
-  // ─── Workspace loading animation (CSS-only to avoid hydration mismatch) ────
+  // ─── Hydration guard: MUST be first — prevents SSR/client mismatch ────
+  // During SSR, useSession() always returns status="loading", but on the client
+  // it may resolve to "authenticated" immediately from a cached JWT.
+  // Returning the same markup here guarantees server HTML ≡ first client render.
+  if (!isHydrated) {
+    return <div className="min-h-[60vh]" />;
+  }
+
+  // ─── Workspace loading animation (CSS-only) ────
   if (status === "loading" || (dashLoading && !data)) {
-    // During SSR: render empty placeholder to avoid hydration mismatch
-    // After hydration: show animated loader
-    if (!isHydrated) {
-      return <div className="min-h-[60vh]" />;
-    }
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         {/* Animated dual-ring spinner */}
@@ -865,12 +868,6 @@ export default function FinancePage() {
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
-          {!isHydrated ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-4">
-              <div className="w-12 h-12 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
-              <p className="text-sm text-muted-foreground">Loading overview data...</p>
-            </div>
-          ) : (
           <div>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
@@ -1022,7 +1019,6 @@ export default function FinancePage() {
           </>
           )}
           </div>
-          )}
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">

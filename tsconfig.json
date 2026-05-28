@@ -46,6 +46,8 @@
     "app.js",
     "standalone-start.js",
     "copy-standalone.js",
-    "hostinger-setup.sh"
+    "hostinger-setup.sh",
+    "scripts",
+    "trishulhub-dashboard"
   ]
 }
