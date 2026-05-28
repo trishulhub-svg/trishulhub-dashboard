@@ -668,54 +668,31 @@ export default function FinancePage() {
     return allExpenses.filter((e) => e.project?.id === selectedProject);
   }, [allExpenses, selectedProject]);
 
-  // ─── Workspace loading animation ────
+  // ─── Workspace loading animation (CSS-only to avoid hydration mismatch) ────
   if (status === "loading" || (dashLoading && !data)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-        {/* Animated logo ring */}
+        {/* Animated dual-ring spinner */}
         <div className="relative">
-          <motion.div
-            className="w-20 h-20 rounded-full border-[3px] border-muted"
-            style={{ borderTopColor: "hsl(var(--primary))" }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-          />
-          <motion.div
-            className="absolute inset-2 rounded-full border-[3px] border-muted"
-            style={{ borderBottomColor: "hsl(var(--primary))", opacity: 0.5 }}
-            animate={{ rotate: -360 }}
-            transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
+          <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
+          <div
+            className="absolute inset-2 rounded-full border-[3px] border-muted border-b-primary/50"
+            style={{ animation: 'spin 1.8s linear infinite reverse' }}
           />
           <div className="absolute inset-0 flex items-center justify-center">
             <DollarSign className="h-7 w-7 text-primary" />
           </div>
         </div>
-        {/* Text with fade pulse */}
-        <motion.div
-          className="text-center space-y-2"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
+        {/* Text */}
+        <div className="text-center space-y-2">
           <h3 className="text-lg font-semibold">Workspace is updating</h3>
-          <motion.p
-            className="text-sm text-muted-foreground"
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          >
-            Syncing your finance data...
-          </motion.p>
-        </motion.div>
+          <p className="text-sm text-muted-foreground animate-pulse">Syncing your finance data...</p>
+        </div>
         {/* Animated dots */}
         <div className="flex gap-1.5">
-          {[0, 1, 2].map((i) => (
-            <motion.div
-              key={i}
-              className="h-1.5 w-1.5 rounded-full bg-primary"
-              animate={{ scale: [1, 1.4, 1], opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 1, repeat: Infinity, ease: "easeInOut", delay: i * 0.2 }}
-            />
-          ))}
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
       </div>
     );
@@ -879,12 +856,7 @@ export default function FinancePage() {
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
-              <motion.div
-                className="w-12 h-12 rounded-full border-[3px] border-muted"
-                style={{ borderTopColor: "hsl(var(--primary))" }}
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              />
+              <div className="w-12 h-12 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
               <p className="text-sm text-muted-foreground">Loading overview data...</p>
             </div>
           ) : dashError ? (
