@@ -1314,6 +1314,7 @@ export default function FinancePage() {
                 <p className="text-xs mt-1">Add expenses to see category breakdowns</p>
               </div>
             ) : (
+              <>
               {categoryStats.map((cat, catIdx) => {
                 const pct = statsTotal > 0 ? ((cat.total / statsTotal) * 100) : 0;
                 const isExpanded = selectedCategory === cat.category;
@@ -1382,6 +1383,7 @@ export default function FinancePage() {
                   </div>
                 );
               })}
+              </>
             )}
           </div>
         </TabsContent>
@@ -1404,6 +1406,7 @@ export default function FinancePage() {
                 <p className="text-xs mt-1">Assign expenses to projects to see breakdowns</p>
               </div>
             ) : (
+              <>
               {projectStats.map((proj, projIdx) => {
                 const budgetPct = proj.budget && proj.budget > 0 ? Math.min((proj.total / proj.budget) * 100, 100) : 0;
                 const isOverBudget = proj.budget ? proj.total > proj.budget : false;
@@ -1486,6 +1489,7 @@ export default function FinancePage() {
                   </div>
                 );
               })}
+              </>
             )}
           </div>
         </TabsContent>
