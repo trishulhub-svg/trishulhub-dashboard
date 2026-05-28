@@ -247,19 +247,19 @@ export default function FinancePage() {
 
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
 
-  // ─── Fetch dashboard data (deferred — only for Overview tab charts) ────
+  // ─── Fetch overview stats (lightweight: 7 queries vs 19 in full dashboard) ────
   const [activeTab, setActiveTab] = useState("subscriptions");
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       setDashLoading(true);
       setDashError(null);
-      const res = await fetch("/api/dashboard", { credentials: "include", signal });
+      const res = await fetch("/api/dashboard/stats", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const raw = await res.json().catch(() => null);
         setData(deepSanitize<DashboardData | null>(raw));
       } else {
-        setDashError("Failed to load dashboard data. Please refresh the page.");
+        setDashError("Failed to load overview data. Please refresh the page.");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -408,14 +408,11 @@ export default function FinancePage() {
     };
   }, [expSearch]);
 
-  // PERF: Lazy-load dashboard data only when Overview tab is opened
-  const dashLoadedRef = useRef(false);
+  // Pre-fetch overview stats on mount so data is ready when user clicks Overview tab
   useEffect(() => {
-    if (activeTab === "overview" && !dashLoadedRef.current && !data) {
-      dashLoadedRef.current = true;
-      fetchData();
-    }
-  }, [activeTab, data, fetchData]);
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Initial data load (runs once) — fetch core data only.
   // Expenses/stats are handled by the filter effect below (avoids double-fetch on mount).
@@ -874,7 +871,7 @@ export default function FinancePage() {
                     <p className="text-sm text-muted-foreground">{dashError}</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setDashError(null); dashLoadedRef.current = false; fetchData(); }}>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setDashError(null); fetchData(); }}>
                   Retry
                 </Button>
               </CardContent>
