@@ -61,16 +61,28 @@ export default function DashboardPage() {
 
   if (isSessionLoading || loading || (!data && !error)) {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-32 rounded-lg" />
-          ))}
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+        {/* Animated dual-ring spinner */}
+        <div className="relative">
+          <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
+          <div
+            className="absolute inset-2 rounded-full border-[3px] border-muted border-b-primary/50"
+            style={{ animation: 'spin 1.8s linear infinite reverse' }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Rocket className="h-7 w-7 text-primary" />
+          </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-64 rounded-lg" />
-          ))}
+        {/* Text */}
+        <div className="text-center space-y-2">
+          <h3 className="text-lg font-semibold">Workspace is updating</h3>
+          <p className="text-sm text-muted-foreground animate-pulse">Syncing your dashboard data...</p>
+        </div>
+        {/* Animated dots */}
+        <div className="flex gap-1.5">
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
       </div>
     );

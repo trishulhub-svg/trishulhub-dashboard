@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+
+// Prevents hydration mismatch: only true after client-side mount
+function useIsHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
+  return hydrated;
+}
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
@@ -164,6 +170,7 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day:
 export default function FinancePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  const isHydrated = useIsHydrated();
   const userRole = session?.user?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
   const [dashLoading, setDashLoading] = useState(false);
@@ -670,6 +677,11 @@ export default function FinancePage() {
 
   // ─── Workspace loading animation (CSS-only to avoid hydration mismatch) ────
   if (status === "loading" || (dashLoading && !data)) {
+    // During SSR: render empty placeholder to avoid hydration mismatch
+    // After hydration: show animated loader
+    if (!isHydrated) {
+      return <div className="min-h-[60vh]" />;
+    }
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         {/* Animated dual-ring spinner */}
@@ -773,7 +785,7 @@ export default function FinancePage() {
 
       {/* ─── Summary Cards with gradient backgrounds ──── */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0 }}>
+        <div>
         <Card className="border-l-4 border-l-green-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -787,8 +799,8 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.05 }}>
+        </div>
+        <div>
         <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-red-50 to-orange-50/50 dark:from-red-950/20 dark:to-orange-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -802,8 +814,8 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
+        </div>
+        <div>
         <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -817,8 +829,8 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.15 }}>
+        </div>
+        <div>
         <Card className={`border-l-4 ${netProfit === null ? "border-l-gray-400" : netProfit >= 0 ? "border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/10" : "border-l-red-600 bg-gradient-to-br from-red-50 to-pink-50/50 dark:from-red-950/20 dark:to-pink-950/10"} transition-shadow hover:shadow-lg`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -838,7 +850,7 @@ export default function FinancePage() {
             </div>
           </CardContent>
         </Card>
-        </motion.div>
+        </div>
       </div>
 
       {/* ─── Fix 8: Reordered Tabs ──── */}
@@ -853,7 +865,7 @@ export default function FinancePage() {
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          <div>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
               <div className="w-12 h-12 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
@@ -1003,7 +1015,7 @@ export default function FinancePage() {
           </Card>
           </>
           )}
-        </motion.div>
+        </div>
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1302,18 +1314,13 @@ export default function FinancePage() {
                 <p className="text-xs mt-1">Add expenses to see category breakdowns</p>
               </div>
             ) : (
-              <AnimatePresence mode="popLayout">
               {categoryStats.map((cat, catIdx) => {
                 const pct = statsTotal > 0 ? ((cat.total / statsTotal) * 100) : 0;
                 const isExpanded = selectedCategory === cat.category;
                 const catExpenses = isExpanded ? expensesForCategory : [];
                 return (
-                  <motion.div
+                  <div
                     key={cat.category}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.2, delay: catIdx * 0.04 }}
                     className="space-y-0"
                   >
                     <Card
@@ -1372,10 +1379,9 @@ export default function FinancePage() {
                         </CardContent>
                       </Card>
                     )}
-                  </motion.div>
+                  </div>
                 );
               })}
-              </AnimatePresence>
             )}
           </div>
         </TabsContent>
@@ -1398,7 +1404,6 @@ export default function FinancePage() {
                 <p className="text-xs mt-1">Assign expenses to projects to see breakdowns</p>
               </div>
             ) : (
-              <AnimatePresence mode="popLayout">
               {projectStats.map((proj, projIdx) => {
                 const budgetPct = proj.budget && proj.budget > 0 ? Math.min((proj.total / proj.budget) * 100, 100) : 0;
                 const isOverBudget = proj.budget ? proj.total > proj.budget : false;
@@ -1406,12 +1411,8 @@ export default function FinancePage() {
                 const isExpanded = selectedProject === projKey;
                 const projExpenses = isExpanded ? expensesForProject : [];
                 return (
-                  <motion.div
+                  <div
                     key={projKey}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.2, delay: projIdx * 0.04 }}
                     className="space-y-0"
                   >
                     <Card
@@ -1482,10 +1483,9 @@ export default function FinancePage() {
                         </CardContent>
                       </Card>
                     )}
-                  </motion.div>
+                  </div>
                 );
               })}
-              </AnimatePresence>
             )}
           </div>
         </TabsContent>
