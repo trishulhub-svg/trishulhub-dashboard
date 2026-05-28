@@ -1,45 +1,18 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, Component, type ReactNode, type ErrorInfo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
+
+// Dynamic import with ssr:false prevents Recharts hydration/render issues (#310)
+const OverviewCharts = dynamic(() => import("./overview-charts"), { ssr: false });
 
 // Prevents hydration mismatch: only true after client-side mount
 function useIsHydrated() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
   return hydrated;
-}
-
-// React error boundary to isolate chart/render errors in the Overview tab
-// so they don't crash the entire finance page (catches React #310 etc.)
-class SectionErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; errorMsg: string }> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = { hasError: false, errorMsg: "" };
-  }
-  static getDerivedStateFromError(error: Error) {
-    console.error("[SectionErrorBoundary]", error.message, error.stack);
-    return { hasError: true, errorMsg: error.message };
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="h-6 w-6 text-amber-500" />
-              <div>
-                <p className="font-medium text-amber-600">This section failed to load</p>
-                <p className="text-xs text-muted-foreground mt-1">{this.state.errorMsg}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-    return this.props.children;
-  }
 }
 
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -74,7 +47,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface DashboardData {
@@ -913,7 +885,6 @@ export default function FinancePage() {
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">
-          <SectionErrorBoundary>
           <div>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
@@ -980,53 +951,7 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Revenue Chart */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Revenue Trend</CardTitle>
-                <CardDescription>Last 6 months</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={revenueData}>
-                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Revenue"]} />
-                      <Bar dataKey="revenue" fill="hsl(25, 80%, 50%)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Financial Breakdown */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Financial Overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 flex items-center justify-center">
-                  {expenseData.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No financial data yet</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={expenseData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                          {expenseData.map((entry, i) => (
-                            <Cell key={i} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`]} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <OverviewCharts revenueData={revenueData} expenseData={expenseData} />
 
           {/* Recent Invoices */}
           <Card>
@@ -1065,7 +990,6 @@ export default function FinancePage() {
           </>
           )}
           </div>
-          </SectionErrorBoundary>
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">
