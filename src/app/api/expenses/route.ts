@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("endDate")
     const category = searchParams.get("category")
     const projectId = searchParams.get("projectId")
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1)
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 200)
     const offset = (page - 1) * limit
 
     const where: Record<string, unknown> = {}
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
         employee: { select: { id: true, name: true } },
       },
     })
-    return NextResponse.json(expense)
+    return NextResponse.json(JSON.parse(JSON.stringify(expense)))
   } catch {
     return NextResponse.json({ error: "Failed to create expense" }, { status: 500 })
   }
@@ -277,7 +277,7 @@ export async function PATCH(req: NextRequest) {
       }
       return NextResponse.json({ error: "Expense update failed" }, { status: 500 })
     }
-    return NextResponse.json(expense)
+    return NextResponse.json(JSON.parse(JSON.stringify(expense)))
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

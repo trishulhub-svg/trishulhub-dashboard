@@ -93,7 +93,7 @@ export async function PATCH(
     data: sanitizedData,
     include: { project: { select: { id: true, name: true } } },
   })
-  return NextResponse.json(subscription)
+  return NextResponse.json(JSON.parse(JSON.stringify(subscription)))
   } catch (error: unknown) {
     console.error("[subscriptions] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

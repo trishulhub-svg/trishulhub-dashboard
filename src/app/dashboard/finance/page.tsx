@@ -8,13 +8,6 @@ import { useSession } from "next-auth/react";
 // Dynamic import with ssr:false prevents Recharts hydration/render issues (#310)
 const OverviewCharts = dynamic(() => import("./overview-charts"), { ssr: false });
 
-// Prevents hydration mismatch: only true after client-side mount
-function useIsHydrated() {
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { setHydrated(true); }, []);
-  return hydrated;
-}
-
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
@@ -168,13 +161,17 @@ const formatCurrency = (n: number, currency = "INR") => {
   return `${currency} ${n.toLocaleString()}`;
 };
 
-const formatDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+const formatDate = (d: string) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+};
 
 // ─── Main Component ──────────────────────────────────────────────────
 export default function FinancePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const isHydrated = useIsHydrated();
   const userRole = session?.user?.role || "DEVELOPER";
   const [data, setData] = useState<DashboardData | null>(null);
   const [dashLoading, setDashLoading] = useState(false);
@@ -380,7 +377,7 @@ export default function FinancePage() {
   // ─── Fetch employees for expense form dropdown (Fix 7) ────
   const fetchEmployees = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/users", { credentials: "include", signal });
+      const res = await fetch("/api/team", { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const json = await res.json();
@@ -420,16 +417,14 @@ export default function FinancePage() {
     }
   }, [activeTab, data, fetchData]);
 
-  // Initial data load (runs once) — fetch all finance data in parallel
+  // Initial data load (runs once) — fetch core data only.
+  // Expenses/stats are handled by the filter effect below (avoids double-fetch on mount).
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
     fetchSubscriptions(signal);
     fetchProjects(signal);
     fetchEmployees(signal);
-    fetchAllExpenses(signal);
-    fetchExpenses(signal);
-    fetchStats(signal);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -679,32 +674,12 @@ export default function FinancePage() {
     return allExpenses.filter((e) => e.project?.id === selectedProject);
   }, [allExpenses, selectedProject]);
 
-  // ─── Workspace loading animation (CSS-only to avoid hydration mismatch) ────
-  // Matches dashboard page pattern: layout renders <LoadingScreen /> during SSR,
-   // so both server and client first-render show loading → no hydration mismatch.
-  if (status === "loading" || (dashLoading && !data)) {
-    // During SSR: render same structure so server/client HTML match.
-    // The animation classes are only visible after mount.
-    if (!isHydrated) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-          <div className="relative">
-            <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary" />
-            <div className="absolute inset-2 rounded-full border-[3px] border-muted border-b-primary/50" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <DollarSign className="h-7 w-7 text-primary" />
-            </div>
-          </div>
-          <div className="text-center space-y-2">
-            <h3 className="text-lg font-semibold">Workspace is updating</h3>
-            <p className="text-sm text-muted-foreground">Syncing your finance data...</p>
-          </div>
-        </div>
-      );
-    }
+  // ─── Workspace loading animation (CSS-only — matches dashboard page pattern) ────
+  // Layout renders <LoadingScreen /> during SSR, so server/client first-render match.
+  // Only blocks during session loading; dashLoading (overview) is lazy per-tab.
+  if (status === "loading") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-        {/* Animated dual-ring spinner */}
         <div className="relative">
           <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
           <div
@@ -715,12 +690,10 @@ export default function FinancePage() {
             <DollarSign className="h-7 w-7 text-primary" />
           </div>
         </div>
-        {/* Text */}
         <div className="text-center space-y-2">
           <h3 className="text-lg font-semibold">Workspace is updating</h3>
           <p className="text-sm text-muted-foreground animate-pulse">Syncing your finance data...</p>
         </div>
-        {/* Animated dots */}
         <div className="flex gap-1.5">
           <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
           <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -790,7 +763,7 @@ export default function FinancePage() {
   }, [data, invoices, stats.totalRevenue, stats.totalExpenses, stats.totalApiSpend]);
 
   return (
-    <div className="space-y-6" suppressHydrationWarning>
+    <div className="space-y-6">
       {/* Header */}
       <PageHeader title="Finance Dashboard" description="Track revenue, invoices, expenses & subscriptions">
         <div className="flex gap-2">
@@ -951,7 +924,10 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          <OverviewCharts revenueData={revenueData} expenseData={expenseData} />
+          {/* Only mount Recharts when overview tab is active AND data exists — prevents #310 from ResponsiveContainer in display:none */}
+          {activeTab === "overview" && data && (
+            <OverviewCharts revenueData={revenueData} expenseData={expenseData} />
+          )}
 
           {/* Recent Invoices */}
           <Card>

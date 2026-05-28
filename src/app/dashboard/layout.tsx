@@ -44,7 +44,7 @@ import LoadingScreen from "@/components/ui/loading-screen";
 import { useTheme } from "next-themes";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 
-import { cn, safeArray, safeDateStr } from "@/lib/utils";
+import { cn, safeArray, safeDateStr, safeText } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -622,14 +622,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <span className={cn("text-xs font-medium", !notif.isRead && "font-semibold")}>
-                                {notif.title}
+                                {safeText(notif.title, "")}
                               </span>
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                                 {formatRelativeTime(notif.createdAt)}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                              {notif.message}
+                              {safeText(notif.message, "")}
                             </p>
                           </div>
                           <Button

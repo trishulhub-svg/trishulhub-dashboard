@@ -43,8 +43,8 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status")
 
   // M-FIN-8: Pagination support
-  const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "100")), 200)
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1)
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "100") || 100), 200)
   const offset = (page - 1) * limit
 
   const where: Record<string, unknown> = {}
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     include: { project: { select: { id: true, name: true } } },
   })
 
-  return NextResponse.json(subscription)
+  return NextResponse.json(JSON.parse(JSON.stringify(subscription)))
   } catch (error: unknown) {
     console.error("[subscriptions] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
