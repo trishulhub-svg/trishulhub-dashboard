@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
@@ -10,6 +10,38 @@ function useIsHydrated() {
   useEffect(() => { setHydrated(true); }, []);
   return hydrated;
 }
+
+// React error boundary to isolate chart/render errors in the Overview tab
+// so they don't crash the entire finance page (catches React #310 etc.)
+class SectionErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; errorMsg: string }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, errorMsg: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    console.error("[SectionErrorBoundary]", error.message, error.stack);
+    return { hasError: true, errorMsg: error.message };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-6 w-6 text-amber-500" />
+              <div>
+                <p className="font-medium text-amber-600">This section failed to load</p>
+                <p className="text-xs text-muted-foreground mt-1">{this.state.errorMsg}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
@@ -675,16 +707,29 @@ export default function FinancePage() {
     return allExpenses.filter((e) => e.project?.id === selectedProject);
   }, [allExpenses, selectedProject]);
 
-  // ─── Hydration guard: MUST be first — prevents SSR/client mismatch ────
-  // During SSR, useSession() always returns status="loading", but on the client
-  // it may resolve to "authenticated" immediately from a cached JWT.
-  // Returning the same markup here guarantees server HTML ≡ first client render.
-  if (!isHydrated) {
-    return <div className="min-h-[60vh]" />;
-  }
-
-  // ─── Workspace loading animation (CSS-only) ────
+  // ─── Workspace loading animation (CSS-only to avoid hydration mismatch) ────
+  // Matches dashboard page pattern: layout renders <LoadingScreen /> during SSR,
+   // so both server and client first-render show loading → no hydration mismatch.
   if (status === "loading" || (dashLoading && !data)) {
+    // During SSR: render same structure so server/client HTML match.
+    // The animation classes are only visible after mount.
+    if (!isHydrated) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+          <div className="relative">
+            <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary" />
+            <div className="absolute inset-2 rounded-full border-[3px] border-muted border-b-primary/50" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <DollarSign className="h-7 w-7 text-primary" />
+            </div>
+          </div>
+          <div className="text-center space-y-2">
+            <h3 className="text-lg font-semibold">Workspace is updating</h3>
+            <p className="text-sm text-muted-foreground">Syncing your finance data...</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         {/* Animated dual-ring spinner */}
@@ -773,7 +818,7 @@ export default function FinancePage() {
   }, [data, invoices, stats.totalRevenue, stats.totalExpenses, stats.totalApiSpend]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" suppressHydrationWarning>
       {/* Header */}
       <PageHeader title="Finance Dashboard" description="Track revenue, invoices, expenses & subscriptions">
         <div className="flex gap-2">
@@ -867,10 +912,8 @@ export default function FinancePage() {
         </TabsList>
 
         {/* ─── Overview Tab ──── */}
-        {/* FIX #310: Radix TabsContent renders ALL children even when hidden.
-             ResponsiveContainer inside a display:none container causes React error #310
-             ("Objects are not valid as a React child"). Only render charts when visible. */}
         <TabsContent value="overview" className="space-y-6">
+          <SectionErrorBoundary>
           <div>
           {dashLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
@@ -937,8 +980,6 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          {/* Charts — only render when this tab is visible (avoids ResponsiveContainer in display:none) */}
-          {activeTab === "overview" && (
           <div className="grid gap-6 md:grid-cols-2">
             {/* Revenue Chart */}
             <Card>
@@ -986,7 +1027,6 @@ export default function FinancePage() {
               </CardContent>
             </Card>
           </div>
-          )}
 
           {/* Recent Invoices */}
           <Card>
@@ -1025,6 +1065,7 @@ export default function FinancePage() {
           </>
           )}
           </div>
+          </SectionErrorBoundary>
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
           <div className="flex items-center justify-between">
