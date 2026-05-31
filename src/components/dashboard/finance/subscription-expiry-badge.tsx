@@ -6,6 +6,7 @@ import { safeText } from "@/lib/utils";
 interface SubscriptionExpiryBadgeProps {
   endDate: string | null;
   status: string;
+  showExpiryDate?: boolean;
 }
 
 /**
@@ -36,90 +37,108 @@ function getDaysRemaining(endDate: string): number {
 }
 
 /**
+ * Returns the status label + colour class for a given subscription status.
+ */
+function getStatusInfo(status: string): { label: string; className: string } {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Active", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" };
+    case "STOPPED":
+      return { label: "Stopped", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" };
+    case "CANCELLED":
+      return { label: "Cancelled", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" };
+    case "COMPLETED":
+      return { label: "Completed", className: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
+    default:
+      return { label: safeText(status, ""), className: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200" };
+  }
+}
+
+/**
  * SubscriptionExpiryBadge displays a colour-coded Badge reflecting the
  * subscription's expiry state (expired, expiring soon, active, or inactive).
  *
- * • Expired  → RED   "Expired on {date}"
- * • ≤ 30 days → RED  "Expiring in {X} days"
- * • ≤ 90 days → AMBER "Expiring in {X} days"
- * • Otherwise → GREEN "Active · Expiry: {date}"
- * • No endDate → GREEN "Active" (ongoing)
- * • Stopped / Cancelled → AMBER status badge
+ * Layout: Status badge on top, expiry date text below it.
+ * - Active with >90 days: Green "Active" badge + "Expiry: 15 Jun 2025" below
+ * - Active with ≤90 days: Amber "Active" badge + "Expiring in X days · 15 Jun 2025" below
+ * - Active with ≤30 days: Red "Active" badge + "Expiring in X days · 15 Jun 2025" below
+ * - Expired: Red "Active" badge + "Expired on 15 Jun 2025" below
+ * - No endDate: Green "Active" badge only (no date line)
+ * - Stopped/Cancelled: Status badge + "Expiry: {date}" below if endDate exists
+ * - Completed: Status badge only
  */
 export function SubscriptionExpiryBadge({
   endDate,
   status,
 }: SubscriptionExpiryBadgeProps) {
   const safeStatus = safeText(status, "");
+  const { label: statusLabel, className: statusColor } = getStatusInfo(safeStatus);
 
-  // ── Inactive statuses ────────────────────────────────────────────
-  if (safeStatus === "STOPPED") {
-    return (
-      <Badge className="text-[10px] bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
-        {safeText("Stopped", "")}
-      </Badge>
-    );
-  }
-
-  if (safeStatus === "CANCELLED") {
-    return (
-      <Badge className="text-[10px] bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
-        {safeText("Cancelled", "")}
-      </Badge>
-    );
-  }
-
-  if (safeStatus === "COMPLETED") {
-    return (
-      <Badge className="text-[10px] bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-        {safeText("Completed", "")}
-      </Badge>
-    );
-  }
-
-  // ── No end date → ongoing active subscription ────────────────────
+  // ── No end date → ongoing subscription with no expiry info ──────────
   if (!endDate) {
     return (
-      <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-        {safeText("Active", "")}
-      </Badge>
+      <div className="flex flex-col gap-0.5">
+        <Badge className={`text-[10px] ${statusColor}`}>
+          {safeText(statusLabel, "")}
+        </Badge>
+      </div>
     );
   }
 
   const daysRemaining = getDaysRemaining(endDate);
   const formattedDate = formatDate(endDate);
 
-  // ── Expired ──────────────────────────────────────────────────────
+  // ── Expired ──────────────────────────────────────────────────────────
   if (daysRemaining < 0) {
     return (
-      <Badge className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
-        {safeText(`Expired on ${formattedDate}`, "")}
-      </Badge>
+      <div className="flex flex-col gap-0.5">
+        <Badge className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+          {safeText(statusLabel, "")}
+        </Badge>
+        <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">
+          Expired on {safeText(formattedDate, "")}
+        </span>
+      </div>
     );
   }
 
   // ── Expiring within 30 days ──────────────────────────────────────
-  if (daysRemaining <= 30) {
+  if (daysRemaining <= 30 && safeStatus === "ACTIVE") {
     return (
-      <Badge className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
-        {safeText(`Expiring in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}`, "")}
-      </Badge>
+      <div className="flex flex-col gap-0.5">
+        <Badge className="text-[10px] bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+          {safeText(statusLabel, "")}
+        </Badge>
+        <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">
+          Expiring in {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} &middot; {safeText(formattedDate, "")}
+        </span>
+      </div>
     );
   }
 
   // ── Expiring within 90 days ──────────────────────────────────────
-  if (daysRemaining <= 90) {
+  if (daysRemaining <= 90 && safeStatus === "ACTIVE") {
     return (
-      <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-        {safeText(`Expiring in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}`, "")}
-      </Badge>
+      <div className="flex flex-col gap-0.5">
+        <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+          {safeText(statusLabel, "")}
+        </Badge>
+        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+          Expiring in {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} &middot; {safeText(formattedDate, "")}
+        </span>
+      </div>
     );
   }
 
-  // ── Active with plenty of time remaining ─────────────────────────
+  // ── Active with plenty of time remaining OR non-active with endDate ──
   return (
-    <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-      {safeText(`Active \u00b7 Expiry: ${formattedDate}`, "")}
-    </Badge>
+    <div className="flex flex-col gap-0.5">
+      <Badge className={`text-[10px] ${statusColor}`}>
+        {safeText(statusLabel, "")}
+      </Badge>
+      <span className="text-[10px] text-muted-foreground">
+        Expiry: {safeText(formattedDate, "")}
+      </span>
+    </div>
   );
 }

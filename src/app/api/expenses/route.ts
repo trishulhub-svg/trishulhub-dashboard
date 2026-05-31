@@ -49,10 +49,10 @@ export async function GET(req: NextRequest) {
     // Project filter
     if (projectId) where.projectId = projectId
 
-    // Search filter (description)
-    if (search) {
-      where.description = { contains: search }
-    }
+    // NOTE: search is handled by multi-field in-memory filter below
+    // to support smart search across description, category, project, employee, ref, amount.
+    // We do NOT add a Prisma where clause here because it would pre-filter rows
+    // and miss matches in related fields (employee name, project name, etc.).
 
     const [expenses, total] = await Promise.all([
       db.expense.findMany({
@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
       db.expense.count({ where }),
     ])
 
-    // If search includes project name or category, filter in-memory since Prisma SQLite doesn't support relation filters well
+    // Smart multi-field search: searches description, category, project name,
+    // employee name, payment reference, and amount.
+    // This runs in-memory because Prisma SQLite doesn't support cross-relation OR queries.
     let filtered = expenses
     if (search) {
       const searchLower = search.toLowerCase()
@@ -76,6 +78,7 @@ export async function GET(req: NextRequest) {
         (e) =>
           e.description.toLowerCase().includes(searchLower) ||
           (e.category || "").toLowerCase().includes(searchLower) ||
+          (e.category || "").replace(/_/g, " ").toLowerCase().includes(searchLower) ||
           e.project?.name?.toLowerCase().includes(searchLower) ||
           e.employee?.name?.toLowerCase().includes(searchLower) ||
           (e.paymentRef || "").toLowerCase().includes(searchLower) ||
