@@ -283,6 +283,100 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
+// PUT /api/expenses - Full update expense (ADMIN/SUPER_ADMIN only)
+export async function PUT(req: NextRequest) {
+  try {
+    await ensureAllTables()
+
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const userRole = session.user.role
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const userId = session.user.id
+    const { success: rateOk } = rateLimit(`expenses-put:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rateOk) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    let body: { id?: string; category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string; employeeId?: string; paymentRef?: string }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { id, category, description, amount, date, projectId, employeeId, paymentRef, receiptUrl } = body
+
+    if (!id) {
+      return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
+    }
+
+    const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
+    if (category && !validCategories.includes(category)) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+    }
+
+    if (description && description.length > 2000) {
+      return NextResponse.json({ error: "Description must be at most 2000 characters" }, { status: 400 })
+    }
+
+    const parsed = typeof amount === "number" ? amount : amount !== undefined ? parseFloat(String(amount)) : undefined
+    if (parsed !== undefined && (isNaN(parsed) || parsed < 0)) {
+      return NextResponse.json({ error: "Amount must be a valid non-negative number" }, { status: 400 })
+    }
+
+    if (receiptUrl && receiptUrl !== "") {
+      try {
+        const parsedUrl = new URL(receiptUrl)
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+          return NextResponse.json({ error: "receiptUrl must use http or https" }, { status: 400 })
+        }
+      } catch {
+        return NextResponse.json({ error: "Invalid receiptUrl format" }, { status: 400 })
+      }
+    }
+
+    let expense
+    try {
+      expense = await db.$transaction(async (tx) => {
+        const existing = await tx.expense.findUnique({ where: { id } })
+        if (!existing) throw new Error("NOT_FOUND")
+
+        const updateData: Record<string, unknown> = {}
+        if (category !== undefined) updateData.category = category
+        if (description !== undefined) updateData.description = description
+        if (parsed !== undefined) updateData.amount = parsed
+        if (date !== undefined) updateData.date = new Date(date)
+        updateData.projectId = projectId && projectId !== "NONE" ? projectId : null
+        updateData.employeeId = employeeId && employeeId !== "NONE" ? employeeId : null
+        updateData.paymentRef = paymentRef && paymentRef.trim() !== "" ? paymentRef : null
+        updateData.receiptUrl = receiptUrl && receiptUrl !== "" ? receiptUrl : null
+
+        return tx.expense.update({
+          where: { id },
+          data: updateData,
+          include: {
+            project: { select: { id: true, name: true } },
+            employee: { select: { id: true, name: true } },
+          },
+        })
+      })
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "NOT_FOUND") {
+        return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+      }
+      return NextResponse.json({ error: "Expense update failed" }, { status: 500 })
+    }
+
+    return NextResponse.json(JSON.parse(JSON.stringify(expense)))
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 // DELETE /api/expenses - Delete expense (SUPER_ADMIN and ADMIN only)
 export async function DELETE(req: NextRequest) {
   try {

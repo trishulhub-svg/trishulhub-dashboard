@@ -32,3 +32,30 @@ REMAINING (lower priority, not blocking):
 - TOCTOU race conditions in subscription PATCH/DELETE
 - deepSanitize returns {} instead of [] for array types on failure
 - Float precision for all monetary values (SQLite limitation)
+
+---
+Task ID: 2
+Agent: Main Coordinator
+Task: Add Expense Edit Functionality (PUT API + Edit Dialog Component)
+
+Work Log:
+- Read existing code: finance/page.tsx (expense add dialog, ExpenseWithProject type, expForm state), api/expenses/route.ts (GET/POST/PATCH/DELETE handlers), expenses/page.tsx (display pattern)
+- Added PUT handler to src/app/api/expenses/route.ts (lines 286-378)
+  - Auth check (session + SUPER_ADMIN/ADMIN role)
+  - Rate limiting via expenses-put:{userId} key
+  - Full validation: category enum, description length ≤2000, amount non-negative, receiptUrl http/https scheme
+  - TOCTOU-safe: existence check + update wrapped in db.$transaction
+  - Returns 400 if missing id, 404 if not found
+  - JSON.parse(JSON.stringify()) serialization matching existing pattern
+- Created src/components/dashboard/finance/edit-expense-dialog.tsx
+  - "use client" component with props: open, onOpenChange, expense, onSuccess, projects, employees
+  - Pre-populates form from expense prop via useEffect
+  - Same form fields as Add dialog: Category (select), Description (input), Amount (input number), Date (input date), Project (select), Employee (select), Payment Ref (input), Receipt URL (input)
+  - Calls PUT /api/expenses on submit
+  - Loading state with Loader2 spinner on submit button
+  - Uses safeText() from @/lib/utils for displaying expense text data
+  - Matches glassmorphism-style Dialog layout (sm:max-w-lg, max-h-[92dvh], px-5 pb-5, scrollable body)
+
+Stage Summary:
+1. ✅ PUT handler added with full validation, auth, rate limiting, TOCTOU protection
+2. ✅ EditExpenseDialog component created with pre-populated form, loading state, and PUT submission

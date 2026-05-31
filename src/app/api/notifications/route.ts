@@ -31,6 +31,56 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// POST /api/notifications - Create a notification
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    const { title, message, type, link } = body as {
+      title?: string
+      message?: string
+      type?: string
+      link?: string
+    }
+
+    if (!title || !message) {
+      return NextResponse.json(
+        { error: "title and message are required" },
+        { status: 400 }
+      )
+    }
+
+    // Validate type is one of the allowed values
+    const allowedTypes = ["INFO", "WARNING", "ERROR", "SUCCESS", "TASK", "APPROVAL", "AGENT"]
+    const notificationType = allowedTypes.includes(type || "INFO") ? (type || "INFO") : "INFO"
+
+    const notification = await db.notification.create({
+      data: {
+        userId: session.user.id,
+        title: String(title).slice(0, 255),
+        message: String(message).slice(0, 1000),
+        type: notificationType,
+        link: link ? String(link).slice(0, 500) : null,
+      },
+    })
+
+    return NextResponse.json(JSON.parse(JSON.stringify(notification)))
+  } catch (error: any) {
+    console.error("[notifications] POST error:", error.message)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
+}
+
 // PATCH /api/notifications - Mark as read (single or batch)
 export async function PATCH(req: NextRequest) {
   try {

@@ -13,7 +13,7 @@ import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
-  Receipt, FolderOpen, Tag, ChevronDown, ChevronUp,
+  Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
 } from "lucide-react";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -40,6 +40,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
+import { ExpenseDetailSheet } from "@/components/dashboard/finance/expense-detail-sheet";
+import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
+import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscription-expiry-badge";
+import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface DashboardData {
@@ -246,6 +251,14 @@ export default function FinancePage() {
   });
 
   const [pendingDelete, setPendingDelete] = useState<{ type: "subscription" | "expense"; id: string } | null>(null);
+
+  // Expense edit dialog
+  const [editExpenseOpen, setEditExpenseOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseDetail | null>(null);
+
+  // Expense detail sheet
+  const [expenseDetailOpen, setExpenseDetailOpen] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState<ExpenseDetail | null>(null);
 
   // ─── Fetch overview stats (lightweight: 7 queries vs 19 in full dashboard) ────
   const [activeTab, setActiveTab] = useState("subscriptions");
@@ -623,6 +636,13 @@ export default function FinancePage() {
     setPendingDelete({ type: "expense", id });
   };
 
+  // Refetch all expense data (used after edit)
+  const refetchAllExpenseData = useCallback(() => {
+    fetchExpenses();
+    fetchStats();
+    fetchAllExpenses();
+  }, [fetchExpenses, fetchStats, fetchAllExpenses]);
+
   const executeDelete = async () => {
     if (!pendingDelete) return;
     if (pendingDelete.type === "subscription") {
@@ -942,7 +962,7 @@ export default function FinancePage() {
                   <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
                 ) : (
                   recentInvoices.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => router.push("/dashboard/finance/invoices")}>
                       <div className="flex items-center gap-3">
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                         <div>
@@ -1035,7 +1055,7 @@ export default function FinancePage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge className={`text-[10px] ${SUB_STATUS_COLORS[sub.status] || ""}`}>{safeText(sub.status, "")}</Badge>
+                            <SubscriptionExpiryBadge endDate={sub.endDate} status={sub.status} />
                           </TableCell>
                           <TableCell className="text-right">
                             <span className="font-medium">{formatCurrency(safeNumber(monthlyInr))}</span>
@@ -1084,6 +1104,7 @@ export default function FinancePage() {
           </Card>
 
           {/* Total Monthly Cost Card */}
+          <SubscriptionExpiryChecker subscriptions={subscriptions} />
           {subscriptions.length > 0 && (
             <Card className="border-l-4 border-l-orange-500 bg-gradient-to-r from-orange-50 to-amber-50/30 dark:from-orange-950/10 dark:to-amber-950/5">
               <CardContent className="p-4">
@@ -1198,7 +1219,7 @@ export default function FinancePage() {
                     </TableHeader>
                     <TableBody>
                       {expenses.map((exp, idx) => (
-                        <TableRow key={exp.id} className={`${idx % 2 === 1 ? "bg-muted/30" : ""} transition-colors hover:bg-muted/50`}>
+                        <TableRow key={exp.id} className={`${idx % 2 === 1 ? "bg-muted/30" : ""} transition-colors hover:bg-muted/50 cursor-pointer`} onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
                           <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
@@ -1229,9 +1250,14 @@ export default function FinancePage() {
                           </TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteExpense(exp.id)} aria-label="Delete expense">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingExpense(exp as ExpenseDetail); setEditExpenseOpen(true); }} aria-label="Edit expense">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={(e) => { e.stopPropagation(); handleDeleteExpense(exp.id); }} aria-label="Delete expense">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1308,7 +1334,7 @@ export default function FinancePage() {
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {catExpenses.map((exp) => (
-                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50">
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-medium truncate">{safeText(exp.description, "")}</p>
                                   <p className="text-muted-foreground">{formatDate(safeText(exp.date, ""))}{exp.project ? ` • ${safeText(exp.project.name, "")}` : ""}</p>
@@ -1409,7 +1435,7 @@ export default function FinancePage() {
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {projExpenses.map((exp) => (
-                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50">
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-medium truncate">{safeText(exp.description, "")}</p>
                                   <p className="text-muted-foreground">
@@ -1441,6 +1467,25 @@ export default function FinancePage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* ─── Edit Expense Dialog ──── */}
+      <EditExpenseDialog
+        open={editExpenseOpen}
+        onOpenChange={(open) => { setEditExpenseOpen(open); if (!open) setEditingExpense(null); }}
+        expense={editingExpense as unknown as ExpenseWithProject | null}
+        onSuccess={() => { setEditExpenseOpen(false); setEditingExpense(null); refetchAllExpenseData(); toast.success("Expense updated"); }}
+        projects={projects}
+        employees={employees}
+      />
+
+      {/* ─── Expense Detail Sheet ──── */}
+      <ExpenseDetailSheet
+        open={expenseDetailOpen}
+        onOpenChange={setExpenseDetailOpen}
+        expense={selectedExpense}
+        onEdit={(exp) => { setExpenseDetailOpen(false); setEditingExpense(exp); setEditExpenseOpen(true); }}
+        onDelete={(exp) => { setExpenseDetailOpen(false); handleDeleteExpense(exp.id); }}
+      />
 
       {/* ─── Subscription Dialog ──── */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
