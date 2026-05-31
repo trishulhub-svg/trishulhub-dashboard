@@ -1055,7 +1055,7 @@ export default function FinancePage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <SubscriptionExpiryBadge endDate={sub.endDate} status={sub.status} />
+                            <SubscriptionExpiryBadge endDate={sub.endDate} status={sub.status} startDate={sub.startDate} frequency={sub.frequency} />
                           </TableCell>
                           <TableCell className="text-right">
                             <span className="font-medium">{formatCurrency(safeNumber(monthlyInr))}</span>

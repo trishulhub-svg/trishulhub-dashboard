@@ -6,7 +6,8 @@ import { safeText } from "@/lib/utils";
 interface SubscriptionExpiryBadgeProps {
   endDate: string | null;
   status: string;
-  showExpiryDate?: boolean;
+  startDate?: string | null;
+  frequency?: string | null;
 }
 
 /**
@@ -37,6 +38,60 @@ function getDaysRemaining(endDate: string): number {
 }
 
 /**
+ * Compute the next billing date from startDate + frequency.
+ * Returns null if unable to compute or if the subscription has expired.
+ */
+function getNextBillingDate(startDate: string, frequency: string, endDate?: string | null): Date | null {
+  if (!startDate || !frequency) return null;
+  const start = new Date(startDate);
+  if (isNaN(start.getTime())) return null;
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  // If subscription has expired (endDate in the past), no next billing
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    if (end < now) return null;
+  }
+
+  if (frequency === "MONTHLY") {
+    // Find the next occurrence of the same day-of-month
+    const day = start.getDate();
+    let next = new Date(now.getFullYear(), now.getMonth(), day);
+    if (next < now) {
+      next = new Date(now.getFullYear(), now.getMonth() + 1, day);
+    }
+    // Handle months where the day doesn't exist (e.g., 31st in Feb)
+    if (next.getDate() !== day) {
+      next.setDate(0); // last day of the month
+    }
+    // Don't go past endDate
+    if (endDate && next > new Date(endDate)) return null;
+    return next;
+  }
+
+  if (frequency === "YEARLY") {
+    const month = start.getMonth();
+    const day = start.getDate();
+    let next = new Date(now.getFullYear(), month, day);
+    if (next < now) {
+      next = new Date(now.getFullYear() + 1, month, day);
+    }
+    // Handle leap year issues
+    if (next.getMonth() !== month) {
+      next.setDate(0);
+    }
+    // Don't go past endDate
+    if (endDate && next > new Date(endDate)) return null;
+    return next;
+  }
+
+  return null;
+}
+
+/**
  * Returns the status label + colour class for a given subscription status.
  */
 function getStatusInfo(status: string): { label: string; className: string } {
@@ -59,28 +114,34 @@ function getStatusInfo(status: string): { label: string; className: string } {
  * subscription's expiry state (expired, expiring soon, active, or inactive).
  *
  * Layout: Status badge on top, expiry date text below it.
- * - Active with >90 days: Green "Active" badge + "Expiry: 15 Jun 2025" below
- * - Active with ≤90 days: Amber "Active" badge + "Expiring in X days · 15 Jun 2025" below
- * - Active with ≤30 days: Red "Active" badge + "Expiring in X days · 15 Jun 2025" below
- * - Expired: Red "Active" badge + "Expired on 15 Jun 2025" below
- * - No endDate: Green "Active" badge only (no date line)
- * - Stopped/Cancelled: Status badge + "Expiry: {date}" below if endDate exists
- * - Completed: Status badge only
+ * For recurring (monthly/yearly) active subscriptions, also shows next billing date.
  */
 export function SubscriptionExpiryBadge({
   endDate,
   status,
+  startDate,
+  frequency,
 }: SubscriptionExpiryBadgeProps) {
   const safeStatus = safeText(status, "");
   const { label: statusLabel, className: statusColor } = getStatusInfo(safeStatus);
 
-  // ── No end date → ongoing subscription with no expiry info ──────────
+  // Compute next billing date for recurring subscriptions
+  const nextBilling = (safeStatus === "ACTIVE" && startDate && frequency)
+    ? getNextBillingDate(startDate, frequency, endDate)
+    : null;
+
+  // ── No end date ────────────────────────────────────────────────────────
   if (!endDate) {
     return (
       <div className="flex flex-col gap-0.5">
         <Badge className={`text-[10px] ${statusColor}`}>
           {safeText(statusLabel, "")}
         </Badge>
+        {nextBilling && (
+          <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+            Next: {formatDate(nextBilling.toISOString())}
+          </span>
+        )}
       </div>
     );
   }
@@ -88,7 +149,7 @@ export function SubscriptionExpiryBadge({
   const daysRemaining = getDaysRemaining(endDate);
   const formattedDate = formatDate(endDate);
 
-  // ── Expired ──────────────────────────────────────────────────────────
+  // ── Expired ────────────────────────────────────────────────────────────
   if (daysRemaining < 0) {
     return (
       <div className="flex flex-col gap-0.5">
@@ -102,7 +163,7 @@ export function SubscriptionExpiryBadge({
     );
   }
 
-  // ── Expiring within 30 days ──────────────────────────────────────
+  // ── Expiring within 30 days ───────────────────────────────────────
   if (daysRemaining <= 30 && safeStatus === "ACTIVE") {
     return (
       <div className="flex flex-col gap-0.5">
@@ -112,11 +173,16 @@ export function SubscriptionExpiryBadge({
         <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">
           Expiring in {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} &middot; {safeText(formattedDate, "")}
         </span>
+        {nextBilling && (
+          <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+            Next billing: {formatDate(nextBilling.toISOString())}
+          </span>
+        )}
       </div>
     );
   }
 
-  // ── Expiring within 90 days ──────────────────────────────────────
+  // ── Expiring within 90 days ───────────────────────────────────────
   if (daysRemaining <= 90 && safeStatus === "ACTIVE") {
     return (
       <div className="flex flex-col gap-0.5">
@@ -126,11 +192,16 @@ export function SubscriptionExpiryBadge({
         <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
           Expiring in {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} &middot; {safeText(formattedDate, "")}
         </span>
+        {nextBilling && (
+          <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+            Next billing: {formatDate(nextBilling.toISOString())}
+          </span>
+        )}
       </div>
     );
   }
 
-  // ── Active with plenty of time remaining OR non-active with endDate ──
+  // ── Active with plenty of time remaining OR non-active with endDate ─────
   return (
     <div className="flex flex-col gap-0.5">
       <Badge className={`text-[10px] ${statusColor}`}>
@@ -139,6 +210,11 @@ export function SubscriptionExpiryBadge({
       <span className="text-[10px] text-muted-foreground">
         Expiry: {safeText(formattedDate, "")}
       </span>
+      {nextBilling && (
+        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+          Next billing: {formatDate(nextBilling.toISOString())}
+        </span>
+      )}
     </div>
   );
 }

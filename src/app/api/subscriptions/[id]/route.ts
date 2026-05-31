@@ -78,14 +78,18 @@ export async function PATCH(
     sanitizedData.endDate = new Date()
   }
 
-  // If status changed to ACTIVE, clear endDate so it doesn't show as expired
-  if (sanitizedData.status === "ACTIVE") {
-    sanitizedData.endDate = null
-  }
-
   const existing = await db.subscription.findUnique({ where: { id } })
   if (!existing) {
     return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+  }
+
+  // If status changed to ACTIVE and no explicit endDate was provided, clear it
+  // so it doesn't show as expired. But if user explicitly sent an endDate, respect it.
+  // Also skip this if the sub was already active (user is just editing other fields).
+  const wasActive = existing.status === "ACTIVE"
+  const endDateExplicitlySent = "endDate" in sanitizedData
+  if (sanitizedData.status === "ACTIVE" && !endDateExplicitlySent && !wasActive) {
+    sanitizedData.endDate = null
   }
 
   const subscription = await db.subscription.update({
