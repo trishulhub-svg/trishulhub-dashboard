@@ -41,6 +41,12 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
+import dynamic from "next/dynamic";
+
+const Agentation = dynamic(
+  () => import("agentation").then((mod) => mod.Agentation),
+  { ssr: false }
+);
 import { useTheme } from "next-themes";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 
@@ -685,6 +691,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Page Content - more padding */}
         <main className="flex-1 p-5 md:p-8 overflow-auto">{children}</main>
       </div>
+
+      {/* Agentation — visual feedback tool for development only */}
+      {process.env.NODE_ENV === "development" && <Agentation />}
     </div>
   );
 }
