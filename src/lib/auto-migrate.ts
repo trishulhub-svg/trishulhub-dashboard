@@ -108,6 +108,14 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
+  {
+    name: "FileMetadata",
+    sql: `CREATE TABLE IF NOT EXISTS "FileMetadata" ("id" TEXT NOT NULL PRIMARY KEY, "driveFileId" TEXT NOT NULL UNIQUE, "name" TEXT NOT NULL, "mimeType" TEXT NOT NULL, "size" INTEGER NOT NULL DEFAULT 0, "parentId" TEXT, "trashed" BOOLEAN NOT NULL DEFAULT 0, "starred" BOOLEAN NOT NULL DEFAULT 0, "description" TEXT, "thumbnailLink" TEXT, "webViewLink" TEXT, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+  },
+  {
+    name: "FilePermission",
+    sql: `CREATE TABLE IF NOT EXISTS "FilePermission" ("id" TEXT NOT NULL PRIMARY KEY, "fileId" TEXT NOT NULL, "driveFileId" TEXT NOT NULL, "userId" TEXT NOT NULL, "accessLevel" TEXT NOT NULL DEFAULT 'VIEW', "grantedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("fileId") REFERENCES "FileMetadata"("id") ON DELETE CASCADE)`
+  },
 ]
 
 /**
@@ -170,6 +178,43 @@ export async function ensureAllTables(): Promise<void> {
       }
     } catch (err: any) {
       console.warn(`[auto-migrate] Subscription column rename: ${err?.message}`)
+    }
+
+    // 1e. Create indexes for FileMetadata
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_parentId_idx" ON "FileMetadata"("parentId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_parentId_idx index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_createdBy_idx" ON "FileMetadata"("createdBy")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_createdBy_idx index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_trashed_idx" ON "FileMetadata"("trashed")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_trashed_idx index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_userId_idx" ON "FilePermission"("userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_userId_idx index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "FilePermission_fileId_userId_key" ON "FilePermission"("fileId", "userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${err?.message}`)
+      }
     }
 
     // 2. Add missing columns to existing tables

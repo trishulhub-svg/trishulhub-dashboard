@@ -66,6 +66,7 @@
     "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.2",
     "framer-motion": "^12.23.2",
+    "googleapis": "^173.0.0",
     "input-otp": "^1.4.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.525.0",
