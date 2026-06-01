@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   ChevronLeft,
+  ChevronDown,
   Moon,
   Sun,
   Bell,
@@ -210,6 +211,21 @@ const SidebarContent = React.memo(function SidebarContent({
     }))
     .filter((group) => group.items.length > 0);
 
+  // Collapsible section state — "Overview" is always expanded
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = { Overview: true };
+    visibleGroups.forEach((g) => {
+      // Auto-expand the group that contains the current active route
+      const hasActive = g.items.some((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")));
+      initial[g.label] = hasActive;
+    });
+    return initial;
+  });
+
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Logo Section */}
@@ -240,50 +256,97 @@ const SidebarContent = React.memo(function SidebarContent({
 
       {/* Navigation with grouped sections */}
       <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-5 px-3">
-          {visibleGroups.map((group, groupIdx) => (
-            <div key={group.label}>
-              {/* Section header — hidden when sidebar is collapsed */}
-              {!collapsed && (
-                <p className="px-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 select-none">
-                  {group.label}
-                </p>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
-                  return (
-                    <button
-                      key={item.href}
-                      onClick={() => onNavigate(item.href)}
+        <nav className="space-y-1 px-3">
+          {visibleGroups.map((group, groupIdx) => {
+            const isOverview = group.label === "Overview";
+            const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? true);
+            const hasActive = group.items.some((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")));
+            // Count badges for the group (for collapsed header indicator)
+            const groupBadgeTotal = group.items.reduce((sum, item) => sum + (badgeCounts[item.href] || 0), 0);
+
+            return (
+              <div key={group.label}>
+                {/* Collapsible section header — clickable to toggle */}
+                {!collapsed && !isOverview && (
+                  <button
+                    onClick={() => toggleGroup(group.label)}
+                    className="flex items-center gap-2 w-full px-4 py-2 rounded-lg text-left group/section transition-colors hover:bg-sidebar-accent/50"
+                    type="button"
+                  >
+                    <ChevronDown
                       className={cn(
-                        "relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors w-full text-left",
-                        isActive
-                          ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        "h-3 w-3 text-muted-foreground/50 transition-transform duration-300 ease-in-out",
+                        isExpanded && "rotate-180"
                       )}
-                      type="button"
-                    >
-                      <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
-                      {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
-                      {!collapsed && badgeCounts[item.href] > 0 && (
-                        <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
-                          {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
-                        </Badge>
-                      )}
-                      {collapsed && badgeCounts[item.href] > 0 && (
-                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-                      )}
-                    </button>
-                  );
-                })}
+                    />
+                    <span className={cn(
+                      "text-[10px] font-semibold uppercase tracking-wider select-none transition-colors",
+                      isExpanded ? "text-muted-foreground" : "text-muted-foreground/50"
+                    )}>
+                      {group.label}
+                    </span>
+                    {/* Badge count on group header when collapsed */}
+                    {!isExpanded && groupBadgeTotal > 0 && (
+                      <span className="ml-auto h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+                        {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
+                      </span>
+                    )}
+                    {/* Active indicator dot when collapsed */}
+                    {!isExpanded && hasActive && (
+                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
+                    )}
+                  </button>
+                )}
+                {/* Overview label — non-clickable */}
+                {!collapsed && isOverview && (
+                  <p className="px-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 select-none">
+                    {group.label}
+                  </p>
+                )}
+                {/* Nav items with expand/collapse animation */}
+                <div
+                  className={cn(
+                    "overflow-hidden transition-all duration-300 ease-in-out",
+                    isExpanded ? "max-h-[600px] opacity-100" : collapsed ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+                  )}
+                >
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
+                      return (
+                        <button
+                          key={item.href}
+                          onClick={() => onNavigate(item.href)}
+                          className={cn(
+                            "relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 w-full text-left",
+                            isActive
+                              ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          )}
+                          type="button"
+                        >
+                          <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
+                          {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
+                          {!collapsed && badgeCounts[item.href] > 0 && (
+                            <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
+                              {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
+                            </Badge>
+                          )}
+                          {collapsed && badgeCounts[item.href] > 0 && (
+                            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Separator between groups (not after last group) */}
+                {groupIdx < visibleGroups.length - 1 && !collapsed && (
+                  <div className={cn("mt-1 border-t border-sidebar-border/30 transition-opacity duration-300", isExpanded ? "opacity-100" : "opacity-30")} />
+                )}
               </div>
-              {/* Separator between groups (not after last group) */}
-              {groupIdx < visibleGroups.length - 1 && !collapsed && (
-                <div className="mt-4 border-t border-sidebar-border/50" />
-              )}
-            </div>
-          ))}
+            );
+          })}
         </nav>
       </ScrollArea>
 
