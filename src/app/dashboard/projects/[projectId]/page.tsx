@@ -371,9 +371,9 @@ export default function ProjectDetailPage() {
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both" }}>
       {/* ═══════ Compact Header ═══════ */}
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
         <Button
           variant="ghost"
           size="icon"
@@ -475,14 +475,14 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Compact Team Members ═══════ */}
       {membersLoading ? (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "150ms" }}>
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-8 w-28 rounded-full" />
           ))}
           <Skeleton className="h-7 w-7 rounded-full" />
         </div>
       ) : (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "150ms" }}>
           {members.length === 0 && !isAdminUser && (
             <span className="text-xs text-muted-foreground/60 italic">No team members</span>
           )}
@@ -575,7 +575,7 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ═══════ Task Board — Header + Add Task ═══════ */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "200ms" }}>
         <div className="flex items-center gap-2">
           <ListTodo className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-bold tracking-tight">Task Board</h2>
@@ -841,8 +841,8 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ═══════ Task Columns — Responsive Grid Layout ═══════ */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-        {TASK_COLUMNS.map((status) => {
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2" style={{ animation: "fade-in 0.5s ease-out both", animationDelay: "280ms" }}>
+        {TASK_COLUMNS.map((status, colIdx) => {
           const statusStr = String(status);
           const columnTasks = (tasks as Record<string, unknown>[]).filter(
             (t) => extractStr(t, "status", "") === statusStr
@@ -851,7 +851,7 @@ export default function ProjectDetailPage() {
           const textColor = taskStatusTextColors[statusStr] || "text-gray-500";
 
           return (
-            <div key={statusStr} className="flex flex-col min-w-0">
+            <div key={statusStr} className="flex flex-col min-w-0" style={{ animation: "card-enter 0.45s ease-out both", animationDelay: `${300 + colIdx * 60}ms` }}>
               {/* Column Header */}
               <div className={cn(
                 "rounded-t-xl px-3 py-2 flex items-center gap-1.5 relative overflow-hidden",
