@@ -67,6 +67,16 @@ const KANBAN_COLUMNS = [
   { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
 ] as const;
 
+// Column display order: IN_PROGRESS first, PLANNING middle, COMPLETED last
+const COLUMN_DISPLAY_ORDER: Record<string, number> = {
+  IN_PROGRESS: 0,
+  REVIEW: 1,
+  APPROVAL: 2,
+  DEPLOYED: 3,
+  PLANNING: 4,
+  COMPLETED: 5,
+};
+
 // ━━ Credential form type ━━
 interface CredentialForm {
   title: string;
@@ -438,7 +448,17 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
-  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+  const [viewMode, setViewMode] = useState<"board" | "list">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("projects-view-mode") as "board" | "list") || "board";
+    }
+    return "board";
+  });
+
+  const handleViewModeChange = useCallback((mode: "board" | "list") => {
+    setViewMode(mode);
+    localStorage.setItem("projects-view-mode", mode);
+  }, []);
 
   // ━━ React Query — cached fetch with stale-while-revalidate ━━
   const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
@@ -890,17 +910,32 @@ export default function ProjectsPage() {
     const pClient = p.client as Record<string, unknown> | undefined;
     const pClientName = pClient ? safeText(pClient.name, "") : "";
     const matchesFilter = filter === "ALL" || pStatus === filter;
-    const matchesSearch = !search || pName.toLowerCase().includes(search.toLowerCase()) || pClientName.toLowerCase().includes(search.toLowerCase());
+    const searchLower = search.toLowerCase();
+    const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
     return matchesFilter && matchesSearch;
   });
 
-  // ━━ Group filtered projects into Kanban columns ━━
-  const kanbanColumns = KANBAN_COLUMNS.map((col) => ({
-    ...col,
-    projects: (filtered as Record<string, unknown>[]).filter(
-      (p) => safeText(p.status, "") === col.key
-    ),
-  }));
+  // ━━ Group filtered projects into Kanban columns (reorder: IN_PROGRESS first, COMPLETED last) ━━
+  const kanbanColumns = useMemo(() => {
+    if (filter !== "ALL") {
+      // When a specific status is selected, show only that column
+      return KANBAN_COLUMNS.filter((col) => col.key === filter).map((col) => ({
+        ...col,
+        projects: (filtered as Record<string, unknown>[]).filter(
+          (p) => safeText(p.status, "") === col.key
+        ),
+      }));
+    }
+    // ALL: reorder columns — IN_PROGRESS first, PLANNING middle, COMPLETED last
+    return [...KANBAN_COLUMNS]
+      .sort((a, b) => (COLUMN_DISPLAY_ORDER[a.key] ?? 99) - (COLUMN_DISPLAY_ORDER[b.key] ?? 99))
+      .map((col) => ({
+        ...col,
+        projects: (filtered as Record<string, unknown>[]).filter(
+          (p) => safeText(p.status, "") === col.key
+        ),
+      }));
+  }, [filtered, filter]);
 
   // ━━ Stats computation ━━
   const totalProjects = projects.length;
@@ -985,7 +1020,7 @@ export default function ProjectsPage() {
           <ToggleGroup
             type="single"
             value={viewMode}
-            onValueChange={(val) => { if (val) setViewMode(val as "board" | "list"); }}
+            onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
             className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
           >
             <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">

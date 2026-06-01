@@ -128,6 +128,16 @@ const statusLabels: Record<string, string> = {
   CHURNED: "Churned",
 };
 
+// Status dot colors for pill buttons
+const statusDotColors: Record<string, string> = {
+  ACTIVE: "bg-green-500",
+  INACTIVE: "bg-gray-400",
+  ONBOARDING: "bg-blue-500",
+  PAUSED: "bg-yellow-500",
+  COMPLETED: "bg-cyan-500",
+  CHURNED: "bg-red-500",
+};
+
 // M-CLI-7 + L-CLI-3: Status label mappings for detail drawer
 const invoiceStatusLabels: Record<string, string> = {
   DRAFT: "Draft",
@@ -1091,9 +1101,9 @@ export default function ClientsPage() {
     }
     setUploadingTemplate(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/contracts/upload", { method: "POST", credentials: "include", body: formData });
+      const formD = new FormData();
+      formD.append("file", file);
+      const res = await fetch("/api/contracts/upload", { method: "POST", credentials: "include", body: formD });
       if (res.ok) {
         const data = await res.json();
         setContractTemplate(data.text as string);
@@ -1184,20 +1194,29 @@ export default function ClientsPage() {
   };
 
   // ━━ Early return for non-authenticated / non-admin ━━
-  // NOTE: All hooks must be called before any early returns (react-hooks/rules-of-hooks)
   if (status === "loading") {
     return (
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-8 w-32" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-28 rounded-lg" />
+            <div key={i} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-5 w-8" />
+            </div>
           ))}
         </div>
-        <Skeleton className="h-96 rounded-lg" />
+        <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+          <Skeleton className="h-10 w-full rounded-t-xl" />
+          <div className="p-4 space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -1207,17 +1226,27 @@ export default function ClientsPage() {
   // ━━ Loading state ━━
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-8 w-32" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-28 rounded-lg" />
+            <div key={i} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-5 w-8" />
+            </div>
           ))}
         </div>
-        <Skeleton className="h-96 rounded-lg" />
+        <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+          <Skeleton className="h-10 w-full rounded-t-xl" />
+          <div className="p-4 space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -1236,312 +1265,321 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* ━━ Header ━━ */}
-      <PageHeader title="Client Management" description="Manage your clients and track relationships">
-        <Button onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-2" /> Add Client
-        </Button>
-      </PageHeader>
-
-      {/* ━━ Search & Filter ━━ */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            id="client-search"
-            placeholder="Search by name, email, phone, company, or website..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-9"
-            aria-label="Search clients"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]" aria-label="Filter by status">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Status</SelectItem>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="INACTIVE">Inactive</SelectItem>
-            <SelectItem value="ONBOARDING">Onboarding</SelectItem>
-            <SelectItem value="PAUSED">Paused</SelectItem>
-            <SelectItem value="COMPLETED">Completed</SelectItem>
-            <SelectItem value="CHURNED">Churned</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* CLI-032: Date quick filter buttons */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { label: "Today", value: "today" },
-          { label: "This Week", value: "this week" },
-          { label: "This Month", value: "this month" },
-          { label: "This Year", value: "this year" },
-        ].map((filter) => (
-          <Button
-            key={filter.value}
-            variant={isDateFilterActive(filter.value) ? "default" : "outline"}
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => setSearchInput(isDateFilterActive(filter.value) ? "" : filter.value)}
-          >
-            <Calendar className="h-3 w-3 mr-1" />
-            {filter.label}
+    <div className="space-y-5">
+      {/* ━━ Header + Search + Actions ━━ */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <PageHeader title="Client Management" description="Manage your clients and track relationships" showBack>
+        </PageHeader>
+        <div className="flex items-center gap-3 shrink-0">
+          {/* Inline search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+            <Input
+              id="client-search"
+              placeholder="Search clients..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+              aria-label="Search clients"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute right-2 top-2 text-muted-foreground/60 hover:text-foreground transition-colors"
+                aria-label="Clear search"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <Button onClick={handleAdd} className="h-8 px-3 text-sm">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Client
           </Button>
-        ))}
+        </div>
       </div>
 
-      {/* ━━ Stats Cards ━━ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground font-medium">Total Clients</p>
-                <p className="text-2xl font-bold mt-1">{safeNumber(stats.total)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground font-medium">Active Clients</p>
-                <p className="text-2xl font-bold mt-1">{safeNumber(stats.active)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <Briefcase className="h-5 w-5 text-green-600 dark:text-green-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground font-medium">Total Revenue</p>
-                <p className="text-2xl font-bold mt-1">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-                <DollarSign className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        {/* CLI-010: Renamed "Invoices" to "Total Invoices", variable to totalInvoices */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground font-medium">Total Invoices</p>
-                <p className="text-2xl font-bold mt-1">{safeNumber(stats.invoices)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ━━ Stats Bar — Glassmorphism pills ━━ */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Clients</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight">{safeNumber(stats.total)}</p>
+        </div>
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-green-200/40 dark:border-green-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Briefcase className="h-3.5 w-3.5 text-green-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Active</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-green-600 dark:text-green-400">{safeNumber(stats.active)}</p>
+        </div>
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-amber-200/40 dark:border-amber-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <DollarSign className="h-3.5 w-3.5 text-amber-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Revenue</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
+        </div>
+        {/* CLI-010: Renamed "Invoices" to "Total Invoices" */}
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-purple-200/40 dark:border-purple-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <FileText className="h-3.5 w-3.5 text-purple-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Invoices</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-purple-600 dark:text-purple-400">{safeNumber(stats.invoices)}</p>
+        </div>
       </div>
 
-      {/* ━━ Clients Table ━━ */}
-      <Card>
-        <CardContent className="p-0">
-          {clients.length === 0 ? (
-            searchInput || statusFilter !== "ALL" ? (
-              <div className="text-center py-16">
-                <Search className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">No clients found matching your filters</p>
-                <Button variant="outline" className="mt-4" onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}>
-                  <X className="h-4 w-4 mr-2" /> Clear Filters
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center py-16">
-                <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">No clients found</p>
-                <Button variant="outline" className="mt-4" onClick={handleAdd}>
-                  <Plus className="h-4 w-4 mr-2" /> Add your first client
-                </Button>
-              </div>
-            )
+      {/* ━━ Filters — Status pills + Date quick filters ━━ */}
+      <div className="space-y-3">
+        {/* Status filter pills */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {[
+            { value: "ALL", label: "All" },
+            { value: "ACTIVE", label: "Active" },
+            { value: "ONBOARDING", label: "Onboarding" },
+            { value: "PAUSED", label: "Paused" },
+            { value: "COMPLETED", label: "Completed" },
+            { value: "INACTIVE", label: "Inactive" },
+            { value: "CHURNED", label: "Churned" },
+          ].map((s) => {
+            const isActive = statusFilter === s.value;
+            const dotColor = statusDotColors[s.value] || "bg-gray-400";
+            return (
+              <button
+                key={s.value}
+                onClick={() => setStatusFilter(s.value)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+                )}
+              >
+                <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-primary-foreground/80" : dotColor)} />
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Date quick filter pills */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider shrink-0 mr-1">Quick:</span>
+          {[
+            { label: "Today", value: "today" },
+            { label: "This Week", value: "this week" },
+            { label: "This Month", value: "this month" },
+            { label: "This Year", value: "this year" },
+          ].map((filter) => {
+            const isActive = isDateFilterActive(filter.value);
+            return (
+              <button
+                key={filter.value}
+                onClick={() => setSearchInput(isActive ? "" : filter.value)}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+                  isActive
+                    ? "bg-primary/10 text-primary border border-primary/20"
+                    : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+                )}
+              >
+                <Calendar className="h-2.5 w-2.5" />
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ━━ Clients Table — Glassmorphism card ━━ */}
+      <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 overflow-hidden">
+        {clients.length === 0 ? (
+          searchInput || statusFilter !== "ALL" ? (
+            <div className="text-center py-16">
+              <Search className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No clients found matching your filters</p>
+              <Button variant="outline" className="mt-4 text-xs" onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}>
+                <X className="h-3.5 w-3.5 mr-1.5" /> Clear Filters
+              </Button>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {/* CLI-025: aria-sort on sortable headers, CLI-023: sort direction indicator */}
-                    <TableHead
-                      className="cursor-pointer select-none"
-                      onClick={() => toggleSort("name")}
-                      aria-sort={sortBy === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div className="flex items-center gap-1">
-                        Company / Name
-                        <SortIcon field="name" sortBy={sortBy} sortOrder={sortOrder} />
-                      </div>
-                    </TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead className="hidden md:table-cell">Phone</TableHead>
-                    <TableHead className="hidden md:table-cell text-center">Type</TableHead>
-                    <TableHead className="text-center">Projects</TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none text-right"
-                      onClick={() => toggleSort("revenue")}
-                      aria-sort={sortBy === "revenue" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        Revenue
-                        <SortIcon field="revenue" sortBy={sortBy} sortOrder={sortOrder} />
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                    <TableHead
-                      className="cursor-pointer select-none hidden lg:table-cell"
-                      onClick={() => toggleSort("createdAt")}
-                      aria-sort={sortBy === "createdAt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div className="flex items-center gap-1">
-                        Created
-                        <SortIcon field="createdAt" sortBy={sortBy} sortOrder={sortOrder} />
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {clients.map((client) => (
-                    <TableRow
-                      key={client.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleRowClick(client)}
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                            <span className="text-sm font-semibold text-primary">
-                              {safeText(client.company || client.name).charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {safeText(client.company || client.name)}
-                            </p>
-                            {client.company && (
-                              <p className="text-xs text-muted-foreground truncate">{safeText(client.name)}</p>
+            <div className="text-center py-16">
+              <Briefcase className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No clients yet</p>
+              <Button variant="outline" className="mt-4 text-xs" onClick={handleAdd}>
+                <Plus className="h-3.5 w-3.5 mr-1.5" /> Add your first client
+              </Button>
+            </div>
+          )
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/10 dark:border-white/5 hover:bg-transparent">
+                  {/* CLI-025: aria-sort on sortable headers, CLI-023: sort direction indicator */}
+                  <TableHead
+                    className="cursor-pointer select-none text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    onClick={() => toggleSort("name")}
+                    aria-sort={sortBy === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div className="flex items-center gap-1">
+                      Client
+                      <SortIcon field="name" sortBy={sortBy} sortOrder={sortOrder} />
+                    </div>
+                  </TableHead>
+                  <TableHead className="hidden md:table-cell text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Type</TableHead>
+                  <TableHead className="text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Projects</TableHead>
+                  <TableHead
+                    className="cursor-pointer select-none text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    onClick={() => toggleSort("revenue")}
+                    aria-sort={sortBy === "revenue" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      Revenue
+                      <SortIcon field="revenue" sortBy={sortBy} sortOrder={sortOrder} />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                  <TableHead
+                    className="cursor-pointer select-none hidden lg:table-cell text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    onClick={() => toggleSort("createdAt")}
+                    aria-sort={sortBy === "createdAt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div className="flex items-center gap-1">
+                      Created
+                      <SortIcon field="createdAt" sortBy={sortBy} sortOrder={sortOrder} />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-right w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {clients.map((client) => (
+                  <TableRow
+                    key={client.id}
+                    className="cursor-pointer border-white/10 dark:border-white/5 hover:bg-white/40 dark:hover:bg-white/[0.02] transition-colors"
+                    onClick={() => handleRowClick(client)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 text-xs font-semibold text-primary">
+                          {safeText(client.company || client.name).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {safeText(client.company || client.name)}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="truncate">{safeText(client.email)}</span>
+                            {client.phone && (
+                              <>
+                                <span className="text-muted-foreground/30">·</span>
+                                <span className="truncate hidden sm:inline">{safeText(client.phone)}</span>
+                              </>
                             )}
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm">{safeText(client.email)}</span>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <span className="text-sm text-muted-foreground">{safeText(client.phone) || "—"}</span>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell text-center">
-                        {client.projectType ? (
-                          <Badge className={`text-[10px] ${projectTypeBadgeColors[client.projectType] || defaultBadgeColor}`}>
-                            {projectTypeOptions.find(p => p.value === client.projectType)?.label || safeText(client.projectType)}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="secondary" className="text-xs">
-                          {safeNumber(client._count?.projects ?? 0)}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {client.projectType ? (
+                        <Badge className={`text-[10px] ${projectTypeBadgeColors[client.projectType] || defaultBadgeColor}`}>
+                          {projectTypeOptions.find(p => p.value === client.projectType)?.label || safeText(client.projectType)}
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span className="text-sm font-medium">
-                          {(client.revenue ?? 0) > 0 ? formatCurrency(client.revenue ?? 0) : "—"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
-                          {statusLabels[client.status] || safeText(client.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell">
-                        <span className="text-xs text-muted-foreground">{formatDate(client.createdAt)}</span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Client actions">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(client); }}>
-                              <Pencil className="h-4 w-4 mr-2" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openContractPanel(client); }}>
-                              <FileSignature className="h-4 w-4 mr-2" /> Contract
-                            </DropdownMenuItem>
-                            {/* CLI-012: Changed "Delete" to "Deactivate" to match dialog */}
-                            <DropdownMenuItem
-                              onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
-                              className="text-red-600 dark:text-red-400"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" /> Deactivate
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* CLI-036: Pagination controls */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, totalResults)} of {totalResults}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => goToPage(currentPage - 1)}
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage >= totalPages}
-              onClick={() => goToPage(currentPage + 1)}
-            >
-              Next <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center justify-center h-5 min-w-[20px] rounded text-[10px] font-semibold bg-muted/60 text-muted-foreground">
+                        {safeNumber(client._count?.projects ?? 0)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="text-sm font-semibold tabular-nums">
+                        {(client.revenue ?? 0) > 0 ? formatCurrency(client.revenue ?? 0) : "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
+                        {statusLabels[client.status] || safeText(client.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground">{formatDate(client.createdAt)}</span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Client actions">
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(client); }}>
+                            <Pencil className="h-4 w-4 mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openContractPanel(client); }}>
+                            <FileSignature className="h-4 w-4 mr-2" /> Contract
+                          </DropdownMenuItem>
+                          {/* CLI-012: Changed "Delete" to "Deactivate" to match dialog */}
+                          <DropdownMenuItem
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
+                            className="text-red-600 dark:text-red-400"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Deactivate
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ━━ Add/Edit Client Dialog ━━ */}
+        {/* CLI-036: Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 dark:border-white/5">
+            <p className="text-xs text-muted-foreground">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalResults)} of {totalResults}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={currentPage <= 1}
+                onClick={() => goToPage(currentPage - 1)}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {currentPage} / {totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={currentPage >= totalPages}
+                onClick={() => goToPage(currentPage + 1)}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ━━ Add/Edit Client Dialog — Glassmorphism ━━ */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10">
           <DialogHeader>
-            <DialogTitle>{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
-            <DialogDescription>{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
+            <DialogTitle className="text-lg">{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
+            <DialogDescription className="text-sm">{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             {/* Basic Info */}
@@ -1657,14 +1695,14 @@ export default function ClientsPage() {
                   )}
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm" className="mt-1"
+              <Button type="button" variant="outline" size="sm" className="mt-1 text-xs"
                 onClick={() => setFormData({ ...formData, websites: [...formData.websites, ""] })}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Website
               </Button>
             </div>
 
             {/* Mediator Section — collapsible */}
-            <div className="border rounded-lg">
+            <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
               <button type="button" className="flex items-center justify-between w-full p-3 text-left"
                 onClick={() => setShowMediator(!showMediator)}>
                 <div className="flex items-center gap-2">
@@ -1771,10 +1809,10 @@ export default function ClientsPage() {
 
       {/* ━━ Manage Project Methods Dialog ━━ */}
       <Dialog open={manageMethodsOpen} onOpenChange={setManageMethodsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10">
           <DialogHeader>
-            <DialogTitle>Manage Project Methods</DialogTitle>
-            <DialogDescription>Add, edit, or remove project method options.</DialogDescription>
+            <DialogTitle className="text-lg">Manage Project Methods</DialogTitle>
+            <DialogDescription className="text-sm">Add, edit, or remove project method options.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {/* Add New */}
@@ -1901,7 +1939,7 @@ export default function ClientsPage() {
             /* CLI-027: aria-live on detail drawer content */
             <div className="flex flex-col h-full" aria-live="polite">
               {/* Header */}
-              <SheetHeader className="p-6 pb-4 border-b">
+              <SheetHeader className="p-6 pb-4 border-b border-white/10 dark:border-white/5">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <SheetTitle className="text-lg">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
@@ -1965,7 +2003,7 @@ export default function ClientsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm">
-                  <span className="text-muted-foreground">Revenue: <span className="font-medium text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
+                  <span className="text-muted-foreground">Revenue: <span className="font-semibold text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
                   <span className="text-muted-foreground">Since: <span className="font-medium text-foreground">{formatDate(detailClient.createdAt)}</span></span>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
@@ -2046,34 +2084,32 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No projects yet</p>
                     ) : (
                       detailClient.projects.map((project) => (
-                        <Card key={project.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{safeText(project.name)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {project.budget ? formatCurrency(project.budget) : "No budget"} • Due: {formatDate(project.deadline)}
-                                </p>
-                              </div>
-                              <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || defaultBadgeColor}`}>
-                                {projectStatusLabels[project.status] || safeText(project.status)}
-                              </Badge>
+                        <div key={project.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{safeText(project.name)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {project.budget ? formatCurrency(project.budget) : "No budget"} · Due: {formatDate(project.deadline)}
+                              </p>
                             </div>
-                            <div className="mt-2">
-                              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                                <span>Progress</span>
-                                {/* CLI-022: clamp progress bar */}
-                                <span>{safeNumber(Math.min(100, Math.max(0, project.progress)))}%</span>
-                              </div>
-                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-primary rounded-full transition-all"
-                                  style={{ width: `${safeNumber(Math.min(100, Math.max(0, project.progress)))}%` }}
-                                />
-                              </div>
+                            <Badge className={`text-[10px] shrink-0 ${projectStatusColors[project.status] || defaultBadgeColor}`}>
+                              {projectStatusLabels[project.status] || safeText(project.status)}
+                            </Badge>
+                          </div>
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                              <span>Progress</span>
+                              {/* CLI-022: clamp progress bar */}
+                              <span>{safeNumber(Math.min(100, Math.max(0, project.progress)))}%</span>
                             </div>
-                          </CardContent>
-                        </Card>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all"
+                                style={{ width: `${safeNumber(Math.min(100, Math.max(0, project.progress)))}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2084,25 +2120,23 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No invoices yet</p>
                     ) : (
                       detailClient.invoices.map((inv) => (
-                        <Card key={inv.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium">{safeText(inv.invoiceNumber)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Due: {formatDate(inv.dueDate)}
-                                  {inv.paidAt && ` • Paid: ${formatDate(inv.paidAt)}`}
-                                </p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
-                                <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || defaultBadgeColor}`}>
-                                  {invoiceStatusLabels[inv.status] || safeText(inv.status)}
-                                </Badge>
-                              </div>
+                        <div key={inv.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{safeText(inv.invoiceNumber)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Due: {formatDate(inv.dueDate)}
+                                {inv.paidAt && ` · Paid: ${formatDate(inv.paidAt)}`}
+                              </p>
                             </div>
-                          </CardContent>
-                        </Card>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-bold">{formatCurrency(inv.total)}</p>
+                              <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || defaultBadgeColor}`}>
+                                {invoiceStatusLabels[inv.status] || safeText(inv.status)}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2113,24 +2147,22 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No leads yet</p>
                     ) : (
                       detailClient.leads.map((lead) => (
-                        <Card key={lead.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{safeText(lead.name)}</p>
-                                <p className="text-xs text-muted-foreground">{formatDate(lead.createdAt)}</p>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <Badge className={`text-[10px] ${leadStatusColors[lead.status] || defaultBadgeColor}`}>
-                                  {leadStatusLabelMap[lead.status] || safeText(lead.status)}
-                                </Badge>
-                                <Badge variant="secondary" className="text-[10px]">
-                                  Score: {safeNumber(lead.score)}
-                                </Badge>
-                              </div>
+                        <div key={lead.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{safeText(lead.name)}</p>
+                              <p className="text-xs text-muted-foreground">{formatDate(lead.createdAt)}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Badge className={`text-[10px] ${leadStatusColors[lead.status] || defaultBadgeColor}`}>
+                                {leadStatusLabelMap[lead.status] || safeText(lead.status)}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px]">
+                                Score: {safeNumber(lead.score)}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2141,24 +2173,22 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No support tickets</p>
                     ) : (
                       detailClient.tickets.map((ticket) => (
-                        <Card key={ticket.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{safeText(ticket.subject)}</p>
-                                <p className="text-xs text-muted-foreground">{formatDate(ticket.createdAt)}</p>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <Badge className={`text-[10px] ${priorityColors[ticket.priority] || defaultBadgeColor}`}>
-                                  {safeText(ticket.priority)}
-                                </Badge>
-                                <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || defaultBadgeColor}`}>
-                                  {ticketStatusLabelMap[ticket.status] || safeText(ticket.status)}
-                                </Badge>
-                              </div>
+                        <div key={ticket.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{safeText(ticket.subject)}</p>
+                              <p className="text-xs text-muted-foreground">{formatDate(ticket.createdAt)}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Badge className={`text-[10px] ${priorityColors[ticket.priority] || defaultBadgeColor}`}>
+                                {safeText(ticket.priority)}
+                              </Badge>
+                              <Badge className={`text-[10px] ${ticketStatusColors[ticket.status] || defaultBadgeColor}`}>
+                                {ticketStatusLabelMap[ticket.status] || safeText(ticket.status)}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2169,21 +2199,19 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No deals yet</p>
                     ) : (
                       detailClient.deals.map((deal) => (
-                        <Card key={deal.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{safeText(deal.title)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {deal.value ? formatCurrency(deal.value) : "No value"} • Close: {formatDate(deal.expectedCloseDate)}
-                                </p>
-                              </div>
-                              <Badge className={`text-[10px] shrink-0 ${dealStageColors[deal.stage] || defaultBadgeColor}`}>
-                                {dealStageLabels[deal.stage] || safeText(deal.stage)}
-                              </Badge>
+                        <div key={deal.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{safeText(deal.title)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {deal.value ? formatCurrency(deal.value) : "No value"} · Close: {formatDate(deal.expectedCloseDate)}
+                              </p>
                             </div>
-                          </CardContent>
-                        </Card>
+                            <Badge className={`text-[10px] shrink-0 ${dealStageColors[deal.stage] || defaultBadgeColor}`}>
+                              {dealStageLabels[deal.stage] || safeText(deal.stage)}
+                            </Badge>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2194,19 +2222,17 @@ export default function ClientsPage() {
                       <p className="text-sm text-muted-foreground py-6 text-center">No contacts yet</p>
                     ) : (
                       detailClient.contacts.map((contact) => (
-                        <Card key={contact.id} className="py-0">
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">
-                                  {safeText(contact.firstName)}{contact.lastName ? ` ${safeText(contact.lastName)}` : ""}
-                                  {contact.isPrimary && <Badge variant="secondary" className="text-[10px] ml-1.5">Primary</Badge>}
-                                </p>
-                                <p className="text-xs text-muted-foreground">{safeText(contact.email)}</p>
-                              </div>
+                        <div key={contact.id} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">
+                                {safeText(contact.firstName)}{contact.lastName ? ` ${safeText(contact.lastName)}` : ""}
+                                {contact.isPrimary && <Badge variant="secondary" className="text-[10px] ml-1.5">Primary</Badge>}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{safeText(contact.email)}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                          </div>
+                        </div>
                       ))
                     )}
                   </TabsContent>
@@ -2225,7 +2251,7 @@ export default function ClientsPage() {
 
                 {/* Quick Actions */}
                 {/* CLI-024: Fix Quick Action buttons - navigate instead of toast */}
-                <div className="p-4 border-t bg-muted/30">
+                <div className="p-4 border-t border-white/10 dark:border-white/5 bg-muted/20">
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => {
                       router.push(`/dashboard/projects?clientId=${detailClient.id}`);
@@ -2269,9 +2295,9 @@ export default function ClientsPage() {
           {contractClient && (
             <div className="space-y-6 mt-4">
               {/* Client Info Banner */}
-              <div className="p-3 bg-muted/50 rounded-lg">
-                <p className="font-medium">{contractClient.name}</p>
-                <p className="text-xs text-muted-foreground">{contractClient.email}{contractClient.company ? ` \u2022 ${contractClient.company}` : ""}</p>
+              <div className="p-3 rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                <p className="font-medium text-sm">{contractClient.name}</p>
+                <p className="text-xs text-muted-foreground">{contractClient.email}{contractClient.company ? ` · ${contractClient.company}` : ""}</p>
               </div>
 
               {/* Template Upload */}
@@ -2279,7 +2305,7 @@ export default function ClientsPage() {
                 <div className="space-y-2">
                   <Label className="text-xs font-medium">Contract Template <span className="text-muted-foreground font-normal">(optional)</span></Label>
                   {contractTemplate ? (
-                    <div className="flex items-center gap-2 p-2 border rounded-lg bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
                       <FileText className="h-4 w-4 text-green-600" />
                       <span className="text-sm flex-1 truncate">{contractTemplateFile}</span>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setContractTemplate(null); setContractTemplateFile(null); }}>
@@ -2289,7 +2315,7 @@ export default function ClientsPage() {
                   ) : (
                     <div className="relative">
                       <input type="file" accept=".pdf,.txt,.md,.docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadTemplate(f); e.target.value = ""; }} disabled={uploadingTemplate} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                      <div className="flex items-center justify-center gap-2 p-3 border-2 border-dashed rounded-lg hover:border-primary/50 cursor-pointer">
+                      <div className="flex items-center justify-center gap-2 p-3 border-2 border-dashed rounded-xl hover:border-primary/50 cursor-pointer border-white/20 dark:border-white/10">
                         {uploadingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 text-muted-foreground" />}
                         <span className="text-xs text-muted-foreground">{uploadingTemplate ? "Processing..." : "Upload demo/template PDF, DOCX, TXT (max 5MB)"}</span>
                       </div>
@@ -2312,17 +2338,17 @@ export default function ClientsPage() {
                 <div className="space-y-3">
                   <Label className="text-xs font-medium">Existing Contracts ({contracts.length})</Label>
                   {contracts.map((c: Record<string, unknown>) => (
-                    <Card key={c.id as string} className="p-3">
+                    <div key={c.id as string} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{c.title as string}</p>
-                          <p className="text-xs text-muted-foreground">{c.contractNumber as string} \u2022 {c.status as string}</p>
+                          <p className="text-xs text-muted-foreground">{c.contractNumber as string} · {c.status as string}</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {c.totalValue ? `\u20B9${Number(c.totalValue).toLocaleString("en-IN")} \u2022 ` : ""}
+                            {c.totalValue ? `\u20B9${Number(c.totalValue).toLocaleString("en-IN")} · ` : ""}
                             {c.sentAt ? `Sent: ${new Date(c.sentAt as string).toLocaleDateString()}` : `Created: ${new Date(c.createdAt as string).toLocaleDateString()}`}
                           </p>
                           {(c.termsAndConditions as string)?.length > 50 && (
-                            <p className="text-xs text-green-600 mt-1">AI content generated \u2713</p>
+                            <p className="text-xs text-green-600 mt-1">AI content generated ✓</p>
                           )}
                         </div>
                         <div className="flex gap-1 shrink-0">
@@ -2340,7 +2366,7 @@ export default function ClientsPage() {
                           </Button>
                         </div>
                       </div>
-                    </Card>
+                    </div>
                   ))}
                 </div>
               )}
@@ -2349,7 +2375,7 @@ export default function ClientsPage() {
                 <div className="text-center py-8 text-muted-foreground">
                   <FileSignature className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No contracts yet for this client.</p>
-                  <p className="text-xs">Click "Generate Smart Contract" to create one.</p>
+                  <p className="text-xs">Click &quot;Generate Smart Contract&quot; to create one.</p>
                 </div>
               )}
 
@@ -2373,16 +2399,16 @@ export default function ClientsPage() {
                       <Input value={(contractForm.title as string) || ""} onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })} />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Total Value (\u20B9)</Label>
+                      <Label className="text-xs">Total Value (₹)</Label>
                       <Input type="number" value={contractForm.totalValue as string | number || ""} onChange={(e) => setContractForm({ ...contractForm, totalValue: parseFloat(e.target.value) || 0 })} />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Currency</Label>
                       <select value={(contractForm.currency as string) || "INR"} onChange={(e) => setContractForm({ ...contractForm, currency: e.target.value })} className="border rounded px-3 py-2 text-sm bg-background w-full">
-                        <option value="INR">INR (\u20B9)</option>
+                        <option value="INR">INR (₹)</option>
                         <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (\u20AC)</option>
-                        <option value="GBP">GBP (\u00A3)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
                       </select>
                     </div>
                     <div className="space-y-1">
@@ -2475,4 +2501,9 @@ function NotesEditor({ initialValue, onSave, onDirtyChange }: {
       </div>
     </div>
   );
+}
+
+// Helper for className merging
+function cn(...classes: (string | undefined | false)[]) {
+  return classes.filter(Boolean).join(" ");
 }

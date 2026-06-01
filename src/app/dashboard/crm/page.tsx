@@ -62,14 +62,15 @@ interface Lead {
   createdAt: string;
 }
 
-const columnColors: Record<LeadStatus, string> = {
-  NEW: "bg-blue-100 dark:bg-blue-900/30",
-  CONTACTED: "bg-cyan-100 dark:bg-cyan-900/30",
-  INTERESTED: "bg-green-100 dark:bg-green-900/30",
-  PROPOSAL: "bg-yellow-100 dark:bg-yellow-900/30",
-  NEGOTIATING: "bg-orange-100 dark:bg-orange-900/30",
-  WON: "bg-emerald-100 dark:bg-emerald-900/30",
-  LOST: "bg-red-100 dark:bg-red-900/30",
+// ━━ Kanban column config with accent colors and glassmorphism ━━
+const COLUMN_CONFIG: Record<LeadStatus, { dot: string; accentBar: string; accentRing: string; glowColor: string; headerBg: string }> = {
+  NEW:         { dot: "bg-blue-400",    accentBar: "bg-blue-400",    accentRing: "ring-blue-400/20",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10",    headerBg: "text-blue-600 dark:text-blue-400" },
+  CONTACTED:   { dot: "bg-cyan-400",    accentBar: "bg-cyan-400",    accentRing: "ring-cyan-400/20",    glowColor: "hover:shadow-cyan-500/5 dark:hover:shadow-cyan-400/10",    headerBg: "text-cyan-600 dark:text-cyan-400" },
+  INTERESTED:  { dot: "bg-green-400",   accentBar: "bg-green-400",   accentRing: "ring-green-400/20",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10",   headerBg: "text-green-600 dark:text-green-400" },
+  PROPOSAL:    { dot: "bg-yellow-400",  accentBar: "bg-yellow-400",  accentRing: "ring-yellow-400/20",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10",  headerBg: "text-yellow-600 dark:text-yellow-400" },
+  NEGOTIATING: { dot: "bg-orange-400",  accentBar: "bg-orange-400",  accentRing: "ring-orange-400/20",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10",  headerBg: "text-orange-600 dark:text-orange-400" },
+  WON:         { dot: "bg-emerald-400", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", headerBg: "text-emerald-600 dark:text-emerald-400" },
+  LOST:        { dot: "bg-red-400",     accentBar: "bg-red-400",     accentRing: "ring-red-400/20",     glowColor: "hover:shadow-red-500/5 dark:hover:shadow-red-400/10",       headerBg: "text-red-600 dark:text-red-400" },
 };
 
 // CRM-025: Score color coding helpers
@@ -178,35 +179,43 @@ const dateQuickFilters = [
   { label: "Last Month", value: "last month" },
 ];
 
+// ━━ LeadCard — Glassmorphism card with left accent bar ━━
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const scoreColors = getScoreColors(lead.score);
+  const config = COLUMN_CONFIG[lead.status];
   return (
-    <Card
-      className="cursor-pointer hover:shadow-md transition-shadow text-left"
+    <div
+      className={cn(
+        "group/card relative rounded-lg border-l-[3px] p-3 cursor-pointer transition-all duration-200",
+        "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
+        "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+        "hover:-translate-y-0.5",
+        config && `border-l-[${config.accentBar}] dark:border-l-[${config.dot}]`,
+      )}
       onClick={onClick}
     >
-      <CardContent className="p-3">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{safeText(lead.name, "Lead")}</p>
-            {lead.company && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> {safeText(lead.company, "")}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <Star className={`h-3 w-3 ${scoreColors.star}`} />
-            <span className={`text-xs font-medium ${scoreColors.text}`}>{safeNumber(lead.score)}</span>
-          </div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold truncate">{safeText(lead.name, "Lead")}</p>
+          {lead.company && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+              <Building2 className="h-3 w-3 shrink-0" /> {safeText(lead.company, "")}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2 mt-2">
-          <Badge className={cn("text-[10px]", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
-            {safeText(lead.source, "")}
-          </Badge>
+        <div className="flex items-center gap-1 shrink-0">
+          <Star className={cn("h-3 w-3", scoreColors.star)} />
+          <span className={cn("text-xs font-bold tabular-nums", scoreColors.text)}>{safeNumber(lead.score)}</span>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <Badge className={cn("text-[10px] font-medium", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
+          {safeText(lead.source, "")}
+        </Badge>
+      </div>
+    </div>
   );
 }
 
@@ -221,20 +230,44 @@ function SortableLeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }
   );
 }
 
+// ━━ DroppableColumn — Glassmorphism kanban column ━━
 function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; leads: Lead[]; onLeadClick: (lead: Lead) => void }) {
-  const { setNodeRef } = useDroppable({ id: status });
+  const { setNodeRef, isOver } = useDroppable({ id: status });
+  const config = COLUMN_CONFIG[status];
 
   return (
-    <div className="flex flex-col min-w-[220px] w-[220px] lg:w-[260px]">
-      <div className={`rounded-t-lg px-3 py-2 ${columnColors[status]}`}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">{status}</h3>
-          <Badge variant="secondary" className="text-xs">{leads.length}</Badge>
+    <div
+      className={cn(
+        "flex-shrink-0 w-[220px] lg:w-[260px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
+        "border-gray-200/80 dark:border-gray-700/50",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        config?.glowColor,
+        isOver && `ring-2 ${config?.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`,
+      )}
+      style={{ minHeight: "calc(100vh - 340px)" }}
+    >
+      {/* Left accent bar */}
+      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", config?.accentBar, isOver ? "opacity-100" : "opacity-60")} />
+
+      {/* Column Header */}
+      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", config?.dot, config?.dot.replace("bg-", "ring-"))} />
+          <h3 className="font-bold text-[12px] tracking-tight">{status}</h3>
+          <Badge
+            variant="secondary"
+            className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
+          >
+            {leads.length}
+          </Badge>
         </div>
       </div>
+
+      {/* Card List */}
       <div
         ref={setNodeRef}
-        className="flex-1 space-y-2 p-2 bg-muted/30 rounded-b-lg min-h-[200px] max-h-[calc(100vh-16rem)] overflow-y-auto custom-scrollbar"
+        className="flex-1 space-y-2 p-2 min-h-[120px] max-h-[calc(100vh-16rem)] overflow-y-auto custom-scrollbar"
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
@@ -242,7 +275,7 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
           ))}
         </SortableContext>
         {leads.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-4">No leads</p>
+          <p className="text-[11px] text-muted-foreground/60 text-center py-6">No leads</p>
         )}
       </div>
     </div>
@@ -691,11 +724,11 @@ export default function CRMPage() {
   // CRM-002: Show loading skeleton while session is loading
   if (status === "loading") {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-32" />
+      <div className="space-y-5">
+        <Skeleton className="h-10 w-48" />
         <div className="flex gap-4">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-96 w-[260px] rounded-lg shrink-0" />
+            <Skeleton key={i} className="h-[420px] w-[260px] rounded-xl shrink-0" />
           ))}
         </div>
       </div>
@@ -707,11 +740,11 @@ export default function CRMPage() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-32" />
+      <div className="space-y-5">
+        <Skeleton className="h-10 w-48" />
         <div className="flex gap-4">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-96 w-[260px] rounded-lg shrink-0" />
+            <Skeleton key={i} className="h-[420px] w-[260px] rounded-xl shrink-0" />
           ))}
         </div>
       </div>
@@ -721,10 +754,12 @@ export default function CRMPage() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <AlertCircle className="h-12 w-12 text-destructive" />
-        <p className="text-muted-foreground">{error}</p>
+        <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-red-500/10 to-red-500/5 flex items-center justify-center">
+          <AlertCircle className="h-7 w-7 text-red-500/60" />
+        </div>
+        <p className="text-sm text-muted-foreground/80">{error}</p>
         {/* CRM-020: Set loading before fetchLeads on retry */}
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchLeads(); }}>
+        <Button variant="outline" className="shadow-sm" onClick={() => { setError(null); setLoading(true); fetchLeads(); }}>
           Try Again
         </Button>
       </div>
@@ -732,22 +767,24 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="space-y-4 h-full">
+    <div className="space-y-5 h-full">
+      {/* ━━━━ Page Header ━━━━ */}
       <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Search */}
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search name, email, phone... try 'today' or 'score:80+'"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 w-64"
+              className="pl-8 w-64 h-8 text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50"
               aria-label="Search leads"
             />
           </div>
           {/* CRM-S04: Source filter dropdown */}
           <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-32 h-9 text-xs">
+            <SelectTrigger className="w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
@@ -760,7 +797,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-S04: Status filter dropdown */}
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-32 h-9 text-xs">
+            <SelectTrigger className="w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -772,7 +809,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-006: Sort dropdown */}
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
-            <SelectTrigger className="w-36 h-9 text-xs">
+            <SelectTrigger className="w-32 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
@@ -781,53 +818,54 @@ export default function CRMPage() {
               <SelectItem value="name">Name A-Z</SelectItem>
             </SelectContent>
           </Select>
+          {/* Add Lead Dialog */}
           <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) setFormErrors({}); }}>
             <DialogTrigger asChild>
-              <Button size="sm" disabled={adding}>
-                <Plus className="h-4 w-4 mr-1" /> Add Lead
+              <Button size="sm" disabled={adding} className="shadow-sm">
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Lead
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-gray-200/60 dark:border-gray-700/50">
               <DialogHeader>
                 <DialogTitle>Add New Lead</DialogTitle>
                 {/* CRM-013: Add DialogDescription */}
                 <DialogDescription>Enter the details for the new lead.</DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleAddLead} className="space-y-3">
+              <form onSubmit={handleAddLead} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Name *</Label>
-                    <Input name="name" required />
-                    {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Name *</Label>
+                    <Input name="name" required className="h-8 text-sm" />
+                    {formErrors.name && <p className="text-[11px] text-destructive">{formErrors.name}</p>}
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Email *</Label>
-                    <Input name="email" type="email" required />
-                    {formErrors.email && <p className="text-xs text-destructive">{formErrors.email}</p>}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Email *</Label>
+                    <Input name="email" type="email" required className="h-8 text-sm" />
+                    {formErrors.email && <p className="text-[11px] text-destructive">{formErrors.email}</p>}
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Company</Label>
-                    <Input name="company" />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Company</Label>
+                    <Input name="company" className="h-8 text-sm" />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Phone</Label>
-                    <Input name="phone" />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Phone</Label>
+                    <Input name="phone" className="h-8 text-sm" />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Website</Label>
-                    <Input name="website" placeholder="https://example.com" />
-                    {formErrors.website && <p className="text-xs text-destructive">{formErrors.website}</p>}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Website</Label>
+                    <Input name="website" placeholder="https://example.com" className="h-8 text-sm" />
+                    {formErrors.website && <p className="text-[11px] text-destructive">{formErrors.website}</p>}
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Score</Label>
-                    <Input name="score" type="number" defaultValue="0" min={0} max={100} />
-                    {formErrors.score && <p className="text-xs text-destructive">{formErrors.score}</p>}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Score</Label>
+                    <Input name="score" type="number" defaultValue="0" min={0} max={100} className="h-8 text-sm" />
+                    {formErrors.score && <p className="text-[11px] text-destructive">{formErrors.score}</p>}
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Source</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Source</Label>
                   <Select name="source" defaultValue="MANUAL">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="MANUAL">Manual</SelectItem>
                       <SelectItem value="AI_FOUND">AI Found</SelectItem>
@@ -836,12 +874,13 @@ export default function CRMPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Notes</Label>
-                  <Textarea name="notes" rows={2} />
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Notes</Label>
+                  <Textarea name="notes" rows={2} className="text-sm" />
                 </div>
                 {/* CRM-010: Disable button during operation */}
-                <Button type="submit" className="w-full" disabled={adding}>
+                <Button type="submit" className="w-full shadow-sm" disabled={adding}>
+                  {adding ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
                   {adding ? "Adding..." : "Add Lead"}
                 </Button>
               </form>
@@ -850,26 +889,73 @@ export default function CRMPage() {
         </div>
       </PageHeader>
 
-      {/* CRM-S03: Date quick filter buttons + Clear All */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-1.5 flex-wrap">
-          {dateQuickFilters.map((f) => (
-            <Button
+      {/* ━━━━ Stats Bar — Glassmorphism pill-style ━━━━ */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div
+          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md"
+          onClick={() => setSearch("")}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Leads</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight">{safeNumber(stats.total)}</p>
+        </div>
+        <div
+          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-cyan-200/40 dark:border-cyan-500/20 hover:shadow-md"
+          onClick={() => setSearch("")}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <TrendingUp className="h-3.5 w-3.5 text-cyan-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">New This Week</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-cyan-600 dark:text-cyan-400">{safeNumber(stats.newThisWeek)}</p>
+        </div>
+        <div
+          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md"
+          onClick={() => setSortBy("createdAt")}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Conversion</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{safeText(stats.conversionRate, "0")}%</p>
+        </div>
+        <div
+          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md"
+          onClick={() => setSortBy("score")}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <Star className="h-3.5 w-3.5 text-yellow-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Avg Score</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">{safeNumber(stats.avgScore)}</p>
+        </div>
+      </div>
+
+      {/* ━━━━ Filter Bar — Date pills + Clear All ━━━━ */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {dateQuickFilters.map((f) => {
+          const isActive = dateFilter === f.value;
+          return (
+            <button
               key={f.value}
-              variant={dateFilter === f.value ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs"
+              className={cn(
+                "inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+              )}
               onClick={() => setDateFilter(dateFilter === f.value ? "" : f.value)}
             >
+              <Calendar className="h-3 w-3 mr-1" />
               {f.label}
-            </Button>
-          ))}
-        </div>
+            </button>
+          );
+        })}
         {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-muted-foreground"
+          <button
+            className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/60"
             onClick={() => {
               setSearch("");
               setDateFilter("");
@@ -878,76 +964,34 @@ export default function CRMPage() {
             }}
           >
             Clear All
-          </Button>
+          </button>
         )}
       </div>
 
-      {/* CRM-023 + CRM-001: Summary stats cards — clickable */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSearch("")}>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total Leads</p>
-              <p className="text-lg font-semibold">{safeNumber(stats.total)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSearch("")}>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">New This Week</p>
-              <p className="text-lg font-semibold">{safeNumber(stats.newThisWeek)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSortBy("createdAt")}>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Conversion Rate</p>
-              <p className="text-lg font-semibold">{safeText(stats.conversionRate, "0")}%</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSortBy("score")}>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              <Star className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Avg Score</p>
-              <p className="text-lg font-semibold">{safeNumber(stats.avgScore)}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* ━━━━ Main Content Area ━━━━ */}
       {/* CRM-021: Board-level empty state */}
       {leads.length === 0 ? (
-        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 border-2 border-dashed rounded-lg">
-          <Building2 className="h-12 w-12 text-muted-foreground" />
-          <div className="text-center">
-            <p className="font-medium">No leads yet</p>
-            <p className="text-sm text-muted-foreground">Add your first lead to get started!</p>
+        <div className="text-center py-24">
+          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-4">
+            <Building2 className="h-8 w-8 text-primary/40" />
           </div>
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Lead
+          <p className="text-lg font-bold text-foreground/80">No leads yet</p>
+          <p className="text-sm text-muted-foreground/60 mt-1.5 max-w-sm mx-auto">
+            Add your first lead to get started!
+          </p>
+          <Button size="sm" className="mt-5 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4" /> Add Lead
           </Button>
         </div>
       ) : leads.length > 0 && totalFiltered === 0 ? (
         /* CRM-007: Empty search results state */
-        <div className="flex flex-col items-center justify-center min-h-[200px] gap-3">
-          <Search className="h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No leads match your filters</p>
-          <Button variant="outline" size="sm" onClick={() => { setSearch(""); setDateFilter(""); setFilterSource("all"); setFilterStatus("all"); }}>
+        <div className="text-center py-20">
+          <div className="h-14 w-14 mx-auto rounded-2xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center mb-4">
+            <Search className="h-7 w-7 text-muted-foreground/40" />
+          </div>
+          <p className="text-sm font-medium text-foreground/60">No leads match your filters</p>
+          <p className="text-xs text-muted-foreground/50 mt-1">Try adjusting your search or filter criteria</p>
+          <Button variant="outline" size="sm" className="mt-4 shadow-sm" onClick={() => { setSearch(""); setDateFilter(""); setFilterSource("all"); setFilterStatus("all"); }}>
             Clear All Filters
           </Button>
         </div>
@@ -959,7 +1003,7 @@ export default function CRMPage() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-3 overflow-x-auto pb-4">
+          <div className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory">
             {LEAD_COLUMNS.map((status) => (
               <DroppableColumn
                 key={status}
@@ -979,16 +1023,16 @@ export default function CRMPage() {
         </DndContext>
       )}
 
-      {/* CRM-005 + CRM-S05: Sheet with edit mode */}
+      {/* ━━━━ Lead Detail Sheet ━━━━ */}
       <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) { setSelectedLead(null); setEditMode(false); } }}>
-        <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
+        <SheetContent side="right" className="sm:max-w-md overflow-y-auto bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-gray-200/60 dark:border-gray-700/50">
           <SheetHeader>
             <div className="flex items-center justify-between">
-              <SheetTitle>{safeText(selectedLead?.name, "Lead")}</SheetTitle>
+              <SheetTitle className="text-base font-bold">{safeText(selectedLead?.name, "Lead")}</SheetTitle>
               <Button
                 size="sm"
                 variant={editMode ? "default" : "outline"}
-                className="h-7 text-xs"
+                className="h-7 text-[11px] shadow-sm"
                 onClick={toggleEditMode}
               >
                 {editMode ? "View Mode" : "Edit"}
@@ -996,53 +1040,53 @@ export default function CRMPage() {
             </div>
           </SheetHeader>
           {selectedLead && (
-            <div className="space-y-4">
+            <div className="space-y-5 mt-2">
               {editMode ? (
                 /* CRM-S05: Edit mode form */
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Name *</Label>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Name *</Label>
                       <Input
                         value={editForm.name || ""}
                         onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                         className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Email *</Label>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Email *</Label>
                       <Input
                         value={editForm.email || ""}
                         onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                         className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Company</Label>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Company</Label>
                       <Input
                         value={editForm.company || ""}
                         onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
                         className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Phone</Label>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Phone</Label>
                       <Input
                         value={editForm.phone || ""}
                         onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                         className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs">Website</Label>
+                    <div className="space-y-1.5 col-span-2">
+                      <Label className="text-xs font-medium">Website</Label>
                       <Input
                         value={editForm.website || ""}
                         onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
                         className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs">Source</Label>
+                    <div className="space-y-1.5 col-span-2">
+                      <Label className="text-xs font-medium">Source</Label>
                       <Select
                         value={editForm.source || "MANUAL"}
                         onValueChange={(v) => setEditForm({ ...editForm, source: v })}
@@ -1058,8 +1102,8 @@ export default function CRMPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs">Notes</Label>
+                    <div className="space-y-1.5 col-span-2">
+                      <Label className="text-xs font-medium">Notes</Label>
                       <Textarea
                         value={editForm.notes || ""}
                         onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
@@ -1069,7 +1113,7 @@ export default function CRMPage() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={handleSaveEdit} disabled={updating}>
+                    <Button size="sm" className="flex-1 shadow-sm" onClick={handleSaveEdit} disabled={updating}>
                       {updating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
                       {updating ? "Saving..." : "Save Changes"}
                     </Button>
@@ -1082,48 +1126,58 @@ export default function CRMPage() {
                 /* View mode: existing static display */
                 <div className="space-y-3">
                   {/* CRM-027: Email as mailto: link */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <a href={`mailto:${safeText(selectedLead.email, "")}`} className="hover:underline">{safeText(selectedLead.email, "")}</a>
+                  <div className="flex items-center gap-2.5 text-sm">
+                    <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+                      <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    <a href={`mailto:${safeText(selectedLead.email, "")}`} className="hover:underline text-sm">{safeText(selectedLead.email, "")}</a>
                   </div>
                   {/* CRM-026: Phone as tel: link */}
                   {selectedLead.phone && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      <a href={`tel:${safeText(selectedLead.phone, "")}`} className="hover:underline">{safeText(selectedLead.phone, "")}</a>
+                    <div className="flex items-center gap-2.5 text-sm">
+                      <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+                        <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <a href={`tel:${safeText(selectedLead.phone, "")}`} className="hover:underline text-sm">{safeText(selectedLead.phone, "")}</a>
                     </div>
                   )}
                   {selectedLead.company && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span>{safeText(selectedLead.company, "")}</span>
+                    <div className="flex items-center gap-2.5 text-sm">
+                      <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <span className="text-sm">{safeText(selectedLead.company, "")}</span>
                     </div>
                   )}
                   {/* CRM-008: Website as clickable link */}
                   {selectedLead.website && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Globe className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2.5 text-sm">
+                      <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
                       <a
                         href={selectedLead.website.startsWith('http') ? selectedLead.website : `https://${selectedLead.website}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-primary hover:underline"
+                        className="text-primary hover:underline text-sm"
                       >
                         {safeText(selectedLead.website, "")}
                       </a>
                     </div>
                   )}
                   {/* CRM-024: Display createdAt */}
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+                      <Calendar className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-sm">Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
                   </div>
                 </div>
               )}
 
               {/* CRM-002: Inline score editing (visible in view mode only) */}
               {!editMode && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {editingScore ? (
                     <div className="flex items-center gap-2">
                       <Input
@@ -1138,7 +1192,7 @@ export default function CRMPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8"
+                        className="h-7 text-[11px]"
                         onClick={() => {
                           handleUpdateLead({ score: scoreInput });
                           setEditingScore(false);
@@ -1150,7 +1204,7 @@ export default function CRMPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-8"
+                        className="h-7 text-[11px]"
                         onClick={() => setEditingScore(false)}
                       >
                         Cancel
@@ -1160,38 +1214,36 @@ export default function CRMPage() {
                     <>
                       <Badge
                         variant="outline"
-                        className={cn("cursor-pointer hover:opacity-80 transition-opacity", getScoreBadgeClass(selectedLead.score))}
+                        className={cn("cursor-pointer hover:opacity-80 transition-opacity text-[11px]", getScoreBadgeClass(selectedLead.score))}
                         onClick={() => { setEditingScore(true); setScoreInput(selectedLead.score); }}
                       >
                         Score: {safeNumber(selectedLead.score)}
                       </Badge>
-                      <span className="text-[10px] text-muted-foreground">Click to edit</span>
+                      <span className="text-[10px] text-muted-foreground/60">Click to edit</span>
                     </>
                   )}
-                  <Badge variant="secondary">{safeText(selectedLead.source, "")}</Badge>
+                  <Badge variant="secondary" className="text-[11px]">{safeText(selectedLead.source, "")}</Badge>
                 </div>
               )}
 
               {/* Notes display (view mode only) */}
               {!editMode && selectedLead.notes && (
-                <Card>
-                  <CardContent className="p-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Notes</p>
-                    <p className="text-sm">{safeText(selectedLead.notes, "")}</p>
-                  </CardContent>
-                </Card>
+                <div className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-gray-200/60 dark:border-gray-700/40">
+                  <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-1.5">Notes</p>
+                  <p className="text-sm leading-relaxed">{safeText(selectedLead.notes, "")}</p>
+                </div>
               )}
 
               {/* Move to Stage dropdown (view mode only) */}
               {!editMode && (
-                <div className="space-y-2">
-                  <Label className="text-xs">Move to Stage</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Move to Stage</Label>
                   <Select
                     value={selectedLead.status}
                     onValueChange={(value) => handleUpdateLead({ status: value })}
                     disabled={updating}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {LEAD_COLUMNS.map((s) => (
                         <SelectItem key={s} value={s}>{s}</SelectItem>
@@ -1201,17 +1253,18 @@ export default function CRMPage() {
                 </div>
               )}
 
-              <Separator />
+              <Separator className="bg-gray-200/60 dark:bg-gray-700/40" />
 
               {/* CRM-004: Functional Quick Email with state (view mode only) */}
               {!editMode && (
                 <div className="space-y-2">
-                  <Label className="text-xs">Quick Email</Label>
+                  <Label className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Quick Email</Label>
                   <Input
                     placeholder="Subject"
                     aria-label="Email subject"
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
+                    className="h-8 text-sm"
                   />
                   <Textarea
                     placeholder="Write your email..."
@@ -1219,20 +1272,21 @@ export default function CRMPage() {
                     aria-label="Email body"
                     value={emailBody}
                     onChange={(e) => setEmailBody(e.target.value)}
+                    className="text-sm"
                   />
                   <Button
                     size="sm"
-                    className="w-full"
+                    className="w-full shadow-sm"
                     disabled={!emailSubject.trim() || !emailBody.trim() || sendingEmail}
                     onClick={handleQuickEmail}
                   >
-                    {sendingEmail ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
+                    {sendingEmail ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Send className="h-3 w-3 mr-1.5" />}
                     {sendingEmail ? "Sending..." : "Send Email"}
                   </Button>
                 </div>
               )}
 
-              <Separator />
+              <Separator className="bg-gray-200/60 dark:bg-gray-700/40" />
 
               {/* Action buttons (view mode only) */}
               {!editMode && (
@@ -1240,23 +1294,23 @@ export default function CRMPage() {
                   {!selectedLead.clientId && selectedLead.status !== "WON" && (
                     <Button
                       size="sm"
-                      className="w-full"
+                      className="w-full shadow-sm"
                       variant="default"
                       disabled={converting}
                       onClick={handleConvertLead}
                     >
-                      {converting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <UserCheck className="h-3 w-3 mr-1" />}
+                      {converting ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <UserCheck className="h-3 w-3 mr-1.5" />}
                       {converting ? "Converting..." : "Convert to Client"}
                     </Button>
                   )}
                   {selectedLead.clientId && (
                     <Button
                       size="sm"
-                      className="w-full"
+                      className="w-full shadow-sm"
                       variant="outline"
                       onClick={() => router.push("/dashboard/clients")}
                     >
-                      <Building2 className="h-3 w-3 mr-1" /> View Client
+                      <Building2 className="h-3 w-3 mr-1.5" /> View Client
                     </Button>
                   )}
                   {/* CRM-005: Improved dark mode contrast */}
@@ -1267,7 +1321,7 @@ export default function CRMPage() {
                     onClick={() => setDeleteTarget(selectedLead)}
                     disabled={deleting}
                   >
-                    <Trash2 className="h-3 w-3 mr-1" /> Delete Lead
+                    <Trash2 className="h-3 w-3 mr-1.5" /> Delete Lead
                   </Button>
                 </div>
               )}
@@ -1276,9 +1330,9 @@ export default function CRMPage() {
         </SheetContent>
       </Sheet>
 
-      {/* Delete Lead Confirmation */}
+      {/* ━━━━ Delete Lead Confirmation ━━━━ */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-gray-200/60 dark:border-gray-700/50">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Lead</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1287,7 +1341,7 @@ export default function CRMPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteLead} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={handleDeleteLead} className="bg-red-600 hover:bg-red-700 shadow-sm">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
