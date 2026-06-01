@@ -14,6 +14,53 @@ function sanitize(str: string, max: number = 500): string {
   return str.replace(/<[^>]*>/g, "").slice(0, max)
 }
 
+/**
+ * Ensure a parent folder exists in the local DB before creating children.
+ * If the parent driveFileId doesn't have a FileMetadata record, we create
+ * a stub entry so the FK constraint is satisfied.
+ */
+async function ensureParentInDb(driveParentId: string | null, userId: string): Promise<void> {
+  if (!driveParentId) return
+
+  try {
+    const existing = await db.fileMetadata.findUnique({
+      where: { driveFileId: driveParentId },
+      select: { id: true },
+    })
+
+    if (!existing) {
+      // Fetch metadata from Drive for the parent
+      const parentInfo = await drive.getFile(driveParentId)
+      if (parentInfo) {
+        await db.fileMetadata.create({
+          data: {
+            driveFileId: parentInfo.id,
+            name: sanitize(parentInfo.name, 500),
+            mimeType: parentInfo.mimeType,
+            size: parentInfo.size,
+            parentId: parentInfo.parents?.[0] || null,
+            trashed: false,
+            starred: false,
+            thumbnailLink: parentInfo.thumbnailLink || null,
+            webViewLink: parentInfo.webViewLink || null,
+            description: parentInfo.description || null,
+            createdBy: userId,
+          },
+        })
+
+        // Recursively ensure the parent's parent exists too
+        if (parentInfo.parents?.[0]) {
+          await ensureParentInDb(parentInfo.parents[0], userId)
+        }
+      }
+    }
+  } catch (err: any) {
+    // Non-critical: if we can't ensure parent, the create might still work
+    // if the FK doesn't enforce (SQLite with foreign_keys off)
+    console.warn("[files] Could not ensure parent in DB:", err?.message)
+  }
+}
+
 /** Sync Drive files for a folder into local FileMetadata */
 async function syncDriveFolder(folderId: string | null, userId: string): Promise<number> {
   try {
@@ -22,6 +69,11 @@ async function syncDriveFolder(folderId: string | null, userId: string): Promise
 
     for (const f of result.files) {
       const parentId = f.parents?.[0] || null
+
+      // Ensure parent exists in DB before upserting child
+      if (parentId) {
+        await ensureParentInDb(parentId, userId)
+      }
 
       // Upsert FileMetadata
       await db.fileMetadata.upsert({
@@ -158,13 +210,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
-    const contentType = req.headers.get("content-type") || ""
-
     // Parse form data
     const formData = await req.formData()
     const action = sanitize(formData.get("action") as string || "upload", 20)
     const parentId = (formData.get("parentId") as string) || null
     const description = sanitize(formData.get("description") as string || "", 2000)
+
+    // Resolve the actual Drive parent folder ID
+    const effectiveParentId = parentId || drive.getRootId()
 
     if (action === "folder") {
       // Create folder
@@ -173,7 +226,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Folder name is required" }, { status: 400 })
       }
 
-      const driveFolder = await drive.createFolder(parentId || drive.getRootId()!, folderName)
+      if (!effectiveParentId) {
+        return NextResponse.json(
+          { error: "Google Drive is not configured. Please set GOOGLE_DRIVE_FOLDER_ID in environment variables." },
+          { status: 500 }
+        )
+      }
+
+      // Ensure parent exists in local DB to satisfy FK constraint
+      await ensureParentInDb(effectiveParentId, userId)
+
+      const driveFolder = await drive.createFolder(effectiveParentId, folderName)
+      const dbParentId = driveFolder.parents?.[0] || null
 
       // Save to DB
       const metadata = await db.fileMetadata.create({
@@ -182,7 +246,7 @@ export async function POST(req: NextRequest) {
           name: driveFolder.name,
           mimeType: driveFolder.mimeType,
           size: 0,
-          parentId: driveFolder.parents?.[0] || null,
+          parentId: dbParentId,
           description: description || null,
           webViewLink: driveFolder.webViewLink || null,
           createdBy: userId,
@@ -203,12 +267,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File size exceeds 50MB limit" }, { status: 400 })
     }
 
+    if (!effectiveParentId) {
+      return NextResponse.json(
+        { error: "Google Drive is not configured. Please set GOOGLE_DRIVE_FOLDER_ID in environment variables." },
+        { status: 500 }
+      )
+    }
+
     const fileName = sanitize(file.name, 500)
     const buffer = Buffer.from(await file.arrayBuffer())
     const mimeType = file.type || "application/octet-stream"
 
+    // Ensure parent exists in local DB to satisfy FK constraint
+    await ensureParentInDb(effectiveParentId, userId)
+
     // Upload to Google Drive
-    const driveFile = await drive.uploadFile(parentId || drive.getRootId()!, fileName, mimeType, buffer, description)
+    const driveFile = await drive.uploadFile(effectiveParentId, fileName, mimeType, buffer, description)
+    const dbParentId = driveFile.parents?.[0] || null
 
     // Save metadata to DB
     const metadata = await db.fileMetadata.create({
@@ -217,7 +292,7 @@ export async function POST(req: NextRequest) {
         name: driveFile.name,
         mimeType: driveFile.mimeType,
         size: driveFile.size,
-        parentId: driveFile.parents?.[0] || null,
+        parentId: dbParentId,
         description: driveFile.description || null,
         thumbnailLink: driveFile.thumbnailLink || null,
         webViewLink: driveFile.webViewLink || null,
@@ -227,7 +302,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
   } catch (error: unknown) {
-    console.error("[files] POST error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to upload file" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[files] POST error:", msg)
+
+    // Return a descriptive error message for debugging
+    return NextResponse.json(
+      { error: `Operation failed: ${msg}` },
+      { status: 500 }
+    )
   }
 }

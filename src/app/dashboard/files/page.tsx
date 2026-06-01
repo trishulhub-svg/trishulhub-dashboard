@@ -224,6 +224,7 @@ export default function FilesPage() {
   const [renameValue, setRenameValue] = useState("")
   const [newFolderDialog, setNewFolderDialog] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
+  const [creatingFolder, setCreatingFolder] = useState(false)
   const [deleteDialog, setDeleteDialog] = useState<FileItem | null>(null)
   const [shareDialog, setShareDialog] = useState<FileItem | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
@@ -365,8 +366,9 @@ export default function FilesPage() {
 
   // ── Create folder ──
   const handleCreateFolder = useCallback(async () => {
-    if (!newFolderName.trim()) return
+    if (!newFolderName.trim() || creatingFolder) return
 
+    setCreatingFolder(true)
     try {
       const formData = new FormData()
       formData.append("action", "folder")
@@ -375,18 +377,24 @@ export default function FilesPage() {
 
       const res = await fetch("/api/files", { method: "POST", body: formData })
       if (res.ok) {
-        toast.success(`Folder "${newFolderName}" created`)
+        toast.success(`Folder "${newFolderName}" created successfully`)
         setNewFolderDialog(false)
         setNewFolderName("")
         fetchFiles()
       } else {
         const data = await res.json()
-        toast.error(data.error || "Failed to create folder")
+        const errorMsg = data.error || "Failed to create folder"
+        toast.error(errorMsg, { duration: 5000 })
+        console.error("[Files] Create folder error:", errorMsg)
       }
-    } catch (err) {
-      toast.error("Failed to create folder")
+    } catch (err: any) {
+      const msg = err?.message || "Network error. Please try again."
+      toast.error(msg, { duration: 5000 })
+      console.error("[Files] Create folder exception:", err)
+    } finally {
+      setCreatingFolder(false)
     }
-  }, [newFolderName, currentFolder, fetchFiles])
+  }, [newFolderName, currentFolder, fetchFiles, creatingFolder])
 
   // ── Navigate to folder ──
   const navigateToFolder = useCallback((file: FileItem) => {
@@ -1008,22 +1016,47 @@ export default function FilesPage() {
       </Dialog>
 
       {/* ── New Folder Dialog ── */}
-      <Dialog open={newFolderDialog} onOpenChange={setNewFolderDialog}>
+      <Dialog open={newFolderDialog} onOpenChange={(open) => { if (!open) { setNewFolderDialog(false); setNewFolderName("") } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Folder</DialogTitle>
-            <DialogDescription>Create a new folder in {currentFolder ? "the current directory" : "root"}.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderPlus className="h-5 w-5" />
+              New Folder
+            </DialogTitle>
+            <DialogDescription>
+              Create a new folder in {currentFolder ? "the current directory" : "root"}.
+            </DialogDescription>
           </DialogHeader>
-          <Input
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-            placeholder="Folder name"
-            autoFocus
-          />
+          <div className="space-y-3">
+            <Input
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+              placeholder="Enter folder name"
+              autoFocus
+              disabled={creatingFolder}
+            />
+            <p className="text-xs text-muted-foreground">
+              Folder will be created in Google Drive and synced automatically.
+            </p>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNewFolderDialog(false)}>Cancel</Button>
-            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>Create</Button>
+            <Button variant="outline" onClick={() => setNewFolderDialog(false)} disabled={creatingFolder}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || creatingFolder}>
+              {creatingFolder ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <FolderPlus className="h-4 w-4 mr-1" />
+                  Create Folder
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
