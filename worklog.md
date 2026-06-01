@@ -244,3 +244,22 @@ Stage Summary:
 - Todos page redesigned with cleaner layout, visual hierarchy, and glassmorphism cards
 - All existing functionality preserved in both pages
 - Commit: d47313e pushed to main branch
+
+---
+Task ID: 1
+Agent: Main Agent + full-stack-developer subagents
+Task: Apply Projects-style kanban/list system to CRM page + Rearrange todos page
+
+Work Log:
+- Cloned repo from GitHub (no local server)
+- Read and deeply analyzed Projects page kanban system (KANBAN_COLUMNS array, DroppableKanbanColumn, KanbanProjectCard, DragOverlay, COLUMN_DISPLAY_ORDER)
+- Read and analyzed CRM page current implementation (COLUMN_CONFIG Record, DroppableColumn, LeadCard with broken dynamic Tailwind classes)
+- Read and analyzed Todos page (training + tasks mixed in one Card, messy project grouping, no completed section)
+- Launched parallel subagent tasks for CRM refactoring and Todos rearrangement
+- CRM commit: 0953a15 - Array-based columns, DragOverlay, column dimming, proper accent bars, column ordering
+- Todos commit: da17b4a - Separate sections, collapsible project groups, collapsible completed tasks, improved visual hierarchy
+
+Stage Summary:
+- CRM page now matches Projects page list/kanban system: KANBAN_COLUMNS array, COLUMN_DISPLAY_ORDER, LeadCard with proper accent bar classes, DroppableKanbanColumn with isDimmed/activeId, DragOverlay, column ordering
+- Todos page rearranged: Training and Tasks in separate cards, clean project grouping with collapsible headers, completed tasks section (collapsed by default), better empty states, search bar moved to dedicated filter row
+- Both commits pushed to main branch
