@@ -7,7 +7,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
   GraduationCap, ExternalLink, ListTodo, MoreHorizontal, Trash2,
-  Flag, UserCircle, Users, CheckCircle,
+  Flag, UserCircle, Users, CheckCircle, ChevronDown, ChevronRight,
+  CircleCheckBig, Filter,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -67,6 +69,10 @@ const priorityDotColors: Record<string, string> = {
   URGENT: "bg-red-400", HIGH: "bg-orange-400", MEDIUM: "bg-blue-400", LOW: "bg-gray-400",
 };
 
+const priorityBorderColors: Record<string, string> = {
+  URGENT: "border-l-red-400", HIGH: "border-l-orange-400", MEDIUM: "border-l-blue-400", LOW: "border-l-gray-300 dark:border-l-gray-600",
+};
+
 const statusBadgeColors: Record<string, string> = {
   TODO: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400",
   IN_PROGRESS: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
@@ -86,13 +92,55 @@ function getInitials(name: string): string {
 // REUSABLE COMPONENTS
 // ══════════════════════════════════════════════════════
 
-/** Glassmorphism stat card */
-function GlassStatCard({ label, value, color }: { label: string; value: number; color: string }) {
+/** Glassmorphism stat card with icon */
+function GlassStatCard({ label, value, color, icon }: { label: string; value: number; color: string; icon?: React.ReactNode }) {
   return (
     <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-3.5">
-      <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{label}</p>
-      <p className={cn("text-2xl font-bold tracking-tight", color)}>{String(value)}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{label}</p>
+        {icon && <div className="opacity-30">{icon}</div>}
+      </div>
+      <p className={cn("text-2xl font-bold tracking-tight mt-1", color)}>{String(value)}</p>
     </div>
+  );
+}
+
+/** Section header with icon, title, and count badge */
+function SectionHeader({ icon, title, count, badgeColor }: { icon: React.ReactNode; title: string; count: number; badgeColor?: string }) {
+  return (
+    <div className="flex items-center gap-2.5 px-1">
+      <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center", badgeColor || "bg-violet-100 dark:bg-violet-900/30")}>
+        {icon}
+      </div>
+      <h2 className="text-sm font-bold text-foreground">{title}</h2>
+      <Badge variant="secondary" className={cn("text-[10px] font-bold", badgeColor || "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300")}>
+        {String(count)}
+      </Badge>
+    </div>
+  );
+}
+
+/** Collapsible project group header */
+function ProjectGroupHeader({ name, count, isOpen, onToggle }: { name: string; count: number; isOpen: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(
+        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-all duration-200",
+        "bg-gray-50/80 dark:bg-white/[0.02] border-gray-200/80 dark:border-gray-700/50",
+        "hover:bg-gray-100/80 dark:hover:bg-white/[0.05] cursor-pointer",
+      )}
+    >
+      {isOpen ? (
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      )}
+      <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+      <h3 className="text-xs font-bold text-foreground truncate">{safeText(name)}</h3>
+      <Badge variant="secondary" className="text-[10px] font-bold ml-auto shrink-0">{String(count)}</Badge>
+    </button>
   );
 }
 
@@ -108,21 +156,23 @@ function PersonalTaskItem({ task, togglingId, onToggleDone }: {
   const isAwaiting = status === "AWAITING_APPROVAL";
   const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting;
   const isToggling = togglingId === taskId;
-  const priorityDot = priority === "URGENT" ? "bg-red-400" : priority === "HIGH" ? "bg-orange-400" : priority === "MEDIUM" ? "bg-blue-400" : "bg-gray-400";
+  const priorityDot = priorityDotColors[priority] || "bg-gray-400";
+  const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
 
   return (
     <div className={cn(
-      "flex items-center gap-3 p-2.5 rounded-lg border transition-all duration-200",
+      "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
       "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
       "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm",
-      isAwaiting && "opacity-50 blur-[1px]",
+      priorityBorder,
+      isAwaiting && "opacity-60",
     )}>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onToggleDone(taskId); }}
         disabled={isToggling || isAwaiting}
         className={cn(
-          "shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center",
+          "shrink-0 h-[18px] w-[18px] rounded border-2 flex items-center justify-center",
           "transition-all duration-200 hover:scale-110",
           isToggling && "animate-pulse",
           isAwaiting && "cursor-default",
@@ -133,12 +183,12 @@ function PersonalTaskItem({ task, togglingId, onToggleDone }: {
         {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
       </button>
       <div className="flex-1 min-w-0">
-        <p className={cn("text-sm leading-snug", isAwaiting && "line-through text-muted-foreground/60", !isAwaiting && "font-medium")}>
+        <p className={cn("text-sm leading-snug", isAwaiting && "line-through text-muted-foreground/70", !isAwaiting && "font-medium")}>
           {safeText(title)}
         </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className={cn("h-2 w-2 rounded-full", priorityDot)} />
+      <div className="flex items-center gap-2.5 shrink-0">
+        <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
         {deadline && (
           <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
             {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
@@ -174,13 +224,15 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
   const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting && !isDone;
   const isToggling = togglingId === taskId;
   const priorityDot = priorityDotColors[priority] || "bg-gray-400";
+  const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
   const projectName = projectNameMap.get(projectId) || "Unknown";
 
   return (
     <div className={cn(
-      "flex items-center gap-3 p-2.5 rounded-lg border transition-all duration-200",
+      "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
       "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
       "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm",
+      priorityBorder,
       isDone && "opacity-50", isAwaiting && "opacity-60",
     )}>
       <button
@@ -188,7 +240,7 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
         onClick={() => onChangeStatus(taskId, isDone ? "TODO" : "DONE")}
         disabled={isToggling}
         className={cn(
-          "shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center",
+          "shrink-0 h-[18px] w-[18px] rounded border-2 flex items-center justify-center",
           "transition-all duration-200 hover:scale-110",
           isToggling && "animate-pulse",
           isDone ? "border-green-400 bg-green-400" : "border-gray-300 dark:border-gray-600",
@@ -292,30 +344,52 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
 /** The full "My Todos" personal view — shared between admin tab and non-admin fallback */
 function PersonalTodosView({ props }: { props: {
   totalActive: number; overdueTasks: number; awaitingApproval: number;
+  completedCount: number;
   sortedTraining: unknown[]; tasksByProject: Map<string, unknown[]>; activeTasks: unknown[];
-  filteredTasks: unknown[]; search: string; togglingId: string | null;
+  filteredTasks: unknown[]; completedTasks: unknown[];
+  search: string; togglingId: string | null;
   handleToggleDone: (taskId: string) => Promise<void>;
   projectNameMap: Map<string, string>; router: ReturnType<typeof useRouter>;
 } }) {
   const {
-    totalActive, overdueTasks, awaitingApproval, sortedTraining,
-    tasksByProject, activeTasks, filteredTasks, search, togglingId,
-    handleToggleDone, projectNameMap, router,
+    totalActive, overdueTasks, awaitingApproval, completedCount,
+    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+    search, togglingId, handleToggleDone, projectNameMap, router,
   } = props;
 
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [openProjects, setOpenProjects] = useState<Set<string>>(new Set());
+
+  const toggleProject = useCallback((pid: string) => {
+    setOpenProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid); else next.add(pid);
+      return next;
+    });
+  }, []);
+
+  // Open all projects by default if there are any
+  useState(() => {
+    if (tasksByProject.size > 0 && openProjects.size === 0) {
+      setOpenProjects(new Set(tasksByProject.keys()));
+    }
+  });
+
+  const hasVisibleContent = totalActive > 0 || completedCount > 0;
+
   return (
-    <>
+    <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
-        <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" />
-        <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" />
-        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" />
+        <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} />
+        <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} />
+        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} />
       </div>
 
-      {/* Empty state */}
-      {totalActive === 0 && (
+      {/* Empty state — no content at all */}
+      {!hasVisibleContent && (
         <div className="text-center py-20">
-          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4">
+          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
             <CheckCircle2 className="h-8 w-8 text-violet-400/40" />
           </div>
           <p className="text-lg font-bold text-foreground/80">All caught up!</p>
@@ -323,94 +397,107 @@ function PersonalTodosView({ props }: { props: {
         </div>
       )}
 
-      {/* Main Content Area */}
-      <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
-        <CardContent className="p-4 sm:p-5 space-y-6">
-          {/* Training Section */}
-          {sortedTraining.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-3 px-1">
-                <GraduationCap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                <h2 className="text-sm font-bold text-foreground">Training</h2>
-                <Badge variant="secondary" className="text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
-                  {String(sortedTraining.length)}
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                {sortedTraining.map((training: unknown) => {
-                  const tId = extractStr(training, "id", "");
-                  const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
-                  const dueDate = extractStr(training, "dueDate", "");
-                  const status = extractStr(training, "status", "ASSIGNED");
-                  const level = extractStr(training, "testLevel", "MEDIUM");
-                  const isOverdue = dueDate && new Date(dueDate) < new Date();
+      {/* Search with no results */}
+      {search && filteredTasks.length === 0 && sortedTraining.length === 0 && (
+        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+          <CardContent className="p-8 text-center">
+            <div className="h-12 w-12 mx-auto rounded-xl bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center mb-3">
+              <Search className="h-5 w-5 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground">No tasks match &quot;{search}&quot;</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Try a different search term</p>
+          </CardContent>
+        </Card>
+      )}
 
-                  return (
-                    <Card
-                      key={tId}
-                      className={cn(
-                        "border border-white/20 dark:border-white/10 cursor-pointer",
-                        "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
-                        "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
-                        isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
-                      )}
-                      onClick={() => router.push(`/dashboard/my-training/${tId}`)}
-                    >
-                      <CardContent className="p-3.5">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
-                            <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+      {/* ── Training Section (separate card) ── */}
+      {sortedTraining.length > 0 && (
+        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+          <CardContent className="p-4 sm:p-5 space-y-3">
+            <SectionHeader
+              icon={<GraduationCap className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
+              title="Training"
+              count={sortedTraining.length}
+            />
+            <div className="space-y-2">
+              {sortedTraining.map((training: unknown) => {
+                const tId = extractStr(training, "id", "");
+                const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
+                const dueDate = extractStr(training, "dueDate", "");
+                const status = extractStr(training, "status", "ASSIGNED");
+                const level = extractStr(training, "testLevel", "MEDIUM");
+                const isOverdue = dueDate && new Date(dueDate) < new Date();
+
+                return (
+                  <Card
+                    key={tId}
+                    className={cn(
+                      "border border-white/20 dark:border-white/10 cursor-pointer",
+                      "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
+                      "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
+                      isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
+                    )}
+                    onClick={() => router.push(`/dashboard/my-training/${tId}`)}
+                  >
+                    <CardContent className="p-3.5">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
+                          <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold truncate">{safeText(topic)}</p>
+                            <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                           </div>
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold truncate">{safeText(topic)}</p>
-                              <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge className={cn("text-[10px] font-medium", trainingStatusColors[status] || "")}>
-                                {safeText(status).replace("_", " ")}
-                              </Badge>
-                              <Badge className={cn("text-[10px] font-medium", trainingLevelColors[level] || "")}>
-                                {safeText(level)}
-                              </Badge>
-                              {dueDate && (
-                                <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
-                                  {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                                  {safeDate(dueDate)}
-                                </span>
-                              )}
-                            </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={cn("text-[10px] font-medium", trainingStatusColors[status] || "")}>
+                              {safeText(status).replace("_", " ")}
+                            </Badge>
+                            <Badge className={cn("text-[10px] font-medium", trainingLevelColors[level] || "")}>
+                              {safeText(level)}
+                            </Badge>
+                            {dueDate && (
+                              <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+                                {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                                {safeDate(dueDate)}
+                              </span>
+                            )}
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Tasks Section - Grouped by Project */}
-          {tasksByProject.size > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-3 px-1">
-                <ListTodo className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-bold text-foreground">Tasks</h2>
-                <Badge variant="secondary" className="text-[10px] font-bold">{String(activeTasks.length)}</Badge>
-              </div>
-              <div className="space-y-4">
-                {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
-                  const projectName = projectNameMap.get(projectId) || "Unknown Project";
-                  return (
-                    <div key={projectId}>
-                      <div className="flex items-center gap-2 mb-2 px-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                          {safeText(projectName)}
-                        </h3>
-                        <Badge variant="secondary" className="text-[10px] font-bold">{String(tasks.length)}</Badge>
                       </div>
-                      <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Tasks Section (separate card, grouped by project) ── */}
+      {tasksByProject.size > 0 && (
+        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+          <CardContent className="p-4 sm:p-5 space-y-3">
+            <SectionHeader
+              icon={<ListTodo className="h-3.5 w-3.5 text-primary" />}
+              title="Tasks"
+              count={activeTasks.length}
+            />
+            <div className="space-y-3">
+              {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
+                const projectName = projectNameMap.get(projectId) || "Unknown Project";
+                const isProjectOpen = openProjects.has(projectId);
+
+                return (
+                  <div key={projectId} className="rounded-lg">
+                    <ProjectGroupHeader
+                      name={projectName}
+                      count={tasks.length}
+                      isOpen={isProjectOpen}
+                      onToggle={() => toggleProject(projectId)}
+                    />
+                    {isProjectOpen && (
+                      <div className="mt-2 space-y-1.5 pl-1">
                         {tasks.map((task: unknown) => (
                           <PersonalTaskItem
                             key={extractStr(task, "id", "")}
@@ -420,22 +507,60 @@ function PersonalTodosView({ props }: { props: {
                           />
                         ))}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Search no results */}
-          {search && filteredTasks.length === 0 && sortedTraining.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground font-medium">No tasks match your search</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Completed Tasks (collapsed by default) ── */}
+      {completedCount > 0 && (
+        <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
+          <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all duration-200",
+                  "hover:bg-gray-50/50 dark:hover:bg-white/[0.02] rounded-t-xl",
+                )}
+              >
+                {showCompleted ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                )}
+                <CircleCheckBig className="h-4 w-4 text-green-500 shrink-0" />
+                <span className="text-sm font-bold text-muted-foreground">Completed</span>
+                <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                  {String(completedCount)}
+                </Badge>
+                {!showCompleted && (
+                  <span className="text-[11px] text-muted-foreground/50 ml-auto">Click to expand</span>
+                )}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="px-4 pb-4 pt-0">
+                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                  {completedTasks.map((task: unknown) => (
+                    <PersonalTaskItem
+                      key={extractStr(task, "id", "")}
+                      task={task}
+                      togglingId={togglingId}
+                      onToggleDone={handleToggleDone}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+    </div>
   );
 }
 
@@ -539,6 +664,8 @@ export default function GlobalTodosPage() {
   // Personal view
   const activeTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [myTasksData]);
 
+  const completedTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [myTasksData]);
+
   const activeTraining = useMemo(() => trainingData.filter((t: unknown) => {
     const s = extractStr(t, "status", "");
     return s !== "COMPLETED" && s !== "PASSED" && s !== "FAILED";
@@ -589,6 +716,7 @@ export default function GlobalTodosPage() {
   }, [activeTraining, search]);
 
   const totalActive = activeTasks.length + activeTraining.length;
+  const completedCount = completedTasks.length;
   const overdueTasks = activeTasks.filter((t: unknown) => {
     const d = extractStr(t, "deadline", "");
     return d && new Date(d) < new Date();
@@ -597,6 +725,8 @@ export default function GlobalTodosPage() {
 
   // Team view
   const teamActiveTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [allTasksData]);
+
+  const teamCompletedTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [allTasksData]);
 
   const teamFilteredTasks = useMemo(() => {
     let tasks = teamActiveTasks;
@@ -611,6 +741,12 @@ export default function GlobalTodosPage() {
     }
     return tasks;
   }, [teamActiveTasks, selectedMember, search]);
+
+  const teamFilteredCompletedTasks = useMemo(() => {
+    let tasks = teamCompletedTasks;
+    if (selectedMember !== "all") tasks = tasks.filter((t: unknown) => extractStr(t, "assignedTo", "") === selectedMember);
+    return tasks;
+  }, [teamCompletedTasks, selectedMember]);
 
   const teamStats = useMemo(() => {
     const tasks = teamActiveTasks.filter((t: unknown) => selectedMember === "all" || extractStr(t, "assignedTo", "") === selectedMember);
@@ -667,6 +803,28 @@ export default function GlobalTodosPage() {
     }
     return { groupBy: "project" as const, entries: Array.from(map.entries()) };
   }, [teamFilteredTasks, selectedMember]);
+
+  // Team completed grouped by same logic
+  const teamCompletedGrouped = useMemo(() => {
+    if (selectedMember === "all") {
+      const map = new Map<string, unknown[]>();
+      for (const task of teamFilteredCompletedTasks) {
+        const aid = extractStr(task, "assignedTo", "unassigned");
+        const aname = extractStr(task, "assignedToName", aid === "unassigned" ? "Unassigned" : "Unknown");
+        const key = `${aid}:::${aname}`;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(task);
+      }
+      return { groupBy: "assignee" as const, entries: Array.from(map.entries()) };
+    }
+    const map = new Map<string, unknown[]>();
+    for (const task of teamFilteredCompletedTasks) {
+      const pid = extractStr(task, "projectId", "other");
+      if (!map.has(pid)) map.set(pid, []);
+      map.get(pid)!.push(task);
+    }
+    return { groupBy: "project" as const, entries: Array.from(map.entries()) };
+  }, [teamFilteredCompletedTasks, selectedMember]);
 
   // ── Actions ──
 
@@ -739,10 +897,12 @@ export default function GlobalTodosPage() {
 
   // ── Shared props for personal view ──
   const personalViewProps = useMemo(() => ({
-    totalActive, overdueTasks, awaitingApproval, sortedTraining, tasksByProject,
-    activeTasks, filteredTasks, search, togglingId, handleToggleDone, projectNameMap, router,
-  }), [totalActive, overdueTasks, awaitingApproval, sortedTraining, tasksByProject,
-    activeTasks, filteredTasks, search, togglingId, handleToggleDone, projectNameMap, router]);
+    totalActive, overdueTasks, awaitingApproval, completedCount,
+    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+    search, togglingId, handleToggleDone, projectNameMap, router,
+  }), [totalActive, overdueTasks, awaitingApproval, completedCount,
+    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+    search, togglingId, handleToggleDone, projectNameMap, router]);
 
   const isLoading = sessionStatus === "loading" || tasksLoading || trainingLoading;
 
@@ -750,14 +910,15 @@ export default function GlobalTodosPage() {
   if (isLoading) {
     return (
       <div className="space-y-5">
-        <PageHeader title="My Todos" description="Track your tasks and training assignments">
-          <Skeleton className="h-9 w-40 rounded-lg" />
-        </PageHeader>
-        <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
+        <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+        <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-4">
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
         <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
           <CardContent className="p-4 sm:p-5 space-y-5">
             <Skeleton className="h-6 w-32 rounded-lg" />
-            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
           </CardContent>
         </Card>
       </div>
@@ -767,18 +928,28 @@ export default function GlobalTodosPage() {
   // ── Render ──
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <PageHeader title="My Todos" description="Track your tasks and training assignments">
-        <div className="relative max-w-xs flex-1 min-w-[140px] sm:min-w-[200px]">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
-          <Input
-            placeholder="Search tasks..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9 bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50"
-          />
-        </div>
-      </PageHeader>
+      {/* Header — no search inside */}
+      <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+
+      {/* Search & Filter bar — below header for breathing room */}
+      <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-3 gap-2">
+        <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+        <Input
+          placeholder="Search tasks and training..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 p-0 text-sm placeholder:text-muted-foreground/50"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Admin: Tabs view */}
       {isAdminUser && (
@@ -811,169 +982,26 @@ export default function GlobalTodosPage() {
 
           {/* Team Todos Tab */}
           <TabsContent value="team">
-            {allTasksLoading || teamLoading ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
-                <Skeleton className="h-10 w-full rounded-xl" />
-                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
-              </div>
-            ) : (
-              <>
-                {/* Team Stats */}
-                <div className="grid grid-cols-3 gap-3">
-                  <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" />
-                  <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" />
-                  <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" />
-                </div>
-
-                {/* Team Content Area */}
-                <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
-                  <CardContent className="p-4 sm:p-5 space-y-5">
-                    {/* Member filter chips */}
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMember("all")}
-                        className={cn(
-                          "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
-                          selectedMember === "all"
-                            ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
-                            : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
-                        )}
-                      >
-                        <Users className="h-3.5 w-3.5" />
-                        All
-                        <span className="text-[10px] opacity-70">({String(teamMembers.length)})</span>
-                      </button>
-                      {teamMembers.map((member) => {
-                        const mId = extractStr(member, "id", "");
-                        const mName = extractStr(member, "name", "");
-                        const mAvatar = extractStr(member, "avatar", "");
-                        const taskCount = teamActiveTasks.filter((t) => extractStr(t, "assignedTo", "") === mId).length;
-                        const isInactive = member.isActive === false;
-
-                        return (
-                          <button
-                            key={mId}
-                            type="button"
-                            onClick={() => setSelectedMember(mId)}
-                            className={cn(
-                              "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
-                              selectedMember === mId
-                                ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
-                                : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
-                              isInactive && "opacity-50",
-                            )}
-                          >
-                            <Avatar className="h-5 w-5">
-                              {mAvatar && <AvatarImage src={mAvatar} alt={mName} />}
-                              <AvatarFallback className="text-[8px]">{getInitials(mName)}</AvatarFallback>
-                            </Avatar>
-                            <span className="truncate max-w-24">{safeText(mName)}</span>
-                            {taskCount > 0 && <span className="text-[10px] opacity-70">({String(taskCount)})</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Empty: no team members */}
-                    {teamMembers.length === 0 && (
-                      <div className="text-center py-20">
-                        <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4">
-                          <Users className="h-8 w-8 text-violet-400/40" />
-                        </div>
-                        <p className="text-lg font-bold text-foreground/80">No team members found</p>
-                        <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
-                      </div>
-                    )}
-
-                    {/* Empty: no tasks */}
-                    {teamMembers.length > 0 && teamFilteredTasks.length === 0 && (
-                      <div className="text-center py-20">
-                        <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4">
-                          <CheckCircle2 className="h-8 w-8 text-green-400/40" />
-                        </div>
-                        <p className="text-lg font-bold text-foreground/80">
-                          {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
-                        </p>
-                        <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
-                      </div>
-                    )}
-
-                    {/* Grouped tasks */}
-                    {teamTasksGrouped.entries.length > 0 && (
-                      <div className="space-y-4">
-                        {teamTasksGrouped.entries.map(([key, tasks]) => {
-                          if (teamTasksGrouped.groupBy === "assignee") {
-                            const [assigneeId, assigneeName] = (key as string).split(":::");
-                            const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
-                            const mAvatar = extractStr(member, "avatar", "");
-                            const memberTasks = tasks as unknown[];
-                            const memberOverdue = memberTasks.filter((t) => {
-                              const d = extractStr(t, "deadline", "");
-                              return d && new Date(d) < new Date() && extractStr(t, "status", "") !== "AWAITING_APPROVAL";
-                            }).length;
-
-                            return (
-                              <div key={key}>
-                                <div className="flex items-center gap-2.5 mb-2 px-1">
-                                  <Avatar className="h-6 w-6">
-                                    {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
-                                    <AvatarFallback className="text-[9px]">{getInitials(assigneeName)}</AvatarFallback>
-                                  </Avatar>
-                                  <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
-                                  <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
-                                  {memberOverdue > 0 && (
-                                    <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
-                                      {String(memberOverdue)} overdue
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="space-y-1.5 ml-8 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
-                                  {memberTasks.map((task) => (
-                                    <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
-                                      teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                      onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          // Grouped by project
-                          const projectId = key as string;
-                          const projectName = projectNameMap.get(projectId) || "Unknown Project";
-                          const projectTasks = tasks as unknown[];
-                          return (
-                            <div key={projectId}>
-                              <div className="flex items-center gap-2 mb-2 px-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{safeText(projectName)}</h3>
-                                <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
-                              </div>
-                              <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
-                                {projectTasks.map((task) => (
-                                  <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
-                                    teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Team search no results */}
-                    {search && teamFilteredTasks.length === 0 && teamMembers.length > 0 && (
-                      <div className="text-center py-12">
-                        <p className="text-muted-foreground font-medium">No tasks match your search</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            )}
+            <TeamTodosContent
+              teamStats={teamStats}
+              teamFilteredTasks={teamFilteredTasks}
+              teamFilteredCompletedTasks={teamFilteredCompletedTasks}
+              teamCompletedGrouped={teamCompletedGrouped}
+              teamTasksGrouped={teamTasksGrouped}
+              teamMembers={teamMembers}
+              teamActiveTasks={teamActiveTasks}
+              selectedMember={selectedMember}
+              setSelectedMember={setSelectedMember}
+              projectNameMap={projectNameMap}
+              togglingId={togglingId}
+              handleDeleteTask={handleDeleteTask}
+              handleReassignTask={handleReassignTask}
+              handleChangePriority={handleChangePriority}
+              handleChangeStatus={handleChangeStatus}
+              search={search}
+              allTasksLoading={allTasksLoading}
+              teamLoading={teamLoading}
+            />
           </TabsContent>
         </Tabs>
       )}
@@ -983,5 +1011,298 @@ export default function GlobalTodosPage() {
         <PersonalTodosView props={personalViewProps} />
       )}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// TEAM TODOS TAB CONTENT
+// ══════════════════════════════════════════════════════
+
+function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedTasks, teamCompletedGrouped,
+  teamTasksGrouped, teamMembers, teamActiveTasks, selectedMember, setSelectedMember,
+  projectNameMap, togglingId, handleDeleteTask, handleReassignTask,
+  handleChangePriority, handleChangeStatus, search, allTasksLoading, teamLoading }: {
+  teamStats: { total: number; overdue: number; awaiting: number };
+  teamFilteredTasks: unknown[];
+  teamFilteredCompletedTasks: unknown[];
+  teamCompletedGrouped: { groupBy: "assignee" | "project"; entries: [string, unknown[]][] };
+  teamTasksGrouped: { groupBy: "assignee" | "project"; entries: [string, unknown[]][] };
+  teamMembers: Record<string, unknown>[];
+  teamActiveTasks: unknown[];
+  selectedMember: string;
+  setSelectedMember: (v: string) => void;
+  projectNameMap: Map<string, string>;
+  togglingId: string | null;
+  handleDeleteTask: (id: string) => void;
+  handleReassignTask: (taskId: string, userId: string) => void;
+  handleChangePriority: (taskId: string, priority: string) => void;
+  handleChangeStatus: (taskId: string, status: string) => void;
+  search: string;
+  allTasksLoading: boolean;
+  teamLoading: boolean;
+}) {
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  return (
+    <>
+      {allTasksLoading || teamLoading ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
+          <Skeleton className="h-10 w-full rounded-xl" />
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Team Stats */}
+          <div className="grid grid-cols-3 gap-3">
+            <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} />
+            <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} />
+            <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} />
+          </div>
+
+          {/* Member filter — card with chips */}
+          <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground">Filter by member</span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMember("all")}
+                  className={cn(
+                    "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
+                    selectedMember === "all"
+                      ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
+                  )}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  All
+                  <span className="text-[10px] opacity-70">({String(teamMembers.length)})</span>
+                </button>
+                {teamMembers.map((member) => {
+                  const mId = extractStr(member, "id", "");
+                  const mName = extractStr(member, "name", "");
+                  const mAvatar = extractStr(member, "avatar", "");
+                  const taskCount = teamActiveTasks.filter((t) => extractStr(t, "assignedTo", "") === mId).length;
+                  const isInactive = member.isActive === false;
+
+                  return (
+                    <button
+                      key={mId}
+                      type="button"
+                      onClick={() => setSelectedMember(mId)}
+                      className={cn(
+                        "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
+                        selectedMember === mId
+                          ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+                          : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
+                        isInactive && "opacity-50",
+                      )}
+                    >
+                      <Avatar className="h-5 w-5">
+                        {mAvatar && <AvatarImage src={mAvatar} alt={mName} />}
+                        <AvatarFallback className="text-[8px]">{getInitials(mName)}</AvatarFallback>
+                      </Avatar>
+                      <span className="truncate max-w-24">{safeText(mName)}</span>
+                      {taskCount > 0 && <span className="text-[10px] opacity-70">({String(taskCount)})</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Empty: no team members */}
+          {teamMembers.length === 0 && (
+            <div className="text-center py-20">
+              <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
+                <Users className="h-8 w-8 text-violet-400/40" />
+              </div>
+              <p className="text-lg font-bold text-foreground/80">No team members found</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
+            </div>
+          )}
+
+          {/* Empty: no tasks */}
+          {teamMembers.length > 0 && teamFilteredTasks.length === 0 && teamFilteredCompletedTasks.length === 0 && (
+            <div className="text-center py-20">
+              <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4 animate-pulse">
+                <CheckCircle2 className="h-8 w-8 text-green-400/40" />
+              </div>
+              <p className="text-lg font-bold text-foreground/80">
+                {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
+              </p>
+              <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
+            </div>
+          )}
+
+          {/* Search no results (when there are completed items but no active results) */}
+          {search && teamFilteredTasks.length === 0 && teamFilteredCompletedTasks.length > 0 && (
+            <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+              <CardContent className="p-8 text-center">
+                <div className="h-12 w-12 mx-auto rounded-xl bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center mb-3">
+                  <Search className="h-5 w-5 text-muted-foreground/50" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">No active tasks match &quot;{search}&quot;</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Check the completed section below</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Grouped active tasks */}
+          {teamTasksGrouped.entries.length > 0 && (
+            <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+              <CardContent className="p-4 sm:p-5 space-y-4">
+                {teamTasksGrouped.entries.map(([key, tasks]) => {
+                  if (teamTasksGrouped.groupBy === "assignee") {
+                    const [assigneeId, assigneeName] = (key as string).split(":::");
+                    const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+                    const mAvatar = extractStr(member, "avatar", "");
+                    const memberTasks = tasks as unknown[];
+                    const memberOverdue = memberTasks.filter((t) => {
+                      const d = extractStr(t, "deadline", "");
+                      return d && new Date(d) < new Date() && extractStr(t, "status", "") !== "AWAITING_APPROVAL";
+                    }).length;
+
+                    return (
+                      <div key={key}>
+                        <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
+                          <Avatar className="h-7 w-7 shrink-0">
+                            {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+                            <AvatarFallback className="text-[10px]">{getInitials(assigneeName)}</AvatarFallback>
+                          </Avatar>
+                          <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
+                          <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
+                          {memberOverdue > 0 && (
+                            <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                              {String(memberOverdue)} overdue
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-1.5 pl-2">
+                          {memberTasks.map((task) => (
+                            <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                              teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                              onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Grouped by project
+                  const projectId = key as string;
+                  const projectName = projectNameMap.get(projectId) || "Unknown Project";
+                  const projectTasks = tasks as unknown[];
+                  return (
+                    <div key={projectId}>
+                      <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                        <h3 className="text-xs font-bold text-foreground">{safeText(projectName)}</h3>
+                        <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
+                      </div>
+                      <div className="space-y-1.5 pl-2">
+                        {projectTasks.map((task) => (
+                          <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                            teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                            onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Team completed (collapsed by default) */}
+          {teamFilteredCompletedTasks.length > 0 && (
+            <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
+              <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all duration-200",
+                      "hover:bg-gray-50/50 dark:hover:bg-white/[0.02] rounded-t-xl",
+                    )}
+                  >
+                    {showCompleted ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                    <CircleCheckBig className="h-4 w-4 text-green-500 shrink-0" />
+                    <span className="text-sm font-bold text-muted-foreground">Completed</span>
+                    <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                      {String(teamFilteredCompletedTasks.length)}
+                    </Badge>
+                    {!showCompleted && (
+                      <span className="text-[11px] text-muted-foreground/50 ml-auto">Click to expand</span>
+                    )}
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="px-4 pb-4 pt-0">
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      {teamCompletedGrouped.entries.map(([key, tasks]) => {
+                        if (teamCompletedGrouped.groupBy === "assignee") {
+                          const [assigneeId, assigneeName] = (key as string).split(":::");
+                          const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+                          const mAvatar = extractStr(member, "avatar", "");
+                          const memberTasks = tasks as unknown[];
+
+                          return (
+                            <div key={key}>
+                              <div className="flex items-center gap-2 mb-2 px-2">
+                                <Avatar className="h-5 w-5 shrink-0">
+                                  {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+                                  <AvatarFallback className="text-[8px]">{getInitials(assigneeName)}</AvatarFallback>
+                                </Avatar>
+                                <h4 className="text-xs font-semibold text-muted-foreground">{safeText(assigneeName)}</h4>
+                                <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
+                              </div>
+                              <div className="space-y-1.5 pl-2">
+                                {memberTasks.map((task) => (
+                                  <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                                    teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const projectId = key as string;
+                        const projectName = projectNameMap.get(projectId) || "Unknown Project";
+                        const projectTasks = tasks as unknown[];
+                        return (
+                          <div key={projectId}>
+                            <div className="flex items-center gap-2 mb-2 px-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
+                              <h4 className="text-xs font-semibold text-muted-foreground">{safeText(projectName)}</h4>
+                              <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
+                            </div>
+                            <div className="space-y-1.5 pl-2">
+                              {projectTasks.map((task) => (
+                                <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                                  teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                                  onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+          )}
+        </div>
+      )}
+    </>
   );
 }
