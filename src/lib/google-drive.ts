@@ -52,9 +52,8 @@ function getDrive() {
   return google.drive({ version: "v3", auth })
 }
 
-function getRootFolderId() {
-  const creds = getCredentials()
-  return creds?.folderId || null
+function getRootFolderId(): string | null {
+  return process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
 }
 
 // ── Types ──
@@ -457,9 +456,15 @@ export async function emptyTrash(): Promise<void> {
   await drive.files.emptyTrash()
 }
 
-// ── Check if Drive is configured ──
+// ── Check if Drive is configured (credentials + folder ID) ──
 export function isConfigured(): boolean {
-  return getCredentials() !== null
+  const creds = getCredentials()
+  return creds !== null && getRootFolderId() !== null
+}
+
+// ── Check if folder ID is configured (independent of credentials) ──
+export function isFolderConfigured(): boolean {
+  return getRootFolderId() !== null
 }
 
 // ── Get root folder ID ──

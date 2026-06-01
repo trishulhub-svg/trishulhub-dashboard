@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
 
       if (!effectiveParentId) {
         return NextResponse.json(
-          { error: "Google Drive is not configured. Please set GOOGLE_DRIVE_FOLDER_ID in environment variables." },
+          { error: "Root folder ID is not set. Contact your administrator." },
           { status: 500 }
         )
       }
@@ -269,7 +269,7 @@ export async function POST(req: NextRequest) {
 
     if (!effectiveParentId) {
       return NextResponse.json(
-        { error: "Google Drive is not configured. Please set GOOGLE_DRIVE_FOLDER_ID in environment variables." },
+        { error: "Root folder ID is not set. Contact your administrator." },
         { status: 500 }
       )
     }
