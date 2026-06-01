@@ -68,6 +68,8 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import type { UserRole } from "@/lib/types";
@@ -634,9 +636,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Notifications Dropdown */}
-            <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
-              <DropdownMenuTrigger asChild>
+            {/* Notifications Sheet — better scroll on all devices */}
+            <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+              <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
@@ -645,81 +647,86 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </Badge>
                   )}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 p-0">
-                <div className="flex items-center justify-between p-3 border-b">
-                  <span className="text-sm font-semibold">Notifications</span>
-                  {unreadCount > 0 && (
-                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllAsRead}>
-                      <Check className="h-3 w-3 mr-1" /> Mark all read
-                    </Button>
-                  )}
-                </div>
-                <ScrollArea className="max-h-80">
+              </SheetTrigger>
+              <SheetContent className="w-full sm:max-w-md p-0 overflow-hidden flex flex-col">
+                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
+                    {unreadCount > 0 && (
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllAsRead}>
+                        <Check className="h-3 w-3 mr-1" /> Mark all read
+                      </Button>
+                    )}
+                  </div>
+                </SheetHeader>
+                <ScrollArea className="flex-1">
                   {notifications.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-muted-foreground">
-                      No notifications yet
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      <Bell className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                      <p>No notifications yet</p>
                     </div>
                   ) : (
-                    notifications.slice(0, 20).map((notif) => {
-                      const NotifIcon = notifIcons[notif.type] || Info;
-                      return (
-                        <div
-                          key={notif.id}
-                          className={cn(
-                            "flex items-start gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors border-b last:border-0",
-                            !notif.isRead && "bg-primary/5"
-                          )}
-                          onClick={async () => {
-                            if (!notif.isRead) await markAsRead(notif.id);
-                            if (notif.link && notif.link.startsWith("/")) {
-                              router.push(notif.link);
-                              setNotifOpen(false);
-                            }
-                          }}
-                        >
-                          <div className={cn(
-                            "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
-                            notif.type === "ERROR" || notif.type === "WARNING" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
-                            notif.type === "SUCCESS" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
-                            notif.type === "TASK" || notif.type === "APPROVAL" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
-                            notif.type === "AGENT" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
-                            "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                          )}>
-                            <NotifIcon className="h-3.5 w-3.5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={cn("text-xs font-medium", !notif.isRead && "font-semibold")}>
-                                {safeText(notif.title, "")}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                {formatRelativeTime(notif.createdAt)}
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                              {safeText(notif.message, "")}
-                            </p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 shrink-0 opacity-40 hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteNotification(notif.id);
+                    <div>
+                      {notifications.slice(0, 50).map((notif) => {
+                        const NotifIcon = notifIcons[notif.type] || Info;
+                        return (
+                          <div
+                            key={notif.id}
+                            className={cn(
+                              "flex items-start gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors border-b last:border-0",
+                              !notif.isRead && "bg-primary/5"
+                            )}
+                            onClick={async () => {
+                              if (!notif.isRead) await markAsRead(notif.id);
+                              if (notif.link && notif.link.startsWith("/")) {
+                                router.push(notif.link);
+                                setNotifOpen(false);
+                              }
                             }}
-                            aria-label="Dismiss notification"
                           >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      );
-                    })
+                            <div className={cn(
+                              "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
+                              notif.type === "ERROR" || notif.type === "WARNING" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
+                              notif.type === "SUCCESS" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
+                              notif.type === "TASK" || notif.type === "APPROVAL" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
+                              notif.type === "AGENT" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
+                              "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                            )}>
+                              <NotifIcon className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={cn("text-xs font-medium", !notif.isRead && "font-semibold")}>
+                                  {safeText(notif.title, "")}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                  {formatRelativeTime(notif.createdAt)}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                {safeText(notif.message, "")}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 shrink-0 opacity-40 hover:opacity-100"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteNotification(notif.id);
+                              }}
+                              aria-label="Dismiss notification"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </ScrollArea>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </SheetContent>
+            </Sheet>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

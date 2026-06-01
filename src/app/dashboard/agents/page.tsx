@@ -985,7 +985,8 @@ export default function TrishulWorkspacePage() {
           min-height: 100vh;
           min-height: 100dvh;
           overflow-x: hidden;
-          margin: -1.25rem;
+          touch-action: pan-y;
+          margin: -0.75rem;
           background: var(--ws-bg);
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           color: var(--ws-text);
@@ -1004,6 +1005,9 @@ export default function TrishulWorkspacePage() {
           --ws-accent-cyan-dim: rgba(6,182,212,0.10);
           --ws-accent-purple-dim: rgba(139,92,246,0.10);
           --ws-accent-pink-dim: rgba(236,72,153,0.10);
+        }
+        @media (min-width: 480px) {
+          .ws-root { margin: -1.25rem; }
         }
         @media (min-width: 768px) {
           .ws-root { margin: -2rem; }
@@ -1070,6 +1074,11 @@ export default function TrishulWorkspacePage() {
           top: -15%; right: -5%;
           background: rgba(6,182,212,0.08);
           animation: ws-drift-1 25s ease-in-out infinite;
+        }
+        @media (max-width: 639px) {
+          .ws-orb--1 { width: 300px; height: 300px; }
+          .ws-orb--2 { width: 250px; height: 250px; }
+          .ws-orb--3 { width: 200px; height: 200px; }
         }
         .ws-orb--2 {
           width: 400px; height: 400px;
@@ -1269,7 +1278,7 @@ export default function TrishulWorkspacePage() {
           grid-column: 1 / -1;
           padding: 1.5rem 1.25rem 1.25rem;
           display: flex; align-items: flex-start; justify-content: space-between;
-          min-height: 180px;
+          min-height: 160px;
         }
         @media (min-width: 480px) {
           .ws-hero-card { padding: 2rem 1.75rem 1.5rem; min-height: 200px; }
@@ -1505,7 +1514,7 @@ export default function TrishulWorkspacePage() {
           overflow-y: auto;
           padding: 0.5rem 0;
           max-height: 220px;
-          min-height: 140px;
+          min-height: 100px;
           scrollbar-width: thin;
           scrollbar-color: var(--ws-card-border) transparent;
         }
@@ -1636,6 +1645,7 @@ export default function TrishulWorkspacePage() {
         .ws-horizon-task-meta {
           display: flex; align-items: center; gap: 0.5rem;
           margin-bottom: 0.5rem;
+          flex-wrap: wrap;
         }
         .ws-horizon-timer {
           font-size: 0.6rem; font-weight: 600;
