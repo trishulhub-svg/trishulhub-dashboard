@@ -63,16 +63,25 @@ interface Lead {
   createdAt: string;
 }
 
-// ━━ Kanban column config with accent colors and glassmorphism ━━
-const COLUMN_CONFIG: Record<LeadStatus, { dot: string; accentBar: string; accentRing: string; glowColor: string; headerBg: string }> = {
-  NEW:         { dot: "bg-blue-400",    accentBar: "bg-blue-400",    accentRing: "ring-blue-400/20",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10",    headerBg: "text-blue-600 dark:text-blue-400" },
-  CONTACTED:   { dot: "bg-cyan-400",    accentBar: "bg-cyan-400",    accentRing: "ring-cyan-400/20",    glowColor: "hover:shadow-cyan-500/5 dark:hover:shadow-cyan-400/10",    headerBg: "text-cyan-600 dark:text-cyan-400" },
-  INTERESTED:  { dot: "bg-green-400",   accentBar: "bg-green-400",   accentRing: "ring-green-400/20",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10",   headerBg: "text-green-600 dark:text-green-400" },
-  PROPOSAL:    { dot: "bg-yellow-400",  accentBar: "bg-yellow-400",  accentRing: "ring-yellow-400/20",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10",  headerBg: "text-yellow-600 dark:text-yellow-400" },
-  NEGOTIATING: { dot: "bg-orange-400",  accentBar: "bg-orange-400",  accentRing: "ring-orange-400/20",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10",  headerBg: "text-orange-600 dark:text-orange-400" },
-  WON:         { dot: "bg-emerald-400", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", headerBg: "text-emerald-600 dark:text-emerald-400" },
-  LOST:        { dot: "bg-red-400",     accentBar: "bg-red-400",     accentRing: "ring-red-400/20",     glowColor: "hover:shadow-red-500/5 dark:hover:shadow-red-400/10",       headerBg: "text-red-600 dark:text-red-400" },
+// ━━ Kanban column configuration (array-based, like Projects page) ━━
+const KANBAN_COLUMNS = [
+  { key: "NEW",         label: "New Lead",    dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10",    accentBar: "bg-blue-400",    accentRing: "ring-blue-400/20" },
+  { key: "CONTACTED",   label: "Contacted",   dot: "bg-cyan-400",    glowColor: "hover:shadow-cyan-500/5 dark:hover:shadow-cyan-400/10",    accentBar: "bg-cyan-400",    accentRing: "ring-cyan-400/20" },
+  { key: "INTERESTED",  label: "Interested",   dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10",   accentBar: "bg-green-400",   accentRing: "ring-green-400/20" },
+  { key: "PROPOSAL",    label: "Proposal",     dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10",  accentBar: "bg-yellow-400",  accentRing: "ring-yellow-400/20" },
+  { key: "NEGOTIATING", label: "Negotiating",  dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10",  accentBar: "bg-orange-400",  accentRing: "ring-orange-400/20" },
+  { key: "WON",         label: "Won",          dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
+  { key: "LOST",        label: "Lost",         dot: "bg-red-400",     glowColor: "hover:shadow-red-500/5 dark:hover:shadow-red-400/10",       accentBar: "bg-red-400",     accentRing: "ring-red-400/20" },
+] as const;
+
+// Column display order
+const COLUMN_DISPLAY_ORDER: Record<string, number> = {
+  NEW: 0, CONTACTED: 1, INTERESTED: 2, PROPOSAL: 3, NEGOTIATING: 4, WON: 5, LOST: 6,
 };
+
+// Lookup map for quick access by key
+const COLUMN_LOOKUP: Record<string, typeof KANBAN_COLUMNS[number]> = {};
+for (const col of KANBAN_COLUMNS) COLUMN_LOOKUP[col.key] = col;
 
 // CRM-025: Score color coding helpers
 function getScoreColors(score: number): { star: string; text: string } {
@@ -192,9 +201,8 @@ const dateQuickFilters = [
 ];
 
 // ━━ LeadCard — Glassmorphism card with left accent bar ━━
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+function LeadCard({ lead, onClick, isDragging }: { lead: Lead; onClick: () => void; isDragging?: boolean }) {
   const scoreColors = getScoreColors(lead.score);
-  const config = COLUMN_CONFIG[lead.status];
   return (
     <div
       className={cn(
@@ -203,10 +211,18 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
         "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
         "hover:border-gray-300 dark:hover:border-gray-600",
         "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
-        "hover:-translate-y-0.5",
-        config && `border-l-[${config.accentBar}] dark:border-l-[${config.dot}]`,
+        !isDragging && "hover:-translate-y-0.5",
+        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
+        lead.status === "NEW" && "border-l-blue-400 dark:border-l-blue-500",
+        lead.status === "CONTACTED" && "border-l-cyan-400 dark:border-l-cyan-500",
+        lead.status === "INTERESTED" && "border-l-green-400 dark:border-l-green-500",
+        lead.status === "PROPOSAL" && "border-l-yellow-400 dark:border-l-yellow-500",
+        lead.status === "NEGOTIATING" && "border-l-orange-400 dark:border-l-orange-500",
+        lead.status === "WON" && "border-l-emerald-400 dark:border-l-emerald-500",
+        lead.status === "LOST" && "border-l-red-400 dark:border-l-red-500",
       )}
       onClick={onClick}
+      style={isDragging ? { pointerEvents: "none" as const } : undefined}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -242,31 +258,37 @@ function SortableLeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }
   );
 }
 
-// ━━ DroppableColumn — Glassmorphism kanban column ━━
-function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; leads: Lead[]; onLeadClick: (lead: Lead) => void }) {
-  const { setNodeRef, isOver } = useDroppable({ id: status });
-  const config = COLUMN_CONFIG[status];
+// ━━ DroppableKanbanColumn — Glassmorphism kanban column (like Projects) ━━
+function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: {
+  col: typeof KANBAN_COLUMNS[number];
+  leads: Lead[];
+  onLeadClick: (lead: Lead) => void;
+  activeId: string | null;
+  isDimmed: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
   return (
     <div
       className={cn(
-        "flex-shrink-0 w-[200px] sm:w-[220px] lg:w-[260px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
-        config?.glowColor,
-        isOver && `ring-2 ${config?.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`,
+        col.glowColor,
+        isDimmed && "opacity-40 pointer-events-none",
+        isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`,
       )}
-      style={{ minHeight: "calc(100vh - 320px)" }}
+      style={{ minHeight: "calc(100vh - 300px)" }}
     >
       {/* Left accent bar */}
-      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", config?.accentBar, isOver ? "opacity-100" : "opacity-60")} />
+      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
 
       {/* Column Header */}
       <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
         <div className="flex items-center gap-2">
-          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", config?.dot, config?.dot.replace("bg-", "ring-"))} />
-          <h3 className="font-bold text-[12px] tracking-tight">{status}</h3>
+          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
+          <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
           <Badge
             variant="secondary"
             className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
@@ -279,15 +301,28 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
       {/* Card List */}
       <div
         ref={setNodeRef}
-        className="flex-1 space-y-2 p-2 min-h-[120px] max-h-[calc(100vh-16rem)] overflow-y-auto custom-scrollbar"
+        className={cn(
+          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
+          isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
+        )}
+        style={{ maxHeight: "calc(100vh - 380px)" }}
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-          {leads.map((lead) => (
-            <SortableLeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
-          ))}
+          {leads.map((lead) => {
+            // Don't render the actively dragged card in the list
+            if (activeId === lead.id) return null;
+            return (
+              <SortableLeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
+            );
+          })}
         </SortableContext>
         {leads.length === 0 && (
-          <p className="text-[11px] text-muted-foreground/60 text-center py-6">No leads</p>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+              <Users className="h-4 w-4 text-muted-foreground/30" />
+            </div>
+            <p className="text-[11px] text-muted-foreground/50 font-medium">No leads</p>
+          </div>
         )}
       </div>
     </div>
@@ -297,7 +332,7 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
 // ━━ LeadListViewRow — List view row with glassmorphism styling ━━
 function LeadListViewRow({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const scoreColors = getScoreColors(lead.score);
-  const config = COLUMN_CONFIG[lead.status];
+  const config = COLUMN_LOOKUP[lead.status];
   const createdDate = new Date(lead.createdAt);
   const now = new Date();
   const diffMs = now.getTime() - createdDate.getTime();
@@ -524,6 +559,11 @@ export default function CRMPage() {
     }
     return groups;
   }, [leads, search, sortBy, dateFilter, filterSource, filterStatus]);
+
+  // Ordered columns for kanban display
+  const orderedColumns = useMemo(() => {
+    return [...KANBAN_COLUMNS].sort((a, b) => (COLUMN_DISPLAY_ORDER[a.key] ?? 99) - (COLUMN_DISPLAY_ORDER[b.key] ?? 99));
+  }, []);
 
   // CRM-007: Count total filtered leads for empty search state
   const totalFiltered = Object.values(groupedLeads).reduce((sum, arr) => sum + arr.length, 0);
@@ -900,8 +940,8 @@ export default function CRMPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
-              {LEAD_COLUMNS.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+              {KANBAN_COLUMNS.map((col) => (
+                <SelectItem key={col.key} value={col.key}>{col.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1102,20 +1142,24 @@ export default function CRMPage() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory">
-            {LEAD_COLUMNS.map((status) => (
-              <DroppableColumn
-                key={status}
-                status={status}
-                leads={groupedLeads[status]}
-                onLeadClick={setSelectedLead}
-              />
-            ))}
+            {orderedColumns.map((col) => {
+              const isDimmed = activeId !== null;
+              return (
+                <DroppableKanbanColumn
+                  key={col.key}
+                  col={col}
+                  leads={groupedLeads[col.key as LeadStatus] || []}
+                  onLeadClick={setSelectedLead}
+                  activeId={activeId}
+                  isDimmed={isDimmed}
+                />
+              );
+            })}
           </div>
-          {/* CRM-018: Guard non-null assertion in DragOverlay */}
           <DragOverlay>
             {activeId ? (() => {
               const lead = leads.find((l) => l.id === activeId);
-              return lead ? <LeadCard lead={lead} onClick={() => {}} /> : null;
+              return lead ? <LeadCard lead={lead} onClick={() => {}} isDragging /> : null;
             })() : null}
           </DragOverlay>
         </DndContext>
@@ -1350,8 +1394,8 @@ export default function CRMPage() {
                   >
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {LEAD_COLUMNS.map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      {KANBAN_COLUMNS.map((col) => (
+                        <SelectItem key={col.key} value={col.key}>{col.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
