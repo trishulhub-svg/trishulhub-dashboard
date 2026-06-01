@@ -306,4 +306,101 @@ Stage Summary:
 - Modified: src/app/dashboard/finance/invoices/page.tsx (+279 lines of searchable combobox code)
 - Modified: src/app/dashboard/finance/page.tsx (+96/-93 lines, overview improvements)
 - Pushed to main branch successfully
+---
+Task ID: files-restructure
+Agent: Main Agent
+Task: Restructure Files System with Departments, Folder Types, Project Sub-sections, and File Editor
 
+Work Log:
+- Read and analyzed the full 1201-line files page (page.tsx), google-drive.ts API, files API routes, Prisma schema, rbac.ts, projects API
+- Identified all existing functionality: grid/list views, upload, drag-drop, rename, star, share, trash, context menus, search, sort, filter, breadcrumbs
+- Implemented comprehensive changes to files/page.tsx (now 1844 lines):
+
+  A. Department Category Cards at Root Level:
+  - Added 8 category cards (Project Files, Company Documents, Development, Sales & Marketing, Finance, HR, Templates, Archive)
+  - Each card has icon, name, description, and file count badge
+  - Auto-creates category folders in Google Drive if they don't exist via ensureCategoryFolders()
+  - Category cards shown above regular files when at root level with no search/filter active
+  - Visual separator between categories and "All Files" section
+
+  B. Smart Folder Creation Dialog (replaces simple "New Folder" dialog):
+  - 4 folder type options: Project Files, Company Documents, Department Files, General
+  - Project Files: Select from existing projects, auto-creates 7 sub-folders (Contracts, Production Code, Deployment Code, Design Assets, Documentation, Client Deliverables, Meeting Notes)
+  - Company Documents: Name input, creates inside "Company Documents" category folder
+  - Department Files: Select department (DEV, SALES, FINANCE, HR, CONTENT, SUPPORT, MANAGEMENT), creates inside selected department category folder
+  - General: Simple folder creation at current level
+  - Loading state with progress indicator during sub-folder creation
+
+  C. File Viewer/Editor Dialog:
+  - Full-screen dialog (max-w-5xl, 80vh height)
+  - Google Docs/Sheets/Slides: Opens in iframe via webViewLink
+  - PDFs: Opens via Google Drive viewer iframe
+  - Images: Shows directly with object-contain sizing
+  - Other files: Shows file info (type, size, modified) with download prompt
+  - "Open in Google Drive" button opens webViewLink in new tab
+  - "Download" button triggers file download
+
+  D. Google Drive Structure Sync:
+  - Category folders synced with Google Drive root folder
+  - "Synced with Google Drive" badge in page header
+  - Auto-refresh category folders on sync button click
+
+  E. Additional Improvements:
+  - Projects fetched from /api/projects for project selector
+  - Category-aware breadcrumbs: "Root > Category Name" when navigating into categories
+  - "Preview" option added to all context menus and dropdown actions (grid + list)
+  - File click now opens preview instead of only folders being clickable
+  - Preserved all existing functionality (upload, download, drag-drop, rename, star, share, trash, context menus, grid/list views, search, sort, filter)
+  - Consistent glassmorphism design style with rest of app
+
+Stage Summary:
+- 1 file modified: src/app/dashboard/files/page.tsx (1201 → 1844 lines, +643 lines)
+- All existing functionality preserved
+- New features: department categories, smart folder dialog with project sub-folders, file preview/editor
+- No new dependencies needed (all icons from existing lucide-react, all components from shadcn/ui)
+
+---
+Task ID: finance-overview-chart
+Agent: Main Agent
+Task: Rebuild Finance Overview Page with Animated Multi-Line Chart
+
+Work Log:
+- Read and analyzed existing finance page (1597 lines), overview-charts.tsx (83 lines), stats API route, Prisma schema, rate-limit.ts, rbac.ts, auth.ts
+- Created new API endpoint `/api/dashboard/company-overview/route.ts`:
+  - Auth guard: SUPER_ADMIN and ADMIN only via `isAdmin(role)`
+  - Rate limiting via `rateLimit` with `RATE_LIMITS.general`
+  - Queries 12 months of data using Prisma: invoices (PAID), expenses, projects, clients
+  - Uses raw SQL for month grouping via `strftime('%Y-%m', "createdAt")`
+  - Computes running totals for projects and clients (cumulative)
+  - Returns monthlyData array + summary object
+  - Accepts `?months=6` or `?months=12` query param (clamped 1-24)
+- Completely rewrote `src/app/dashboard/finance/overview-charts.tsx`:
+  - New animated multi-line chart using Recharts AreaChart + Line
+  - 5 data lines: Revenue (green), Expenses (red), Profit (blue), New Projects (amber), New Clients (purple)
+  - Dual Y-axes: left for currency (₹), right for counts
+  - Gradient fills under revenue, expense, and profit lines
+  - Custom tooltip showing all values formatted
+  - Time range selector (6M, 12M, YTD) with data filtering
+  - Summary cards row with glassmorphism styling
+  - Loading skeletons and empty state handling
+  - Wrapped in `React.memo` for performance
+- Modified `src/app/dashboard/finance/page.tsx`:
+  - Added `fetchCompanyOverview` callback to fetch from new API
+  - Added `overviewData` and `overviewLoading` state
+  - Called `fetchCompanyOverview()` in initial mount effect
+  - Removed 4 summary cards (Revenue, Manual Expenses, Auto Subscriptions, Net Profit)
+  - Removed entire Overview tab (OverviewCharts, Quick Stats, Company Overview card)
+  - Removed unused imports: TrendingUp, Clock, AlertCircle, CardDescription, CardHeader, CardTitle, TrendingDown
+  - Removed `revenueData`/`expenseData` useMemo (no longer needed)
+  - Added new `CompanyOverviewChart` above Tabs section with framer-motion entrance animation
+  - Dynamic import updated from `OverviewCharts` to `CompanyOverviewChart`
+  - Preserved all subscription, expense, category, and project tab functionality
+
+Stage Summary:
+- Created: src/app/api/dashboard/company-overview/route.ts (new API, ~160 lines)
+- Rewritten: src/app/dashboard/finance/overview-charts.tsx (83 → ~380 lines)
+- Modified: src/app/dashboard/finance/page.tsx (~200 lines removed, ~30 lines added)
+- Chart data now comes from dedicated API endpoint instead of client-side computation
+- All existing tab functionality preserved (subscriptions, expenses, category, project)
+
+---
