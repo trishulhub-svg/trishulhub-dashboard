@@ -86,7 +86,8 @@ export async function GET(req: NextRequest) {
         ...(projectId ? {} : { client: true }),
         ...(projectId ? {} : { tasks: true }),
         ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
-        websites: true,
+        // Only include websites for detail view — avoids breaking listing if table doesn't exist
+        ...(projectId ? { websites: true } : {}),
       },
       orderBy: { createdAt: "desc" },
       take: limit,
