@@ -85,3 +85,28 @@ Stage Summary:
 - 3 files changed: loading.tsx, page.tsx, globals.css
 - Premium feel: skeleton matches page layout exactly, cascading reveals, shimmer effects
 ---
+---
+Task ID: 1c
+Agent: main + fullstack-developer
+Task: Add Live button for project websites
+
+Work Log:
+- Added ProjectWebsite model to Prisma schema (id, url, label, isPrimary, createdAt, projectId)
+- Ran prisma db push to apply schema change
+- Updated project GET API to include websites in all responses
+- Created /api/projects/[projectId]/websites CRUD endpoint (GET/POST/PATCH/DELETE)
+- Added Live button to project detail page header:
+  - 1 website: direct emerald pill link
+  - 2+ websites: dropdown to choose
+  - 0 websites (admin): Add Live URL ghost button
+- Added website management dialog (admin only) with add/remove/primary
+- Added Live button on kanban project cards (admin only)
+- Added Live URL field to Create/Edit project dialogs
+- On create: POST to websites API after project creation
+- On edit: PATCH/POST/DELETE to sync URL changes
+
+Stage Summary:
+- Commit 09f5bef pushed to main
+- 6 files changed, 634 insertions
+- Full schema + API + UI implementation
+---
