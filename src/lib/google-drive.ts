@@ -4,6 +4,17 @@
 
 import { google } from "googleapis"
 
+// ── Credential validation result ──
+export interface CredentialStatus {
+  configured: boolean
+  clientEmail: boolean
+  privateKey: boolean
+  privateKeyValid: boolean
+  folderId: boolean
+  error?: string
+  hint?: string
+}
+
 // ── Environment variable validation ──
 function getCredentials() {
   const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
@@ -15,9 +26,81 @@ function getCredentials() {
   }
 
   // Handle escaped newlines in private key
-  const cleanKey = privateKey.replace(/\\n/g, "\n")
+  let cleanKey = privateKey.replace(/\\n/g, "\n")
+
+  // Strip surrounding quotes if present (common Vercel env var mistake)
+  if (
+    (cleanKey.startsWith('"') && cleanKey.endsWith('"')) ||
+    (cleanKey.startsWith("'") && cleanKey.endsWith("'"))
+  ) {
+    cleanKey = cleanKey.slice(1, -1)
+  }
+
+  // Validate key format: must contain PEM header
+  if (!cleanKey.includes("-----BEGIN")) {
+    console.error(
+      "[google-drive] GOOGLE_DRIVE_PRIVATE_KEY is missing PEM header (-----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----). " +
+      "Make sure you pasted the full key from your service account JSON file."
+    )
+    return null
+  }
+
+  // Ensure the key has proper line breaks
+  if (!cleanKey.includes("\n")) {
+    // Key is all on one line — try to fix it by adding breaks before headers
+    cleanKey = cleanKey
+      .replace(/-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY)-----/, "-----BEGIN $1-----\n")
+      .replace(/-----END (PRIVATE KEY|RSA PRIVATE KEY)-----/, "\n-----END $1-----")
+  }
 
   return { clientEmail, privateKey: cleanKey, folderId }
+}
+
+// ── Validate credentials and return detailed status ──
+export function getCredentialStatus(): CredentialStatus {
+  const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
+  const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
+
+  const hasEmail = !!clientEmail
+  const hasKey = !!privateKey
+
+  let keyValid = false
+  let keyHint: string | undefined
+
+  if (hasKey) {
+    const k = privateKey!
+    if (k.includes("-----BEGIN PRIVATE KEY-----") || k.includes("-----BEGIN RSA PRIVATE KEY-----")) {
+      keyValid = true
+    } else if (k.includes("-----BEGIN")) {
+      keyValid = true
+      keyHint = "Key header looks unusual. Make sure it is a standard PEM private key."
+    } else {
+      keyHint = "Missing PEM header. The key should start with -----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----"
+    }
+
+    // Check for common mistakes
+    if (k.length < 100) {
+      keyValid = false
+      keyHint = "Key seems too short. Make sure you copied the entire private key from the service account JSON."
+    }
+  } else {
+    keyHint = "GOOGLE_DRIVE_PRIVATE_KEY env var is not set in Vercel."
+  }
+
+  if (!hasEmail) {
+    keyHint = "GOOGLE_DRIVE_CLIENT_EMAIL env var is not set in Vercel."
+  }
+
+  return {
+    configured: hasEmail && hasKey && keyValid,
+    clientEmail: hasEmail,
+    privateKey: hasKey,
+    privateKeyValid: keyValid,
+    folderId: true, // Always has fallback
+    error: !hasEmail ? "Missing GOOGLE_DRIVE_CLIENT_EMAIL" : !hasKey ? "Missing GOOGLE_DRIVE_PRIVATE_KEY" : !keyValid ? "Private key format is invalid" : undefined,
+    hint: keyHint,
+  }
 }
 
 // ── Auth client (lazy initialized) ──
@@ -27,16 +110,23 @@ function createAuth() {
   const creds = getCredentials()
   if (!creds) return null
 
-  return new google.auth.JWT({
-    email: creds.clientEmail,
-    key: creds.privateKey,
-    scopes: [
-      "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/drive.metadata",
-      "https://www.googleapis.com/auth/drive.readonly",
-    ],
-  })
+  try {
+    return new google.auth.JWT({
+      email: creds.clientEmail,
+      key: creds.privateKey,
+      scopes: [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.metadata",
+        "https://www.googleapis.com/auth/drive.readonly",
+      ],
+    })
+  } catch (err: any) {
+    console.error("[google-drive] Failed to create auth client:", err?.message)
+    // Reset so next call retries
+    authClient = null
+    return null
+  }
 }
 
 function getAuth() {
@@ -176,42 +266,7 @@ export async function uploadFile(
   if (!drive) throw new Error("Google Drive credentials not configured")
 
   const parent = folderId || getRootFolderId()!
-  const isImage = mimeType.startsWith("image/")
 
-  // For images, use resumable upload
-  if (isImage && buffer.length > 0) {
-    // Create the file metadata
-    const fileMetadata: any = {
-      name: fileName,
-      parents: [parent],
-    }
-    if (description) fileMetadata.description = description
-
-    const media = {
-      mimeType,
-      body: buffer as any, // googleapis expects a stream-like object
-    }
-
-    const res = await drive.files.create({
-      requestBody: fileMetadata,
-      media,
-      fields: "id, name, mimeType, size, parents, description, thumbnailLink, webViewLink",
-    })
-
-    return {
-      id: res.data.id!,
-      name: res.data.name || fileName,
-      mimeType: res.data.mimeType || mimeType,
-      size: parseInt(String(res.data.size || "0"), 10),
-      parents: res.data.parents || [parent],
-      trashed: false,
-      description: res.data.description || description,
-      thumbnailLink: res.data.thumbnailLink || undefined,
-      webViewLink: res.data.webViewLink || undefined,
-    }
-  }
-
-  // For non-image files
   const fileMetadata: any = {
     name: fileName,
     parents: [parent],
@@ -292,7 +347,6 @@ export async function moveFile(fileId: string, newParentId: string): Promise<voi
   const drive = getDrive()
   if (!drive) throw new Error("Google Drive credentials not configured")
 
-  // Get current parents
   const file = await drive.files.get({
     fileId,
     fields: "parents",
@@ -335,23 +389,18 @@ export async function getDownloadUrl(fileId: string): Promise<string | null> {
       alt: "media",
     })
 
-    // Use export for Google Docs types
     const fileInfo = await getFile(fileId)
     if (!fileInfo) return null
 
     if (fileInfo.mimeType.startsWith("application/vnd.google-apps.")) {
-      // Google Docs native format - export as PDF
       const exportMime = "application/pdf"
       const res = await drive.files.export({
         fileId,
         mimeType: exportMime,
       })
-
-      // export doesn't return a URL directly, but we can construct one
       return `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportMime}`
     }
 
-    // Regular file - generate webContentLink
     return `https://drive.google.com/uc?export=download&id=${fileId}`
   } catch (err: any) {
     console.error("[google-drive] Failed to get download URL:", err?.message)
@@ -370,7 +419,6 @@ export async function searchFiles(
 
   const rootFolder = getRootFolderId()
 
-  // Search within the root folder hierarchy
   const q = `(name contains '${query.replace(/'/g, "\\'")}') and trashed = false and '${rootFolder}' in parents`
 
   const res = await drive.files.list({

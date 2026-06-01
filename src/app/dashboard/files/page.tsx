@@ -270,6 +270,10 @@ export default function FilesPage() {
   // File Viewer Dialog state
   const [viewFileDialog, setViewFileDialog] = useState<FileItem | null>(null)
 
+  // Drive configuration status
+  const [driveConfigured, setDriveConfigured] = useState<boolean | null>(null)
+  const [credentialHint, setCredentialHint] = useState<string>("")
+
   // ── Fetch files ──
   const fetchFiles = useCallback(async () => {
     setLoading(true)
@@ -284,6 +288,11 @@ export default function FilesPage() {
         const data = await res.json()
         setFiles(data.files || [])
         if (data.storage) setStorage(data.storage)
+        // Store Drive config status
+        if (data.driveConfigured !== undefined) setDriveConfigured(data.driveConfigured)
+        if (data.credentialStatus?.hint) setCredentialHint(data.credentialStatus.hint)
+      } else {
+        console.error("[Files] Fetch failed:", res.status, res.statusText)
       }
     } catch (err) {
       console.error("Failed to fetch files:", err)
@@ -307,35 +316,53 @@ export default function FilesPage() {
   }, [shareDialog])
 
   // ── Auto-create department folders for admin users ──
+  // Only runs once on mount, after initial file load confirms Drive is working
+  const autoCreateDone = useRef(false)
   useEffect(() => {
     const autoCreateDepartments = async () => {
+      if (autoCreateDone.current) return
       if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") return
-      // Only run when at root level and filter is "all" (first load)
       if (currentFolder !== null || filter !== "all") return
+      // Wait for initial fetch to complete and check Drive status
+      if (driveConfigured === null) return
+      autoCreateDone.current = true
+
+      // Only auto-create if Drive is properly configured
+      if (!driveConfigured) {
+        console.log("[Files] Skipping auto-create: Drive not configured")
+        return
+      }
+
       try {
-        const res = await fetch("/api/files")
-        if (!res.ok) return
-        const data = await res.json()
-        const rootFiles: FileItem[] = data.files || []
-        const rootFolderNames = rootFiles.filter(f => isFolder(f.mimeType)).map(f => f.name)
+        const rootFolderNames = files.filter(f => isFolder(f.mimeType)).map(f => f.name)
+        let created = 0
 
         for (const dept of DEPARTMENTS) {
           if (!rootFolderNames.includes(dept.name)) {
             const formData = new FormData()
             formData.append("action", "folder")
             formData.append("folderName", dept.name)
-            await fetch("/api/files", { method: "POST", body: formData })
+            const res = await fetch("/api/files", { method: "POST", body: formData })
+            if (res.ok) {
+              created++
+            } else {
+              const errData = await res.json().catch(() => ({}))
+              console.error(`[Files] Failed to create "${dept.name}":`, errData.error)
+              // If first folder creation fails (likely Drive issue), stop trying
+              if (created === 0) break
+            }
           }
         }
-        // Refresh files after creating missing folders
-        fetchFiles()
+        if (created > 0) {
+          fetchFiles()
+        }
       } catch (err) {
         console.error("Failed to auto-create department folders:", err)
       }
     }
     autoCreateDepartments()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [driveConfigured, files, userRole])
 
   // ── Generic helper: create a single folder in Drive ──
   const createFolderInDrive = useCallback(async (folderName: string, parentId?: string): Promise<FileItem | null> => {
@@ -348,14 +375,15 @@ export default function FilesPage() {
       const res = await fetch("/api/files", { method: "POST", body: formData })
       if (res.ok) {
         const data = await res.json()
-        return data.file || null
+        // API returns the file metadata directly (not wrapped in {file: ...})
+        return data && data.id ? (data as FileItem) : null
       } else {
-        const errData = await res.json()
-        toast.error(errData.error || `Failed to create "${folderName}"`)
+        const errData = await res.json().catch(() => ({}))
+        toast.error(errData.error || `Failed to create "${folderName}"`, { duration: 6000 })
         return null
       }
-    } catch {
-      toast.error(`Failed to create "${folderName}"`)
+    } catch (err: any) {
+      toast.error(`Failed to create "${folderName}": ${err?.message || "Network error"}`)
       return null
     }
   }, [])
@@ -488,14 +516,17 @@ export default function FilesPage() {
         setNewFolderName("")
         fetchFiles()
       } else {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         const errorMsg = data.error || "Failed to create folder"
-        toast.error(errorMsg, { duration: 5000 })
+        toast.error(errorMsg, { duration: 8000 })
         console.error("[Files] Create folder error:", errorMsg)
+        // Update Drive config status if returned
+        if (data.driveConfigured === false) setDriveConfigured(false)
+        if (data.credentialStatus?.hint) setCredentialHint(data.credentialStatus.hint)
       }
     } catch (err: any) {
       const msg = err?.message || "Network error. Please try again."
-      toast.error(msg, { duration: 5000 })
+      toast.error(msg, { duration: 8000 })
       console.error("[Files] Create folder exception:", err)
     } finally {
       setCreatingFolder(false)
@@ -679,12 +710,18 @@ export default function FilesPage() {
         const created = await createFolderInDrive(deptName)
         if (created) {
           toast.success(`"${deptName}" folder created`)
-          await fetchFiles()
-          // Navigate into the newly created folder
-          const refreshed = files.filter(f => isFolder(f.mimeType)).find(f => f.name === deptName)
-          if (refreshed) {
-            navigateToFolder(refreshed)
+          // Refresh file list to get the new folder
+          const refreshedFiles = await fetch(`/api/files`).then(r => r.ok ? r.json() : null).catch(() => null)
+          if (refreshedFiles?.files) {
+            const newFolder = refreshedFiles.files.find((f: FileItem) => isFolder(f.mimeType) && f.name === deptName)
+            if (newFolder) {
+              setFiles(refreshedFiles.files)
+              navigateToFolder(newFolder)
+              return
+            }
           }
+          // Fallback: just refresh
+          fetchFiles()
         }
       }
     }
@@ -1065,6 +1102,45 @@ export default function FilesPage() {
             </div>
           )}
         </div>
+      ) : driveConfigured === false && sortedFiles.length === 0 ? (
+        /* ── Drive Not Configured Warning ── */
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col items-center justify-center py-20 text-center max-w-lg mx-auto"
+        >
+          <div className="h-20 w-20 rounded-2xl bg-destructive/10 flex items-center justify-center mb-4">
+            <AlertTriangle className="h-10 w-10 text-destructive" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground mb-2">Google Drive Not Configured</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            File operations require Google Drive credentials. Ask your administrator to set the following environment variables in Vercel:
+          </p>
+          <div className="w-full rounded-lg border bg-muted/30 p-4 text-left space-y-2">
+            <div className="flex items-start gap-2">
+              <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono shrink-0">GOOGLE_DRIVE_CLIENT_EMAIL</code>
+              <span className="text-xs text-muted-foreground">Service account email from Google Cloud Console</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono shrink-0">GOOGLE_DRIVE_PRIVATE_KEY</code>
+              <span className="text-xs text-muted-foreground">Full private key including BEGIN/END headers. No quotes.</span>
+            </div>
+          </div>
+          {credentialHint && (
+            <p className="text-xs text-destructive mt-3 bg-destructive/5 rounded-md px-3 py-2 max-w-md">
+              {credentialHint}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={fetchFiles}
+          >
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Retry
+          </Button>
+        </motion.div>
       ) : sortedFiles.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, y: 10 }}

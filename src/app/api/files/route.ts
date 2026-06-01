@@ -56,7 +56,6 @@ async function ensureParentInDb(driveParentId: string | null, userId: string): P
     }
   } catch (err: any) {
     // Non-critical: if we can't ensure parent, the create might still work
-    // if the FK doesn't enforce (SQLite with foreign_keys off)
     console.warn("[files] Could not ensure parent in DB:", err?.message)
   }
 }
@@ -111,7 +110,7 @@ async function syncDriveFolder(folderId: string | null, userId: string): Promise
   }
 }
 
-// ── GET: List files ──
+// ── GET: List files (also returns Drive config status) ──
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -136,8 +135,15 @@ export async function GET(req: NextRequest) {
     const pageToken = searchParams.get("pageToken") || undefined
     const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "50"), 100)
 
-    // Sync from Drive first (non-blocking, best-effort)
-    syncDriveFolder(parentId, userId).catch(() => {})
+    // Check Drive configuration
+    const credentialStatus = drive.getCredentialStatus()
+
+    // Sync from Drive (blocking on first load when DB is likely empty)
+    try {
+      await syncDriveFolder(parentId, userId)
+    } catch (err: any) {
+      console.error("[files] Drive sync failed:", err?.message)
+    }
 
     // Build where clause
     const where: Record<string, unknown> = {}
@@ -180,12 +186,19 @@ export async function GET(req: NextRequest) {
       ...(pageToken ? { cursor: { id: pageToken } } : {}),
     })
 
-    // Get storage info
-    const storageInfo = await drive.getStorageUsage()
+    // Get storage info (best-effort)
+    let storageInfo = { usedBytes: 0, totalBytes: 0 }
+    try {
+      storageInfo = await drive.getStorageUsage()
+    } catch (err) {
+      // Non-critical
+    }
 
     return NextResponse.json(JSON.parse(JSON.stringify({
       files,
       storage: storageInfo,
+      driveConfigured: credentialStatus.configured,
+      credentialStatus,
     })))
   } catch (error: unknown) {
     console.error("[files] GET error:", error instanceof Error ? error.message : error)
@@ -208,6 +221,22 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`files-write-${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
+    // Check Drive configuration first
+    const credentialStatus = drive.getCredentialStatus()
+    if (!credentialStatus.configured) {
+      const missing: string[] = []
+      if (!credentialStatus.clientEmail) missing.push("GOOGLE_DRIVE_CLIENT_EMAIL")
+      if (!credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY")
+      if (!credentialStatus.privateKeyValid && credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY (invalid format)")
+
+      return NextResponse.json({
+        error: `Google Drive is not properly configured. Missing or invalid: ${missing.join(", ")}. ` +
+               (credentialStatus.hint || "") +
+               " Please check your Vercel environment variables.",
+        credentialStatus,
+      }, { status: 503 })
     }
 
     // Parse form data
@@ -236,24 +265,66 @@ export async function POST(req: NextRequest) {
       // Ensure parent exists in local DB to satisfy FK constraint
       await ensureParentInDb(effectiveParentId, userId)
 
-      const driveFolder = await drive.createFolder(effectiveParentId, folderName)
+      let driveFolder
+      try {
+        driveFolder = await drive.createFolder(effectiveParentId, folderName)
+      } catch (driveErr: any) {
+        const msg = driveErr?.message || String(driveErr)
+        console.error("[files] Drive createFolder error:", msg)
+
+        // Detect common errors and provide helpful messages
+        if (msg.includes("DECODER") || msg.includes("unsupported")) {
+          return NextResponse.json({
+            error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY appears to be in an invalid format. ` +
+                   `Error: ${msg}. ` +
+                   `Please re-copy the private key from your Google Cloud service account JSON file. ` +
+                   `Make sure to include the full key including -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- headers. ` +
+                   `Do NOT wrap the value in quotes in Vercel env vars.`,
+            credentialStatus,
+          }, { status: 503 })
+        }
+
+        return NextResponse.json({
+          error: `Failed to create folder in Google Drive: ${msg}`,
+          credentialStatus,
+        }, { status: 500 })
+      }
+
       const dbParentId = driveFolder.parents?.[0] || null
 
       // Save to DB
-      const metadata = await db.fileMetadata.create({
-        data: {
+      try {
+        const metadata = await db.fileMetadata.create({
+          data: {
+            driveFileId: driveFolder.id,
+            name: driveFolder.name,
+            mimeType: driveFolder.mimeType,
+            size: 0,
+            parentId: dbParentId,
+            description: description || null,
+            webViewLink: driveFolder.webViewLink || null,
+            createdBy: userId,
+          },
+        })
+
+        return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
+      } catch (dbErr: any) {
+        console.error("[files] DB save error after Drive create:", dbErr?.message)
+        // Folder was created in Drive but DB save failed — still return Drive data
+        return NextResponse.json(JSON.parse(JSON.stringify({
+          id: driveFolder.id,
           driveFileId: driveFolder.id,
           name: driveFolder.name,
           mimeType: driveFolder.mimeType,
           size: 0,
           parentId: dbParentId,
-          description: description || null,
+          trashed: false,
+          starred: false,
           webViewLink: driveFolder.webViewLink || null,
           createdBy: userId,
-        },
-      })
-
-      return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
+          _syncWarning: "Created in Google Drive but failed to save in local database",
+        })))
+      }
     }
 
     // Upload file
@@ -282,30 +353,66 @@ export async function POST(req: NextRequest) {
     await ensureParentInDb(effectiveParentId, userId)
 
     // Upload to Google Drive
-    const driveFile = await drive.uploadFile(effectiveParentId, fileName, mimeType, buffer, description)
+    let driveFile
+    try {
+      driveFile = await drive.uploadFile(effectiveParentId, fileName, mimeType, buffer, description)
+    } catch (driveErr: any) {
+      const msg = driveErr?.message || String(driveErr)
+      console.error("[files] Drive upload error:", msg)
+
+      if (msg.includes("DECODER") || msg.includes("unsupported")) {
+        return NextResponse.json({
+          error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY format is invalid. Error: ${msg}`,
+          credentialStatus,
+        }, { status: 503 })
+      }
+
+      return NextResponse.json({
+        error: `Failed to upload to Google Drive: ${msg}`,
+        credentialStatus,
+      }, { status: 500 })
+    }
+
     const dbParentId = driveFile.parents?.[0] || null
 
     // Save metadata to DB
-    const metadata = await db.fileMetadata.create({
-      data: {
+    try {
+      const metadata = await db.fileMetadata.create({
+        data: {
+          driveFileId: driveFile.id,
+          name: driveFile.name,
+          mimeType: driveFile.mimeType,
+          size: driveFile.size,
+          parentId: dbParentId,
+          description: driveFile.description || null,
+          thumbnailLink: driveFile.thumbnailLink || null,
+          webViewLink: driveFile.webViewLink || null,
+          createdBy: userId,
+        },
+      })
+
+      return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
+    } catch (dbErr: any) {
+      console.error("[files] DB save error after Drive upload:", dbErr?.message)
+      return NextResponse.json(JSON.parse(JSON.stringify({
+        id: driveFile.id,
         driveFileId: driveFile.id,
         name: driveFile.name,
         mimeType: driveFile.mimeType,
         size: driveFile.size,
         parentId: dbParentId,
-        description: driveFile.description || null,
+        trashed: false,
+        starred: false,
         thumbnailLink: driveFile.thumbnailLink || null,
         webViewLink: driveFile.webViewLink || null,
         createdBy: userId,
-      },
-    })
-
-    return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
+        _syncWarning: "Uploaded to Google Drive but failed to save in local database",
+      })))
+    }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error("[files] POST error:", msg)
 
-    // Return a descriptive error message for debugging
     return NextResponse.json(
       { error: `Operation failed: ${msg}` },
       { status: 500 }
