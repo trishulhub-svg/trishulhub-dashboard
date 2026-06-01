@@ -211,13 +211,11 @@ const SidebarContent = React.memo(function SidebarContent({
     }))
     .filter((group) => group.items.length > 0);
 
-  // Collapsible section state — "Overview" is always expanded
+  // Collapsible section state — Overview always expanded, all others default expanded
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = { Overview: true };
+    const initial: Record<string, boolean> = {};
     visibleGroups.forEach((g) => {
-      // Auto-expand the group that contains the current active route
-      const hasActive = g.items.some((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")));
-      initial[g.label] = hasActive;
+      initial[g.label] = true; // All groups start expanded
     });
     return initial;
   });
@@ -255,8 +253,8 @@ const SidebarContent = React.memo(function SidebarContent({
       </div>
 
       {/* Navigation with grouped sections */}
-      <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-1 px-3">
+      <ScrollArea className="flex-1 py-2">
+        <nav className="space-y-2 px-3">
           {visibleGroups.map((group, groupIdx) => {
             const isOverview = group.label === "Overview";
             const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? true);
@@ -270,18 +268,18 @@ const SidebarContent = React.memo(function SidebarContent({
                 {!collapsed && !isOverview && (
                   <button
                     onClick={() => toggleGroup(group.label)}
-                    className="flex items-center gap-2 w-full px-4 py-2 rounded-lg text-left group/section transition-colors hover:bg-sidebar-accent/50"
+                    className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-left group/section transition-all duration-200 hover:bg-sidebar-accent/50"
                     type="button"
                   >
                     <ChevronDown
                       className={cn(
-                        "h-3 w-3 text-muted-foreground/50 transition-transform duration-300 ease-in-out",
+                        "h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-300 ease-in-out shrink-0",
                         isExpanded && "rotate-180"
                       )}
                     />
                     <span className={cn(
-                      "text-[10px] font-semibold uppercase tracking-wider select-none transition-colors",
-                      isExpanded ? "text-muted-foreground" : "text-muted-foreground/50"
+                      "text-[11px] font-semibold uppercase tracking-widest select-none transition-colors",
+                      isExpanded ? "text-muted-foreground" : "text-muted-foreground/40"
                     )}>
                       {group.label}
                     </span>
@@ -297,9 +295,9 @@ const SidebarContent = React.memo(function SidebarContent({
                     )}
                   </button>
                 )}
-                {/* Overview label — non-clickable */}
+                {/* Overview label — non-clickable, always visible */}
                 {!collapsed && isOverview && (
-                  <p className="px-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 select-none">
+                  <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 select-none">
                     {group.label}
                   </p>
                 )}
@@ -318,14 +316,14 @@ const SidebarContent = React.memo(function SidebarContent({
                           key={item.href}
                           onClick={() => onNavigate(item.href)}
                           className={cn(
-                            "relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 w-full text-left",
+                            "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
                             isActive
                               ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           )}
                           type="button"
                         >
-                          <item.icon className={cn("h-5 w-5 shrink-0", collapsed && "mx-auto")} />
+                          <item.icon className={cn("h-[18px] w-[18px] shrink-0", collapsed && "mx-auto")} />
                           {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
                           {!collapsed && badgeCounts[item.href] > 0 && (
                             <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
@@ -342,7 +340,7 @@ const SidebarContent = React.memo(function SidebarContent({
                 </div>
                 {/* Separator between groups (not after last group) */}
                 {groupIdx < visibleGroups.length - 1 && !collapsed && (
-                  <div className={cn("mt-1 border-t border-sidebar-border/30 transition-opacity duration-300", isExpanded ? "opacity-100" : "opacity-30")} />
+                  <div className={cn("mt-2 mb-1 border-t border-sidebar-border/20 transition-opacity duration-300", isExpanded ? "opacity-100" : "opacity-0")} />
                 )}
               </div>
             );
