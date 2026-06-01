@@ -286,3 +286,24 @@ Stage Summary:
 - Modified: src/app/dashboard/projects/page.tsx (+130 lines, 1289 total)
 - Pushed to main branch successfully
 
+---
+Task ID: 2
+Agent: Main Agent + fullstack-dev subagent
+Task: Finance pages - smart search selectors + overview improvements
+
+Work Log:
+- Read invoices page (1470+ lines) and finance overview page (1000+ lines) from GitHub repo
+- Analyzed Prisma schema, expenses API, and dashboard stats API for data models
+- Change 1: Replaced client Select with searchable combobox (shows recent 10, search filters all)
+- Change 2: Replaced project Select with searchable combobox (same pattern, includes "No Project")
+- Change 3: Applied same pattern to Edit Invoice dialog (client + project selectors)
+- Change 4: Replaced "API Spend (this month)" card with "Monthly Spend" (current month expenses + subscriptions)
+- Change 5: Replaced "Recent Invoices" section with "Company Overview" card (4 metrics: Revenue, Costs, Pending, Net Profit)
+- Updated chart expenseData to use "Subscriptions" instead of "API Costs"
+- Pushed to GitHub: commit 62a6120
+
+Stage Summary:
+- Modified: src/app/dashboard/finance/invoices/page.tsx (+279 lines of searchable combobox code)
+- Modified: src/app/dashboard/finance/page.tsx (+96/-93 lines, overview improvements)
+- Pushed to main branch successfully
+
