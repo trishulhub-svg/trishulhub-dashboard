@@ -11,9 +11,9 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Plus, Search, FolderKanban, ArrowRight, Pencil, Trash2, MoreHorizontal,
-  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2, LayoutGrid,
-  ClipboardCheck,
+  Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
+  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2,
+  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,13 +27,13 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-// NOTE: Radix Select removed — replaced with native <select> to prevent React #310
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
@@ -114,12 +114,12 @@ function KanbanProjectCard({
   return (
     <div
       className={cn(
-        "group/card relative rounded-xl border-l-[3px] p-3.5 cursor-pointer transition-all duration-200",
+        "group/card relative rounded-lg border-l-[3px] p-3 cursor-pointer transition-all duration-200",
         "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
         "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
         "hover:border-gray-300 dark:hover:border-gray-600",
-        "hover:shadow-lg hover:shadow-black/[0.06] dark:hover:shadow-black/20",
-        !isDragging && "hover:-translate-y-0.5 hover:scale-[1.01]",
+        "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+        !isDragging && "hover:-translate-y-0.5",
         isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
         pStatus === "IN_PROGRESS" && "border-l-blue-400 dark:border-l-blue-500",
         pStatus === "REVIEW" && "border-l-yellow-400 dark:border-l-yellow-500",
@@ -135,7 +135,7 @@ function KanbanProjectCard({
       {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
       {isAdminUser && onEdit && onDelete && !isDragging && (
         <div
-          className="absolute top-2.5 right-2 z-10"
+          className="absolute top-2 right-2 z-10"
           onClick={(e) => e.stopPropagation()}
         >
           <DropdownMenu>
@@ -161,11 +161,11 @@ function KanbanProjectCard({
       )}
 
       {/* Project Title + Status Dot */}
-      <div className="flex items-start gap-2.5 pr-7">
+      <div className="flex items-start gap-2 pr-7">
         <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
         <div className="flex-1 min-w-0">
           <h4
-            className="text-sm font-semibold leading-snug line-clamp-2"
+            className="text-[13px] font-semibold leading-snug line-clamp-2"
             title={pName}
           >
             {pName}
@@ -174,17 +174,17 @@ function KanbanProjectCard({
       </div>
 
       {/* Status Badge + Client Name */}
-      <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
         <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
-        <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+        <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
           {pClientName}
         </span>
       </div>
 
       {/* Progress Bar */}
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-2.5 space-y-1">
         <div className="flex justify-between text-[11px]">
           <span className="text-muted-foreground">Progress</span>
           <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
@@ -194,18 +194,11 @@ function KanbanProjectCard({
 
       {/* Deadline */}
       {pDeadline && (
-        <p className="text-[11px] text-muted-foreground/70 mt-2.5 flex items-center gap-1">
+        <p className="text-[11px] text-muted-foreground/70 mt-2 flex items-center gap-1">
           <span className="font-medium text-muted-foreground">Deadline:</span>
           {safeDate(pDeadline, "No date")}
         </p>
       )}
-
-      {/* View Action */}
-      <div className="mt-3 pt-2.5 border-t border-gray-200/30 dark:border-gray-700/30">
-        <span className="text-xs font-semibold text-primary/60 group-hover/card:text-primary transition-all duration-200 inline-flex items-center gap-1 group-hover/card:gap-2">
-          View <ArrowRight className="h-3 w-3 transition-transform duration-200 group-hover/card:translate-x-0.5" />
-        </span>
-      </div>
     </div>
   );
 }
@@ -277,7 +270,7 @@ function DroppableKanbanColumn({
   return (
     <div
       className={cn(
-        "flex-shrink-0 w-[300px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
@@ -285,19 +278,19 @@ function DroppableKanbanColumn({
         isDimmed && "opacity-40 pointer-events-none",
         isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
       )}
-      style={{ minHeight: "calc(100vh - 300px)" }}
+      style={{ minHeight: "calc(100vh - 320px)" }}
     >
       {/* Left accent bar */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
 
       {/* Column Header */}
-      <div className="px-4 py-3.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-5">
-        <div className="flex items-center gap-2.5">
-          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
-          <h3 className="font-bold text-[13px] tracking-tight">{col.label}</h3>
+      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
+          <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
           <Badge
             variant="secondary"
-            className="ml-auto h-5 min-w-[22px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
+            className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
           >
             {projects.length}
           </Badge>
@@ -308,15 +301,15 @@ function DroppableKanbanColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "p-2.5 space-y-2.5 overflow-y-auto transition-all duration-300 pl-5",
+          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
           isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
-        style={{ maxHeight: "calc(100vh - 380px)" }}
+        style={{ maxHeight: "calc(100vh - 400px)" }}
       >
         {projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center mb-2">
-              <FolderKanban className="h-5 w-5 text-muted-foreground/30" />
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+              <FolderKanban className="h-4 w-4 text-muted-foreground/30" />
             </div>
             <p className="text-[11px] text-muted-foreground/50 font-medium">No projects</p>
           </div>
@@ -344,6 +337,95 @@ function DroppableKanbanColumn({
   );
 }
 
+// ━━ List View Row ━━
+function ListViewRow({
+  project,
+  isAdminUser,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  project: Record<string, unknown>;
+  isAdminUser: boolean;
+  onView: () => void;
+  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+}) {
+  const client = project.client as Record<string, unknown> | undefined;
+  const pName = safeText(project.name, "Untitled");
+  const pStatus = safeText(project.status, "");
+  const pClientName = client ? safeText(client.name, "Client") : "Client";
+  const pProgress = safeNumber(project.progress);
+  const pDeadline = project.deadline as string | null | undefined;
+
+  return (
+    <div
+      className={cn(
+        "group/row flex items-center gap-4 p-3 rounded-lg border transition-all duration-150",
+        "bg-white/70 dark:bg-white/[0.04] backdrop-blur-sm",
+        "border-gray-200/60 dark:border-gray-700/40",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        "hover:bg-white/90 dark:hover:bg-white/[0.07]",
+        "hover:shadow-sm cursor-pointer",
+      )}
+      onClick={onView}
+    >
+      {/* Status dot + Name */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold truncate" title={pName}>{pName}</h4>
+          <p className="text-[11px] text-muted-foreground">{pClientName}</p>
+        </div>
+      </div>
+
+      {/* Status Badge */}
+      <div className="hidden sm:block shrink-0">
+        <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
+          {pStatus.replace("_", " ")}
+        </Badge>
+      </div>
+
+      {/* Progress */}
+      <div className="hidden md:flex items-center gap-2 min-w-[140px] shrink-0">
+        <Progress value={pProgress} className={cn("h-1.5 rounded-full flex-1", getProgressColor(pProgress))} />
+        <span className={cn("text-[11px] font-bold tabular-nums w-8 text-right", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+          {pProgress}%
+        </span>
+      </div>
+
+      {/* Deadline */}
+      <div className="hidden lg:block shrink-0 min-w-[90px]">
+        {pDeadline ? (
+          <p className="text-[12px] text-muted-foreground">{safeDate(pDeadline, "No date")}</p>
+        ) : (
+          <p className="text-[12px] text-muted-foreground/50">—</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div
+        className="flex items-center gap-1 shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Button variant="ghost" size="sm" className="h-7 w-7" onClick={onView} title="View" aria-label="View project">
+          <ArrowUpDown className="h-3.5 w-3.5" />
+        </Button>
+        {isAdminUser && onEdit && onDelete && (
+          <>
+            <Button variant="ghost" size="sm" className="h-7 w-7" onClick={(e) => onEdit(project, e)} title="Edit" aria-label="Edit project">
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={(e) => onDelete(safeText(project.id, ""), e)} title="Delete" aria-label="Delete project">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -356,6 +438,7 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [viewMode, setViewMode] = useState<"board" | "list">("board");
 
   // ━━ React Query — cached fetch with stale-while-revalidate ━━
   const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
@@ -393,13 +476,11 @@ export default function ProjectsPage() {
   // Feature 3: Attachments & Credentials state
   const [attachments, setAttachments] = useState<{ id: string; fileName: string; fileSize: number; createdAt: string }[]>([]);
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
-  // L-PRJ-2 FIX: Removed unused editEditOpen state
   const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [editingCredId, setEditingCredId] = useState<string | null>(null);
   const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [uploadingFile, setUploadingFile] = useState(false);
-  // L-PRJ-6 FIX: State for credential delete confirmation dialog
   const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
 
   // DnD sensors
@@ -546,7 +627,6 @@ export default function ProjectsPage() {
     e.stopPropagation();
     setEditProject(project);
     setEditOpen(true);
-    // Fetch attachments and credentials for this project
     fetchAttachments(safeText(project.id, ""));
     fetchCredentials(safeText(project.id, ""));
     setShowPasswords({});
@@ -614,7 +694,7 @@ export default function ProjectsPage() {
     try {
       const reader = new FileReader();
       reader.onload = async () => {
-        const base64 = (reader.result as string).split(",")[1]; // Remove data:application/pdf;base64, prefix
+        const base64 = (reader.result as string).split(",")[1];
         const res = await fetch("/api/projects/attachments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -727,7 +807,6 @@ export default function ProjectsPage() {
     }
   };
 
-  // L-PRJ-6 FIX: Replaced confirm() with AlertDialog
   const handleDeleteCredential = async () => {
     if (!deleteCredId) return;
     try {
@@ -768,10 +847,8 @@ export default function ProjectsPage() {
     const currentStatus = safeText(project.status, "");
     if (currentStatus === newStatus) return;
 
-    // Store previous state for rollback
     const prevProjects = projects;
 
-    // Optimistic update
     setUpdating(true);
     queryClient.setQueryData(["projects"], (old: unknown[]) =>
       (old || []).map((p) =>
@@ -825,35 +902,44 @@ export default function ProjectsPage() {
     ),
   }));
 
-  // ━━ Stats computation (reuse projects directly — was duplicate 'allProjects' variable) ━━
+  // ━━ Stats computation ━━
   const totalProjects = projects.length;
   const inProgressCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
+  const reviewCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "REVIEW").length;
   const completedCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "COMPLETED").length;
 
-  // ━━ Loading skeleton (Kanban-style) ━━
+  // ━━ Loading skeleton ━━
   if (sessionStatus === "loading" || projectsLoading) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
-            <Skeleton className="h-4 w-72" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-8 rounded-lg" />
+            <Skeleton className="h-7 w-32" />
           </div>
-          <Skeleton className="h-9 w-32 rounded-lg" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-52" />
+            <Skeleton className="h-8 w-20" />
+          </div>
         </div>
         {/* Stats bar skeleton */}
-        <div className="grid grid-cols-3 gap-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-xl border p-3 bg-gradient-to-br from-muted/50 to-muted/20">
-              <Skeleton className="h-3 w-16 mb-2" />
-              <Skeleton className="h-6 w-8" />
+        <div className="grid grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-5 w-8" />
             </div>
           ))}
         </div>
-        <Skeleton className="h-9 w-72" />
+        {/* Filter skeleton */}
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-7 w-20 rounded-full" />
+          ))}
+        </div>
         <div className="flex gap-4 overflow-hidden">
           {KANBAN_COLUMNS.slice(0, 4).map((col) => (
-            <div key={col.key} className="flex-shrink-0 w-[300px] space-y-3">
+            <div key={col.key} className="flex-shrink-0 w-[280px] space-y-3">
               <Skeleton className="h-10 w-full rounded-xl" />
               <Skeleton className="h-44 w-full rounded-lg animate-pulse" />
               <Skeleton className="h-36 w-full rounded-lg animate-pulse" />
@@ -865,33 +951,67 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ━━━━ Header ━━━━ */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-              <LayoutGrid className="h-5 w-5 text-primary" />
-            </div>
-            <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-foreground via-foreground/90 to-foreground/70 bg-clip-text">Projects</h1>
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+            <LayoutGrid className="h-4.5 w-4.5 text-primary" />
           </div>
-          <p className="text-muted-foreground/70 text-sm mt-1 ml-[46px]">Manage your web development projects</p>
+          <h1 className="text-xl font-bold tracking-tight">Projects</h1>
         </div>
         <div className="flex items-center gap-2">
+          {/* Inline Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+            <Input
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 w-48 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+              aria-label="Search projects"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-2 h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                aria-label="Clear search"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          {/* View Toggle */}
+          <ToggleGroup
+            type="single"
+            value={viewMode}
+            onValueChange={(val) => { if (val) setViewMode(val as "board" | "list"); }}
+            className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
+          >
+            <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Board</span>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
+              <List className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">List</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
+          {/* My Todos — ghost variant */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="gap-1.5"
+            className="h-8 gap-1.5 text-xs text-muted-foreground"
             onClick={() => router.push("/dashboard/projects/todos")}
           >
             <ClipboardCheck className="h-3.5 w-3.5" /> My Todos
           </Button>
+          {/* New Project */}
           {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5 relative overflow-hidden bg-gradient-to-r from-primary to-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
-                <span className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-primary opacity-0 hover:opacity-100 transition-opacity" />
-                <Plus className="h-4 w-4 relative z-10" /> <span className="relative z-10">New Project</span>
+              <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
+                <Plus className="h-3.5 w-3.5" /> New Project
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -932,98 +1052,88 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* ━━━━ Stats Bar ━━━━ */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border bg-gradient-to-br from-slate-50/80 to-slate-100/50 dark:from-slate-900/40 dark:to-slate-800/20 p-3.5 transition-all hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/10">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="h-6 w-6 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-              <FolderKanban className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-            </div>
-            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
+      {/* ━━━━ Stats Bar — Glassmorphism, 4 stats ━━━━ */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
           </div>
-          <p className="text-2xl font-bold tracking-tight">{totalProjects}</p>
+          <p className="text-xl font-bold tracking-tight">{totalProjects}</p>
         </div>
-        <div className="rounded-xl border bg-gradient-to-br from-blue-50/80 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 p-3.5 transition-all hover:shadow-md hover:shadow-blue-500/[0.06] dark:hover:shadow-blue-500/10">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="h-6 w-6 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <Activity className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-blue-200/40 dark:border-blue-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Activity className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
           </div>
-          <p className="text-2xl font-bold tracking-tight text-blue-700 dark:text-blue-300">{inProgressCount}</p>
+          <p className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{inProgressCount}</p>
         </div>
-        <div className="rounded-xl border bg-gradient-to-br from-emerald-50/80 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-900/10 p-3.5 transition-all hover:shadow-md hover:shadow-emerald-500/[0.06] dark:hover:shadow-emerald-500/10">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="h-6 w-6 rounded-md bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <CircleDot className="h-3.5 w-3.5 text-yellow-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Review</span>
           </div>
-          <p className="text-2xl font-bold tracking-tight text-emerald-700 dark:text-emerald-300">{completedCount}</p>
+          <p className="text-xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">{reviewCount}</p>
+        </div>
+        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md">
+          <div className="flex items-center gap-1.5 mb-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>
+          </div>
+          <p className="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{completedCount}</p>
         </div>
       </div>
 
-      {/* ━━━━ Search & Status Filters ━━━━ */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
-          <Input
-            placeholder="Search projects..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 w-64 bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
-            aria-label="Search projects"
-          />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => {
-            const isActive = filter === s;
-            const dotColor = s === "ALL" ? "bg-gray-400" : statusDotColors[s] || "bg-gray-400";
-            return (
-              <Button
-                key={s}
-                variant={isActive ? "default" : "outline"}
-                size="sm"
-                className={cn(
-                  "h-8 text-xs transition-all duration-200 gap-1.5",
-                  isActive ? "shadow-md shadow-primary/20" : "hover:bg-muted/80 border-gray-200/80 dark:border-gray-700/50",
-                )}
-                onClick={() => setFilter(s)}
-              >
-                <span className={cn("h-1.5 w-1.5 rounded-full", dotColor)} />
-                {s === "ALL" ? "All" : s.replace("_", " ")}
-              </Button>
-            );
-          })}
-        </div>
+      {/* ━━━━ Filter Bar — Horizontal scrollable pills ━━━━ */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => {
+          const isActive = filter === s;
+          const dotColor = s === "ALL" ? "bg-gray-400" : statusDotColors[s] || "bg-gray-400";
+          return (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+              )}
+            >
+              <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-primary-foreground/80" : dotColor)} />
+              {s === "ALL" ? "All" : s.replace("_", " ")}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ━━━━ Kanban Board ━━━━ */}
+      {/* ━━━━ Main Content Area ━━━━ */}
       {filtered.length === 0 ? (
         <div className="text-center py-24">
-          <div className="h-20 w-20 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-5">
-            <FolderKanban className="h-10 w-10 text-primary/40" />
+          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-4">
+            <FolderKanban className="h-8 w-8 text-primary/40" />
           </div>
-          <p className="text-xl font-bold text-foreground/80">
+          <p className="text-lg font-bold text-foreground/80">
             {projects.length === 0 ? "No projects yet" : "No projects match your search"}
           </p>
-          <p className="text-sm text-muted-foreground/60 mt-2 max-w-sm mx-auto">
+          <p className="text-sm text-muted-foreground/60 mt-1.5 max-w-sm mx-auto">
             {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
           </p>
           {projects.length === 0 && isAdminUser && (
-            <Button variant="outline" className="mt-6 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
+            <Button variant="outline" className="mt-5 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
               <Plus className="h-4 w-4" /> Create your first project
             </Button>
           )}
         </div>
-      ) : (
+      ) : viewMode === "board" ? (
+        /* ━━ Kanban Board View ━━ */
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
+          <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
             {kanbanColumns.map((col) => {
               const isDimmed = filter !== "ALL" && filter !== col.key;
               return (
@@ -1062,6 +1172,26 @@ export default function ProjectsPage() {
             })() : null}
           </DragOverlay>
         </DndContext>
+      ) : (
+        /* ━━ List View ━━ */
+        <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
+          {filtered.map((project) => {
+            const pId = safeText(project.id, "");
+            return (
+              <ListViewRow
+                key={pId}
+                project={project}
+                isAdminUser={isAdminUser}
+                onView={() => {
+                  handlePrefetchProject(pId);
+                  router.push(`/dashboard/projects/${pId}`);
+                }}
+                onEdit={isAdminUser ? openEditDialog : undefined}
+                onDelete={isAdminUser ? openDeleteDialog : undefined}
+              />
+            );
+          })}
+        </div>
       )}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
@@ -1071,95 +1201,102 @@ export default function ProjectsPage() {
           {editProject && (
             <Tabs defaultValue="details">
               <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
-                <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
+                <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Pencil className="h-3 w-3" /> Details
                 </TabsTrigger>
-                <TabsTrigger value="attachments" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
+                <TabsTrigger value="attachments" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Paperclip className="h-3 w-3" /> Attachments
                 </TabsTrigger>
-                <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all">
+                <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Key className="h-3 w-3" /> Credentials
                 </TabsTrigger>
               </TabsList>
 
               {/* Details Tab */}
               <TabsContent value="details">
-                <form onSubmit={handleEditProject} className="space-y-3 mt-4">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Project Name *</Label>
-                    <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Description</Label>
-                    <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
-                  </div>
-                  {/* Feature 2: Client selector in edit form */}
-                  <div className="space-y-1">
-                    <Label className="text-xs">Client</Label>
-                    <select
-                      name="clientId"
-                      defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
-                      className="border rounded px-3 py-2 text-sm bg-background w-full"
-                    >
-                      <option value="">Select client</option>
-                      {(clients as { id: string; name: string; company?: string }[]).map((c) => (
-                        <option key={c.id} value={c.id}>{c.company || c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Pencil className="h-3.5 w-3.5" /> Project Information
+                  </h3>
+                  <form onSubmit={handleEditProject} className="space-y-3">
                     <div className="space-y-1">
-                      <Label className="text-xs">Status</Label>
-                      <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
-                        {VALID_STATUSES.map((s) => (
-                          <option key={s} value={s}>{s.replace("_", " ")}</option>
+                      <Label className="text-xs">Project Name *</Label>
+                      <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Description</Label>
+                      <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Client</Label>
+                      <select
+                        name="clientId"
+                        defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
+                        className="border rounded px-3 py-2 text-sm bg-background w-full"
+                      >
+                        <option value="">Select client</option>
+                        {(clients as { id: string; name: string; company?: string }[]).map((c) => (
+                          <option key={c.id} value={c.id}>{c.company || c.name}</option>
                         ))}
                       </select>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Progress (%)</Label>
-                      <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Status</Label>
+                        <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
+                          {VALID_STATUSES.map((s) => (
+                            <option key={s} value={s}>{s.replace("_", " ")}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Progress (%)</Label>
+                        <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Budget (₹)</Label>
-                      <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Budget (₹)</Label>
+                        <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Deadline</Label>
+                        <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Deadline</Label>
-                      <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
+                    <div className="flex gap-2 pt-2">
+                      <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
+                      <Button type="submit" className="flex-1">Save Changes</Button>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
-                    <Button type="submit" className="flex-1">Save Changes</Button>
-                  </div>
-                </form>
+                  </form>
+                </div>
               </TabsContent>
 
               {/* Attachments Tab */}
               <TabsContent value="attachments">
-                <div className="space-y-4 mt-4">
+                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">Upload PDF files for this project</p>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Paperclip className="h-3.5 w-3.5" /> Project Files
+                    </h3>
                     <label className="cursor-pointer">
-                      <div className="flex items-center gap-1.5 text-sm text-primary hover:underline">
-                        {uploadingFile ? "Uploading..." : <><Upload className="h-4 w-4" /> Upload PDF</>}
+                      <div className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium">
+                        {uploadingFile ? "Uploading..." : <><Upload className="h-3.5 w-3.5" /> Upload PDF</>}
                       </div>
                       <input type="file" accept="application/pdf" className="hidden" onChange={handleFileUpload} disabled={uploadingFile} />
                     </label>
                   </div>
+                  <p className="text-[11px] text-muted-foreground">Upload PDF files for this project (max 10MB)</p>
                   <div className="max-h-64 overflow-y-auto space-y-2">
                     {attachments.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-6">No attachments yet</p>
                     )}
                     {attachments.map((att) => (
-                      <div key={att.id} className="flex items-center gap-2 p-2 border rounded-md">
+                      <div key={att.id} className="flex items-center gap-2 p-2.5 border rounded-lg bg-white/40 dark:bg-white/[0.02]">
                         <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{att.fileName}</p>
-                          <p className="text-xs text-muted-foreground">{formatFileSize(att.fileSize)}</p>
+                          <p className="text-[11px] text-muted-foreground">{formatFileSize(att.fileSize)}</p>
                         </div>
                         <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download" aria-label="Download attachment">
                           <Download className="h-3.5 w-3.5" />
@@ -1175,10 +1312,12 @@ export default function ProjectsPage() {
 
               {/* Credentials Tab */}
               <TabsContent value="credentials">
-                <div className="space-y-4 mt-4">
+                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
                   {/* Add new credential */}
-                  <div className="border rounded-md p-3 space-y-2">
-                    <p className="text-xs font-medium">Add New Credential</p>
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Key className="h-3.5 w-3.5" /> Add New Credential
+                    </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <Input placeholder="Title (e.g., Hosting Login)" value={newCred.title} onChange={(e) => setNewCred({ ...newCred, title: e.target.value })} className="h-8 text-sm" />
                       <Input placeholder="Username / Email" value={newCred.username} onChange={(e) => setNewCred({ ...newCred, username: e.target.value })} className="h-8 text-sm" />
@@ -1190,12 +1329,17 @@ export default function ProjectsPage() {
                   </div>
 
                   {/* Existing credentials */}
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Key className="h-3.5 w-3.5" /> Stored Credentials
+                    </h3>
+                  </div>
                   <div className="max-h-64 overflow-y-auto space-y-2">
                     {credentials.length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-6">No credentials stored</p>
                     )}
                     {credentials.map((cred) => (
-                      <div key={cred.id} className="border rounded-md p-3 space-y-2">
+                      <div key={cred.id} className="border rounded-lg p-3 space-y-2 bg-white/40 dark:bg-white/[0.02]">
                         {editingCredId === cred.id ? (
                           <>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1219,7 +1363,6 @@ export default function ProjectsPage() {
                                 <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: cred.password }); }} title="Edit">
                                   <Pencil className="h-3 w-3" />
                                 </Button>
-                                {/* L-PRJ-6 FIX: Use AlertDialog instead of confirm() */}
                                 <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteCredId(cred.id)} title="Delete">
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
@@ -1229,7 +1372,6 @@ export default function ProjectsPage() {
                               <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
                               <span className="mx-1">&bull;</span>
                               <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
-                              {/* L-PRJ-7 FIX: Added aria-labels for accessibility */}
                               <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
                                 {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                               </Button>
@@ -1267,7 +1409,7 @@ export default function ProjectsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ━━━━ Credential Delete Confirmation (replaces native confirm()) ━━━━ */}
+      {/* ━━━━ Credential Delete Confirmation ━━━━ */}
       <AlertDialog open={!!deleteCredId} onOpenChange={() => setDeleteCredId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

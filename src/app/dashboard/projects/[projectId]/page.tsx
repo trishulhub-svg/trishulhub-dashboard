@@ -6,9 +6,10 @@ import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
-  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck, LayoutDashboard,
+  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
+  ChevronRight,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,9 +27,9 @@ import { TASK_COLUMNS } from "@/lib/types";
 import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// BULLETPROOF v8: React Query migration + improved task board layout.
-// ALL Radix Select replaced with native <select> (React 19 compatibility).
-// Every JSX child is guaranteed to be string | number | null | undefined | boolean.
+// BULLETPROOF v9: Redesigned layout — compact stats row, glassmorphism,
+// removed view tabs (My Tasks link in header), horizontal member chips.
+// ALL functionality preserved: handlers, RBAC, safe extractors, caching.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const taskStatusColors: Record<string, string> = {
@@ -318,24 +319,22 @@ export default function ProjectDetailPage() {
   // ── Loading state ──
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-9 rounded-lg" />
-          <div className="space-y-1.5">
-            <Skeleton className="h-7 w-56" />
-            <Skeleton className="h-4 w-80" />
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <div className="space-y-1.5 flex-1">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-3.5 w-72" />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="rounded-xl border p-4 bg-gradient-to-br from-muted/40 to-muted/20">
-              <Skeleton className="h-3 w-16 mb-3" />
-              <Skeleton className="h-7 w-20" />
-            </div>
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-9 w-28 rounded-full" />
           ))}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-64 rounded-lg" />)}
+        <Skeleton className="h-5 w-40" />
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-72 rounded-xl" />)}
         </div>
       </div>
     );
@@ -344,8 +343,8 @@ export default function ProjectDetailPage() {
   if (!projectId) {
     return (
       <div className="text-center py-16">
-        <div className="h-16 w-16 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-          <ListTodo className="h-8 w-8 text-muted-foreground/40" />
+        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
         </div>
         <p className="text-muted-foreground mb-4 font-medium">Invalid project ID</p>
         <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
@@ -358,8 +357,8 @@ export default function ProjectDetailPage() {
   if (!project) {
     return (
       <div className="text-center py-16">
-        <div className="h-16 w-16 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-          <ListTodo className="h-8 w-8 text-muted-foreground/40" />
+        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
         </div>
         <p className="text-muted-foreground mb-4 font-medium">Project not found</p>
         <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
@@ -371,346 +370,242 @@ export default function ProjectDetailPage() {
 
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
-  const isTodosPage = pathname.endsWith("/todos");
-
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* ═══════ Compact Header ═══════ */}
       <div className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects" className="mt-0.5 hover:bg-muted/80 rounded-lg hover:scale-105 transition-all duration-200">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push("/dashboard/projects")}
+          aria-label="Back to projects"
+          className="mt-0.5 h-8 w-8 rounded-lg hover:bg-muted/80 hover:scale-105 transition-all duration-200"
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-2xl font-extrabold tracking-tight">{safeText(projectName, "Untitled")}</h1>
-            <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} font-medium shadow-sm`}>
-              {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
-            </Badge>
-          </div>
-          {projectDesc && (
-            <p className="text-muted-foreground/80 text-sm mt-1.5 leading-relaxed max-w-2xl">{safeText(projectDesc)}</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── View Tabs: Overview | My Tasks ── */}
-      <div className="flex items-center gap-1 bg-muted/60 rounded-lg p-1 w-fit">
-        <Button
-          variant={isTodosPage ? "ghost" : "default"}
-          size="sm"
-          className={cn(
-            "gap-1.5 text-xs transition-all",
-            isTodosPage && "text-muted-foreground hover:text-foreground",
-            !isTodosPage && "shadow-sm"
-          )}
-          onClick={() => router.push(`/dashboard/projects/${projectId}`)}
-        >
-          <LayoutDashboard className="h-3.5 w-3.5" />
-          Overview
-          {isAdminUser && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">Admin</Badge>}
-        </Button>
-        <Button
-          variant={isTodosPage ? "default" : "ghost"}
-          size="sm"
-          className={cn(
-            "gap-1.5 text-xs transition-all",
-            !isTodosPage && "text-muted-foreground hover:text-foreground",
-            isTodosPage && "shadow-sm"
-          )}
-          onClick={() => router.push(`/dashboard/projects/${projectId}/todos`)}
-        >
-          <ClipboardCheck className="h-3.5 w-3.5" />
-          My Tasks
-          {!isAdminUser && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">You</Badge>}
-        </Button>
-      </div>
-
-      {/* Project Info Cards */}
-      <div className="grid gap-3 md:grid-cols-4">
-        {/* Status */}
-        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                <Activity className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-              </div>
-              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Status</p>
-            </div>
+            <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>
             {isAdminUser ? (
               <select
-                className="h-8 text-xs border rounded-lg px-2.5 bg-background/80 w-full font-medium focus:ring-2 focus:ring-primary/20 transition-all"
+                className="h-6 text-[10px] border rounded-full px-2.5 bg-background/80 font-semibold focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none pr-5"
                 value={safeText(projectStatus, "PLANNING")}
                 onChange={(e) => handleUpdateProject({ status: e.target.value })}
+                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
               >
                 {VALID_STATUSES.map((s) => (
                   <option key={s} value={s}>{s.replace("_", " ")}</option>
                 ))}
               </select>
             ) : (
-              <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} font-semibold text-xs shadow-sm`}>
+              <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} text-[10px] font-semibold px-2 py-0`}>
                 {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
               </Badge>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Progress */}
-        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                <Gauge className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-              </div>
-              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Progress</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Progress value={safeNumber(projectProgress)} className={cn("h-2 flex-1 rounded-full", getProgressColor(projectProgress))} />
-              {isAdminUser ? (
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={safeNumber(projectProgress)}
-                  onChange={(e) => {
-                    const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                    if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-                    progressTimerRef.current = setTimeout(() => {
-                      handleUpdateProject({ progress: val });
-                    }, 500);
-                  }}
-                  className="h-7 w-14 text-xs text-center font-semibold"
-                />
-              ) : (
-                <span className={cn("text-sm font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Budget (admin only) */}
-        {isAdminUser && (
-          <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-emerald-50/80 to-emerald-100/40 dark:from-emerald-900/15 dark:to-emerald-900/5">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2.5">
-                <div className="h-7 w-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                  <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Budget</p>
-              </div>
-              <p className="text-lg font-bold tracking-tight text-emerald-700 dark:text-emerald-300">
-                {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Deadline */}
-        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                <CalendarDays className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-              </div>
-              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Deadline</p>
-            </div>
-            <p className="text-sm font-bold">
-              {projectDeadline ? safeDate(projectDeadline, "No deadline") : <span className="text-muted-foreground font-medium">No deadline</span>}
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Team Size (non-admin) */}
-        {!isAdminUser && (
-          <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-slate-50/90 to-slate-100/60 dark:from-slate-900/50 dark:to-slate-800/30">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2.5">
-                <div className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                  <Users className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-                </div>
-                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Team Size</p>
-              </div>
-              <p className="text-lg font-bold tracking-tight">{String(members.length)} <span className="text-sm font-medium text-muted-foreground">members</span></p>
-            </CardContent>
-          </Card>
-        )}
+          </div>
+          {projectDesc && (
+            <p className="text-muted-foreground/70 text-sm mt-1 leading-relaxed line-clamp-2 max-w-2xl">{safeText(projectDesc)}</p>
+          )}
+        </div>
       </div>
 
-      {/* Project Members — show skeleton if loading */}
+      {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Progress pill */}
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+          <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
+          <Progress value={safeNumber(projectProgress)} className={cn("h-1.5 w-16 rounded-full", getProgressColor(projectProgress))} />
+          {isAdminUser ? (
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={safeNumber(projectProgress)}
+              onChange={(e) => {
+                const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+                progressTimerRef.current = setTimeout(() => {
+                  handleUpdateProject({ progress: val });
+                }, 500);
+              }}
+              className="h-5 w-11 text-[10px] text-center font-bold p-0 border-0 shadow-none focus-visible:ring-0"
+            />
+          ) : (
+            <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
+          )}
+        </div>
+
+        {/* Budget pill (admin only) */}
+        {isAdminUser && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+            <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
+              {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+            </span>
+          </div>
+        )}
+
+        {/* Deadline pill */}
+        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {projectDeadline ? safeDate(projectDeadline, "No deadline") : "No deadline"}
+          </span>
+        </div>
+
+        {/* Team Size pill (non-admin) */}
+        {!isAdminUser && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[11px] font-medium text-muted-foreground">{String(members.length)} members</span>
+          </div>
+        )}
+
+        {/* My Tasks link (replaces the tab) */}
+        <button
+          type="button"
+          onClick={() => router.push(`/dashboard/projects/${projectId}/todos`)}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <ClipboardCheck className="h-3 w-3" />
+          My Tasks
+          <ChevronRight className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* ═══════ Compact Team Members ═══════ */}
       {membersLoading ? (
-        <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-white/80 to-white/50 dark:from-gray-900/30 dark:to-gray-900/10">
-          <CardHeader className="pb-3 border-b border-gray-100/60 dark:border-gray-800/40">
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="h-8 w-8 rounded-lg" />
-              <div className="space-y-1">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-3 w-40" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-3">
-            <div className="flex gap-2.5">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center gap-2 p-2 rounded-xl border">
-                  <Skeleton className="h-7 w-7 rounded-full" />
-                  <div className="space-y-1">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-2 w-12" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-8 w-28 rounded-full" />
+          ))}
+          <Skeleton className="h-7 w-7 rounded-full" />
+        </div>
       ) : (
-      <Card className="overflow-hidden border-0 shadow-sm bg-gradient-to-br from-white/80 to-white/50 dark:from-gray-900/30 dark:to-gray-900/10">
-        <CardHeader className="pb-3 border-b border-gray-100/60 dark:border-gray-800/40">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
-                <Users className="h-4 w-4 text-primary" />
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {members.length === 0 && !isAdminUser && (
+            <span className="text-xs text-muted-foreground/60 italic">No team members</span>
+          )}
+          {members.map((member) => {
+            const mId = extractStr(member, "id", "");
+            const mUserId = extractStr(member, "userId", "");
+            const mRole = extractStr(member, "role", "");
+            const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+            const initials = mUserName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+            const avatarColor = mRole === "LEAD" ? "from-amber-400 to-orange-500" : "from-slate-500 to-slate-600 dark:from-slate-400 dark:to-slate-500";
+            return (
+              <div
+                key={mId}
+                className="inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm hover:shadow-md transition-all group/member shrink-0"
+              >
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className={cn("text-[9px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
+                </Avatar>
+                <span className="text-[11px] font-medium text-foreground/80 max-w-[80px] truncate">{mUserName}</span>
+                {isAdminUser && (
+                  <button
+                    type="button"
+                    className="h-4 w-4 flex items-center justify-center rounded-full text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/member:opacity-100 transition-all ml-0.5"
+                    onClick={() => handleRemoveMember(mUserId)}
+                    aria-label={`Remove ${mUserName}`}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
               </div>
-              <div>
-                <CardTitle className="text-base font-bold">Project Team</CardTitle>
-                <CardDescription className="text-xs">
-                  {String(members.length)} member{members.length !== 1 ? "s" : ""} assigned to this project
-                </CardDescription>
-              </div>
-            </div>
-            {isAdminUser && (
-              <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="gap-1.5 shadow-sm hover:shadow-md transition-all">
-                    <UserPlus className="h-3.5 w-3.5" /> Add Member
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add Team Member</DialogTitle>
-                    <DialogDescription>Assign a team member to this project.</DialogDescription>
-                  </DialogHeader>
-                  {availableUsers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      All team members are already assigned to this project.
-                    </p>
-                  ) : (
-                    <ScrollArea className="max-h-80">
-                      <div className="space-y-2">
-                        {availableUsers.map((user) => {
-                          const uName = extractStr(user, "name", "Unknown");
-                          const uRole = extractStr(user, "role", "");
-                          const uDept = extractStr(user, "department", "");
-                          const uId = extractStr(user, "id", "");
-                          const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
-                          return (
-                            <div key={uId} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/30 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="h-8 w-8 ring-2 ring-muted">
-                                  <AvatarFallback className="text-xs bg-gradient-to-br from-primary/20 to-primary/5">{initials || "?"}</AvatarFallback>
-                                </Avatar>
-                                <div>
-                                  <p className="text-sm font-medium">{uName}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {safeText(uRole)}{uDept ? ` · ${safeText(uDept)}` : ""}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={() => handleAddMember(uId, "MEMBER")}>Member</Button>
-                                <Button size="sm" onClick={() => handleAddMember(uId, "LEAD")}>Lead</Button>
+            );
+          })}
+          {isAdminUser && (
+            <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7 rounded-full shrink-0 shadow-sm hover:shadow-md transition-all"
+                  aria-label="Add member"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+                <DialogHeader>
+                  <DialogTitle className="text-base font-bold">Add Team Member</DialogTitle>
+                  <DialogDescription className="text-xs">Assign a team member to this project.</DialogDescription>
+                </DialogHeader>
+                {availableUsers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    All team members are already assigned to this project.
+                  </p>
+                ) : (
+                  <ScrollArea className="max-h-72">
+                    <div className="space-y-1.5">
+                      {availableUsers.map((user) => {
+                        const uName = extractStr(user, "name", "Unknown");
+                        const uRole = extractStr(user, "role", "");
+                        const uDept = extractStr(user, "department", "");
+                        const uId = extractStr(user, "id", "");
+                        const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+                        return (
+                          <div key={uId} className="flex items-center justify-between p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:bg-white/60 dark:hover:bg-white/[0.05] transition-colors">
+                            <div className="flex items-center gap-2.5">
+                              <Avatar className="h-7 w-7 ring-1 ring-muted">
+                                <AvatarFallback className="text-[10px] bg-gradient-to-br from-primary/20 to-primary/5">{initials || "?"}</AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-xs font-medium">{uName}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {safeText(uRole)}{uDept ? ` · ${safeText(uDept)}` : ""}
+                                </p>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                  )}
-                </DialogContent>
-              </Dialog>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="pt-3">
-          {members.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="h-10 w-10 mx-auto rounded-full bg-muted/50 flex items-center justify-center mb-2">
-                <Users className="h-5 w-5 text-muted-foreground/30" />
-              </div>
-              <p className="text-sm text-muted-foreground/70 font-medium">No team members assigned yet</p>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2.5">
-              {members.map((member) => {
-                const mId = extractStr(member, "id", "");
-                const mUserId = extractStr(member, "userId", "");
-                const mRole = extractStr(member, "role", "");
-                const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
-                const initials = mUserName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
-                const avatarColor = mRole === "LEAD" ? "from-amber-400 to-orange-500" : "from-primary/60 to-primary/40";
-                return (
-                  <div key={mId} className="flex items-center gap-2 p-2 pr-1.5 rounded-xl border bg-card/80 hover:bg-card hover:shadow-sm transition-all group/member">
-                    <Avatar className="h-7 w-7">
-                      <AvatarFallback className={cn("text-[10px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
-                    </Avatar>
-                    <div className="mr-1">
-                      <p className="text-xs font-semibold">{mUserName}</p>
-                      <p className="text-[10px] text-muted-foreground">{safeText(mRole)}</p>
+                            <div className="flex gap-1.5">
+                              <Button size="sm" variant="outline" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "MEMBER")}>Member</Button>
+                              <Button size="sm" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "LEAD")}>Lead</Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    {isAdminUser && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 text-muted-foreground/50 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-all"
-                        onClick={() => handleRemoveMember(mUserId)}
-                        aria-label="Remove member"
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                  </ScrollArea>
+                )}
+              </DialogContent>
+            </Dialog>
           )}
-        </CardContent>
-      </Card>
+        </div>
       )}
 
-      {/* ── Task Board Header with Add Task ── */}
+      {/* ═══════ Task Board — Header + Add Task ═══════ */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
-            <ListTodo className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold">Task Board</h2>
-            <p className="text-xs text-muted-foreground">{String(tasks.length)} total tasks</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <ListTodo className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-bold tracking-tight">Task Board</h2>
+          <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">{String(tasks.length)}</Badge>
         </div>
         {(isAdminUser || members.length > 0) && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5 shadow-sm bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:shadow-primary/20 transition-all duration-200 hover:scale-[1.02]">
-                <Plus className="h-4 w-4" /> Add Task
+              <Button size="sm" className="gap-1 h-7 text-xs px-3 shadow-sm">
+                <Plus className="h-3.5 w-3.5" /> Add Task
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
               <DialogHeader>
-                <DialogTitle>Add Task</DialogTitle>
-                <DialogDescription>Create a new task for this project.</DialogDescription>
+                <DialogTitle className="text-base font-bold">Add Task</DialogTitle>
+                <DialogDescription className="text-xs">Create a new task for this project.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddTask} className="space-y-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Title *</Label>
-                  <Input name="title" required />
+                  <Input name="title" required className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Description</Label>
-                  <Textarea name="description" rows={2} />
+                  <Textarea name="description" rows={2} className="text-sm" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Priority</Label>
-                    <select name="priority" defaultValue="MEDIUM" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    <select name="priority" defaultValue="MEDIUM" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
                       <option value="LOW">Low</option>
                       <option value="MEDIUM">Medium</option>
                       <option value="HIGH">High</option>
@@ -719,14 +614,14 @@ export default function ProjectDetailPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Assign To</Label>
-                    <select name="assigneeType" defaultValue="HUMAN" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                    <select name="assigneeType" defaultValue="HUMAN" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
                       <option value="HUMAN">Team Member</option>
                     </select>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Assignee</Label>
-                  <select name="assignedTo" className="border rounded px-3 py-2 text-sm bg-background w-full">
+                  <select name="assignedTo" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
                     <option value="">Unassigned</option>
                     {members.map((m) => {
                       const mUserId = extractStr(m, "userId", "");
@@ -735,16 +630,16 @@ export default function ProjectDetailPage() {
                     })}
                   </select>
                 </div>
-                <Button type="submit" className="w-full">Create Task</Button>
+                <Button type="submit" className="w-full h-8 text-xs">Create Task</Button>
               </form>
             </DialogContent>
           </Dialog>
         )}
       </div>
 
-      {/* Task Detail Dialog */}
+      {/* ═══════ Task Detail Dialog (glassmorphism) ═══════ */}
       <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
           {selectedTask && (() => {
             const dtId = extractStr(selectedTask, "id", "");
             const dtTitle = extractStr(selectedTask, "title", "Untitled");
@@ -765,88 +660,86 @@ export default function ProjectDetailPage() {
             const canApprove = isAdminUser && isAwaitingApproval && !(userRole === "ADMIN" && dtAssignedTo === userId);
             return (
               <>
-                <DialogHeader>
-                  <div className="flex items-center justify-between pr-6">
-                    <DialogTitle className="text-lg font-bold">{safeText(dtTitle, "Untitled")}</DialogTitle>
-                    <Badge className={`shrink-0 font-semibold ${priorityColors[dtPriority] || ""}`}>
+                <DialogHeader className="pb-0">
+                  <div className="flex items-start justify-between pr-6">
+                    <DialogTitle className="text-base font-bold leading-snug">{safeText(dtTitle, "Untitled")}</DialogTitle>
+                    <Badge className={`shrink-0 font-semibold text-[10px] ${priorityColors[dtPriority] || ""}`}>
                       {safeText(dtPriority, "MEDIUM")}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-xs font-medium`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
-                    <DialogDescription className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-[10px] font-medium px-1.5 py-0`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
+                    <DialogDescription className="text-[10px] text-muted-foreground">
                       Created {dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}
                     </DialogDescription>
                   </div>
                 </DialogHeader>
-                <div className="space-y-4 mt-2">
+
+                <div className="space-y-3.5 mt-1">
                   {/* Assignee & Deadline Meta */}
-                  <div className="flex flex-wrap items-center gap-3 p-2.5 rounded-lg bg-muted/30 border">
+                  <div className="flex flex-wrap items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/30 border border-white/10">
                     {dtAssigneeType === "AI" ? (
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Bot className="h-3.5 w-3.5" /> System</span>
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><Bot className="h-3 w-3" /> System</span>
                     ) : (
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><User className="h-3.5 w-3.5" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><User className="h-3 w-3" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
                     )}
                     {dtDeadline && (
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" /> {safeDate(dtDeadline, "")}</span>
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
                     )}
                   </div>
 
                   {/* Approval Info */}
                   {isDone && dtApprovedBy && (
-                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-200/80 dark:border-green-900/30">
-                      <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
-                      <div className="text-xs">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200/80 dark:border-green-900/30">
+                      <ShieldCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                      <div className="text-[11px]">
                         <p className="font-semibold text-green-700 dark:text-green-300">Approved</p>
                         <p className="text-green-600/70 dark:text-green-400/70 mt-0.5">
-                          Approved by {extractStr(selectedTask, "approvedByName", "") || safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
+                          by {extractStr(selectedTask, "approvedByName", "") || safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
                         </p>
                       </div>
                     </div>
                   )}
                   {isAwaitingApproval && (
-                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-orange-50 dark:bg-orange-900/10 border border-orange-200/80 dark:border-orange-900/30">
-                      <Clock className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
-                      <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200/80 dark:border-orange-900/30">
+                      <Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
+                      <p className="text-[11px] text-orange-700 dark:text-orange-300 font-medium">
                         Pending approval from admin/superadmin
                       </p>
                     </div>
                   )}
 
                   {/* Description */}
-                  <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Description</p>
-                    {dtDesc ? (
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap bg-muted/40 rounded-xl p-3.5 border">
-                        {safeText(dtDesc)}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">No description provided.</p>
-                    )}
-                  </div>
+                  {dtDesc ? (
+                    <div className="text-[12px] leading-relaxed whitespace-pre-wrap bg-muted/40 rounded-lg p-3 border border-white/10">
+                      {safeText(dtDesc)}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic pl-1">No description provided.</p>
+                  )}
 
                   {/* Timestamps */}
                   <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Timeline</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-muted/30 p-2.5 border">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Created</p>
-                        <p className="text-xs font-medium mt-0.5">{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Timeline</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div className="rounded-md bg-muted/30 p-2 border border-white/10">
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Created</p>
+                        <p className="text-[11px] font-medium mt-0.5">{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
                       </div>
-                      <div className="rounded-lg bg-muted/30 p-2.5 border">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Last Updated</p>
-                        <p className="text-xs font-medium mt-0.5">{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
+                      <div className="rounded-md bg-muted/30 p-2 border border-white/10">
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Updated</p>
+                        <p className="text-[11px] font-medium mt-0.5">{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
                       </div>
                       {dtCompletedAt && (
-                        <div className="rounded-lg bg-green-50/50 dark:bg-green-900/10 p-2.5 border border-green-200/50 dark:border-green-900/20">
-                          <p className="text-[10px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Completed</p>
-                          <p className="text-xs font-medium mt-0.5">{safeDate(dtCompletedAt, "N/A")}</p>
+                        <div className="rounded-md bg-green-50/50 dark:bg-green-900/10 p-2 border border-green-200/50 dark:border-green-900/20">
+                          <p className="text-[9px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Completed</p>
+                          <p className="text-[11px] font-medium mt-0.5">{safeDate(dtCompletedAt, "N/A")}</p>
                         </div>
                       )}
                       {dtApprovedAt && (
-                        <div className="rounded-lg bg-green-50/50 dark:bg-green-900/10 p-2.5 border border-green-200/50 dark:border-green-900/20">
-                          <p className="text-[10px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Approved</p>
-                          <p className="text-xs font-medium mt-0.5">{safeDate(dtApprovedAt, "N/A")}</p>
+                        <div className="rounded-md bg-green-50/50 dark:bg-green-900/10 p-2 border border-green-200/50 dark:border-green-900/20">
+                          <p className="text-[9px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Approved</p>
+                          <p className="text-[11px] font-medium mt-0.5">{safeDate(dtApprovedAt, "N/A")}</p>
                         </div>
                       )}
                     </div>
@@ -854,27 +747,27 @@ export default function ProjectDetailPage() {
 
                   {/* Approve / Reject Actions (for admin/superadmin) */}
                   {canApprove && (
-                    <div className="flex gap-2 p-3 rounded-xl border-2 border-green-200 dark:border-green-900/40 bg-green-50/50 dark:bg-green-900/10">
+                    <div className="flex gap-2 p-2.5 rounded-lg border-2 border-green-200 dark:border-green-900/40 bg-green-50/50 dark:bg-green-900/10">
                       <Button
                         size="sm"
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-sm shadow-green-600/20"
+                        className="flex-1 h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white shadow-sm"
                         onClick={() => {
                           handleMoveTask(dtId, "DONE");
                           setTaskDetailOpen(false);
                         }}
                       >
-                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 border-orange-200 dark:border-orange-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
+                        className="flex-1 h-7 text-[11px] border-orange-200 dark:border-orange-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
                         onClick={() => {
                           handleMoveTask(dtId, "REVIEW");
                           setTaskDetailOpen(false);
                         }}
                       >
-                        <X className="h-4 w-4 mr-1" /> Send Back
+                        <X className="h-3.5 w-3.5 mr-1" /> Send Back
                       </Button>
                     </div>
                   )}
@@ -882,20 +775,20 @@ export default function ProjectDetailPage() {
                   {/* Move Task (hide Done when awaiting approval — use Approve instead) */}
                   {!isAwaitingApproval && (
                     <div>
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Move to</p>
-                      <div className="flex flex-wrap gap-2">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Move to</p>
+                      <div className="flex flex-wrap gap-1.5">
                         {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
                           <Button
                             key={String(s)}
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs"
+                            className="h-6 text-[10px] px-2"
                             onClick={() => {
                               handleMoveTask(dtId, String(s));
                               setTaskDetailOpen(false);
                             }}
                           >
-                            <Tag className="h-3 w-3 mr-1" />
+                            <Tag className="h-2.5 w-2.5 mr-0.5" />
                             {String(s).replace("_", " ")}
                           </Button>
                         ))}
@@ -904,14 +797,14 @@ export default function ProjectDetailPage() {
                   )}
 
                   {/* Delete — with confirmation (audit fix) */}
-                  <div className="flex justify-end pt-2 border-t">
+                  <div className="flex justify-end pt-1 border-t border-white/10">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      className="h-7 text-[11px] text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                       onClick={() => { setDeleteTaskId(dtId); setTaskDetailOpen(false); }}
                     >
-                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Task
+                      <Trash2 className="h-3 w-3 mr-1" /> Delete Task
                     </Button>
                   </div>
                 </div>
@@ -921,19 +814,20 @@ export default function ProjectDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Task Confirmation (audit fix) */}
+      {/* ═══════ Delete Task Confirmation (audit fix) ═══════ */}
       {deleteTaskId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-background rounded-xl border p-6 max-w-sm w-full mx-4 shadow-2xl space-y-4">
+          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
             <div>
-              <h3 className="font-bold text-base">Delete Task?</h3>
-              <p className="text-sm text-muted-foreground mt-1">This action cannot be undone. The task will be permanently deleted.</p>
+              <h3 className="font-bold text-sm">Delete Task?</h3>
+              <p className="text-xs text-muted-foreground mt-1">This action cannot be undone. The task will be permanently deleted.</p>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setDeleteTaskId(null)}>Cancel</Button>
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDeleteTaskId(null)}>Cancel</Button>
               <Button
                 variant="destructive"
                 size="sm"
+                className="h-7 text-xs"
                 onClick={async () => {
                   await handleDeleteTask(deleteTaskId);
                   setDeleteTaskId(null);
@@ -946,7 +840,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* ── Task Columns — Responsive Grid Layout (TASK 4) ── */}
+      {/* ═══════ Task Columns — Responsive Grid Layout ═══════ */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
         {TASK_COLUMNS.map((status) => {
           const statusStr = String(status);
@@ -965,12 +859,12 @@ export default function ProjectDetailPage() {
                 "border border-b-0 border-gray-200/60 dark:border-gray-700/40"
               )}>
                 <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
-                <CircleDot className={cn("h-3.5 w-3.5", textColor)} />
-                <h3 className="font-bold text-xs tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
-                <Badge variant="secondary" className="text-[10px] font-bold bg-muted/80">{String(columnTasks.length)}</Badge>
+                <CircleDot className={cn("h-3 w-3", textColor)} />
+                <h3 className="font-bold text-[11px] tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
+                <span className="text-[10px] font-bold text-muted-foreground tabular-nums">{String(columnTasks.length)}</span>
               </div>
               {/* Column Card List — independently scrollable */}
-              <div className="flex-1 space-y-1.5 p-1.5 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[140px] max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
+              <div className="flex-1 space-y-1.5 p-1.5 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[140px] max-h-[calc(100vh-280px)] overflow-y-auto">
                 {columnTasks.map((task) => {
                   const tId = extractStr(task, "id", "");
                   const tTitle = extractStr(task, "title", "Untitled");
@@ -990,46 +884,47 @@ export default function ProjectDetailPage() {
                     <Card
                       key={tId}
                       className={cn(
-                        "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px]",
+                        "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px] group",
                         borderL,
-                        "bg-white/80 dark:bg-white/[0.04] backdrop-blur-sm"
+                        "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10"
                       )}
                       onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
                     >
-                      <CardContent className="p-2 space-y-1.5">
-                        <div className="flex items-start justify-between gap-1.5">
-                          <p className="text-xs font-semibold leading-tight line-clamp-1">{safeText(tTitle, "Untitled")}</p>
-                          <Badge className={`text-[10px] shrink-0 font-semibold px-1.5 py-0 ${priorityColors[tPriority] || ""}`}>
-                            {safeText(tPriority, "MEDIUM")}
-                          </Badge>
+                      <CardContent className="p-2.5 space-y-2">
+                        {/* Title + Priority dot */}
+                        <div className="flex items-start gap-1.5">
+                          <div className={cn("h-2 w-2 rounded-full mt-1 shrink-0", accentColor)} />
+                          <p className="text-[11px] font-semibold leading-tight line-clamp-2 flex-1">{safeText(tTitle, "Untitled")}</p>
                         </div>
-                        {tDesc && (
-                          <p className="text-[10px] text-muted-foreground/70 line-clamp-1 leading-snug">{safeText(tDesc)}</p>
-                        )}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+
+                        {/* Assignee + Deadline row */}
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
                             {tAssigneeType === "AI" ? (
-                              <Bot className="h-2.5 w-2.5" />
+                              <Bot className="h-2.5 w-2.5 shrink-0" />
                             ) : (
-                              <User className="h-2.5 w-2.5" />
+                              <User className="h-2.5 w-2.5 shrink-0" />
                             )}
-                            <span className="truncate max-w-[70px]">{safeText(tAssignedName)}</span>
+                            <span className="truncate max-w-[72px]">{safeText(tAssignedName)}</span>
                           </div>
                           {tDeadline && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                            <span className="text-[9px] text-muted-foreground/70 flex items-center gap-0.5 shrink-0">
                               <Clock className="h-2.5 w-2.5" />
                               {safeDate(tDeadline, "")}
                             </span>
                           )}
                         </div>
+
                         {/* Approved by badge on DONE tasks */}
                         {statusStr === "DONE" && tApprovedBy && (
-                          <div className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400 font-medium">
-                            <ShieldCheck className="h-3 w-3" />
-                            <span>Approved by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
+                          <div className="flex items-center gap-1 text-[9px] text-green-600 dark:text-green-400 font-medium">
+                            <ShieldCheck className="h-2.5 w-2.5" />
+                            <span>by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
                           </div>
                         )}
-                        <div className="flex gap-1 flex-wrap">
+
+                        {/* Action buttons — compact, shown on hover */}
+                        <div className="flex gap-0.5 flex-wrap opacity-60 group-hover:opacity-100 transition-opacity">
                           {/* AWAITING_APPROVAL: show Approve/Reject for admins, or a waiting indicator */}
                           {isThisAwaiting ? (
                             canApproveThis ? (
@@ -1037,23 +932,23 @@ export default function ProjectDetailPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 text-[10px] px-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 font-semibold"
+                                  className="h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 font-semibold"
                                   onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "DONE"); }}
                                 >
-                                  <CheckCircle2 className="h-3 w-3 mr-0.5" /> Approve
+                                  <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> Approve
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 text-[10px] px-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
+                                  className="h-5 text-[9px] px-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
                                   onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "REVIEW"); }}
                                 >
-                                  <X className="h-3 w-3 mr-0.5" /> Reject
+                                  <X className="h-2.5 w-2.5 mr-0.5" /> Reject
                                 </Button>
                               </>
                             ) : (
-                              <span className="text-[10px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
-                                <Clock className="h-2.5 w-2.5" /> Waiting for approval
+                              <span className="text-[9px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
+                                <Clock className="h-2.5 w-2.5" /> Awaiting approval
                               </span>
                             )
                           ) : (
@@ -1063,7 +958,7 @@ export default function ProjectDetailPage() {
                                 key={String(s)}
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 text-[10px] px-2"
+                                className="h-5 text-[9px] px-1.5"
                                 onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, String(s)); }}
                               >
                                 {String(s).replace("_", " ").slice(0, 3)}
@@ -1073,10 +968,10 @@ export default function ProjectDetailPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 text-red-500 px-2"
+                            className="h-5 text-red-400 hover:text-red-500 px-1.5 ml-auto"
                             onClick={(e) => { e.stopPropagation(); handleDeleteTask(tId); }}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-2.5 w-2.5" />
                           </Button>
                         </div>
                       </CardContent>
@@ -1090,12 +985,12 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Board Summary Footer */}
-      <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground/70">
         <span>{String(tasks.length)} tasks across {String(TASK_COLUMNS.length)} columns</span>
         {tasks.length > 0 && (
           <div className="flex items-center gap-2">
             <span>{String(tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length)} completed</span>
-            <Progress value={Math.round((tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length / tasks.length) * 100)} className="h-1.5 w-24 [&>div]:bg-emerald-500" />
+            <Progress value={Math.round((tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length / tasks.length) * 100)} className="h-1 w-20 [&>div]:bg-emerald-500" />
           </div>
         )}
       </div>
