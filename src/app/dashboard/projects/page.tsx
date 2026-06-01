@@ -1210,7 +1210,11 @@ export default function ProjectsPage() {
       ) : (
         /* ━━ List View ━━ */
         <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
-          {filtered.map((project) => {
+          {[...(filtered as Record<string, unknown>[])].sort((a, b) => {
+            const orderA = COLUMN_DISPLAY_ORDER[safeText(a.status, "")] ?? 99;
+            const orderB = COLUMN_DISPLAY_ORDER[safeText(b.status, "")] ?? 99;
+            return orderA - orderB;
+          }).map((project) => {
             const pId = safeText(project.id, "");
             return (
               <ListViewRow

@@ -1927,7 +1927,7 @@ export default function ClientsPage() {
           }
         }}
       >
-        <SheetContent className="w-full sm:max-w-[520px] p-0">
+        <SheetContent className="w-full sm:max-w-[520px] p-0 overflow-y-auto">
           {detailLoading ? (
             <div className="p-6 space-y-4">
               <Skeleton className="h-8 w-48" />
@@ -1937,7 +1937,7 @@ export default function ClientsPage() {
             </div>
           ) : detailClient ? (
             /* CLI-027: aria-live on detail drawer content */
-            <div className="flex flex-col h-full" aria-live="polite">
+            <div className="flex flex-col min-h-0" aria-live="polite">
               {/* Header */}
               <SheetHeader className="p-6 pb-4 border-b border-white/10 dark:border-white/5">
                 <div className="flex items-start justify-between">
