@@ -755,8 +755,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 p-3 sm:p-4 md:p-6 lg:p-8 overflow-auto">{children}</main>
       </div>
 
-      {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}
-      {userRole === "SUPER_ADMIN" && <Agentation />}
+      {/* Agentation — visual feedback tool (all users) */}
+      <Agentation />
     </div>
   );
 }
