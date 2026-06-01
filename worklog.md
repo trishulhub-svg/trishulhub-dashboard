@@ -404,3 +404,38 @@ Stage Summary:
 - All existing tab functionality preserved (subscriptions, expenses, category, project)
 
 ---
+Task ID: files-fix
+Agent: Main Agent
+Task: Fix Google Drive folder ID, add Restore from Trash, Empty Trash functionality
+
+Work Log:
+- Read worklog, google-drive.ts, api/files/[id]/route.ts, files/page.tsx, rbac.ts, rate-limit.ts, auth.ts
+- Task 1: Fixed google-drive.ts getCredentials() — removed folderId from validation check, added hardcoded fallback `"1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"`. Now only clientEmail and privateKey are required; folderId always has a value.
+- Task 3: Added two new functions to google-drive.ts:
+  - `restoreFile(fileId)` — calls `drive.files.update({ trashed: false })` to untrash a file
+  - `emptyTrash()` — calls `drive.files.emptyTrash()` to permanently delete all trashed Drive files
+- Task 4: Modified api/files/[id]/route.ts DELETE handler — added `?restore=true` query parameter support. When restore=true, calls `drive.restoreFile()` and sets `trashed: false` in DB, returns early before delete logic.
+- Task 5: Created new file `src/app/api/files/empty-trash/route.ts`:
+  - POST endpoint with auth, admin-only (isAdmin), rate limit (1 req/min)
+  - Fetches all trashed files from DB, permanently deletes each from Drive and DB
+  - Also calls `drive.emptyTrash()` to clear Google Drive trash
+  - Returns `{ success: true, deleted: <count> }`
+- Task 6: Updated files/page.tsx UI:
+  - Added `RotateCcw` icon import from lucide-react
+  - Added `handleRestore(file)` — calls DELETE with ?restore=true, shows toast
+  - Added `handleEmptyTrash()` — calls POST /api/files/empty-trash, shows toast with count
+  - Added `handleRestoreAll()` — restores all trashed items in parallel via Promise.all
+  - Added "Restore All" and "Empty Trash" buttons in header toolbar (visible when filter=trashed, admin, and items exist)
+  - Added "Restore" option in grid view dropdown menu (before Delete Forever, only when filter=trashed)
+  - Added "Restore" option in grid view context menu (same condition)
+  - Added "Restore" option in list view dropdown menu (same condition)
+  - Added "Restore" option in list view context menu (same condition)
+
+Stage Summary:
+- 4 files modified/created: google-drive.ts (+22 lines), api/files/[id]/route.ts (+20 lines), api/files/empty-trash/route.ts (new, 63 lines), files/page.tsx (+72 lines)
+- Critical fix: Google Drive folder ID now has hardcoded fallback, resolves "Google Drive is not configured" error
+- New feature: Restore from trash (single item + bulk restore all)
+- New feature: Empty trash (admin-only, permanently deletes all trashed files from both DB and Drive)
+- Breadcrumb navigation verified correct: Root sets currentFolder=null, subfolders use Drive file ID
+
+---
