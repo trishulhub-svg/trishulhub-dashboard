@@ -106,6 +106,8 @@ function KanbanProjectCard({
   onDelete,
   isDragging,
   onHover,
+  pendingCount,
+  onPendingClick,
 }: {
   project: Record<string, unknown>;
   onClick: () => void;
@@ -114,6 +116,8 @@ function KanbanProjectCard({
   onDelete?: (projectId: string, e: React.MouseEvent) => void;
   isDragging?: boolean;
   onHover?: () => void;
+  pendingCount?: number;
+  onPendingClick?: () => void;
 }) {
   const client = project.client as Record<string, unknown> | undefined;
   const pName = safeText(project.name, "Untitled");
@@ -195,6 +199,22 @@ function KanbanProjectCard({
         </span>
       </div>
 
+      {/* Pending Tasks Badge — clickable */}
+      {typeof pendingCount === "number" && pendingCount > 0 && !isDragging && (
+        <button
+          type="button"
+          className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPendingClick?.();
+          }}
+          title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+        >
+          <ClipboardCheck className="h-2.5 w-2.5" />
+          {pendingCount} Pending
+        </button>
+      )}
+
       {/* Progress Bar */}
       <div className="mt-2.5 space-y-1">
         <div className="flex justify-between text-[11px]">
@@ -272,6 +292,8 @@ function SortableProjectCard({
   onEdit,
   onDelete,
   onHover,
+  pendingCount,
+  onPendingClick,
 }: {
   project: Record<string, unknown>;
   onCardClick: () => void;
@@ -279,6 +301,8 @@ function SortableProjectCard({
   onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete: (projectId: string, e: React.MouseEvent) => void;
   onHover?: () => void;
+  pendingCount?: number;
+  onPendingClick?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: safeText(project.id, ""),
@@ -299,6 +323,8 @@ function SortableProjectCard({
         onDelete={onDelete}
         isDragging={false}
         onHover={onHover}
+        pendingCount={pendingCount}
+        onPendingClick={onPendingClick}
       />
     </div>
   );
@@ -315,6 +341,7 @@ function DroppableKanbanColumn({
   isDimmed,
   activeId,
   onHover,
+  pendingTaskCounts,
 }: {
   col: typeof KANBAN_COLUMNS[number];
   projects: Record<string, unknown>[];
@@ -325,6 +352,7 @@ function DroppableKanbanColumn({
   isDimmed: boolean;
   activeId: string | null;
   onHover?: (pid: string) => void;
+  pendingTaskCounts?: Record<string, number>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
@@ -389,6 +417,8 @@ function DroppableKanbanColumn({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onHover={() => onHover && onHover(pId)}
+                pendingCount={pendingTaskCounts?.[pId]}
+                onPendingClick={() => onCardClick(project)}
               />
             );
           })}
@@ -405,12 +435,16 @@ function ListViewRow({
   onView,
   onEdit,
   onDelete,
+  pendingCount,
+  onPendingClick,
 }: {
   project: Record<string, unknown>;
   isAdminUser: boolean;
   onView: () => void;
   onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete?: (projectId: string, e: React.MouseEvent) => void;
+  pendingCount?: number;
+  onPendingClick?: () => void;
 }) {
   const client = project.client as Record<string, unknown> | undefined;
   const pName = safeText(project.name, "Untitled");
@@ -445,6 +479,26 @@ function ListViewRow({
         <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
+      </div>
+
+      {/* Pending Tasks Badge */}
+      <div className="hidden sm:flex items-center shrink-0">
+        {typeof pendingCount === "number" && pendingCount > 0 ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPendingClick?.();
+            }}
+            title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+          >
+            <ClipboardCheck className="h-2.5 w-2.5" />
+            {pendingCount}
+          </button>
+        ) : (
+          <span className="text-[11px] text-muted-foreground/40 w-6 text-center">—</span>
+        )}
       </div>
 
       {/* Progress */}
@@ -539,8 +593,23 @@ export default function ProjectsPage() {
     retry: 1,
   });
 
+  // ━━ Pending task counts per project (lightweight count endpoint) ━━
+  const { data: taskCountsData } = useQuery({
+    queryKey: ["task-counts"],
+    queryFn: async () => {
+      const res = await fetch("/api/tasks/counts", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Failed to load task counts");
+      const data = await res.json();
+      return data as Record<string, number>;
+    },
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+
   const projects = projectsData;
   const clients = clientsData;
+  const pendingTaskCounts = taskCountsData || {};
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
@@ -638,6 +707,7 @@ export default function ProjectsPage() {
         toast.success("Project created");
         setAddOpen(false);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -714,6 +784,7 @@ export default function ProjectsPage() {
         setEditOpen(false);
         setEditProject(null);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -1295,6 +1366,7 @@ export default function ProjectsPage() {
                   isDimmed={isDimmed}
                   activeId={activeId}
                   onHover={handlePrefetchProject}
+                  pendingTaskCounts={pendingTaskCounts}
                 />
               );
             })}
@@ -1311,6 +1383,7 @@ export default function ProjectsPage() {
                   onClick={() => {}}
                   isAdminUser={false}
                   isDragging={true}
+                  pendingCount={pendingTaskCounts[safeText(project.id, "")]}
                 />
               ) : null;
             })() : null}
@@ -1336,6 +1409,11 @@ export default function ProjectsPage() {
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
+                pendingCount={pendingTaskCounts[pId]}
+                onPendingClick={() => {
+                  handlePrefetchProject(pId);
+                  router.push(`/dashboard/projects/${pId}`);
+                }}
               />
             );
           })}
