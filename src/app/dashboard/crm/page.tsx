@@ -11,7 +11,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
-  Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2,
+  Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2, LayoutGrid, List,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
@@ -85,6 +86,17 @@ function getScoreBadgeClass(score: number): string {
   if (score >= 50) return "border-yellow-300 bg-yellow-50 text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
   return "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-400";
 }
+
+// CRM-008: Status badge color coding map
+const statusBadgeColors: Record<string, string> = {
+  NEW: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  CONTACTED: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  INTERESTED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  PROPOSAL: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  NEGOTIATING: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  WON: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  LOST: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
 
 // CRM-008: Source badge color coding map
 const sourceColors: Record<string, string> = {
@@ -282,6 +294,72 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
   );
 }
 
+// ━━ LeadListViewRow — List view row with glassmorphism styling ━━
+function LeadListViewRow({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+  const scoreColors = getScoreColors(lead.score);
+  const config = COLUMN_CONFIG[lead.status];
+  const createdDate = new Date(lead.createdAt);
+  const now = new Date();
+  const diffMs = now.getTime() - createdDate.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  let dateStr: string;
+  if (diffDays === 0) dateStr = "Today";
+  else if (diffDays === 1) dateStr = "Yesterday";
+  else if (diffDays < 7) dateStr = `${diffDays}d ago`;
+  else if (diffDays < 30) dateStr = `${Math.floor(diffDays / 7)}w ago`;
+  else dateStr = createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return (
+    <div
+      className={cn(
+        "group/row flex items-center gap-4 p-3 rounded-lg border transition-all duration-150",
+        "bg-white/70 dark:bg-white/[0.04] backdrop-blur-sm",
+        "border-gray-200/60 dark:border-gray-700/40",
+        "hover:border-gray-300 dark:hover:border-gray-600",
+        "hover:bg-white/90 dark:hover:bg-white/[0.07]",
+        "hover:shadow-sm cursor-pointer",
+      )}
+      onClick={onClick}
+    >
+      {/* Status dot + Name + Company */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", config?.dot, config?.dot.replace("bg-", "ring-"))} />
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold truncate" title={safeText(lead.name, "Lead")}>{safeText(lead.name, "Lead")}</h4>
+          <p className="text-[11px] text-muted-foreground truncate">
+            {lead.company ? safeText(lead.company, "") : safeText(lead.email, "")}
+          </p>
+        </div>
+      </div>
+
+      {/* Score */}
+      <div className="hidden sm:flex items-center gap-1 shrink-0">
+        <Star className={cn("h-3.5 w-3.5", scoreColors.star)} />
+        <span className={cn("text-xs font-bold tabular-nums", scoreColors.text)}>{safeNumber(lead.score)}</span>
+      </div>
+
+      {/* Source Badge */}
+      <div className="hidden sm:block shrink-0">
+        <Badge className={cn("text-[10px] font-medium", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
+          {safeText(lead.source, "")}
+        </Badge>
+      </div>
+
+      {/* Status Badge */}
+      <div className="hidden md:block shrink-0">
+        <Badge className={cn("text-[10px] px-2 py-0.5 font-medium", statusBadgeColors[lead.status] || "bg-gray-100 text-gray-700")}>
+          {lead.status}
+        </Badge>
+      </div>
+
+      {/* Created date */}
+      <div className="hidden lg:block shrink-0 min-w-[70px]">
+        <p className="text-[12px] text-muted-foreground">{dateStr}</p>
+      </div>
+    </div>
+  );
+}
+
 // CRM-012: Form validation
 function validateAddForm(form: FormData): Record<string, string> | null {
   const errors: Record<string, string> = {};
@@ -333,6 +411,17 @@ export default function CRMPage() {
   // CRM-S04: Source and status filter states
   const [filterSource, setFilterSource] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  // View mode with localStorage persistence
+  const [viewMode, setViewMode] = useState<"board" | "list">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("crm-view-mode") as "board" | "list") || "board";
+    }
+    return "board";
+  });
+  const handleViewModeChange = useCallback((mode: "board" | "list") => {
+    setViewMode(mode);
+    localStorage.setItem("crm-view-mode", mode);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -771,6 +860,15 @@ export default function CRMPage() {
       {/* ━━━━ Page Header ━━━━ */}
       <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          {/* View Mode Toggle */}
+          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && handleViewModeChange(v as "board" | "list")} className="ml-auto">
+            <ToggleGroupItem value="board" size="sm" className="gap-1.5 h-8 px-3">
+              <LayoutGrid className="h-3.5 w-3.5" /> Board
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" size="sm" className="gap-1.5 h-8 px-3">
+              <List className="h-3.5 w-3.5" /> List
+            </ToggleGroupItem>
+          </ToggleGroup>
           {/* Search */}
           <div className="relative flex-1 min-w-[120px] sm:min-w-[160px]">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -995,7 +1093,7 @@ export default function CRMPage() {
             Clear All Filters
           </Button>
         </div>
-      ) : (
+      ) : viewMode === "board" ? (
         /* Kanban Board */
         <DndContext
           sensors={sensors}
@@ -1021,6 +1119,13 @@ export default function CRMPage() {
             })() : null}
           </DragOverlay>
         </DndContext>
+      ) : (
+        /* List View */
+        <div className="space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
+          {Object.values(groupedLeads).flat().map((lead) => (
+            <LeadListViewRow key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
+          ))}
+        </div>
       )}
 
       {/* ━━━━ Lead Detail Sheet ━━━━ */}

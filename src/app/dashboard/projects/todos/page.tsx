@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
+  Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
   GraduationCap, ExternalLink, ListTodo, MoreHorizontal, Trash2,
   Flag, UserCircle, Users, CheckCircle,
 } from "lucide-react";
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 // ── Safe extractors ──
 function extractStr(obj: unknown, key: string, fallback = ""): string {
@@ -322,113 +323,118 @@ function PersonalTodosView({ props }: { props: {
         </div>
       )}
 
-      {/* Training Section */}
-      {sortedTraining.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3 px-1">
-            <GraduationCap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-            <h2 className="text-sm font-bold text-foreground">Training</h2>
-            <Badge variant="secondary" className="text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
-              {String(sortedTraining.length)}
-            </Badge>
-          </div>
-          <div className="space-y-2">
-            {sortedTraining.map((training: unknown) => {
-              const tId = extractStr(training, "id", "");
-              const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
-              const dueDate = extractStr(training, "dueDate", "");
-              const status = extractStr(training, "status", "ASSIGNED");
-              const level = extractStr(training, "testLevel", "MEDIUM");
-              const isOverdue = dueDate && new Date(dueDate) < new Date();
+      {/* Main Content Area */}
+      <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+        <CardContent className="p-4 sm:p-5 space-y-6">
+          {/* Training Section */}
+          {sortedTraining.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <GraduationCap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                <h2 className="text-sm font-bold text-foreground">Training</h2>
+                <Badge variant="secondary" className="text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                  {String(sortedTraining.length)}
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                {sortedTraining.map((training: unknown) => {
+                  const tId = extractStr(training, "id", "");
+                  const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
+                  const dueDate = extractStr(training, "dueDate", "");
+                  const status = extractStr(training, "status", "ASSIGNED");
+                  const level = extractStr(training, "testLevel", "MEDIUM");
+                  const isOverdue = dueDate && new Date(dueDate) < new Date();
 
-              return (
-                <Card
-                  key={tId}
-                  className={cn(
-                    "border border-white/20 dark:border-white/10 cursor-pointer",
-                    "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
-                    "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
-                    isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
-                  )}
-                  onClick={() => router.push(`/dashboard/my-training/${tId}`)}
-                >
-                  <CardContent className="p-3.5">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
-                        <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                  return (
+                    <Card
+                      key={tId}
+                      className={cn(
+                        "border border-white/20 dark:border-white/10 cursor-pointer",
+                        "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
+                        "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
+                        isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
+                      )}
+                      onClick={() => router.push(`/dashboard/my-training/${tId}`)}
+                    >
+                      <CardContent className="p-3.5">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
+                            <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-semibold truncate">{safeText(topic)}</p>
+                              <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge className={cn("text-[10px] font-medium", trainingStatusColors[status] || "")}>
+                                {safeText(status).replace("_", " ")}
+                              </Badge>
+                              <Badge className={cn("text-[10px] font-medium", trainingLevelColors[level] || "")}>
+                                {safeText(level)}
+                              </Badge>
+                              {dueDate && (
+                                <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+                                  {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                                  {safeDate(dueDate)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Tasks Section - Grouped by Project */}
+          {tasksByProject.size > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <ListTodo className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-bold text-foreground">Tasks</h2>
+                <Badge variant="secondary" className="text-[10px] font-bold">{String(activeTasks.length)}</Badge>
+              </div>
+              <div className="space-y-4">
+                {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
+                  const projectName = projectNameMap.get(projectId) || "Unknown Project";
+                  return (
+                    <div key={projectId}>
+                      <div className="flex items-center gap-2 mb-2 px-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                          {safeText(projectName)}
+                        </h3>
+                        <Badge variant="secondary" className="text-[10px] font-bold">{String(tasks.length)}</Badge>
                       </div>
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold truncate">{safeText(topic)}</p>
-                          <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className={cn("text-[10px] font-medium", trainingStatusColors[status] || "")}>
-                            {safeText(status).replace("_", " ")}
-                          </Badge>
-                          <Badge className={cn("text-[10px] font-medium", trainingLevelColors[level] || "")}>
-                            {safeText(level)}
-                          </Badge>
-                          {dueDate && (
-                            <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
-                              {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                              {safeDate(dueDate)}
-                            </span>
-                          )}
-                        </div>
+                      <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
+                        {tasks.map((task: unknown) => (
+                          <PersonalTaskItem
+                            key={extractStr(task, "id", "")}
+                            task={task}
+                            togglingId={togglingId}
+                            onToggleDone={handleToggleDone}
+                          />
+                        ))}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </section>
-      )}
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
-      {/* Tasks Section - Grouped by Project */}
-      {tasksByProject.size > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3 px-1">
-            <ListTodo className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-bold text-foreground">Tasks</h2>
-            <Badge variant="secondary" className="text-[10px] font-bold">{String(activeTasks.length)}</Badge>
-          </div>
-          <div className="space-y-4">
-            {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
-              const projectName = projectNameMap.get(projectId) || "Unknown Project";
-              return (
-                <div key={projectId}>
-                  <div className="flex items-center gap-2 mb-2 px-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      {safeText(projectName)}
-                    </h3>
-                    <Badge variant="secondary" className="text-[10px] font-bold">{String(tasks.length)}</Badge>
-                  </div>
-                  <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
-                    {tasks.map((task: unknown) => (
-                      <PersonalTaskItem
-                        key={extractStr(task, "id", "")}
-                        task={task}
-                        togglingId={togglingId}
-                        onToggleDone={handleToggleDone}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Search no results */}
-      {search && filteredTasks.length === 0 && sortedTraining.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground font-medium">No tasks match your search</p>
-        </div>
-      )}
+          {/* Search no results */}
+          {search && filteredTasks.length === 0 && sortedTraining.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground font-medium">No tasks match your search</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </>
   );
 }
@@ -735,9 +741,8 @@ export default function GlobalTodosPage() {
   const personalViewProps = useMemo(() => ({
     totalActive, overdueTasks, awaitingApproval, sortedTraining, tasksByProject,
     activeTasks, filteredTasks, search, togglingId, handleToggleDone, projectNameMap, router,
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [totalActive, overdueTasks, awaitingApproval, sortedTraining, tasksByProject,
-    activeTasks, filteredTasks, search, togglingId, projectNameMap]);
+    activeTasks, filteredTasks, search, togglingId, handleToggleDone, projectNameMap, router]);
 
   const isLoading = sessionStatus === "loading" || tasksLoading || trainingLoading;
 
@@ -745,13 +750,16 @@ export default function GlobalTodosPage() {
   if (isLoading) {
     return (
       <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-9 rounded-lg" />
-          <Skeleton className="h-7 w-48" />
-        </div>
+        <PageHeader title="My Todos" description="Track your tasks and training assignments">
+          <Skeleton className="h-9 w-40 rounded-lg" />
+        </PageHeader>
         <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
-        <Skeleton className="h-9 w-64 rounded-lg" />
-        {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+          <CardContent className="p-4 sm:p-5 space-y-5">
+            <Skeleton className="h-6 w-32 rounded-lg" />
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -760,15 +768,8 @@ export default function GlobalTodosPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/projects")} aria-label="Back to projects" className="hover:bg-muted/80 rounded-lg">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-500/5 flex items-center justify-center">
-          <ListTodo className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-        </div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Todos</h1>
-        <div className="relative ml-auto max-w-xs flex-1">
+      <PageHeader title="My Todos" description="Track your tasks and training assignments">
+        <div className="relative max-w-xs flex-1 min-w-[140px] sm:min-w-[200px]">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
           <Input
             placeholder="Search tasks..."
@@ -777,12 +778,12 @@ export default function GlobalTodosPage() {
             className="pl-9 h-9 bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50"
           />
         </div>
-      </div>
+      </PageHeader>
 
       {/* Admin: Tabs view */}
       {isAdminUser && (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="mb-4">
             <TabsTrigger value="my" className="gap-1.5">
               <ListTodo className="h-3.5 w-3.5" />
               My Todos
@@ -825,147 +826,152 @@ export default function GlobalTodosPage() {
                   <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" />
                 </div>
 
-                {/* Member filter chips */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMember("all")}
-                    className={cn(
-                      "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
-                      selectedMember === "all"
-                        ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
-                        : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
-                    )}
-                  >
-                    <Users className="h-3.5 w-3.5" />
-                    All
-                    <span className="text-[10px] opacity-70">({String(teamMembers.length)})</span>
-                  </button>
-                  {teamMembers.map((member) => {
-                    const mId = extractStr(member, "id", "");
-                    const mName = extractStr(member, "name", "");
-                    const mAvatar = extractStr(member, "avatar", "");
-                    const taskCount = teamActiveTasks.filter((t) => extractStr(t, "assignedTo", "") === mId).length;
-                    const isInactive = member.isActive === false;
-
-                    return (
+                {/* Team Content Area */}
+                <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+                  <CardContent className="p-4 sm:p-5 space-y-5">
+                    {/* Member filter chips */}
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
                       <button
-                        key={mId}
                         type="button"
-                        onClick={() => setSelectedMember(mId)}
+                        onClick={() => setSelectedMember("all")}
                         className={cn(
                           "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
-                          selectedMember === mId
+                          selectedMember === "all"
                             ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
                             : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
-                          isInactive && "opacity-50",
                         )}
                       >
-                        <Avatar className="h-5 w-5">
-                          {mAvatar && <AvatarImage src={mAvatar} alt={mName} />}
-                          <AvatarFallback className="text-[8px]">{getInitials(mName)}</AvatarFallback>
-                        </Avatar>
-                        <span className="truncate max-w-24">{safeText(mName)}</span>
-                        {taskCount > 0 && <span className="text-[10px] opacity-70">({String(taskCount)})</span>}
+                        <Users className="h-3.5 w-3.5" />
+                        All
+                        <span className="text-[10px] opacity-70">({String(teamMembers.length)})</span>
                       </button>
-                    );
-                  })}
-                </div>
-
-                {/* Empty: no team members */}
-                {teamMembers.length === 0 && (
-                  <div className="text-center py-20">
-                    <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4">
-                      <Users className="h-8 w-8 text-violet-400/40" />
-                    </div>
-                    <p className="text-lg font-bold text-foreground/80">No team members found</p>
-                    <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
-                  </div>
-                )}
-
-                {/* Empty: no tasks */}
-                {teamMembers.length > 0 && teamFilteredTasks.length === 0 && (
-                  <div className="text-center py-20">
-                    <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4">
-                      <CheckCircle2 className="h-8 w-8 text-green-400/40" />
-                    </div>
-                    <p className="text-lg font-bold text-foreground/80">
-                      {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
-                    </p>
-                    <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
-                  </div>
-                )}
-
-                {/* Grouped tasks */}
-                {teamTasksGrouped.entries.length > 0 && (
-                  <div className="space-y-4">
-                    {teamTasksGrouped.entries.map(([key, tasks]) => {
-                      if (teamTasksGrouped.groupBy === "assignee") {
-                        const [assigneeId, assigneeName] = (key as string).split(":::");
-                        const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+                      {teamMembers.map((member) => {
+                        const mId = extractStr(member, "id", "");
+                        const mName = extractStr(member, "name", "");
                         const mAvatar = extractStr(member, "avatar", "");
-                        const memberTasks = tasks as unknown[];
-                        const memberOverdue = memberTasks.filter((t) => {
-                          const d = extractStr(t, "deadline", "");
-                          return d && new Date(d) < new Date() && extractStr(t, "status", "") !== "AWAITING_APPROVAL";
-                        }).length;
+                        const taskCount = teamActiveTasks.filter((t) => extractStr(t, "assignedTo", "") === mId).length;
+                        const isInactive = member.isActive === false;
 
                         return (
-                          <div key={key}>
-                            <div className="flex items-center gap-2.5 mb-2 px-1">
-                              <Avatar className="h-6 w-6">
-                                {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
-                                <AvatarFallback className="text-[9px]">{getInitials(assigneeName)}</AvatarFallback>
-                              </Avatar>
-                              <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
-                              <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
-                              {memberOverdue > 0 && (
-                                <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
-                                  {String(memberOverdue)} overdue
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="space-y-1.5 ml-8 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
-                              {memberTasks.map((task) => (
-                                <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
-                                  teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                  onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
-                              ))}
-                            </div>
-                          </div>
+                          <button
+                            key={mId}
+                            type="button"
+                            onClick={() => setSelectedMember(mId)}
+                            className={cn(
+                              "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
+                              selectedMember === mId
+                                ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+                                : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
+                              isInactive && "opacity-50",
+                            )}
+                          >
+                            <Avatar className="h-5 w-5">
+                              {mAvatar && <AvatarImage src={mAvatar} alt={mName} />}
+                              <AvatarFallback className="text-[8px]">{getInitials(mName)}</AvatarFallback>
+                            </Avatar>
+                            <span className="truncate max-w-24">{safeText(mName)}</span>
+                            {taskCount > 0 && <span className="text-[10px] opacity-70">({String(taskCount)})</span>}
+                          </button>
                         );
-                      }
+                      })}
+                    </div>
 
-                      // Grouped by project
-                      const projectId = key as string;
-                      const projectName = projectNameMap.get(projectId) || "Unknown Project";
-                      const projectTasks = tasks as unknown[];
-                      return (
-                        <div key={projectId}>
-                          <div className="flex items-center gap-2 mb-2 px-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{safeText(projectName)}</h3>
-                            <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
-                          </div>
-                          <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
-                            {projectTasks.map((task) => (
-                              <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
-                                teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
-                            ))}
-                          </div>
+                    {/* Empty: no team members */}
+                    {teamMembers.length === 0 && (
+                      <div className="text-center py-20">
+                        <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4">
+                          <Users className="h-8 w-8 text-violet-400/40" />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        <p className="text-lg font-bold text-foreground/80">No team members found</p>
+                        <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
+                      </div>
+                    )}
 
-                {/* Team search no results */}
-                {search && teamFilteredTasks.length === 0 && teamMembers.length > 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground font-medium">No tasks match your search</p>
-                  </div>
-                )}
+                    {/* Empty: no tasks */}
+                    {teamMembers.length > 0 && teamFilteredTasks.length === 0 && (
+                      <div className="text-center py-20">
+                        <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4">
+                          <CheckCircle2 className="h-8 w-8 text-green-400/40" />
+                        </div>
+                        <p className="text-lg font-bold text-foreground/80">
+                          {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
+                        </p>
+                        <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
+                      </div>
+                    )}
+
+                    {/* Grouped tasks */}
+                    {teamTasksGrouped.entries.length > 0 && (
+                      <div className="space-y-4">
+                        {teamTasksGrouped.entries.map(([key, tasks]) => {
+                          if (teamTasksGrouped.groupBy === "assignee") {
+                            const [assigneeId, assigneeName] = (key as string).split(":::");
+                            const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+                            const mAvatar = extractStr(member, "avatar", "");
+                            const memberTasks = tasks as unknown[];
+                            const memberOverdue = memberTasks.filter((t) => {
+                              const d = extractStr(t, "deadline", "");
+                              return d && new Date(d) < new Date() && extractStr(t, "status", "") !== "AWAITING_APPROVAL";
+                            }).length;
+
+                            return (
+                              <div key={key}>
+                                <div className="flex items-center gap-2.5 mb-2 px-1">
+                                  <Avatar className="h-6 w-6">
+                                    {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+                                    <AvatarFallback className="text-[9px]">{getInitials(assigneeName)}</AvatarFallback>
+                                  </Avatar>
+                                  <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
+                                  <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
+                                  {memberOverdue > 0 && (
+                                    <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                      {String(memberOverdue)} overdue
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="space-y-1.5 ml-8 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
+                                  {memberTasks.map((task) => (
+                                    <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                                      teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                                      onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Grouped by project
+                          const projectId = key as string;
+                          const projectName = projectNameMap.get(projectId) || "Unknown Project";
+                          const projectTasks = tasks as unknown[];
+                          return (
+                            <div key={projectId}>
+                              <div className="flex items-center gap-2 mb-2 px-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{safeText(projectName)}</h3>
+                                <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
+                              </div>
+                              <div className="space-y-1.5 ml-2.5 border-l-2 border-gray-200/60 dark:border-gray-700/30 pl-4">
+                                {projectTasks.map((task) => (
+                                  <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+                                    teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Team search no results */}
+                    {search && teamFilteredTasks.length === 0 && teamMembers.length > 0 && (
+                      <div className="text-center py-12">
+                        <p className="text-muted-foreground font-medium">No tasks match your search</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </>
             )}
           </TabsContent>
