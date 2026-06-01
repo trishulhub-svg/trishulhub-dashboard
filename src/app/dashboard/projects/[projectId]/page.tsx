@@ -7,8 +7,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
-  ChevronRight,
+  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import { TASK_COLUMNS } from "@/lib/types";
 import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
 
@@ -147,6 +149,11 @@ export default function ProjectDetailPage() {
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   // Audit fix: delete confirmation state for tasks
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  // Website management dialog state
+  const [websiteMgmtOpen, setWebsiteMgmtOpen] = useState(false);
+  const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
+  const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
+  const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,15 +223,89 @@ export default function ProjectDetailPage() {
     retry: 1,
   });
 
+  // ── React Query: Websites with caching ──
+  const { data: websitesData = [] } = useQuery({
+    queryKey: ["project-websites", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const res = await fetch(`/api/projects/${projectId}/websites`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) return [];
+      const raw = deepSanitize(await res.json());
+      return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
+    },
+    enabled: !!projectId && isAdminUser,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+
   const project = projectData;
   const tasks = tasksData;
   const members = membersData;
   const teamUsers = teamUsersData;
+  const websites = websitesData;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-websites", projectId] });
+  };
+
+  // ── Website CRUD handlers ──
+  const handleAddWebsite = async () => {
+    if (!newWebsiteUrl.trim()) { toast.error("URL is required"); return; }
+    try {
+      const res = await fetch(`/api/projects/${projectId}/websites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          url: newWebsiteUrl.trim(),
+          label: newWebsiteLabel.trim() || "Production",
+          isPrimary: websites.length === 0,
+        }),
+      });
+      if (res.ok) { toast.success("Website added"); setNewWebsiteUrl(""); setNewWebsiteLabel(""); invalidateAll(); }
+      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add website"); }
+    } catch { toast.error("Failed to add website"); }
+  };
+
+  const handleUpdateWebsite = async (websiteId: string, updates: Record<string, unknown>) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/websites`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: websiteId, ...updates }),
+      });
+      if (res.ok) { toast.success("Website updated"); invalidateAll(); }
+      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update website"); }
+    } catch { toast.error("Failed to update website"); }
+  };
+
+  const handleDeleteWebsite = async (websiteId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/websites?id=${websiteId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) { toast.success("Website removed"); invalidateAll(); }
+      else { if (handle401(res)) return; toast.error("Failed to delete website"); }
+    } catch { toast.error("Failed to delete website"); }
+  };
+
+  const handleSetPrimaryWebsite = async (websiteId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/websites`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: websiteId, isPrimary: true }),
+      });
+      if (res.ok) { toast.success("Primary website set"); invalidateAll(); }
+      else { if (handle401(res)) return; toast.error("Failed to set primary"); }
+    } catch { toast.error("Failed to set primary"); }
   };
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -471,6 +552,104 @@ export default function ProjectDetailPage() {
           My Tasks
           <ChevronRight className="h-3 w-3" />
         </button>
+
+        {/* Live button / Add Live URL (admin) */}
+        {(() => {
+          const projectWebsites = (project?.websites as Record<string, unknown>[] | undefined) || [];
+          const mergedWebsites = isAdminUser && websites.length > 0 ? websites : projectWebsites;
+          if (mergedWebsites.length === 1) {
+            const wUrl = extractStr(mergedWebsites[0], "url", "");
+            const wLabel = extractStr(mergedWebsites[0], "label", "");
+            return (
+              <>
+                <a
+                  href={wUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+                >
+                  <Globe className="h-3 w-3" />
+                  {wLabel || "Live"}
+                  <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                </a>
+                {isAdminUser && (
+                  <button
+                    type="button"
+                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
+                    aria-label="Manage websites"
+                  >
+                    <Settings className="h-3 w-3" />
+                  </button>
+                )}
+              </>
+            );
+          }
+          if (mergedWebsites.length > 1) {
+            const primary = mergedWebsites.find((w) => extractStr(w, "isPrimary", "") === "true" || w.isPrimary === true) || mergedWebsites[0];
+            const pUrl = extractStr(primary, "url", "");
+            const pLabel = extractStr(primary, "label", "");
+            return (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+                    >
+                      <Globe className="h-3 w-3" />
+                      {pLabel || "Live"}
+                      <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    {mergedWebsites.map((w, i) => {
+                      const wUrl = extractStr(w, "url", "");
+                      const wLabel = extractStr(w, "label", "");
+                      const wIsPrimary = w.isPrimary === true || extractStr(w, "isPrimary", "") === "true";
+                      return (
+                        <DropdownMenuItem key={extractStr(w, "id", String(i))} asChild>
+                          <a href={wUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+                            <Globe className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">{wUrl}</p>
+                            </div>
+                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 shrink-0" />}
+                          </a>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {isAdminUser && (
+                  <button
+                    type="button"
+                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
+                    aria-label="Manage websites"
+                  >
+                    <Settings className="h-3 w-3" />
+                  </button>
+                )}
+              </>
+            );
+          }
+          // 0 websites
+          if (isAdminUser) {
+            return (
+              <button
+                type="button"
+                onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 border border-dashed border-muted-foreground/30 transition-colors"
+              >
+                <Globe className="h-3 w-3" />
+                Add Live URL
+              </button>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {/* ═══════ Compact Team Members ═══════ */}
@@ -636,6 +815,110 @@ export default function ProjectDetailPage() {
           </Dialog>
         )}
       </div>
+
+      {/* ═══════ Website Management Dialog (admin only) ═══════ */}
+      {isAdminUser && (
+        <Dialog open={websiteMgmtOpen} onOpenChange={(open) => { setWebsiteMgmtOpen(open); if (!open) { setNewWebsiteUrl(""); setNewWebsiteLabel(""); setEditingWebsiteId(null); } }}>
+          <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold flex items-center gap-2">
+                <Globe className="h-4 w-4 text-emerald-500" /> Manage Live URLs
+              </DialogTitle>
+              <DialogDescription className="text-xs">Add, edit, or remove website URLs for this project.</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 mt-2">
+              {/* Add new website form */}
+              {editingWebsiteId ? null : (
+                <div className="space-y-2 p-3 rounded-lg border border-dashed border-emerald-300/50 dark:border-emerald-700/30 bg-emerald-50/30 dark:bg-emerald-900/10">
+                  <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">Add New Website</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <Input
+                        placeholder="https://example.com"
+                        value={newWebsiteUrl}
+                        onChange={(e) => setNewWebsiteUrl(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={handleAddWebsite}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <Input
+                      placeholder="Label (e.g. Production, Staging)"
+                      value={newWebsiteLabel}
+                      onChange={(e) => setNewWebsiteLabel(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Existing websites list */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Websites ({websites.length})</p>
+                <div className="max-h-52 overflow-y-auto space-y-1.5">
+                  {websites.length === 0 && (
+                    <p className="text-xs text-muted-foreground/60 italic py-3 text-center">No websites added yet.</p>
+                  )}
+                  {websites.map((w, i) => {
+                    const wId = extractStr(w, "id", String(i));
+                    const wUrl = extractStr(w, "url", "");
+                    const wLabel = extractStr(w, "label", "");
+                    const wIsPrimary = w.isPrimary === true || extractStr(w, "isPrimary", "") === "true";
+                    return (
+                      <div key={wId} className="flex items-center gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] group/ws">
+                        <Globe className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate flex items-center gap-1.5">
+                            {wLabel || `Site ${i + 1}`}
+                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 inline" />}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground truncate">{wUrl}</p>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {!wIsPrimary && (
+                            <button
+                              type="button"
+                              onClick={() => handleSetPrimaryWebsite(wId)}
+                              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+                              title="Set as primary"
+                            >
+                              <Star className="h-3 w-3" />
+                            </button>
+                          )}
+                          <a
+                            href={wUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+                            title="Open URL"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteWebsite(wId)}
+                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+                            title="Delete website"
+                          >
+                            <Trash2Icon className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ═══════ Task Detail Dialog (glassmorphism) ═══════ */}
       <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>

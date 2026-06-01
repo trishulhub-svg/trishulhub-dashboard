@@ -1,0 +1,211 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
+
+// Strip HTML tags and enforce length
+function sanitizeInput(str: string, maxLength: number): string {
+  const stripped = str.replace(/<[^>]*>/g, "").trim();
+  return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped;
+}
+
+// ━━ GET /api/projects/[projectId]/websites ━━
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const userRole = session.user.role || "DEVELOPER";
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const websites = await db.projectWebsite.findMany({
+      where: { projectId },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    });
+
+    return NextResponse.json(JSON.parse(JSON.stringify(websites)));
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to load websites";
+    console.error("[project-websites] GET error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// ━━ POST /api/projects/[projectId]/websites — Add a website ━━
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const userRole = session.user.role || "DEVELOPER";
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { url, label, isPrimary } = body;
+
+    if (!url || typeof url !== "string" || !url.trim()) {
+      return NextResponse.json({ error: "URL is required" }, { status: 400 });
+    }
+
+    // Basic URL validation
+    const trimmedUrl = url.trim();
+    if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {
+      return NextResponse.json(
+        { error: "URL must start with http:// or https:// and contain a valid domain" },
+        { status: 400 }
+      );
+    }
+
+    // Verify project exists
+    const projectExists = await db.project.findUnique({ where: { id: projectId } });
+    if (!projectExists) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    // If setting as primary, unset other primaries
+    if (isPrimary) {
+      await db.projectWebsite.updateMany({
+        where: { projectId, isPrimary: true },
+        data: { isPrimary: false },
+      });
+    }
+
+    const website = await db.projectWebsite.create({
+      data: {
+        url: sanitizeInput(trimmedUrl, 2000),
+        label: label ? sanitizeInput(String(label), 100) : null,
+        isPrimary: isPrimary || false,
+        projectId,
+      },
+    });
+
+    return NextResponse.json(JSON.parse(JSON.stringify(website)), { status: 201 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to add website";
+    console.error("[project-websites] POST error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// ━━ PATCH /api/projects/[projectId]/websites — Update a website ━━
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const userRole = session.user.role || "DEVELOPER";
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { id, url, label, isPrimary } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Website ID is required" }, { status: 400 });
+    }
+
+    // If setting as primary, unset other primaries
+    if (isPrimary) {
+      await db.projectWebsite.updateMany({
+        where: { projectId, isPrimary: true, id: { not: id } },
+        data: { isPrimary: false },
+      });
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (url !== undefined) {
+      const trimmedUrl = String(url).trim();
+      if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {
+        return NextResponse.json(
+          { error: "URL must start with http:// or https:// and contain a valid domain" },
+          { status: 400 }
+        );
+      }
+      updateData.url = sanitizeInput(trimmedUrl, 2000);
+    }
+    if (label !== undefined) {
+      updateData.label = label ? sanitizeInput(String(label), 100) : null;
+    }
+    if (isPrimary !== undefined) {
+      updateData.isPrimary = Boolean(isPrimary);
+    }
+
+    const website = await db.projectWebsite.update({
+      where: { id, projectId },
+      data: updateData,
+    });
+
+    return NextResponse.json(JSON.parse(JSON.stringify(website)));
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to update website";
+    console.error("[project-websites] PATCH error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// ━━ DELETE /api/projects/[projectId]/websites ━━
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const userRole = session.user.role || "DEVELOPER";
+    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Website ID is required" }, { status: 400 });
+    }
+
+    await db.projectWebsite.delete({
+      where: { id, projectId },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to delete website";
+    console.error("[project-websites] DELETE error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

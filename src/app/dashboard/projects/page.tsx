@@ -13,7 +13,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
   Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2,
-  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot,
+  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
@@ -120,6 +121,7 @@ function KanbanProjectCard({
   const pClientName = client ? safeText(client.name, "Client") : "Client";
   const pProgress = safeNumber(project.progress);
   const pDeadline = project.deadline as string | null | undefined;
+  const pWebsites = Array.isArray(project.websites) ? project.websites as Record<string, unknown>[] : [];
 
   return (
     <div
@@ -208,6 +210,55 @@ function KanbanProjectCard({
           <span className="font-medium text-muted-foreground">Deadline:</span>
           {safeDate(pDeadline, "No date")}
         </p>
+      )}
+
+      {/* Live button for admin when websites exist */}
+      {isAdminUser && pWebsites.length > 0 && !isDragging && (
+        <div
+          className="absolute bottom-2 left-2 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {pWebsites.length === 1 ? (
+            <a
+              href={safeText(pWebsites[0].url, "")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+            >
+              <Globe className="h-2.5 w-2.5" />
+              Live
+            </a>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+                >
+                  <Globe className="h-2.5 w-2.5" />
+                  Live
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {pWebsites.map((w, i) => {
+                  const wUrl = safeText(w.url, "");
+                  const wLabel = safeText(w.label, "");
+                  return (
+                    <DropdownMenuItem key={safeText(w.id, String(i))} asChild>
+                      <a href={wUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+                        <ExternalLink className="h-3 w-3 text-emerald-500 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
+                          <p className="text-[9px] text-muted-foreground truncate">{wUrl}</p>
+                        </div>
+                      </a>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       )}
     </div>
   );
@@ -559,6 +610,7 @@ export default function ProjectsPage() {
       budget: parseFloat(form.get("budget") as string) || null,
       deadline: form.get("deadline") as string || null,
     };
+    const liveUrl = (form.get("liveUrl") as string)?.trim();
 
     try {
       const res = await fetch("/api/projects", {
@@ -568,6 +620,21 @@ export default function ProjectsPage() {
         body: JSON.stringify(data),
       });
       if (res.ok) {
+        const newProject = await res.json().catch(() => null);
+        const newProjectId = newProject?.id;
+        // If live URL was provided, create a website entry
+        if (liveUrl && newProjectId) {
+          try {
+            await fetch(`/api/projects/${newProjectId}/websites`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+            });
+          } catch {
+            // silently fail — project was created
+          }
+        }
         toast.success("Project created");
         setAddOpen(false);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -596,6 +663,7 @@ export default function ProjectsPage() {
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
     };
+    const liveUrl = (form.get("liveUrl") as string)?.trim();
 
     try {
       const res = await fetch("/api/projects", {
@@ -605,6 +673,43 @@ export default function ProjectsPage() {
         body: JSON.stringify(data),
       });
       if (res.ok) {
+        // Update website if live URL changed
+        const projectWebsites = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+        const primaryWebsite = projectWebsites.find((w) => w.isPrimary === true || w.isPrimary === "true") || projectWebsites[0];
+        const currentUrl = primaryWebsite ? safeText(primaryWebsite.url, "") : "";
+        const primaryId = primaryWebsite ? safeText(primaryWebsite.id, "") : "";
+
+        if (liveUrl && liveUrl !== currentUrl) {
+          // Update existing primary website or create new
+          if (primaryId) {
+            try {
+              await fetch(`/api/projects/${editProject.id}/websites`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ id: primaryId, url: liveUrl, isPrimary: true }),
+              });
+            } catch { /* silent */ }
+          } else {
+            try {
+              await fetch(`/api/projects/${editProject.id}/websites`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+              });
+            } catch { /* silent */ }
+          }
+        } else if (!liveUrl && currentUrl && primaryId) {
+          // URL was cleared — remove the website
+          try {
+            await fetch(`/api/projects/${editProject.id}/websites?id=${primaryId}`, {
+              method: "DELETE",
+              credentials: "include",
+            });
+          } catch { /* silent */ }
+        }
+
         toast.success("Project updated");
         setEditOpen(false);
         setEditProject(null);
@@ -1079,6 +1184,10 @@ export default function ProjectsPage() {
                     <Input name="deadline" type="date" />
                   </div>
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Live URL</Label>
+                  <Input name="liveUrl" type="url" placeholder="https://example.com" />
+                </div>
                 <Button type="submit" className="w-full">Create Project</Button>
               </form>
             </DialogContent>
@@ -1302,6 +1411,19 @@ export default function ProjectsPage() {
                         <Label className="text-xs">Deadline</Label>
                         <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
                       </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Live URL</Label>
+                      <Input
+                        name="liveUrl"
+                        type="url"
+                        placeholder="https://example.com"
+                        defaultValue={(() => {
+                          const ws = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+                          const primary = ws.find((w) => w.isPrimary === true || w.isPrimary === "true") || ws[0];
+                          return primary ? safeText(primary.url, "") : "";
+                        })()}
+                      />
                     </div>
                     <div className="flex gap-2 pt-2">
                       <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>

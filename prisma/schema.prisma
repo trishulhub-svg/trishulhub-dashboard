@@ -398,10 +398,25 @@ model Project {
   members      ProjectMember[]
   attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
+  websites     ProjectWebsite[]
 
   @@index([clientId])
   @@index([status])
   @@index([deadline])
+}
+
+// ━━ Project Websites (live URLs for each project) ━━
+model ProjectWebsite {
+  id        String   @id @default(cuid())
+  url       String
+  label     String?  // e.g., "Production", "Staging", "Dev"
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  projectId String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 // ━━ Project Members (RBAC) ━━
