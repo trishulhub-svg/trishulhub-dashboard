@@ -212,3 +212,35 @@ Stage Summary:
 - Files nav item now in Overview section after Workspace for easy team access
 - Dashboard fully responsive across mobile (320px+) to desktop viewports
 - Commit: 41eb73f pushed to main branch
+
+---
+Task ID: crm-todos-feedback
+Agent: Main Agent + 2 Sub-agents
+Task: CRM board/list toggle + Todos page redesign
+
+Work Log:
+- Analyzed Projects page board/list toggle pattern (ToggleGroup, viewMode state, localStorage)
+- Analyzed CRM page current kanban-only layout and Todos page confusing structure
+- Sub-agent 1: Added Board/List view toggle to CRM page
+  - Added LayoutGrid, List icon imports and ToggleGroup imports
+  - Added LeadListViewRow component with glassmorphism styling
+  - Added viewMode state with localStorage persistence (crm-view-mode)
+  - Added ToggleGroup in PageHeader actions area
+  - Added conditional rendering: board (DndContext kanban) vs list (flat scrollable rows)
+  - TypeScript check: 0 errors
+- Sub-agent 2: Redesigned Todos page layout
+  - Replaced custom header (back button + icon + title + search) with PageHeader component
+  - Wrapped Training and Tasks sections in glassmorphism cards
+  - Improved visual hierarchy: stats → card container with sections
+  - Better admin tab spacing (mb-4 on TabsList)
+  - Updated loading skeleton to match new layout
+  - Removed unused ArrowLeft import
+  - TypeScript check: 0 errors
+- Committed as d47313e, pushed to main
+
+Stage Summary:
+- 2 files changed: crm/page.tsx (+109/-0), projects/todos/page.tsx (+363/-252)
+- CRM page now has Board/List view toggle matching Projects page
+- Todos page redesigned with cleaner layout, visual hierarchy, and glassmorphism cards
+- All existing functionality preserved in both pages
+- Commit: d47313e pushed to main branch
