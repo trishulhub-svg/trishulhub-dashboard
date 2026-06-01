@@ -11,7 +11,7 @@ const OverviewCharts = dynamic(() => import("./overview-charts"), { ssr: false }
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import {
-  DollarSign, TrendingUp, TrendingDown, ArrowRight, FileText, Clock,
+  DollarSign, TrendingUp, TrendingDown, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
   Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
 } from "lucide-react";
@@ -151,13 +151,6 @@ const SUB_FREQUENCY_COLORS: Record<string, string> = {
 };
 
 const EXPENSE_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"];
-
-const INVOICE_STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-};
 
 const formatCurrency = (n: number, currency = "INR") => {
   if (currency === "INR") return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -731,6 +724,20 @@ export default function FinancePage() {
   const totalManualExpenses = statsTotal; // From expense stats API — already computed
   const totalSubscriptionMonthly = subTotalMonthly;
   const totalCosts = totalManualExpenses + totalSubscriptionMonthly;
+
+  // ─── Current month spend (manual expenses this month + subscriptions) ────
+  const currentMonthExpenses = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    return allExpenses
+      .filter((e) => {
+        const d = new Date(e.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      })
+      .reduce((sum, e) => sum + safeNumber(e.amount), 0);
+  }, [allExpenses]);
+  const monthlySpend = currentMonthExpenses + totalSubscriptionMonthly;
   const hasDashData = !!data?.stats;
   const netProfit = hasDashData ? (stats.totalRevenue || 0) - totalCosts : null;
 
@@ -772,12 +779,12 @@ export default function FinancePage() {
       return { month, revenue: revenueByMonth[k] || 0, expenses: expenseByMonth[k] || 0 };
     });
     const expData = [
-      { name: "API Costs", value: stats.totalApiSpend, color: "#ef4444" },
-      { name: "Expenses", value: stats.totalExpenses, color: "#f59e0b" },
-      { name: "Profit", value: Math.max(0, stats.totalRevenue - stats.totalApiSpend - stats.totalExpenses), color: "#22c55e" },
+      { name: "Subscriptions", value: totalSubscriptionMonthly, color: "#f97316" },
+      { name: "Manual Expenses", value: stats.totalExpenses, color: "#f59e0b" },
+      { name: "Profit", value: Math.max(0, stats.totalRevenue - totalCosts), color: "#22c55e" },
     ].filter((d) => d.value > 0);
     return { recentInvoices: inv, revenueData: revData, expenseData: expData };
-  }, [data, invoices, stats.totalRevenue, stats.totalExpenses, stats.totalApiSpend]);
+  }, [data, invoices, stats.totalRevenue, stats.totalExpenses, totalCosts, totalSubscriptionMonthly]);
 
   return (
     <div className="space-y-6">
@@ -930,11 +937,11 @@ export default function FinancePage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">API Spend <span className="text-xs">(this month)</span></p>
-                    <p className="text-2xl font-bold">{formatCurrency(safeNumber(stats.totalApiSpend))}</p>
+                    <p className="text-sm text-muted-foreground">Monthly Spend</p>
+                    <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(monthlySpend))}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                    <DollarSign className="h-5 w-5 text-muted-foreground" />
+                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                    <CreditCard className="h-5 w-5 text-orange-600" />
                   </div>
                 </div>
               </CardContent>
@@ -946,37 +953,40 @@ export default function FinancePage() {
             <OverviewCharts revenueData={revenueData} expenseData={expenseData} />
           )}
 
-          {/* Recent Invoices */}
+          {/* Company Overview */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Recent Invoices</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/finance/invoices")}>
-                  View All <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </div>
+              <CardTitle className="text-base">Company Overview</CardTitle>
+              <CardDescription>Key business metrics at a glance</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {recentInvoices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
-                ) : (
-                  recentInvoices.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => router.push("/dashboard/finance/invoices")}>
-                      <div className="flex items-center gap-3">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="text-sm font-medium">{safeText(inv.invoiceNumber, "")}</p>
-                          <p className="text-xs text-muted-foreground">{inv.client ? safeText(inv.client.name, "") : ""}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{formatCurrency(safeNumber(inv.total))}</span>
-                        <Badge className={`text-[10px] ${INVOICE_STATUS_COLORS[inv.status] || ""}`}>{safeText(inv.status, "")}</Badge>
-                      </div>
-                    </div>
-                  ))
-                )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Total Revenue */}
+                <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+                  <TrendingUp className="h-5 w-5 text-green-600 mx-auto mb-1" />
+                  <p className="text-lg font-bold text-green-600">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
+                  <p className="text-xs text-muted-foreground">Total Revenue</p>
+                </div>
+                {/* Total Expenses */}
+                <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
+                  <TrendingDown className="h-5 w-5 text-red-600 mx-auto mb-1" />
+                  <p className="text-lg font-bold text-red-600">{formatCurrency(safeNumber(totalCosts))}</p>
+                  <p className="text-xs text-muted-foreground">Total Costs</p>
+                </div>
+                {/* Pending */}
+                <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20">
+                  <Clock className="h-5 w-5 text-amber-600 mx-auto mb-1" />
+                  <p className="text-lg font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
+                  <p className="text-xs text-muted-foreground">Pending</p>
+                </div>
+                {/* Net Profit */}
+                <div className={`text-center p-3 rounded-lg ${netProfit !== null && netProfit >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
+                  {netProfit !== null && netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-emerald-600 mx-auto mb-1" /> : <TrendingDown className="h-5 w-5 text-red-600 mx-auto mb-1" />}
+                  <p className={`text-lg font-bold ${netProfit !== null && netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {netProfit !== null ? formatCurrency(safeNumber(netProfit)) : '—'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Net Profit</p>
+                </div>
               </div>
             </CardContent>
           </Card>

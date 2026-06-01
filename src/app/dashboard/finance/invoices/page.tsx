@@ -7,6 +7,7 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X, Pencil,
   Eye, Search, DollarSign, Clock, TrendingUp, ChevronLeft, ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -283,6 +284,20 @@ export default function InvoicesPage() {
   const [editProjectId, setEditProjectId] = useState<string>("");
   const [editDueDate, setEditDueDate] = useState<string>("");
 
+  // ━━ Searchable combobox state (create) ━━
+  const [createClientId, setCreateClientId] = useState<string>("");
+  const [createProjectId, setCreateProjectId] = useState<string>("");
+  const [clientSearch, setClientSearch] = useState<string>("");
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState<string>("");
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+
+  // ━━ Searchable combobox state (edit) ━━
+  const [editClientSearch, setEditClientSearch] = useState<string>("");
+  const [editClientDropdownOpen, setEditClientDropdownOpen] = useState(false);
+  const [editProjectSearch, setEditProjectSearch] = useState<string>("");
+  const [editProjectDropdownOpen, setEditProjectDropdownOpen] = useState(false);
+
   // ━━ Fetch data ━━
   const fetchData = useCallback(
     async (signal?: AbortSignal) => {
@@ -339,6 +354,10 @@ export default function InvoicesPage() {
     setPaymentMethod("");
     setPaymentStatus("UNPAID");
     setInvoiceNotes("");
+    setCreateClientId("");
+    setCreateProjectId("");
+    setClientSearch("");
+    setProjectSearch("");
   };
 
   // ━━ Create Invoice ━━
@@ -508,7 +527,9 @@ export default function InvoicesPage() {
     setEditPaymentStatus(inv.paymentStatus || "UNPAID");
     setEditNotes(inv.notes || "");
     setEditClientId(inv.client?.id || inv.client?.name || "");
+    setEditClientSearch(inv.client?.name || "");
     setEditProjectId(inv.project?.id || "");
+    setEditProjectSearch(inv.project?.name || "");
     setEditDueDate(
       inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : ""
     );
@@ -719,34 +740,114 @@ export default function InvoicesPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Client *</Label>
-                  <Select name="clientId" required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {safeText(c.name)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <input type="hidden" name="clientId" value={createClientId} required />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
+                      placeholder="Search client..."
+                      value={clientSearch}
+                      onChange={(e) => {
+                        setClientSearch(e.target.value);
+                        setClientDropdownOpen(true);
+                      }}
+                      onFocus={() => setClientDropdownOpen(true)}
+                    />
+                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setClientDropdownOpen(!clientDropdownOpen)}>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    {clientDropdownOpen && (
+                      <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {(() => {
+                          const filtered = clientSearch.trim()
+                            ? clients.filter((c) => safeText(c.name, "").toLowerCase().includes(clientSearch.trim().toLowerCase()))
+                            : clients.slice(0, 10);
+                          return filtered.length === 0 ? (
+                            <p className="text-sm text-muted-foreground p-2">No clients found</p>
+                          ) : (
+                            <>
+                              {!clientSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
+                              {filtered.map((c) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createClientId === c.id ? "bg-muted" : ""}`}
+                                  onClick={() => {
+                                    setCreateClientId(c.id);
+                                    setClientSearch(safeText(c.name));
+                                    setClientDropdownOpen(false);
+                                  }}
+                                >
+                                  {safeText(c.name)}
+                                </button>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Project</Label>
-                  <Select name="projectId">
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select project (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE">No Project</SelectItem>
-                      {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {safeText(p.name)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <input type="hidden" name="projectId" value={createProjectId} />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
+                      placeholder="Search project..."
+                      value={projectSearch}
+                      onChange={(e) => {
+                        setProjectSearch(e.target.value);
+                        setProjectDropdownOpen(true);
+                      }}
+                      onFocus={() => setProjectDropdownOpen(true)}
+                    />
+                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    {projectDropdownOpen && (
+                      <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {(() => {
+                          const filtered = projectSearch.trim()
+                            ? projects.filter((p) => safeText(p.name, "").toLowerCase().includes(projectSearch.trim().toLowerCase()))
+                            : projects.slice(0, 10);
+                          return filtered.length === 0 ? (
+                            <p className="text-sm text-muted-foreground p-2">No projects found</p>
+                          ) : (
+                            <>
+                              {!projectSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
+                              <button
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createProjectId === "NONE" ? "bg-muted" : ""}`}
+                                onClick={() => {
+                                  setCreateProjectId("NONE");
+                                  setProjectSearch("No Project");
+                                  setProjectDropdownOpen(false);
+                                }}
+                              >
+                                No Project
+                              </button>
+                              {filtered.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createProjectId === p.id ? "bg-muted" : ""}`}
+                                  onClick={() => {
+                                    setCreateProjectId(p.id);
+                                    setProjectSearch(safeText(p.name));
+                                    setProjectDropdownOpen(false);
+                                  }}
+                                >
+                                  {safeText(p.name)}
+                                </button>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1422,34 +1523,112 @@ export default function InvoicesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>
-                <Select value={editClientId} onValueChange={setEditClientId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {safeText(c.name)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
+                    placeholder="Search client..."
+                    value={editClientSearch}
+                    onChange={(e) => {
+                      setEditClientSearch(e.target.value);
+                      setEditClientDropdownOpen(true);
+                    }}
+                    onFocus={() => setEditClientDropdownOpen(true)}
+                  />
+                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setEditClientDropdownOpen(!editClientDropdownOpen)}>
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                  {editClientDropdownOpen && (
+                    <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      {(() => {
+                        const filtered = editClientSearch.trim()
+                          ? clients.filter((c) => safeText(c.name, "").toLowerCase().includes(editClientSearch.trim().toLowerCase()))
+                          : clients.slice(0, 10);
+                        return filtered.length === 0 ? (
+                          <p className="text-sm text-muted-foreground p-2">No clients found</p>
+                        ) : (
+                          <>
+                            {!editClientSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
+                            {filtered.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editClientId === c.id ? "bg-muted" : ""}`}
+                                onClick={() => {
+                                  setEditClientId(c.id);
+                                  setEditClientSearch(safeText(c.name));
+                                  setEditClientDropdownOpen(false);
+                                }}
+                              >
+                                {safeText(c.name)}
+                              </button>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Project</Label>
-                <Select value={editProjectId} onValueChange={setEditProjectId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select project (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NONE">No Project</SelectItem>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {safeText(p.name)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
+                    placeholder="Search project..."
+                    value={editProjectSearch}
+                    onChange={(e) => {
+                      setEditProjectSearch(e.target.value);
+                      setEditProjectDropdownOpen(true);
+                    }}
+                    onFocus={() => setEditProjectDropdownOpen(true)}
+                  />
+                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setEditProjectDropdownOpen(!editProjectDropdownOpen)}>
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                  {editProjectDropdownOpen && (
+                    <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      {(() => {
+                        const filtered = editProjectSearch.trim()
+                          ? projects.filter((p) => safeText(p.name, "").toLowerCase().includes(editProjectSearch.trim().toLowerCase()))
+                          : projects.slice(0, 10);
+                        return filtered.length === 0 ? (
+                          <p className="text-sm text-muted-foreground p-2">No projects found</p>
+                        ) : (
+                          <>
+                            {!editProjectSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
+                            <button
+                              type="button"
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editProjectId === "NONE" ? "bg-muted" : ""}`}
+                              onClick={() => {
+                                setEditProjectId("NONE");
+                                setEditProjectSearch("No Project");
+                                setEditProjectDropdownOpen(false);
+                              }}
+                            >
+                              No Project
+                            </button>
+                            {filtered.map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editProjectId === p.id ? "bg-muted" : ""}`}
+                                onClick={() => {
+                                  setEditProjectId(p.id);
+                                  setEditProjectSearch(safeText(p.name));
+                                  setEditProjectDropdownOpen(false);
+                                }}
+                              >
+                                {safeText(p.name)}
+                              </button>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
