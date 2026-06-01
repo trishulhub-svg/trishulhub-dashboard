@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   Cloud,
   Clock,
+  RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -496,6 +497,55 @@ export default function FilesPage() {
     }
   }, [shareDialog])
 
+  // ── Restore file from trash ──
+  const handleRestore = useCallback(async (file: FileItem) => {
+    try {
+      const res = await fetch(`/api/files/${file.id}?restore=true`, { method: "DELETE" })
+      if (res.ok) {
+        toast.success(`"${file.name}" restored`)
+        fetchFiles()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Failed to restore")
+      }
+    } catch {
+      toast.error("Failed to restore")
+    }
+  }, [fetchFiles])
+
+  // ── Empty trash ──
+  const handleEmptyTrash = useCallback(async () => {
+    try {
+      const res = await fetch("/api/files/empty-trash", { method: "POST" })
+      if (res.ok) {
+        const data = await res.json()
+        toast.success(`Trash emptied. ${data.deleted || 0} files permanently deleted.`)
+        fetchFiles()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || "Failed to empty trash")
+      }
+    } catch {
+      toast.error("Failed to empty trash")
+    }
+  }, [fetchFiles])
+
+  // ── Restore all trashed files ──
+  const handleRestoreAll = useCallback(async () => {
+    const trashedItems = files.filter(f => f.trashed)
+    if (trashedItems.length === 0) return
+
+    try {
+      await Promise.all(trashedItems.map(f =>
+        fetch(`/api/files/${f.id}?restore=true`, { method: "DELETE" })
+      ))
+      toast.success(`${trashedItems.length} items restored`)
+      fetchFiles()
+    } catch {
+      toast.error("Failed to restore some items")
+    }
+  }, [files, fetchFiles])
+
   // ── Download file ──
   const handleDownload = useCallback((file: FileItem) => {
     window.open(`/api/files/download/${file.id}`, "_blank")
@@ -628,6 +678,18 @@ export default function FilesPage() {
               <FolderPlus className="h-4 w-4 mr-1" />
               New Folder
             </Button>
+            {filter === "trashed" && isAdminUser && sortedFiles.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleRestoreAll}>
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  Restore All
+                </Button>
+                <Button variant="destructive" size="sm" onClick={handleEmptyTrash}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Empty Trash
+                </Button>
+              </div>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -848,6 +910,11 @@ export default function FilesPage() {
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
+                            {filter === "trashed" && (
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRestore(file) }}>
+                                <RotateCcw className="h-4 w-4 mr-2" /> Restore
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="text-destructive"
                               onClick={(e) => { e.stopPropagation(); setDeleteDialog(file) }}
@@ -874,6 +941,11 @@ export default function FilesPage() {
                       <ContextMenuItem onClick={() => setShareDialog(file)}>Share</ContextMenuItem>
                     )}
                     <ContextMenuSeparator />
+                    {filter === "trashed" && (
+                      <ContextMenuItem onClick={() => handleRestore(file)}>
+                        <RotateCcw className="h-4 w-4 mr-2" /> Restore
+                      </ContextMenuItem>
+                    )}
                     <ContextMenuItem className="text-destructive" onClick={() => setDeleteDialog(file)}>
                       {filter === "trashed" ? "Delete Forever" : "Move to Trash"}
                     </ContextMenuItem>
@@ -966,6 +1038,11 @@ export default function FilesPage() {
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />
+                              {filter === "trashed" && (
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRestore(file) }}>
+                                  <RotateCcw className="h-4 w-4 mr-2" /> Restore
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem className="text-destructive" onClick={(e) => { e.stopPropagation(); setDeleteDialog(file) }}>
                                 <Trash2 className="h-4 w-4 mr-2" />
                                 {filter === "trashed" ? "Delete Forever" : "Move to Trash"}
@@ -983,6 +1060,11 @@ export default function FilesPage() {
                       <ContextMenuItem onClick={() => handleToggleStar(file)}>{file.starred ? "Unstar" : "Star"}</ContextMenuItem>
                       {isAdminUser && <ContextMenuItem onClick={() => setShareDialog(file)}>Share</ContextMenuItem>}
                       <ContextMenuSeparator />
+                      {filter === "trashed" && (
+                        <ContextMenuItem onClick={() => handleRestore(file)}>
+                          <RotateCcw className="h-4 w-4 mr-2" /> Restore
+                        </ContextMenuItem>
+                      )}
                       <ContextMenuItem className="text-destructive" onClick={() => setDeleteDialog(file)}>
                         {filter === "trashed" ? "Delete Forever" : "Move to Trash"}
                       </ContextMenuItem>

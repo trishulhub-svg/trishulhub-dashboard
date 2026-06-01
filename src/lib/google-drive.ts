@@ -8,9 +8,9 @@ import { google } from "googleapis"
 function getCredentials() {
   const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
   const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
 
-  if (!clientEmail || !privateKey || !folderId) {
+  if (!clientEmail || !privateKey) {
     return null
   }
 
@@ -436,6 +436,25 @@ export async function updateDescription(
     fileId,
     requestBody: { description },
   })
+}
+
+// ── Restore file from trash ──
+export async function restoreFile(fileId: string): Promise<void> {
+  const drive = getDrive()
+  if (!drive) throw new Error("Google Drive credentials not configured")
+
+  await drive.files.update({
+    fileId,
+    requestBody: { trashed: false },
+  })
+}
+
+// ── Empty trash (delete all trashed files permanently) ──
+export async function emptyTrash(): Promise<void> {
+  const drive = getDrive()
+  if (!drive) throw new Error("Google Drive credentials not configured")
+
+  await drive.files.emptyTrash()
 }
 
 // ── Check if Drive is configured ──

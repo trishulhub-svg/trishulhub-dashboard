@@ -163,10 +163,25 @@ export async function DELETE(
 
     const { searchParams } = new URL(req.url)
     const permanent = searchParams.get("permanent") === "true"
+    const restore = searchParams.get("restore") === "true"
 
     const existing = await db.fileMetadata.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: "File not found" }, { status: 404 })
+    }
+
+    // Restore from trash
+    if (restore) {
+      try {
+        await drive.restoreFile(existing.driveFileId)
+      } catch (err) {
+        console.error("[files/[id]] Drive restore error:", err)
+      }
+      await db.fileMetadata.update({
+        where: { id },
+        data: { trashed: false },
+      })
+      return NextResponse.json({ success: true })
     }
 
     // Delete from Google Drive
