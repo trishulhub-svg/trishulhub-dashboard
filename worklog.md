@@ -263,3 +263,26 @@ Stage Summary:
 - CRM page now matches Projects page list/kanban system: KANBAN_COLUMNS array, COLUMN_DISPLAY_ORDER, LeadCard with proper accent bar classes, DroppableKanbanColumn with isDimmed/activeId, DragOverlay, column ordering
 - Todos page rearranged: Training and Tasks in separate cards, clean project grouping with collapsible headers, completed tasks section (collapsed by default), better empty states, search bar moved to dedicated filter row
 - Both commits pushed to main branch
+---
+Task ID: 1
+Agent: Main Agent
+Task: Add clickable pending tasks count badge to Projects page project cards
+
+Work Log:
+- Cloned repo from GitHub and deeply read the full 1593-line Projects page
+- Analyzed Prisma schema: Task model with statuses TODO, IN_PROGRESS, REVIEW, AWAITING_APPROVAL, DONE
+- Created new API endpoint /api/tasks/counts/route.ts using Prisma groupBy for lightweight pending task counts per project
+- Added useQuery in ProjectsPage to fetch task counts with 30s staleTime
+- Added pendingCount + onPendingClick props to KanbanProjectCard, SortableProjectCard, DroppableKanbanColumn, ListViewRow
+- Added amber-colored "N Pending" badge on Kanban cards (between status badge and progress bar)
+- Added pending count pill on List view rows (between status badge and progress column)
+- Clicking the badge navigates to the project detail page (stopPropagation prevents card click conflict)
+- Added queryClient.invalidateQueries(["task-counts"]) on project create and update
+- DragOverlay card also shows pending count (but not clickable when dragging)
+- Pushed to GitHub: commit ab09769
+
+Stage Summary:
+- Created: src/app/api/tasks/counts/route.ts (new API endpoint)
+- Modified: src/app/dashboard/projects/page.tsx (+130 lines, 1289 total)
+- Pushed to main branch successfully
+
