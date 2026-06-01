@@ -93,6 +93,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Workspace", href: "/dashboard/agents", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Files", href: "/dashboard/files", icon: HardDrive, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
 
     ],
   },
@@ -102,7 +103,6 @@ const navGroups: NavGroup[] = [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Files", href: "/dashboard/files", icon: HardDrive, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "My Todos", href: "/dashboard/projects/todos", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
@@ -578,7 +578,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header - taller and more prominent */}
-        <header className="h-16 border-b border-border bg-card flex items-center justify-between px-5 sticky top-0 z-30">
+        <header className="h-14 sm:h-16 border-b border-border bg-card flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
@@ -587,16 +587,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Button>
               </SheetTrigger>
             </Sheet>
-            <h2 className="text-base font-semibold text-foreground">
+            <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
               {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {/* Theme Selector Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Change theme">
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" aria-label="Change theme">
                   {theme === "system" ? (
                     <Monitor className="h-4 w-4" />
                   ) : theme === "dark" ? (
@@ -639,7 +639,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Notifications Sheet — better scroll on all devices */}
             <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notifications">
+                <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
                     <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
@@ -730,7 +730,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 h-9">
+                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9">
                   <Avatar className="h-8 w-8">
                     <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
                       {userName.split(" ").map((n) => n[0]).join("")}

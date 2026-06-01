@@ -135,14 +135,14 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground text-sm">
+          <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm">
             {isAdminUser 
               ? "Welcome back! Here's your overview." 
               : "Welcome back! Here's your project overview."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isAdminUser && (
             <Button size="sm" onClick={() => router.push("/dashboard/projects")}>
               <Plus className="h-4 w-4 mr-1" /> New Project
@@ -215,7 +215,7 @@ export default function DashboardPage() {
                     <DollarSign className="h-5 w-5 text-emerald-600" />
                   </div>
                 </div>
-                <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
                   <span>Pending: {formatCurrency(safeNumber(stats.pendingAmount))}</span>
                   {safeNumber(stats.overdueAmount) > 0 && <span className="text-red-500">Overdue: {formatCurrency(safeNumber(stats.overdueAmount))}</span>}
                 </div>
@@ -293,7 +293,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar">
+            <div className="space-y-3 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
               {projects.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   {isAdminUser ? "No active projects" : "No projects assigned yet. Contact your admin to get assigned to a project."}
@@ -348,7 +348,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="space-y-4">
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
+                  <div className="flex flex-wrap justify-between gap-1 text-xs sm:text-sm mb-1">
                     <span>Total Budget: ${safeNumber(stats.monthlyBudget).toFixed(2)}</span>
                     <span>Spent: ${safeNumber(stats.totalApiSpend).toFixed(2)} ({safeNumber(stats.monthlyBudget) > 0 ? ((safeNumber(stats.totalApiSpend) / safeNumber(stats.monthlyBudget)) * 100).toFixed(1) : 0}%)</span>
                   </div>
@@ -357,7 +357,7 @@ export default function DashboardPage() {
                     className="h-3"
                   />
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground">
                   <span>Remaining: ${(safeNumber(stats.monthlyBudget) - safeNumber(stats.totalApiSpend)).toFixed(2)}</span>
                   <span>Expenses: {formatCurrency(safeNumber(stats.totalExpenses))}</span>
                 </div>
@@ -376,7 +376,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
                 {invoices.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
                 ) : (
@@ -388,16 +388,16 @@ export default function DashboardPage() {
                       onClick={() => router.push("/dashboard/finance/invoices")}
                       className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
                     >
-                      <div className="flex items-center gap-3">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="text-sm font-medium">{safeText(inv.invoiceNumber, "")}</p>
-                          <p className="text-xs text-muted-foreground">{inv.client ? safeText(inv.client.name, "") : ""}</p>
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{safeText(inv.invoiceNumber, "")}</p>
+                          <p className="text-xs text-muted-foreground truncate">{inv.client ? safeText(inv.client.name, "") : ""}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{formatCurrency(safeNumber(inv.total))}</span>
-                        <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>
+                      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <span className="text-xs sm:text-sm font-medium whitespace-nowrap">{formatCurrency(safeNumber(inv.total))}</span>
+                        <Badge className={`text-[10px] shrink-0 ${invoiceStatusColors[inv.status] || ""}`}>
                           {safeText(inv.status, "")}
                         </Badge>
                       </div>
@@ -425,7 +425,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               {/* DASH-005: Real task data from API instead of static placeholder */}
-              <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
                 {tasks.length === 0 ? (
                   <div className="text-center py-8 text-sm text-muted-foreground">
                     <ClipboardList className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
