@@ -439,3 +439,25 @@ Stage Summary:
 - Breadcrumb navigation verified correct: Root sets currentFolder=null, subfolders use Drive file ID
 
 ---
+
+---
+Task ID: files-full-fix
+Agent: Main Agent + 3 Sub-agents (Explore, full-stack-developer x2)
+Task: Fix Google Drive error + implement full files restructure + recycle bin
+
+Work Log:
+- Investigated why user couldn't see changes: files restructure (department categories, smart folder dialog, file viewer) was documented in worklog but never actually implemented in code
+- Found root cause of "Google Drive is not configured" error: getCredentials() returns null when CLIENT_EMAIL/PRIVATE_KEY are missing, which blocks getRootFolderId() even though folder ID has a hardcoded fallback
+- Decoupled getRootFolderId() from getCredentials() so folder ID is always available
+- Fixed misleading error message that blamed GOOGLE_DRIVE_FOLDER_ID instead of the actual missing service account vars
+- Added isFolderConfigured() export for independent folder ID check
+- Implemented department category cards (8 departments: Project Files, Company Documents, Development, Sales & Marketing, Finance, HR & Team, Templates, Archive)
+- Implemented smart folder creation dialog with 4 types (Project with 7 auto-sub-folders, Company Document, Department File, General)
+- Implemented file viewer/editor dialog (Google Docs/Sheets/Slides in iframe, PDFs via Drive preview, images inline)
+- Added auto-creation of department folders for admin users on mount
+- All changes pushed to GitHub (commit 5c544ee)
+
+Stage Summary:
+- User needs to add GOOGLE_DRIVE_CLIENT_EMAIL and GOOGLE_DRIVE_PRIVATE_KEY in Vercel dashboard Settings > Environment Variables for full Google Drive integration
+- The hardcoded folder ID (1th4v_mtGsQfeX3Im76as8MWGAURo2kVT) is now always available regardless of other env vars
+- Files page grew from 1315 to 1991 lines with all new features
