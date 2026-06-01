@@ -18,8 +18,8 @@ export function PageHeader({ title, description, children, showBack = true }: Pa
   const isHome = pathname === "/dashboard" || pathname === "/dashboard/"
 
   return (
-    <div className="flex items-center justify-between flex-wrap gap-2 mb-6">
-      <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between flex-wrap gap-2 mb-3 sm:mb-6">
+      <div className="flex items-center gap-2 sm:gap-3">
         {showBack && !isHome && (
           <Button
             variant="ghost"
@@ -32,9 +32,9 @@ export function PageHeader({ title, description, children, showBack = true }: Pa
           </Button>
         )}
         <div>
-          <h1 className="text-2xl font-bold">{safeText(title, "")}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">{safeText(title, "")}</h1>
           {description && (
-            <p className="text-muted-foreground text-sm">{safeText(description, "")}</p>
+            <p className="text-muted-foreground text-xs sm:text-sm">{safeText(description, "")}</p>
           )}
         </div>
       </div>

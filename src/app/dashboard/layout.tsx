@@ -752,7 +752,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 p-5 md:p-8 overflow-auto">{children}</main>
+        <main className="flex-1 p-3 sm:p-4 md:p-6 lg:p-8 overflow-auto">{children}</main>
       </div>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}

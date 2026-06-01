@@ -238,14 +238,14 @@ function DroppableColumn({ status, leads, onLeadClick }: { status: LeadStatus; l
   return (
     <div
       className={cn(
-        "flex-shrink-0 w-[220px] lg:w-[260px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[200px] sm:w-[220px] lg:w-[260px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
         config?.glowColor,
         isOver && `ring-2 ${config?.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`,
       )}
-      style={{ minHeight: "calc(100vh - 340px)" }}
+      style={{ minHeight: "calc(100vh - 320px)" }}
     >
       {/* Left accent bar */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", config?.accentBar, isOver ? "opacity-100" : "opacity-60")} />
@@ -724,11 +724,11 @@ export default function CRMPage() {
   // CRM-002: Show loading skeleton while session is loading
   if (status === "loading") {
     return (
-      <div className="space-y-5">
+      <div className="space-y-4 sm:space-y-5">
         <Skeleton className="h-10 w-48" />
-        <div className="flex gap-4">
+        <div className="flex gap-3 overflow-x-auto">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-[420px] w-[260px] rounded-xl shrink-0" />
+            <Skeleton key={i} className="h-[420px] w-[220px] rounded-xl shrink-0" />
           ))}
         </div>
       </div>
@@ -740,11 +740,11 @@ export default function CRMPage() {
 
   if (loading) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-4 sm:space-y-5">
         <Skeleton className="h-10 w-48" />
-        <div className="flex gap-4">
+        <div className="flex gap-3 overflow-x-auto">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-[420px] w-[260px] rounded-xl shrink-0" />
+            <Skeleton key={i} className="h-[420px] w-[220px] rounded-xl shrink-0" />
           ))}
         </div>
       </div>
@@ -767,12 +767,12 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="space-y-5 h-full">
+    <div className="space-y-3 sm:space-y-5 h-full">
       {/* ━━━━ Page Header ━━━━ */}
       <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Search */}
-          <div className="relative flex-1 min-w-[160px]">
+          <div className="relative flex-1 min-w-[120px] sm:min-w-[160px]">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search leads..."
@@ -784,7 +784,7 @@ export default function CRMPage() {
           </div>
           {/* CRM-S04: Source filter dropdown */}
           <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-24 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
@@ -797,7 +797,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-S04: Status filter dropdown */}
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-24 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -809,7 +809,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-006: Sort dropdown */}
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
-            <SelectTrigger className="w-full sm:w-32 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
@@ -890,9 +890,9 @@ export default function CRMPage() {
       </PageHeader>
 
       {/* ━━━━ Stats Bar — Glassmorphism pill-style ━━━━ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
         <div
-          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md"
+          className="rounded-xl p-2.5 sm:p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md"
           onClick={() => setSearch("")}
         >
           <div className="flex items-center gap-1.5 mb-1">
@@ -902,7 +902,7 @@ export default function CRMPage() {
           <p className="text-xl font-bold tracking-tight">{safeNumber(stats.total)}</p>
         </div>
         <div
-          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-cyan-200/40 dark:border-cyan-500/20 hover:shadow-md"
+          className="rounded-xl p-2.5 sm:p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-cyan-200/40 dark:border-cyan-500/20 hover:shadow-md"
           onClick={() => setSearch("")}
         >
           <div className="flex items-center gap-1.5 mb-1">
@@ -912,7 +912,7 @@ export default function CRMPage() {
           <p className="text-xl font-bold tracking-tight text-cyan-600 dark:text-cyan-400">{safeNumber(stats.newThisWeek)}</p>
         </div>
         <div
-          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md"
+          className="rounded-xl p-2.5 sm:p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md"
           onClick={() => setSortBy("createdAt")}
         >
           <div className="flex items-center gap-1.5 mb-1">
@@ -922,7 +922,7 @@ export default function CRMPage() {
           <p className="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{safeText(stats.conversionRate, "0")}%</p>
         </div>
         <div
-          className="rounded-xl p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md"
+          className="rounded-xl p-2.5 sm:p-3 transition-all cursor-pointer bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md"
           onClick={() => setSortBy("score")}
         >
           <div className="flex items-center gap-1.5 mb-1">

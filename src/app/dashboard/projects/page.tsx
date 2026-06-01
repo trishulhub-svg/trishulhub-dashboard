@@ -331,7 +331,7 @@ function DroppableKanbanColumn({
   return (
     <div
       className={cn(
-        "flex-shrink-0 w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
@@ -339,7 +339,7 @@ function DroppableKanbanColumn({
         isDimmed && "opacity-40 pointer-events-none",
         isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
       )}
-      style={{ minHeight: "calc(100vh - 320px)" }}
+      style={{ minHeight: "calc(100vh - 300px)" }}
     >
       {/* Left accent bar */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
@@ -365,7 +365,7 @@ function DroppableKanbanColumn({
           "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
           isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
-        style={{ maxHeight: "calc(100vh - 400px)" }}
+        style={{ maxHeight: "calc(100vh - 380px)" }}
       >
         {projects.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1063,9 +1063,9 @@ export default function ProjectsPage() {
           </div>
         </div>
         {/* Stats bar skeleton */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+            <div key={i} className="rounded-xl p-2.5 sm:p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
               <Skeleton className="h-3 w-12 mb-2" />
               <Skeleton className="h-5 w-8" />
             </div>
@@ -1091,16 +1091,16 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* ━━━━ Header ━━━━ */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
             <LayoutGrid className="h-4.5 w-4.5 text-primary" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Projects</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight">Projects</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {/* Inline Search */}
           <div className="relative">
             <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
@@ -1108,7 +1108,7 @@ export default function ProjectsPage() {
               placeholder="Search..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 w-48 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+              className="pl-8 w-full sm:w-48 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
               aria-label="Search projects"
             />
             {search && (
@@ -1141,10 +1141,10 @@ export default function ProjectsPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 gap-1.5 text-xs text-muted-foreground"
+            className="h-8 gap-1.5 text-xs text-muted-foreground hidden sm:inline-flex"
             onClick={() => router.push("/dashboard/projects/todos")}
           >
-            <ClipboardCheck className="h-3.5 w-3.5" /> My Todos
+            <ClipboardCheck className="h-3.5 w-3.5" /> <span className="hidden md:inline">My Todos</span>
           </Button>
           {/* New Project */}
           {isAdminUser && (
@@ -1197,29 +1197,29 @@ export default function ProjectsPage() {
       </div>
 
       {/* ━━━━ Stats Bar — Glassmorphism, 4 stats ━━━━ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
           </div>
           <p className="text-xl font-bold tracking-tight">{totalProjects}</p>
         </div>
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-blue-200/40 dark:border-blue-500/20 hover:shadow-md">
+        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-blue-200/40 dark:border-blue-500/20 hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <Activity className="h-3.5 w-3.5 text-blue-500" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
           </div>
           <p className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{inProgressCount}</p>
         </div>
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md">
+        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <CircleDot className="h-3.5 w-3.5 text-yellow-500" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Review</span>
           </div>
           <p className="text-xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">{reviewCount}</p>
         </div>
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md">
+        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>

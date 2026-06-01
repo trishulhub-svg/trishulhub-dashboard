@@ -1939,11 +1939,11 @@ export default function ClientsPage() {
             /* CLI-027: aria-live on detail drawer content */
             <div className="flex flex-col min-h-0" aria-live="polite">
               {/* Header */}
-              <SheetHeader className="p-6 pb-4 border-b border-white/10 dark:border-white/5">
+              <SheetHeader className="p-5 sm:p-6 pb-4 border-b border-white/10 dark:border-white/5 pr-10">
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1 min-w-0 flex-1">
-                      <SheetTitle className="text-lg pr-2">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
+                      <SheetTitle className="text-base sm:text-lg pr-2">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
                       {detailClient.company && (
                         <p className="text-sm text-muted-foreground">{safeText(detailClient.name)}</p>
                       )}
@@ -1952,11 +1952,11 @@ export default function ClientsPage() {
                       {statusLabels[detailClient.status] || safeText(detailClient.status)}
                     </Badge>
                   </div>
-                  {/* Edit button on its own row, well separated from close (X) button */}
+                  {/* Edit button — placed in contact row, well separated from close (X) button */}
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs gap-1.5"
+                    className="h-8 text-xs gap-1.5 mt-1"
                     onClick={() => {
                       const client = detailClient;
                       setDetailClient(null);
@@ -2285,7 +2285,7 @@ export default function ClientsPage() {
       {/* ━━ Contract Panel ━━ */}
       <Sheet open={contractOpen} onOpenChange={(open) => { setContractOpen(open); if (!open) { setContractClient(null); setContracts([]); setEditingContract(null); setContractTemplate(null); setContractTemplateFile(null); setContractForm({}); } }}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader>
+          <SheetHeader className="pr-10">
             <SheetTitle className="flex items-center gap-2">
               <FileSignature className="h-5 w-5 text-orange-500" />
               {editingContract ? "Edit Contract" : "Contract Management"}
