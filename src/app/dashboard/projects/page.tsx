@@ -1063,7 +1063,7 @@ export default function ProjectsPage() {
           </div>
         </div>
         {/* Stats bar skeleton */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
               <Skeleton className="h-3 w-12 mb-2" />

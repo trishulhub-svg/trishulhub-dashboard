@@ -770,21 +770,21 @@ export default function CRMPage() {
     <div className="space-y-5 h-full">
       {/* ━━━━ Page Header ━━━━ */}
       <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Search */}
-          <div className="relative">
+          <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search name, email, phone... try 'today' or 'score:80+'"
+              placeholder="Search leads..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 w-64 h-8 text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50"
+              className="pl-8 w-full h-8 text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50"
               aria-label="Search leads"
             />
           </div>
           {/* CRM-S04: Source filter dropdown */}
           <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
@@ -797,7 +797,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-S04: Status filter dropdown */}
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -809,7 +809,7 @@ export default function CRMPage() {
           </Select>
           {/* CRM-006: Sort dropdown */}
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
-            <SelectTrigger className="w-32 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
+            <SelectTrigger className="w-full sm:w-32 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>

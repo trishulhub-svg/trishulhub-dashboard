@@ -1940,33 +1940,33 @@ export default function ClientsPage() {
             <div className="flex flex-col min-h-0" aria-live="polite">
               {/* Header */}
               <SheetHeader className="p-6 pb-4 border-b border-white/10 dark:border-white/5">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <SheetTitle className="text-lg">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
-                    {detailClient.company && (
-                      <p className="text-sm text-muted-foreground">{safeText(detailClient.name)}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {/* CLI-030: default gray fallback */}
-                    <Badge className={statusColors[detailClient.status] || defaultBadgeColor}>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <SheetTitle className="text-lg pr-2">{safeText(detailClient.company || detailClient.name)}</SheetTitle>
+                      {detailClient.company && (
+                        <p className="text-sm text-muted-foreground">{safeText(detailClient.name)}</p>
+                      )}
+                    </div>
+                    <Badge className={(statusColors[detailClient.status] || defaultBadgeColor) + " shrink-0"}>
                       {statusLabels[detailClient.status] || safeText(detailClient.status)}
                     </Badge>
-                    {/* CLI-035: Edit button in detail drawer */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => {
-                        const client = detailClient;
-                        setDetailClient(null);
-                        handleEdit(client);
-                      }}
-                      aria-label="Edit client"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
+                  {/* Edit button on its own row, well separated from close (X) button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5"
+                    onClick={() => {
+                      const client = detailClient;
+                      setDetailClient(null);
+                      handleEdit(client);
+                    }}
+                    aria-label="Edit client"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit Client
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-3 mt-3 text-sm">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
