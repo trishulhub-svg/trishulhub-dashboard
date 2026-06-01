@@ -1927,7 +1927,7 @@ export default function ClientsPage() {
           }
         }}
       >
-        <SheetContent className="w-full sm:max-w-[520px] p-0 overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[580px] p-0 overflow-y-auto">
           {detailLoading ? (
             <div className="p-6 space-y-4">
               <Skeleton className="h-8 w-48" />
@@ -2051,27 +2051,27 @@ export default function ClientsPage() {
               {/* Tabs */}
               <Tabs defaultValue="projects" className="flex-1 flex flex-col min-h-0">
                 <div className="px-6 pt-3">
-                  <TabsList className="w-full">
-                    <TabsTrigger value="projects" className="flex-1 text-xs">
+                  <TabsList className="w-full flex-wrap h-auto gap-1">
+                    <TabsTrigger value="projects" className="text-xs shrink-0">
                       <FolderKanban className="h-3 w-3 mr-1" /> Projects
                     </TabsTrigger>
-                    <TabsTrigger value="invoices" className="flex-1 text-xs">
+                    <TabsTrigger value="invoices" className="text-xs shrink-0">
                       <FileText className="h-3 w-3 mr-1" /> Invoices
                     </TabsTrigger>
                     {/* CLI-018: Leads tab */}
-                    <TabsTrigger value="leads" className="flex-1 text-xs">
+                    <TabsTrigger value="leads" className="text-xs shrink-0">
                       <UserCheck className="h-3 w-3 mr-1" /> Leads
                     </TabsTrigger>
-                    <TabsTrigger value="tickets" className="flex-1 text-xs">
+                    <TabsTrigger value="tickets" className="text-xs shrink-0">
                       <HeadphonesIcon className="h-3 w-3 mr-1" /> Support
                     </TabsTrigger>
-                    <TabsTrigger value="deals" className="flex-1 text-xs">
+                    <TabsTrigger value="deals" className="text-xs shrink-0">
                       <DollarSign className="h-3 w-3 mr-1" /> Deals
                     </TabsTrigger>
-                    <TabsTrigger value="contacts" className="flex-1 text-xs">
+                    <TabsTrigger value="contacts" className="text-xs shrink-0">
                       <Users className="h-3 w-3 mr-1" /> Contacts
                     </TabsTrigger>
-                    <TabsTrigger value="notes" className="flex-1 text-xs">
+                    <TabsTrigger value="notes" className="text-xs shrink-0">
                       <StickyNote className="h-3 w-3 mr-1" /> Notes
                     </TabsTrigger>
                   </TabsList>
