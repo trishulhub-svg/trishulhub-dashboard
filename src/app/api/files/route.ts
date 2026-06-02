@@ -131,6 +131,7 @@ export async function GET(req: NextRequest) {
     const parentId = searchParams.get("parentId") || null
     const search = searchParams.get("search") || ""
     const starred = searchParams.get("starred") === "true"
+    const shared = searchParams.get("shared") === "true"
     const trashed = searchParams.get("trashed") === "true"
     const pageToken = searchParams.get("pageToken") || undefined
     const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "50"), 100)
@@ -156,6 +157,12 @@ export async function GET(req: NextRequest) {
 
     if (starred) {
       where.starred = true
+    }
+
+    // Shared with me filter: files shared with user (not created by them)
+    if (shared) {
+      where.createdBy = { not: userId }
+      where.permissions = { some: { userId } }
     }
 
     if (parentId) {

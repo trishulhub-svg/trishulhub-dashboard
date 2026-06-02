@@ -134,7 +134,7 @@ interface BreadcrumbItem {
 
 type ViewMode = "grid" | "list"
 type SortField = "name" | "updatedAt" | "size" | "mimeType"
-type FilterMode = "all" | "starred" | "trashed"
+type FilterMode = "all" | "starred" | "trashed" | "shared"
 
 // ── Constants ──
 const DEPARTMENTS = [
@@ -245,6 +245,10 @@ export default function FilesPage() {
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: "Root" }])
 
+  // Permission dialog state
+  const [permAccessLevel, setPermAccessLevel] = useState<string>("VIEW")
+  const [permCascade, setPermCascade] = useState<boolean>(false)
+
   // Upload state
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploadingFiles, setUploadingFiles] = useState<{ name: string; progress: number; error?: string }[]>([])
@@ -259,6 +263,9 @@ export default function FilesPage() {
   const [deleteDialog, setDeleteDialog] = useState<FileItem | null>(null)
   const [shareDialog, setShareDialog] = useState<FileItem | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [permAccessLevel, setPermAccessLevel] = useState<string>("VIEW")
+  const [permCascade, setPermCascade] = useState(false)
+  const [permLoading, setPermLoading] = useState<Record<string, boolean>>({})
 
   // Smart Folder Dialog state
   const [smartFolderDialog, setSmartFolderDialog] = useState(false)
@@ -281,6 +288,7 @@ export default function FilesPage() {
       const params = new URLSearchParams()
       if (currentFolder) params.set("parentId", currentFolder)
       if (filter === "starred") params.set("starred", "true")
+      if (filter === "shared") params.set("shared", "true")
       if (filter === "trashed") params.set("trashed", "true")
 
       const res = await fetch(`/api/files?${params}`)
@@ -993,7 +1001,7 @@ export default function FilesPage() {
           <div className="flex items-center gap-2">
             {/* Filter */}
             <div className="flex items-center gap-1 rounded-lg border bg-card p-1">
-              {(["all", "starred", "trashed"] as FilterMode[]).map((f) => (
+              {(["all", "shared", "starred", "trashed"] as FilterMode[]).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -1002,7 +1010,7 @@ export default function FilesPage() {
                     filter === f ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {f === "all" ? "All" : f === "starred" ? "Starred" : "Trash"}
+                  {f === "all" ? "All" : f === "shared" ? "Shared" : f === "starred" ? "Starred" : "Trash"}
                 </button>
               ))}
             </div>
@@ -1518,24 +1526,64 @@ export default function FilesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Share Dialog ── */}
-      <Dialog open={!!shareDialog} onOpenChange={() => setShareDialog(null)}>
+      {/* ── Share / Permission Manager Dialog ── */}
+      <Dialog open={!!shareDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShareDialog(null)
+          setPermCascade(false)
+          setPermAccessLevel("VIEW")
+        }
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Share2 className="h-5 w-5" />
-              Share
+              Manage Access
             </DialogTitle>
             <DialogDescription>
-              Manage access for &quot;{shareDialog?.name}&quot;
+              {shareDialog && isFolder(shareDialog.mimeType)
+                ? `Manage access for folder "${shareDialog?.name}"`
+                : `Manage access for "${shareDialog?.name}"`
+              }
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Folder cascade toggle */}
+            {shareDialog && isFolder(shareDialog.mimeType) && (
+              <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Folder className="h-4 w-4 text-amber-500" />
+                  <div>
+                    <p className="text-sm font-medium">Apply to sub-folders & files</p>
+                    <p className="text-xs text-muted-foreground">Changes will cascade to all items inside this folder</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPermCascade(!permCascade)}
+                  className={cn(
+                    "relative h-6 w-11 rounded-full transition-colors",
+                    permCascade ? "bg-primary" : "bg-muted"
+                  )}
+                >
+                  <span className={cn(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+                    permCascade ? "translate-x-5.5 left-0.5" : "left-0.5"
+                  )} />
+                </button>
+              </div>
+            )}
+
             {/* Current permissions */}
             <div className="space-y-2">
               <p className="text-sm font-medium">People with access</p>
-              <SharePermissionsList fileId={shareDialog?.id || ""} onUpdate={fetchFiles} />
+              <SharePermissionsList
+                fileId={shareDialog?.id || ""}
+                onUpdate={() => { fetchFiles() }}
+                cascade={permCascade}
+                loadingState={permLoading}
+                setLoadingState={setPermLoading}
+              />
             </div>
 
             <Separator />
@@ -1544,7 +1592,31 @@ export default function FilesPage() {
             <div className="space-y-2">
               <p className="text-sm font-medium">Add people</p>
               <div className="flex gap-2">
-                <Select onValueChange={(val) => handleGrantPermission(val, "VIEW")}>
+                <Select onValueChange={(val) => {
+                  if (shareDialog) {
+                    setPermLoading(prev => ({ ...prev, [`add-${val}`]: true }))
+                    fetch("/api/files/permissions", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        fileId: shareDialog.id,
+                        targetUserId: val,
+                        accessLevel: permAccessLevel,
+                        cascade: permCascade,
+                      }),
+                    })
+                      .then((res) => res.json())
+                      .then((data) => {
+                        if (data.error) {
+                          toast.error(data.error, { duration: 6000 })
+                        } else {
+                          toast.success(data.message || "Access granted")
+                        }
+                      })
+                      .catch(() => toast.error("Failed to grant access"))
+                      .finally(() => setPermLoading(prev => ({ ...prev, [`add-${val}`]: false })))
+                  }
+                }}>
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Select team member" />
                   </SelectTrigger>
@@ -1552,7 +1624,7 @@ export default function FilesPage() {
                     {teamMembers
                       .filter((m) => m.id !== userId)
                       .map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
+                        <SelectItem key={m.id} value={m.id} disabled={permLoading[`add-${m.id}`]}>
                           <div className="flex items-center gap-2">
                             <span>{m.name}</span>
                             <Badge variant="secondary" className="text-xs">{m.role}</Badge>
@@ -1561,15 +1633,34 @@ export default function FilesPage() {
                       ))}
                   </SelectContent>
                 </Select>
+                <Select value={permAccessLevel} onValueChange={setPermAccessLevel}>
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="VIEW">
+                      <span className="flex items-center gap-1"><Eye className="h-3 w-3" /> View</span>
+                    </SelectItem>
+                    <SelectItem value="EDIT">
+                      <span className="flex items-center gap-1"><Pencil className="h-3 w-3" /> Edit</span>
+                    </SelectItem>
+                    <SelectItem value="ADMIN">
+                      <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> Admin</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <p className="text-xs text-muted-foreground">
-                Added with Viewer access. You can change their role in the list above.
+                {permAccessLevel === "VIEW" && "Viewer: Can see and download files only."}
+                {permAccessLevel === "EDIT" && "Editor: Can rename, move, and edit files."}
+                {permAccessLevel === "ADMIN" && "Admin: Full control including managing permissions."}
+                {permCascade && " (Will apply to all sub-items)"}
               </p>
             </div>
           </div>
 
           <DialogFooter>
-            <Button onClick={() => setShareDialog(null)}>Done</Button>
+            <Button onClick={() => { setShareDialog(null); setPermCascade(false); setPermAccessLevel("VIEW") }}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1644,6 +1735,12 @@ export default function FilesPage() {
                     >
                       {file.starred && (
                         <Star className="absolute top-2 right-2 h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                      )}
+                      {/* Shared badge */}
+                      {file.createdBy !== userId && (
+                        <Badge variant="secondary" className="absolute top-2 left-2 text-[10px] px-1.5 py-0 h-4">
+                          <Share2 className="h-2.5 w-2.5 mr-0.5" /> Shared
+                        </Badge>
                       )}
 
                       {/* Thumbnail / Icon */}
@@ -1801,6 +1898,11 @@ export default function FilesPage() {
                           </p>
                         </div>
                         {file.starred && <Star className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0 ml-1" />}
+                        {file.createdBy !== userId && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0 ml-1">
+                            <Share2 className="h-2.5 w-2.5 mr-0.5" /> Shared
+                          </Badge>
+                        )}
                       </div>
 
                       {/* Size */}
@@ -2010,8 +2112,21 @@ function FileViewer({ file }: { file: FileItem }) {
 }
 
 // ── Share Permissions List Component ──
-function SharePermissionsList({ fileId, onUpdate }: { fileId: string; onUpdate: () => void }) {
+function SharePermissionsList({
+  fileId,
+  onUpdate,
+  cascade,
+  loadingState,
+  setLoadingState,
+}: {
+  fileId: string
+  onUpdate: () => void
+  cascade?: boolean
+  loadingState?: Record<string, boolean>
+  setLoadingState?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+}) {
   const [permissions, setPermissions] = useState<any[]>([])
+  const [creator, setCreator] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -2019,10 +2134,11 @@ function SharePermissionsList({ fileId, onUpdate }: { fileId: string; onUpdate: 
     let cancelled = false
     setLoading(true)
     fetch(`/api/files/permissions?fileId=${fileId}`)
-      .then((res) => (res.ok ? res.json() : []))
+      .then((res) => (res.ok ? res.json() : { permissions: [], creator: null }))
       .then((data) => {
         if (!cancelled) {
-          setPermissions(Array.isArray(data) ? data : [])
+          setPermissions(data.permissions || [])
+          setCreator(data.creator || null)
           setLoading(false)
         }
       })
@@ -2030,16 +2146,81 @@ function SharePermissionsList({ fileId, onUpdate }: { fileId: string; onUpdate: 
     return () => { cancelled = true }
   }, [fileId])
 
+  const handleChangeLevel = (perm: any, newLevel: string) => {
+    if (setLoadingState) setLoadingState(prev => ({ ...prev, [perm.userId]: true }))
+    fetch("/api/files/permissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId, targetUserId: perm.userId, accessLevel: newLevel, cascade }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          toast.error(data.error, { duration: 6000 })
+        } else {
+          toast.success(data.message || "Access updated")
+          onUpdate()
+        }
+      })
+      .catch(() => toast.error("Failed to update access"))
+      .finally(() => {
+        if (setLoadingState) setLoadingState(prev => ({ ...prev, [perm.userId]: false }))
+      })
+  }
+
+  const handleRemove = (perm: any) => {
+    if (setLoadingState) setLoadingState(prev => ({ ...prev, [perm.userId]: true }))
+    fetch("/api/files/permissions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId, targetUserId: perm.userId, cascade }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          toast.error(data.error, { duration: 6000 })
+        } else {
+          toast.success(data.message || "Access removed")
+          onUpdate()
+        }
+      })
+      .catch(() => toast.error("Failed to remove access"))
+      .finally(() => {
+        if (setLoadingState) setLoadingState(prev => ({ ...prev, [perm.userId]: false }))
+      })
+  }
+
   if (loading) {
     return <div className="space-y-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
   }
 
-  if (permissions.length === 0) {
-    return <p className="text-sm text-muted-foreground py-2">Only you have access</p>
-  }
-
   return (
     <div className="space-y-1 max-h-48 overflow-y-auto">
+      {/* Creator / Owner */}
+      {creator && (
+        <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              {creator.name?.charAt(0) || "?"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{creator.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{creator.email}</p>
+            </div>
+          </div>
+          <Badge variant="secondary" className="text-xs shrink-0">
+            <Shield className="h-3 w-3 mr-1" /> Owner
+          </Badge>
+        </div>
+      )}
+
+      {/* Shared users */}
+      {permissions.length === 0 && !creator && (
+        <p className="text-sm text-muted-foreground py-2">Only you have access</p>
+      )}
+      {permissions.length === 0 && creator && (
+        <p className="text-sm text-muted-foreground py-2">No one else has access yet</p>
+      )}
       {permissions.map((perm: any) => (
         <div key={perm.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
           <div className="flex items-center gap-3 min-w-0">
@@ -2054,13 +2235,8 @@ function SharePermissionsList({ fileId, onUpdate }: { fileId: string; onUpdate: 
           <div className="flex items-center gap-2 shrink-0">
             <Select
               value={perm.accessLevel}
-              onValueChange={(val) => {
-                fetch("/api/files/permissions", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ fileId, targetUserId: perm.userId, accessLevel: val }),
-                }).then(() => onUpdate())
-              }}
+              onValueChange={(val) => handleChangeLevel(perm, val)}
+              disabled={loadingState?.[perm.userId]}
             >
               <SelectTrigger className="h-7 w-24 text-xs">
                 <SelectValue />
@@ -2081,13 +2257,8 @@ function SharePermissionsList({ fileId, onUpdate }: { fileId: string; onUpdate: 
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              onClick={() => {
-                fetch("/api/files/permissions", {
-                  method: "DELETE",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ fileId, targetUserId: perm.userId }),
-                }).then(() => onUpdate())
-              }}
+              onClick={() => handleRemove(perm)}
+              disabled={loadingState?.[perm.userId]}
             >
               <X className="h-3 w-3" />
             </Button>

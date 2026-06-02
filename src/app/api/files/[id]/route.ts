@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { canPerformFileAction, isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import * as drive from "@/lib/google-drive"
@@ -65,6 +66,7 @@ export async function PUT(
 
     const { id } = await params
     const userId = session.user.id
+    const role = session.user.role
 
     // Rate limit
     const rl = rateLimit(`file-write-${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -82,6 +84,12 @@ export async function PUT(
     const existing = await db.fileMetadata.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: "File not found" }, { status: 404 })
+    }
+
+    // Permission check: need EDIT or higher to modify file
+    const canEdit = await canPerformFileAction(id, userId, role, "edit")
+    if (!canEdit) {
+      return NextResponse.json({ error: "You don't have permission to edit this file. VIEW access only allows viewing and downloading." }, { status: 403 })
     }
 
     const updateData: Record<string, unknown> = {}
@@ -154,6 +162,7 @@ export async function DELETE(
 
     const { id } = await params
     const userId = session.user.id
+    const role = session.user.role
 
     // Rate limit
     const rl = rateLimit(`file-delete-${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -168,6 +177,12 @@ export async function DELETE(
     const existing = await db.fileMetadata.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: "File not found" }, { status: 404 })
+    }
+
+    // Permission check: need DELETE permission (ADMIN/OWNER only)
+    const canDelete = await canPerformFileAction(id, userId, role, "delete")
+    if (!canDelete) {
+      return NextResponse.json({ error: "You don't have permission to delete this file. Only ADMIN and OWNER can delete files." }, { status: 403 })
     }
 
     // Restore from trash

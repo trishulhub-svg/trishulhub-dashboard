@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { canPerformFileAction } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import * as drive from "@/lib/google-drive"
@@ -19,6 +20,7 @@ export async function GET(
 
     const { id } = await params
     const userId = session.user.id
+    const role = session.user.role
 
     // Rate limit
     const rl = rateLimit(`file-download-${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
@@ -29,6 +31,12 @@ export async function GET(
     const file = await db.fileMetadata.findUnique({ where: { id } })
     if (!file) {
       return NextResponse.json({ error: "File not found" }, { status: 404 })
+    }
+
+    // Permission check: need at least VIEW to download
+    const canDownload = await canPerformFileAction(id, userId, role, "download")
+    if (!canDownload) {
+      return NextResponse.json({ error: "You don't have permission to download this file." }, { status: 403 })
     }
 
     if (file.trashed) {
