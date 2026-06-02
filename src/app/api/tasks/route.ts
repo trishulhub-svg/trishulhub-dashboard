@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
   // SUPER_ADMIN sees all tasks; others have RBAC restrictions
   if (isSuperAdmin(userRole)) {
     // Build where clause with all filters — no RBAC restriction
-    const where: Record<string, unknown> = {}
+    const where: { projectId?: string | null | { in: string[] }; assignedTo?: string; createdBy?: string; category?: string } = {}
 
     if (projectId) {
       where.projectId = projectId
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
   // Build where clause
-  const where: Record<string, unknown> = {}
+  const where: { projectId?: string | null | { in: string[] }; assignedTo?: string; createdBy?: string; category?: string } = {}
 
   // If a specific projectId is requested, verify access and restrict to it
   if (projectId) {
@@ -262,7 +262,7 @@ export async function POST(req: NextRequest) {
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Record<string, unknown> = {
+  const data: Parameters<typeof db.task.create>[0]["data"] = {
     title: String(body.title),
     description: body.description ? String(body.description) : null,
     status: taskStatus,

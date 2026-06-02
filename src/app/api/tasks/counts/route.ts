@@ -24,7 +24,7 @@ export async function GET() {
     // Developers only see tasks from their assigned projects
     const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
-    const where: Record<string, unknown> = {
+    const where: { status: Record<string, string>; projectId?: { in: string[] } } = {
       status: { not: "DONE" }
     }
 
