@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { isAdmin, isSuperAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { syncTasksToGit } from "@/lib/git-sync"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+const VALID_TASK_CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]
 
 // ── Helper: send notification to a user ──
 async function sendNotification(userId: string, title: string, message: string, type: string, link: string | null) {
@@ -37,27 +38,103 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const projectId = searchParams.get("projectId")
   const assignedToFilter = searchParams.get("assignedTo")
+  const createdByFilter = searchParams.get("createdBy")
+  const standaloneFilter = searchParams.get("standalone")
+  const categoryFilter = searchParams.get("category")
 
-  // Developers only see tasks from their assigned projects
+  // SUPER_ADMIN sees all tasks; others have RBAC restrictions
+  if (isSuperAdmin(userRole)) {
+    // Build where clause with all filters — no RBAC restriction
+    const where: Record<string, unknown> = {}
+
+    if (projectId) {
+      where.projectId = projectId
+    } else if (standaloneFilter === "true") {
+      where.projectId = null
+    }
+
+    if (assignedToFilter && assignedToFilter !== "current") {
+      where.assignedTo = assignedToFilter
+    } else if (assignedToFilter === "current") {
+      where.assignedTo = userId
+    }
+
+    if (createdByFilter === "current") {
+      where.createdBy = userId
+    } else if (createdByFilter) {
+      where.createdBy = createdByFilter
+    }
+
+    if (categoryFilter) {
+      where.category = categoryFilter
+    }
+
+    const tasks = await db.task.findMany({
+      where,
+      orderBy: { createdAt: "desc" }
+    })
+
+    // Resolve userIds to names for assignee, approver, and creator
+    const userIds = new Set<string>()
+    for (const t of tasks) {
+      if (t.assignedTo) userIds.add(t.assignedTo)
+      if (t.approvedBy) userIds.add(t.approvedBy)
+      if (t.createdBy) userIds.add(t.createdBy)
+    }
+    let userMap: Record<string, string> = {}
+    if (userIds.size > 0) {
+      const users = await db.user.findMany({
+        where: { id: { in: Array.from(userIds) } },
+        select: { id: true, name: true }
+      })
+      for (const u of users) userMap[u.id] = u.name
+    }
+
+    const enriched = tasks.map(t => ({
+      ...JSON.parse(JSON.stringify(t)),
+      assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
+      approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
+      createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+    }))
+    return NextResponse.json(enriched)
+  }
+
+  // ── Non-admin users: RBAC-filtered view ──
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
   // Build where clause
   const where: Record<string, unknown> = {}
-  if (assignedProjectIds) {
-    where.projectId = { in: assignedProjectIds }
-  }
 
-  // Filter by assigned user when ?assignedTo=current
-  if (assignedToFilter === "current") {
-    where.assignedTo = userId
-  }
-
+  // If a specific projectId is requested, verify access and restrict to it
   if (projectId) {
-    // If user has access restrictions, verify project access first
     if (assignedProjectIds && !(assignedProjectIds as string[]).includes(projectId)) {
       return NextResponse.json([])
     }
     where.projectId = projectId
+  } else if (standaloneFilter === "true") {
+    // Standalone tasks — no project filter, but RBAC still applies
+    where.projectId = null
+  } else if (assignedProjectIds) {
+    where.projectId = { in: assignedProjectIds }
+  }
+
+  // assignedTo filter
+  if (assignedToFilter && assignedToFilter !== "current") {
+    where.assignedTo = assignedToFilter
+  } else if (assignedToFilter === "current") {
+    where.assignedTo = userId
+  }
+
+  // createdBy filter
+  if (createdByFilter === "current") {
+    where.createdBy = userId
+  } else if (createdByFilter) {
+    where.createdBy = createdByFilter
+  }
+
+  // category filter
+  if (categoryFilter) {
+    where.category = categoryFilter
   }
 
   const tasks = await db.task.findMany({
@@ -65,11 +142,26 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" }
   })
 
-  // Resolve userIds to names for assignee and approver
+  // For non-admin: filter tasks they can see:
+  // assignedTo = userId OR createdBy = userId OR they are a ProjectMember of the task's project
+  const projectMemberProjectIds = assignedProjectIds || []
+
+  const visibleTasks = tasks.filter(t => {
+    // Always visible if assigned to the user
+    if (t.assignedTo === userId) return true
+    // Always visible if created by the user
+    if (t.createdBy === userId) return true
+    // Visible if user is a project member of the task's project
+    if (t.projectId && projectMemberProjectIds.includes(t.projectId)) return true
+    return false
+  })
+
+  // Resolve userIds to names for assignee, approver, and creator
   const userIds = new Set<string>()
-  for (const t of tasks) {
+  for (const t of visibleTasks) {
     if (t.assignedTo) userIds.add(t.assignedTo)
     if (t.approvedBy) userIds.add(t.approvedBy)
+    if (t.createdBy) userIds.add(t.createdBy)
   }
   let userMap: Record<string, string> = {}
   if (userIds.size > 0) {
@@ -80,10 +172,11 @@ export async function GET(req: NextRequest) {
     for (const u of users) userMap[u.id] = u.name
   }
 
-  const enriched = tasks.map(t => ({
+  const enriched = visibleTasks.map(t => ({
     ...JSON.parse(JSON.stringify(t)),
     assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
     approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
+    createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
   }))
   return NextResponse.json(enriched)
   } catch (error: any) {
@@ -110,23 +203,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  // projectId is required by schema
-  if (!body.projectId) {
-    return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
-  }
-
   // Title is required
   if (!body.title) {
     return NextResponse.json({ error: "Task title is required" }, { status: 400 })
   }
 
-  // Developers can only create tasks in projects they're assigned to
-  if (!isAdmin(userRole)) {
-    const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: String(body.projectId) }
-    })
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
+  // projectId is optional now — standalone tasks are allowed
+  // But if projectId IS provided, check project membership for non-admins
+  if (body.projectId) {
+    if (!isAdmin(userRole)) {
+      const membership = await db.projectMember.findFirst({
+        where: { userId, projectId: String(body.projectId) }
+      })
+      if (!membership) {
+        return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
+      }
     }
   }
 
@@ -142,13 +233,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
   }
 
+  // Validate category
+  const taskCategory = body.category ? String(body.category) : "GENERAL"
+  if (!VALID_TASK_CATEGORIES.includes(taskCategory)) {
+    return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_TASK_CATEGORIES.join(", ")}` }, { status: 400 })
+  }
+
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data = {
+  const data: Record<string, unknown> = {
     title: String(body.title),
     description: body.description ? String(body.description) : null,
     status: taskStatus,
     priority: taskPriority,
-    projectId: String(body.projectId),
+    category: taskCategory,
+    createdBy: userId,
+    projectId: body.projectId ? String(body.projectId) : null,
     assignedTo: body.assignedTo ? String(body.assignedTo) : null,
     assigneeType: body.assigneeType ? String(body.assigneeType) : "HUMAN",
     deadline: body.deadline ? new Date(String(body.deadline)) : null,
@@ -158,9 +257,9 @@ export async function POST(req: NextRequest) {
   if (data.assignedTo && data.deadline) {
     const assigneeLeave = await db.leave.findFirst({
       where: {
-        userId: data.assignedTo,
+        userId: data.assignedTo as string,
         status: "APPROVED",
-        startDate: { lte: data.deadline },
+        startDate: { lte: data.deadline as Date },
         endDate: { gte: new Date() },
       },
       include: {
@@ -175,8 +274,23 @@ export async function POST(req: NextRequest) {
   }
 
   const task = await db.task.create({ data })
-  // Background: sync tasks to Git (fire-and-forget)
-  syncTasksToGit().catch(() => {})
+
+  // Send notification to assignee when a task is created with an assignee
+  if (data.assignedTo && (data.assignedTo as string) !== userId) {
+    const deadlineStr = data.deadline ? ` (Due: ${new Date(data.deadline as Date).toLocaleDateString()})` : ""
+    await sendNotification(
+      data.assignedTo as string,
+      "New Task Assigned",
+      `You have been assigned a new task: ${String(body.title)}${deadlineStr}`,
+      "TASK",
+      "/dashboard/projects/todos"
+    )
+  }
+
+  // Background: sync tasks to Git (fire-and-forget) — only when projectId exists
+  if (data.projectId) {
+    syncTasksToGit().catch(() => {})
+  }
   return NextResponse.json(JSON.parse(JSON.stringify(task)), { status: 201 })
   } catch (error: any) {
     console.error("[tasks] POST error:", error?.message)
@@ -223,6 +337,12 @@ export async function PATCH(req: NextRequest) {
   if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo ? String(body.assignedTo) : null
   if (body.assigneeType !== undefined) data.assigneeType = String(body.assigneeType)
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(String(body.deadline)) : null
+  if (body.category !== undefined) {
+    if (!VALID_TASK_CATEGORIES.includes(String(body.category))) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_TASK_CATEGORIES.join(", ")}` }, { status: 400 })
+    }
+    data.category = String(body.category)
+  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // APPROVAL FLOW — status change logic
@@ -282,13 +402,23 @@ export async function PATCH(req: NextRequest) {
     data.projectId = String(body.projectId)
   }
 
-  // Developers can only update tasks in projects they're assigned to
-  if (!isAdmin(userRole)) {
+  // Developers can only update tasks in their assigned projects (only applies to project tasks)
+  if (!isAdmin(userRole) && existingTask.projectId) {
     const membership = await db.projectMember.findFirst({
       where: { userId, projectId: existingTask.projectId }
     })
     if (!membership) {
-      return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects" }, { status: 403 })
+      // Also check if the user is the creator of the task (standalone or not)
+      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+        return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
+      }
+    }
+  }
+
+  // For non-admin updating a standalone task: must be creator or assignee
+  if (!isAdmin(userRole) && !existingTask.projectId) {
+    if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+      return NextResponse.json({ error: "Forbidden: You can only update tasks assigned or created by you" }, { status: 403 })
     }
   }
 
@@ -338,6 +468,17 @@ export async function PATCH(req: NextRequest) {
   // NOTIFICATIONS
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  // Reassignment notification — when assignedTo changed to a different user
+  if (assignedUserId && existingTask.assignedTo !== assignedUserId) {
+    await sendNotification(
+      assignedUserId,
+      "Task Reassigned to You",
+      `Task "${existingTask.title}" has been reassigned to you`,
+      "TASK",
+      "/dashboard/projects/todos"
+    )
+  }
+
   const finalStatus = data.status as string | undefined
 
   // Task sent for approval → notify all admin/superadmin
@@ -346,7 +487,7 @@ export async function PATCH(req: NextRequest) {
       where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
       select: { id: true }
     })
-    const taskLink = `/dashboard/projects/${existingTask.projectId}`
+    const taskLink = `/dashboard/projects/todos`
     const assigneeName = existingTask.assignedTo ? (await db.user.findUnique({ where: { id: existingTask.assignedTo }, select: { name: true } }))?.name || "Someone" : "Someone"
 
     for (const admin of admins) {
@@ -362,7 +503,7 @@ export async function PATCH(req: NextRequest) {
 
   // Task approved → notify the assignee
   if (finalStatus === "DONE" && data.approvedBy && existingTask.assignedTo && existingTask.assignedTo !== userId) {
-    const taskLink = `/dashboard/projects/${existingTask.projectId}`
+    const taskLink = `/dashboard/projects/todos`
     await sendNotification(
       existingTask.assignedTo,
       "Task Approved",
@@ -375,7 +516,7 @@ export async function PATCH(req: NextRequest) {
   // Task rejected (sent back) → notify the assignee
   if (finalStatus && finalStatus !== "AWAITING_APPROVAL" && finalStatus !== "DONE" && existingTask.status === "AWAITING_APPROVAL") {
     if (existingTask.assignedTo) {
-      const taskLink = `/dashboard/projects/${existingTask.projectId}`
+      const taskLink = `/dashboard/projects/todos`
       await sendNotification(
         existingTask.assignedTo,
         "Task Revision Needed",
@@ -386,8 +527,10 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // Background: sync tasks to Git (fire-and-forget)
-  syncTasksToGit().catch(() => {})
+  // Background: sync tasks to Git (fire-and-forget) — only when task has a project
+  if (updatedTask.projectId) {
+    syncTasksToGit().catch(() => {})
+  }
   return NextResponse.json(JSON.parse(JSON.stringify(updatedTask)))
   } catch (error: any) {
     console.error("[tasks] PATCH error:", error?.message)
@@ -418,19 +561,29 @@ export async function DELETE(req: NextRequest) {
   const existingTask = await db.task.findUnique({ where: { id } })
   if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
 
-  // Developers can only delete tasks in their assigned projects
+  // Developers can only delete tasks in their assigned projects, or standalone tasks they created/are assigned to
   if (!isAdmin(userRole)) {
-    const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: existingTask.projectId }
-    })
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden: You can only delete tasks in your assigned projects" }, { status: 403 })
+    if (existingTask.projectId) {
+      // Project task — check membership
+      const membership = await db.projectMember.findFirst({
+        where: { userId, projectId: existingTask.projectId }
+      })
+      if (!membership && existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+        return NextResponse.json({ error: "Forbidden: You can only delete tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
+      }
+    } else {
+      // Standalone task — must be creator or assignee
+      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+        return NextResponse.json({ error: "Forbidden: You can only delete tasks assigned or created by you" }, { status: 403 })
+      }
     }
   }
 
   await db.task.delete({ where: { id } })
-  // Background: sync tasks to Git (fire-and-forget)
-  syncTasksToGit().catch(() => {})
+  // Background: sync tasks to Git (fire-and-forget) — only when task had a project
+  if (existingTask.projectId) {
+    syncTasksToGit().catch(() => {})
+  }
   return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error("[tasks] DELETE error:", error?.message)

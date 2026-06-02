@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,8 @@ import {
   Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
   GraduationCap, ExternalLink, ListTodo, MoreHorizontal, Trash2,
   Flag, UserCircle, Users, CheckCircle, ChevronDown, ChevronRight,
-  CircleCheckBig, Filter,
+  CircleCheckBig, Filter, Plus, X, UserPlus,
+  MessageSquare, Phone, ArrowUpCircle, Building2, LayoutGrid,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,9 +28,68 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+
+// ── Inline style injection for animations ──
+const animationStyles = `
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pulseSoft {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(139, 92, 246, 0); }
+}
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes floatOrb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(10px, -15px) scale(1.05); }
+  50% { transform: translate(-5px, -25px) scale(0.95); }
+  75% { transform: translate(-15px, -10px) scale(1.02); }
+}
+@keyframes searchGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15); }
+}
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out forwards;
+  opacity: 0;
+}
+.animate-scale-in {
+  animation: scaleIn 0.4s ease-out forwards;
+  opacity: 0;
+}
+.animate-pulse-soft {
+  animation: pulseSoft 2s ease-in-out infinite;
+}
+.animate-float-orb {
+  animation: floatOrb 6s ease-in-out infinite;
+}
+.animate-gradient-underline {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.3), rgba(59, 130, 246, 0.3), rgba(16, 185, 129, 0.3));
+  background-size: 200% 100%;
+  animation: gradientShift 3s ease-in-out infinite;
+}
+.search-glow:focus-within {
+  animation: searchGlow 1.5s ease-in-out infinite;
+}
+`;
 
 // ── Safe extractors ──
 function extractStr(obj: unknown, key: string, fallback = ""): string {
@@ -81,6 +141,27 @@ const statusBadgeColors: Record<string, string> = {
   DONE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
 };
 
+// ── Category colors & icons ──
+const CATEGORY_COLORS: Record<string, string> = {
+  GENERAL: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300",
+  MEETING: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  FOLLOW_UP: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  UPGRADE: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  CUSTOMER: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  INTERNAL: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+};
+
+const CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"] as const;
+
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  GENERAL: <LayoutGrid className="h-3 w-3" />,
+  MEETING: <MessageSquare className="h-3 w-3" />,
+  FOLLOW_UP: <Phone className="h-3 w-3" />,
+  UPGRADE: <ArrowUpCircle className="h-3 w-3" />,
+  CUSTOMER: <UserPlus className="h-3 w-3" />,
+  INTERNAL: <Building2 className="h-3 w-3" />,
+};
+
 const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
 
@@ -92,23 +173,33 @@ function getInitials(name: string): string {
 // REUSABLE COMPONENTS
 // ══════════════════════════════════════════════════════
 
-/** Glassmorphism stat card with icon */
-function GlassStatCard({ label, value, color, icon }: { label: string; value: number; color: string; icon?: React.ReactNode }) {
+/** Glassmorphism stat card with icon — upgraded with gradient icon bg & hover lift */
+function GlassStatCard({ label, value, color, icon, delay = 0 }: { label: string; value: number; color: string; icon?: React.ReactNode; delay?: number }) {
   return (
-    <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-3.5">
+    <div
+      className={cn(
+        "rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-3.5",
+        "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-scale-in",
+      )}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{label}</p>
-        {icon && <div className="opacity-30">{icon}</div>}
+        {icon && (
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
+            {icon}
+          </div>
+        )}
       </div>
       <p className={cn("text-2xl font-bold tracking-tight mt-1", color)}>{String(value)}</p>
     </div>
   );
 }
 
-/** Section header with icon, title, and count badge */
+/** Section header with icon, title, count badge, and animated gradient underline */
 function SectionHeader({ icon, title, count, badgeColor }: { icon: React.ReactNode; title: string; count: number; badgeColor?: string }) {
   return (
-    <div className="flex items-center gap-2.5 px-1">
+    <div className="flex items-center gap-2.5 px-1 pb-1">
       <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center", badgeColor || "bg-violet-100 dark:bg-violet-900/30")}>
         {icon}
       </div>
@@ -116,6 +207,7 @@ function SectionHeader({ icon, title, count, badgeColor }: { icon: React.ReactNo
       <Badge variant="secondary" className={cn("text-[10px] font-bold", badgeColor || "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300")}>
         {String(count)}
       </Badge>
+      <div className="flex-1 h-[2px] rounded-full animate-gradient-underline mt-0.5" />
     </div>
   );
 }
@@ -144,15 +236,30 @@ function ProjectGroupHeader({ name, count, isOpen, onToggle }: { name: string; c
   );
 }
 
-/** Single personal task item (checkbox + title + meta) */
-function PersonalTaskItem({ task, togglingId, onToggleDone }: {
-  task: unknown; togglingId: string | null; onToggleDone: (id: string) => void;
+/** Category badge component */
+function CategoryBadge({ category }: { category: string }) {
+  if (!category || category === "GENERAL") return null;
+  const colorClass = CATEGORY_COLORS[category] || CATEGORY_COLORS.GENERAL;
+  const icon = CATEGORY_ICONS[category];
+  const label = safeText(category).replace("_", " ");
+  return (
+    <Badge className={cn("text-[10px] font-medium gap-1", colorClass)}>
+      {icon}
+      {label}
+    </Badge>
+  );
+}
+
+/** Single personal task item (checkbox + title + meta) — upgraded with category & hover scale */
+function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
+  task: unknown; togglingId: string | null; onToggleDone: (id: string) => void; index?: number;
 }) {
   const taskId = extractStr(task, "id", "");
   const title = extractStr(task, "title", "Untitled");
   const status = extractStr(task, "status", "TODO");
   const priority = extractStr(task, "priority", "MEDIUM");
   const deadline = extractStr(task, "deadline", "");
+  const category = extractStr(task, "category", "GENERAL");
   const isAwaiting = status === "AWAITING_APPROVAL";
   const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting;
   const isToggling = togglingId === taskId;
@@ -160,13 +267,17 @@ function PersonalTaskItem({ task, togglingId, onToggleDone }: {
   const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
 
   return (
-    <div className={cn(
-      "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
-      "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
-      "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm",
-      priorityBorder,
-      isAwaiting && "opacity-60",
-    )}>
+    <div
+      className={cn(
+        "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
+        "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
+        "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
+        priorityBorder,
+        isAwaiting && "opacity-60",
+        "animate-slide-up",
+      )}
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onToggleDone(taskId); }}
@@ -188,6 +299,7 @@ function PersonalTaskItem({ task, togglingId, onToggleDone }: {
         </p>
       </div>
       <div className="flex items-center gap-2.5 shrink-0">
+        <CategoryBadge category={category} />
         <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
         {deadline && (
           <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
@@ -205,12 +317,12 @@ function PersonalTaskItem({ task, togglingId, onToggleDone }: {
   );
 }
 
-/** Single team task row with admin action dropdown */
-function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, onChangePriority, onChangeStatus, togglingId }: {
+/** Single team task row with admin action dropdown — upgraded with category, createdBy, hover scale */
+function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, onChangePriority, onChangeStatus, togglingId, index = 0 }: {
   task: unknown; projectNameMap: Map<string, string>; teamMembers: Record<string, unknown>[];
   onDelete: (id: string) => void; onReassign: (taskId: string, userId: string) => void;
   onChangePriority: (taskId: string, priority: string) => void; onChangeStatus: (taskId: string, status: string) => void;
-  togglingId: string | null;
+  togglingId: string | null; index?: number;
 }) {
   const taskId = extractStr(task, "id", "");
   const title = extractStr(task, "title", "Untitled");
@@ -219,6 +331,8 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
   const deadline = extractStr(task, "deadline", "");
   const assignedTo = extractStr(task, "assignedTo", "");
   const projectId = extractStr(task, "projectId", "");
+  const category = extractStr(task, "category", "GENERAL");
+  const createdByName = extractStr(task, "createdByName", "");
   const isAwaiting = status === "AWAITING_APPROVAL";
   const isDone = status === "DONE";
   const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting && !isDone;
@@ -228,13 +342,17 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
   const projectName = projectNameMap.get(projectId) || "Unknown";
 
   return (
-    <div className={cn(
-      "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
-      "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
-      "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm",
-      priorityBorder,
-      isDone && "opacity-50", isAwaiting && "opacity-60",
-    )}>
+    <div
+      className={cn(
+        "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
+        "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
+        "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
+        priorityBorder,
+        isDone && "opacity-50", isAwaiting && "opacity-60",
+        "animate-slide-up",
+      )}
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
       <button
         type="button"
         onClick={() => onChangeStatus(taskId, isDone ? "TODO" : "DONE")}
@@ -254,11 +372,18 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
         <p className={cn("text-sm leading-snug", (isDone || isAwaiting) && "line-through text-muted-foreground/60", !isDone && !isAwaiting && "font-medium")}>
           {safeText(title)}
         </p>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className="text-[11px] text-muted-foreground truncate">{safeText(projectName)}</span>
+          {createdByName && (
+            <>
+              <span className="text-[11px] text-muted-foreground/40">·</span>
+              <span className="text-[11px] text-muted-foreground/60">Created by {safeText(createdByName)}</span>
+            </>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        <CategoryBadge category={category} />
         <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
         {deadline && (
           <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
@@ -341,6 +466,273 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
   );
 }
 
+/** Create Task Dialog — NEW */
+function CreateTaskDialog({
+  open,
+  onOpenChange,
+  isAdmin,
+  teamMembers,
+  projects,
+  onSuccess,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  isAdmin: boolean;
+  teamMembers: Record<string, unknown>[];
+  projects: Record<string, unknown>[];
+  onSuccess: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("MEDIUM");
+  const [category, setCategory] = useState("GENERAL");
+  const [deadline, setDeadline] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = useCallback(async () => {
+    if (!title.trim()) {
+      toast.error("Task title is required");
+      return;
+    }
+    setCreating(true);
+    try {
+      const body: Record<string, unknown> = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        priority,
+        category,
+        deadline: deadline || undefined,
+        projectId: projectId || undefined,
+      };
+      if (isAdmin && assignedTo) {
+        body.assignedTo = assignedTo;
+      }
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        toast.success("Task created successfully");
+        queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
+        queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] });
+        // Reset form
+        setTitle("");
+        setDescription("");
+        setPriority("MEDIUM");
+        setCategory("GENERAL");
+        setDeadline("");
+        setAssignedTo("");
+        setProjectId("");
+        onOpenChange(false);
+        onSuccess();
+      } else {
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to create task");
+      }
+    } catch {
+      toast.error("Failed to create task");
+    } finally {
+      setCreating(false);
+    }
+  }, [title, description, priority, category, deadline, assignedTo, projectId, isAdmin, queryClient, onOpenChange, onSuccess]);
+
+  const handleClose = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-white/20 dark:border-white/10 sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold">Create New Task</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Add a new task to your project. Fill in the details below.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Title */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-title" className="text-xs font-semibold">
+              Title <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="task-title"
+              placeholder="What needs to be done?"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-desc" className="text-xs font-semibold">Description</Label>
+            <Textarea
+              id="task-desc"
+              placeholder="Add more details (optional)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm resize-none"
+            />
+          </div>
+
+          {/* Priority */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">Priority</Label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {VALID_PRIORITIES.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPriority(p)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200",
+                    priority === p
+                      ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08]",
+                  )}
+                >
+                  <span className={cn("h-2 w-2 rounded-full", priorityDotColors[p])} />
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Category */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">Category</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setCategory(cat)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all duration-200",
+                    category === cat
+                      ? CATEGORY_COLORS[cat]
+                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08]",
+                    category === cat && "ring-1 ring-offset-1 ring-current",
+                  )}
+                >
+                  {CATEGORY_ICONS[cat]}
+                  {cat.replace("_", " ")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Deadline */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-deadline" className="text-xs font-semibold">Deadline</Label>
+            <Input
+              id="task-deadline"
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm"
+              min={new Date().toISOString().split("T")[0]}
+            />
+          </div>
+
+          {/* Project */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-project" className="text-xs font-semibold">Project</Label>
+            <select
+              id="task-project"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="w-full rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border border-white/20 dark:border-white/10 text-sm px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            >
+              <option value="">No project</option>
+              {(projects as Record<string, unknown>[]).map((p) => {
+                const pid = extractStr(p, "id", "");
+                const pName = extractStr(p, "name", "");
+                return (
+                  <option key={pid} value={pid}>{safeText(pName)}</option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* Assign to (admin only) */}
+          {isAdmin && (
+            <div className="space-y-1.5">
+              <Label htmlFor="task-assign" className="text-xs font-semibold">Assign to member</Label>
+              <select
+                id="task-assign"
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="w-full rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border border-white/20 dark:border-white/10 text-sm px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+              >
+                <option value="">Leave unassigned</option>
+                {(teamMembers as Record<string, unknown>[]).filter((m) => m.isActive !== false).map((m) => {
+                  const mId = extractStr(m, "id", "");
+                  const mName = extractStr(m, "name", "");
+                  return (
+                    <option key={mId} value={mId}>{safeText(mName)}</option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button variant="outline" onClick={handleClose} className="text-sm">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={creating || !title.trim()}
+            className="text-sm bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+          >
+            {creating ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Creating...
+              </span>
+            ) : (
+              "Create Task"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Floating Action Button — NEW */
+function CreateTaskFAB({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full",
+        "bg-gradient-to-r from-violet-600 to-purple-600",
+        "text-white shadow-lg shadow-violet-500/25",
+        "flex items-center justify-center",
+        "transition-all duration-200 hover:scale-110 hover:shadow-xl hover:shadow-violet-500/30",
+        "active:scale-95",
+        "animate-pulse-soft",
+      )}
+      aria-label="Create Task"
+    >
+      <Plus className="h-6 w-6" />
+    </button>
+  );
+}
+
 /** The full "My Todos" personal view — shared between admin tab and non-admin fallback */
 function PersonalTodosView({ props }: { props: {
   totalActive: number; overdueTasks: number; awaitingApproval: number;
@@ -368,12 +760,12 @@ function PersonalTodosView({ props }: { props: {
     });
   }, []);
 
-  // Open all projects by default if there are any
-  useState(() => {
+  // Open all projects by default when data loads
+  useEffect(() => {
     if (tasksByProject.size > 0 && openProjects.size === 0) {
       setOpenProjects(new Set(tasksByProject.keys()));
     }
-  });
+  }, [tasksByProject, openProjects.size]);
 
   const hasVisibleContent = totalActive > 0 || completedCount > 0;
 
@@ -381,19 +773,24 @@ function PersonalTodosView({ props }: { props: {
     <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
-        <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} />
-        <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} />
-        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} />
+        <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
+        <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
+        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
       </div>
 
-      {/* Empty state — no content at all */}
+      {/* Empty state — no content at all — upgraded with animated gradient orbs */}
       {!hasVisibleContent && (
-        <div className="text-center py-20">
-          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
-            <CheckCircle2 className="h-8 w-8 text-violet-400/40" />
+        <div className="text-center py-20 relative overflow-hidden">
+          <div className="absolute top-8 left-1/4 h-24 w-24 rounded-full bg-violet-400/10 blur-3xl animate-float-orb" />
+          <div className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-purple-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-16 w-16 rounded-full bg-fuchsia-400/10 blur-2xl animate-float-orb" style={{ animationDelay: "4s" }} />
+          <div className="relative z-10">
+            <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
+              <CheckCircle2 className="h-8 w-8 text-violet-400/40" />
+            </div>
+            <p className="text-lg font-bold text-foreground/80">All caught up!</p>
+            <p className="text-sm text-muted-foreground/60 mt-1">No pending tasks or training assignments</p>
           </div>
-          <p className="text-lg font-bold text-foreground/80">All caught up!</p>
-          <p className="text-sm text-muted-foreground/60 mt-1">No pending tasks or training assignments</p>
         </div>
       )}
 
@@ -420,7 +817,7 @@ function PersonalTodosView({ props }: { props: {
               count={sortedTraining.length}
             />
             <div className="space-y-2">
-              {sortedTraining.map((training: unknown) => {
+              {sortedTraining.map((training: unknown, idx: number) => {
                 const tId = extractStr(training, "id", "");
                 const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
                 const dueDate = extractStr(training, "dueDate", "");
@@ -436,7 +833,9 @@ function PersonalTodosView({ props }: { props: {
                       "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
                       "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
                       isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
+                      "animate-slide-up",
                     )}
+                    style={{ animationDelay: `${idx * 50}ms` }}
                     onClick={() => router.push(`/dashboard/my-training/${tId}`)}
                   >
                     <CardContent className="p-3.5">
@@ -498,12 +897,13 @@ function PersonalTodosView({ props }: { props: {
                     />
                     {isProjectOpen && (
                       <div className="mt-2 space-y-1.5 pl-1">
-                        {tasks.map((task: unknown) => (
+                        {tasks.map((task: unknown, idx: number) => (
                           <PersonalTaskItem
                             key={extractStr(task, "id", "")}
                             task={task}
                             togglingId={togglingId}
                             onToggleDone={handleToggleDone}
+                            index={idx}
                           />
                         ))}
                       </div>
@@ -516,7 +916,7 @@ function PersonalTodosView({ props }: { props: {
         </Card>
       )}
 
-      {/* ── Completed Tasks (collapsed by default) ── */}
+      {/* ── Completed Tasks (collapsed by default) — upgraded with green accent ── */}
       {completedCount > 0 && (
         <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
           <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
@@ -529,12 +929,15 @@ function PersonalTodosView({ props }: { props: {
                 )}
               >
                 {showCompleted ? (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <ChevronDown className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                 ) : (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <ChevronRight className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                 )}
-                <CircleCheckBig className="h-4 w-4 text-green-500 shrink-0" />
-                <span className="text-sm font-bold text-muted-foreground">Completed</span>
+                <CircleCheckBig className={cn(
+                  "h-4 w-4 shrink-0",
+                  showCompleted ? "text-green-600 dark:text-green-400" : "text-green-500 dark:text-green-400",
+                )} />
+                <span className={cn("text-sm font-bold", showCompleted ? "text-muted-foreground" : "text-green-600 dark:text-green-400")}>Completed</span>
                 <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
                   {String(completedCount)}
                 </Badge>
@@ -546,12 +949,13 @@ function PersonalTodosView({ props }: { props: {
             <CollapsibleContent>
               <CardContent className="px-4 pb-4 pt-0">
                 <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                  {completedTasks.map((task: unknown) => (
+                  {completedTasks.map((task: unknown, idx: number) => (
                     <PersonalTaskItem
                       key={extractStr(task, "id", "")}
                       task={task}
                       togglingId={togglingId}
                       onToggleDone={handleToggleDone}
+                      index={idx}
                     />
                   ))}
                 </div>
@@ -581,6 +985,7 @@ export default function GlobalTodosPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("my");
   const [selectedMember, setSelectedMember] = useState<string>("all");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) { window.location.href = "/login"; return true; }
@@ -631,8 +1036,8 @@ export default function GlobalTodosPage() {
       const res = await fetch("/api/projects", { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load projects");
-      const data = await res.json();
-      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+      const data = deepSanitize(await res.json());
+      return Array.isArray(data) ? data : (Array.isArray((data as Record<string, unknown>)?.data) ? (data as Record<string, unknown>).data as unknown[] : []);
     },
     staleTime: 60 * 1000, retry: 1,
   });
@@ -895,6 +1300,10 @@ export default function GlobalTodosPage() {
     } catch { toast.error("Failed to update status"); } finally { setTogglingId(null); }
   }, [queryClient, handle401]);
 
+  const handleCreateSuccess = useCallback(() => {
+    // Queries already invalidated inside CreateTaskDialog.handleCreate
+  }, [queryClient]);
+
   // ── Shared props for personal view ──
   const personalViewProps = useMemo(() => ({
     totalActive, overdueTasks, awaitingApproval, completedCount,
@@ -927,90 +1336,111 @@ export default function GlobalTodosPage() {
 
   // ── Render ──
   return (
-    <div className="space-y-5">
-      {/* Header — no search inside */}
-      <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+    <>
+      {/* Inject animation styles */}
+      <style dangerouslySetInnerHTML={{ __html: animationStyles }} />
 
-      {/* Search & Filter bar — below header for breathing room */}
-      <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-3 gap-2">
-        <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-        <Input
-          placeholder="Search tasks and training..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 p-0 text-sm placeholder:text-muted-foreground/50"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          >
-            Clear
-          </button>
+      <div className="space-y-5">
+        {/* Header — no search inside */}
+        <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+
+        {/* Search & Filter bar — upgraded with glow effect */}
+        <div className={cn(
+          "rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-3 gap-2",
+          "transition-all duration-300 search-glow",
+        )}>
+          <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+          <Input
+            placeholder="Search tasks and training..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 p-0 text-sm placeholder:text-muted-foreground/50"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Admin: Tabs view */}
+        {isAdminUser && (
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="my" className="gap-1.5">
+                <ListTodo className="h-3.5 w-3.5" />
+                My Todos
+                {totalActive > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
+                    {String(totalActive)}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="team" className="gap-1.5">
+                <Users className="h-3.5 w-3.5" />
+                Team Todos
+                {teamStats.total > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
+                    {String(teamStats.total)}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            {/* My Todos Tab */}
+            <TabsContent value="my">
+              <PersonalTodosView props={personalViewProps} />
+            </TabsContent>
+
+            {/* Team Todos Tab */}
+            <TabsContent value="team">
+              <TeamTodosContent
+                teamStats={teamStats}
+                teamFilteredTasks={teamFilteredTasks}
+                teamFilteredCompletedTasks={teamFilteredCompletedTasks}
+                teamCompletedGrouped={teamCompletedGrouped}
+                teamTasksGrouped={teamTasksGrouped}
+                teamMembers={teamMembers}
+                teamActiveTasks={teamActiveTasks}
+                selectedMember={selectedMember}
+                setSelectedMember={setSelectedMember}
+                projectNameMap={projectNameMap}
+                togglingId={togglingId}
+                handleDeleteTask={handleDeleteTask}
+                handleReassignTask={handleReassignTask}
+                handleChangePriority={handleChangePriority}
+                handleChangeStatus={handleChangeStatus}
+                search={search}
+                allTasksLoading={allTasksLoading}
+                teamLoading={teamLoading}
+              />
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {/* Non-admin: Personal view directly (no tabs) */}
+        {!isAdminUser && (
+          <PersonalTodosView props={personalViewProps} />
         )}
       </div>
 
-      {/* Admin: Tabs view */}
-      {isAdminUser && (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="my" className="gap-1.5">
-              <ListTodo className="h-3.5 w-3.5" />
-              My Todos
-              {totalActive > 0 && (
-                <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
-                  {String(totalActive)}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="team" className="gap-1.5">
-              <Users className="h-3.5 w-3.5" />
-              Team Todos
-              {teamStats.total > 0 && (
-                <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
-                  {String(teamStats.total)}
-                </Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+      {/* FAB — Create Task button (visible on ALL tabs) */}
+      <CreateTaskFAB onClick={() => setCreateDialogOpen(true)} />
 
-          {/* My Todos Tab */}
-          <TabsContent value="my">
-            <PersonalTodosView props={personalViewProps} />
-          </TabsContent>
-
-          {/* Team Todos Tab */}
-          <TabsContent value="team">
-            <TeamTodosContent
-              teamStats={teamStats}
-              teamFilteredTasks={teamFilteredTasks}
-              teamFilteredCompletedTasks={teamFilteredCompletedTasks}
-              teamCompletedGrouped={teamCompletedGrouped}
-              teamTasksGrouped={teamTasksGrouped}
-              teamMembers={teamMembers}
-              teamActiveTasks={teamActiveTasks}
-              selectedMember={selectedMember}
-              setSelectedMember={setSelectedMember}
-              projectNameMap={projectNameMap}
-              togglingId={togglingId}
-              handleDeleteTask={handleDeleteTask}
-              handleReassignTask={handleReassignTask}
-              handleChangePriority={handleChangePriority}
-              handleChangeStatus={handleChangeStatus}
-              search={search}
-              allTasksLoading={allTasksLoading}
-              teamLoading={teamLoading}
-            />
-          </TabsContent>
-        </Tabs>
-      )}
-
-      {/* Non-admin: Personal view directly (no tabs) */}
-      {!isAdminUser && (
-        <PersonalTodosView props={personalViewProps} />
-      )}
-    </div>
+      {/* Create Task Dialog */}
+      <CreateTaskDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        isAdmin={isAdminUser}
+        teamMembers={teamMembers}
+        projects={projectsData}
+        onSuccess={handleCreateSuccess}
+      />
+    </>
   );
 }
 
@@ -1055,9 +1485,9 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
         <div className="space-y-4">
           {/* Team Stats */}
           <div className="grid grid-cols-3 gap-3">
-            <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} />
-            <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} />
-            <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} />
+            <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
+            <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
+            <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
           </div>
 
           {/* Member filter — card with chips */}
@@ -1117,25 +1547,33 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
 
           {/* Empty: no team members */}
           {teamMembers.length === 0 && (
-            <div className="text-center py-20">
-              <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
-                <Users className="h-8 w-8 text-violet-400/40" />
+            <div className="text-center py-20 relative overflow-hidden">
+              <div className="absolute top-8 left-1/3 h-24 w-24 rounded-full bg-violet-400/10 blur-3xl animate-float-orb" />
+              <div className="absolute bottom-8 right-1/3 h-20 w-20 rounded-full bg-purple-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+              <div className="relative z-10">
+                <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
+                  <Users className="h-8 w-8 text-violet-400/40" />
+                </div>
+                <p className="text-lg font-bold text-foreground/80">No team members found</p>
+                <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
               </div>
-              <p className="text-lg font-bold text-foreground/80">No team members found</p>
-              <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
             </div>
           )}
 
           {/* Empty: no tasks */}
           {teamMembers.length > 0 && teamFilteredTasks.length === 0 && teamFilteredCompletedTasks.length === 0 && (
-            <div className="text-center py-20">
-              <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4 animate-pulse">
-                <CheckCircle2 className="h-8 w-8 text-green-400/40" />
+            <div className="text-center py-20 relative overflow-hidden">
+              <div className="absolute top-8 left-1/4 h-24 w-24 rounded-full bg-green-400/10 blur-3xl animate-float-orb" />
+              <div className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-emerald-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+              <div className="relative z-10">
+                <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4 animate-pulse">
+                  <CheckCircle2 className="h-8 w-8 text-green-400/40" />
+                </div>
+                <p className="text-lg font-bold text-foreground/80">
+                  {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
+                </p>
+                <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
               </div>
-              <p className="text-lg font-bold text-foreground/80">
-                {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
-              </p>
-              <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
             </div>
           )}
 
@@ -1156,11 +1594,12 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
           {teamTasksGrouped.entries.length > 0 && (
             <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
               <CardContent className="p-4 sm:p-5 space-y-4">
-                {teamTasksGrouped.entries.map(([key, tasks]) => {
+                {teamTasksGrouped.entries.map(([key, tasks], groupIdx) => {
                   if (teamTasksGrouped.groupBy === "assignee") {
                     const [assigneeId, assigneeName] = (key as string).split(":::");
                     const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
                     const mAvatar = extractStr(member, "avatar", "");
+                    const isUnassigned = assigneeId === "unassigned";
                     const memberTasks = tasks as unknown[];
                     const memberOverdue = memberTasks.filter((t) => {
                       const d = extractStr(t, "deadline", "");
@@ -1168,13 +1607,24 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                     }).length;
 
                     return (
-                      <div key={key}>
+                      <div key={key} className="animate-slide-up" style={{ animationDelay: `${groupIdx * 80}ms` }}>
                         <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
-                          <Avatar className="h-7 w-7 shrink-0">
-                            {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
-                            <AvatarFallback className="text-[10px]">{getInitials(assigneeName)}</AvatarFallback>
-                          </Avatar>
+                          {isUnassigned ? (
+                            <div className="h-7 w-7 rounded-full bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center shrink-0">
+                              <UserCircle className="h-4 w-4 text-gray-400" />
+                            </div>
+                          ) : (
+                            <Avatar className="h-7 w-7 shrink-0">
+                              {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+                              <AvatarFallback className="text-[10px]">{getInitials(assigneeName)}</AvatarFallback>
+                            </Avatar>
+                          )}
                           <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
+                          {isUnassigned && (
+                            <Badge className="text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                              Unassigned
+                            </Badge>
+                          )}
                           <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
                           {memberOverdue > 0 && (
                             <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -1183,10 +1633,10 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                           )}
                         </div>
                         <div className="space-y-1.5 pl-2">
-                          {memberTasks.map((task) => (
+                          {memberTasks.map((task, taskIdx) => (
                             <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
                               teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                              onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                              onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
                           ))}
                         </div>
                       </div>
@@ -1198,17 +1648,17 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                   const projectName = projectNameMap.get(projectId) || "Unknown Project";
                   const projectTasks = tasks as unknown[];
                   return (
-                    <div key={projectId}>
+                    <div key={projectId} className="animate-slide-up" style={{ animationDelay: `${groupIdx * 80}ms` }}>
                       <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
                         <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                         <h3 className="text-xs font-bold text-foreground">{safeText(projectName)}</h3>
                         <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
                       </div>
                       <div className="space-y-1.5 pl-2">
-                        {projectTasks.map((task) => (
+                        {projectTasks.map((task, taskIdx) => (
                           <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
                             teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                            onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                            onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
                         ))}
                       </div>
                     </div>
@@ -1218,7 +1668,7 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
             </Card>
           )}
 
-          {/* Team completed (collapsed by default) */}
+          {/* Team completed (collapsed by default) — upgraded with green accent */}
           {teamFilteredCompletedTasks.length > 0 && (
             <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
               <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
@@ -1231,12 +1681,15 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                     )}
                   >
                     {showCompleted ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <ChevronDown className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                     ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <ChevronRight className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                     )}
-                    <CircleCheckBig className="h-4 w-4 text-green-500 shrink-0" />
-                    <span className="text-sm font-bold text-muted-foreground">Completed</span>
+                    <CircleCheckBig className={cn(
+                      "h-4 w-4 shrink-0",
+                      showCompleted ? "text-green-600 dark:text-green-400" : "text-green-500 dark:text-green-400",
+                    )} />
+                    <span className={cn("text-sm font-bold", showCompleted ? "text-muted-foreground" : "text-green-600 dark:text-green-400")}>Completed</span>
                     <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
                       {String(teamFilteredCompletedTasks.length)}
                     </Badge>
@@ -1253,23 +1706,35 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                           const [assigneeId, assigneeName] = (key as string).split(":::");
                           const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
                           const mAvatar = extractStr(member, "avatar", "");
+                          const isUnassigned = assigneeId === "unassigned";
                           const memberTasks = tasks as unknown[];
 
                           return (
                             <div key={key}>
                               <div className="flex items-center gap-2 mb-2 px-2">
-                                <Avatar className="h-5 w-5 shrink-0">
-                                  {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
-                                  <AvatarFallback className="text-[8px]">{getInitials(assigneeName)}</AvatarFallback>
-                                </Avatar>
+                                {isUnassigned ? (
+                                  <div className="h-5 w-5 rounded-full bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center shrink-0">
+                                    <UserCircle className="h-3 w-3 text-gray-400" />
+                                  </div>
+                                ) : (
+                                  <Avatar className="h-5 w-5 shrink-0">
+                                    {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+                                    <AvatarFallback className="text-[8px]">{getInitials(assigneeName)}</AvatarFallback>
+                                  </Avatar>
+                                )}
                                 <h4 className="text-xs font-semibold text-muted-foreground">{safeText(assigneeName)}</h4>
+                                {isUnassigned && (
+                                  <Badge className="text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                                    Unassigned
+                                  </Badge>
+                                )}
                                 <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
                               </div>
                               <div className="space-y-1.5 pl-2">
-                                {memberTasks.map((task) => (
+                                {memberTasks.map((task, taskIdx) => (
                                   <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
                                     teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
                                 ))}
                               </div>
                             </div>
@@ -1286,10 +1751,10 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
                               <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
                             </div>
                             <div className="space-y-1.5 pl-2">
-                              {projectTasks.map((task) => (
+                              {projectTasks.map((task, taskIdx) => (
                                 <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
                                   teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
-                                  onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} />
+                                  onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
                               ))}
                             </div>
                           </div>
