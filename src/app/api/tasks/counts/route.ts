@@ -38,10 +38,12 @@ export async function GET() {
       _count: { id: true }
     })
 
-    // Convert to { [projectId]: count }
+    // Convert to { [projectId]: count } — skip null projectId entries
     const result: Record<string, number> = {}
     for (const c of counts) {
-      result[c.projectId] = c._count.id
+      if (c.projectId) {
+        result[c.projectId] = c._count.id
+      }
     }
 
     return NextResponse.json(result)

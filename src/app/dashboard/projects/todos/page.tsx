@@ -1428,18 +1428,20 @@ export default function GlobalTodosPage() {
         )}
       </div>
 
-      {/* FAB — Create Task button (visible on ALL tabs) */}
-      <CreateTaskFAB onClick={() => setCreateDialogOpen(true)} />
+      {/* FAB — Create Task button (only visible for admin/superadmin) */}
+      {isAdminUser && <CreateTaskFAB onClick={() => setCreateDialogOpen(true)} />}
 
-      {/* Create Task Dialog */}
-      <CreateTaskDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        isAdmin={isAdminUser}
-        teamMembers={teamMembers}
-        projects={projectsData}
-        onSuccess={handleCreateSuccess}
-      />
+      {/* Create Task Dialog (only for admin/superadmin) */}
+      {isAdminUser && (
+        <CreateTaskDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          isAdmin={isAdminUser}
+          teamMembers={teamMembers}
+          projects={projectsData}
+          onSuccess={handleCreateSuccess}
+        />
+      )}
     </>
   );
 }

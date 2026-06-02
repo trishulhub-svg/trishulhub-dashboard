@@ -203,15 +203,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can create tasks
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (!isAdmin(userRole)) {
+    return NextResponse.json({ error: "Forbidden: Only admin and superadmin can create tasks" }, { status: 403 })
+  }
+
   // Title is required
   if (!body.title) {
     return NextResponse.json({ error: "Task title is required" }, { status: 400 })
   }
 
+  // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can assign tasks to others
+  // If assignedTo is provided and is NOT the creator, verify role
+  if (body.assignedTo && String(body.assignedTo) !== userId) {
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Only admin and superadmin can assign tasks to others" }, { status: 403 })
+    }
+    // Verify the assignee exists and is an active user
+    const assigneeExists = await db.user.findFirst({
+      where: { id: String(body.assignedTo), isActive: true }
+    })
+    if (!assigneeExists) {
+      return NextResponse.json({ error: "Assigned user not found or inactive" }, { status: 400 })
+    }
+  }
+
   // projectId is optional now — standalone tasks are allowed
   // But if projectId IS provided, check project membership for non-admins
   if (body.projectId) {
-    if (!isAdmin(userRole)) {
+    if (!isSuperAdmin(userRole)) {
       const membership = await db.projectMember.findFirst({
         where: { userId, projectId: String(body.projectId) }
       })
@@ -334,7 +356,23 @@ export async function PATCH(req: NextRequest) {
     }
     data.priority = String(body.priority)
   }
-  if (body.assignedTo !== undefined) data.assignedTo = body.assignedTo ? String(body.assignedTo) : null
+  if (body.assignedTo !== undefined) {
+    // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can reassign tasks
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Only admin and superadmin can reassign tasks" }, { status: 403 })
+    }
+    const newAssignee = body.assignedTo ? String(body.assignedTo) : null
+    // If assigning to a specific user, verify they exist and are active
+    if (newAssignee && newAssignee !== existingTask.assignedTo) {
+      const assigneeExists = await db.user.findFirst({
+        where: { id: newAssignee, isActive: true }
+      })
+      if (!assigneeExists) {
+        return NextResponse.json({ error: "Assigned user not found or inactive" }, { status: 400 })
+      }
+    }
+    data.assignedTo = newAssignee
+  }
   if (body.assigneeType !== undefined) data.assigneeType = String(body.assigneeType)
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(String(body.deadline)) : null
   if (body.category !== undefined) {
