@@ -1169,7 +1169,7 @@ export default function FilesPage() {
             variant="outline"
             size="sm"
             className="mt-4"
-            onClick={fetchFiles}
+            onClick={() => fetchFiles()}
           >
             <RefreshCw className="h-4 w-4 mr-1" />
             Retry
