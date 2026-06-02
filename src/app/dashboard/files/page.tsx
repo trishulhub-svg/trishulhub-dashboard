@@ -263,8 +263,6 @@ export default function FilesPage() {
   const [deleteDialog, setDeleteDialog] = useState<FileItem | null>(null)
   const [shareDialog, setShareDialog] = useState<FileItem | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [permAccessLevel, setPermAccessLevel] = useState<string>("VIEW")
-  const [permCascade, setPermCascade] = useState(false)
   const [permLoading, setPermLoading] = useState<Record<string, boolean>>({})
 
   // Smart Folder Dialog state
