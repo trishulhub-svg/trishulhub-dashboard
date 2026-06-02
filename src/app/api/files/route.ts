@@ -14,6 +14,16 @@ function sanitize(str: string, max: number = 500): string {
   return str.replace(/<[^>]*>/g, "").slice(0, max)
 }
 
+// ── Performance: In-memory cache for Drive sync ──
+// Prevents redundant Google Drive API calls on every request
+const syncCache = new Map<string, { time: number; syncing: boolean }>()
+const SYNC_TTL = 45_000 // 45 seconds — don't re-sync if recently synced
+const STORAGE_CACHE: { time: number; data: { usedBytes: number; totalBytes: number } } = {
+  time: 0,
+  data: { usedBytes: 0, totalBytes: 0 },
+}
+const STORAGE_TTL = 300_000 // 5 minutes for storage info
+
 /**
  * Ensure a parent folder exists in the local DB before creating children.
  * If the parent driveFileId doesn't have a FileMetadata record, we create
@@ -60,57 +70,103 @@ async function ensureParentInDb(driveParentId: string | null, userId: string): P
   }
 }
 
-/** Sync Drive files for a folder into local FileMetadata */
+/** Sync Drive files for a folder into local FileMetadata — optimized with batch ops */
 async function syncDriveFolder(folderId: string | null, userId: string): Promise<number> {
+  const cacheKey = `sync:${folderId || "root"}`
+
+  // Skip if synced recently
+  const cached = syncCache.get(cacheKey)
+  if (cached && Date.now() - cached.time < SYNC_TTL) {
+    return 0
+  }
+
+  // Skip if already syncing (prevent duplicate syncs)
+  if (cached?.syncing) {
+    return 0
+  }
+
+  // Mark as syncing
+  syncCache.set(cacheKey, { time: 0, syncing: true })
+
   try {
     const result = await drive.listFiles(folderId || undefined)
     let synced = 0
 
+    // Batch: collect all unique parent IDs first, ensure them in DB in parallel
+    const parentIds = new Set<string>()
+    for (const f of result.files) {
+      const pid = f.parents?.[0]
+      if (pid) parentIds.add(pid)
+    }
+    // Ensure parents in parallel (not sequential!)
+    await Promise.allSettled(
+      Array.from(parentIds).map(pid => ensureParentInDb(pid, userId))
+    )
+
+    // Batch: upsert all files
     for (const f of result.files) {
       const parentId = f.parents?.[0] || null
 
-      // Ensure parent exists in DB before upserting child
-      if (parentId) {
-        await ensureParentInDb(parentId, userId)
+      try {
+        await db.fileMetadata.upsert({
+          where: { driveFileId: f.id },
+          update: {
+            name: sanitize(f.name, 500),
+            mimeType: f.mimeType,
+            size: f.size,
+            parentId,
+            trashed: f.trashed,
+            thumbnailLink: f.thumbnailLink || null,
+            webViewLink: f.webViewLink || null,
+            description: f.description || null,
+          },
+          create: {
+            driveFileId: f.id,
+            name: sanitize(f.name, 500),
+            mimeType: f.mimeType,
+            size: f.size,
+            parentId,
+            trashed: f.trashed,
+            thumbnailLink: f.thumbnailLink || null,
+            webViewLink: f.webViewLink || null,
+            description: f.description || null,
+            createdBy: userId,
+          },
+        })
+        synced++
+      } catch (upsertErr: any) {
+        console.warn(`[files] Failed to upsert ${f.id}:`, upsertErr?.message)
       }
-
-      // Upsert FileMetadata
-      await db.fileMetadata.upsert({
-        where: { driveFileId: f.id },
-        update: {
-          name: sanitize(f.name, 500),
-          mimeType: f.mimeType,
-          size: f.size,
-          parentId,
-          trashed: f.trashed,
-          thumbnailLink: f.thumbnailLink || null,
-          webViewLink: f.webViewLink || null,
-          description: f.description || null,
-        },
-        create: {
-          driveFileId: f.id,
-          name: sanitize(f.name, 500),
-          mimeType: f.mimeType,
-          size: f.size,
-          parentId,
-          trashed: f.trashed,
-          thumbnailLink: f.thumbnailLink || null,
-          webViewLink: f.webViewLink || null,
-          description: f.description || null,
-          createdBy: userId,
-        },
-      })
-      synced++
     }
 
+    // Mark sync complete with timestamp
+    syncCache.set(cacheKey, { time: Date.now(), syncing: false })
     return synced
   } catch (err: any) {
     console.error("[files] Drive sync error:", err?.message)
+    // Reset so next request can retry
+    syncCache.set(cacheKey, { time: 0, syncing: false })
     return 0
   }
 }
 
+/** Get storage info with caching */
+async function getCachedStorageInfo(): Promise<{ usedBytes: number; totalBytes: number }> {
+  if (Date.now() - STORAGE_CACHE.time < STORAGE_TTL) {
+    return STORAGE_CACHE.data
+  }
+  try {
+    const info = await drive.getStorageUsage()
+    STORAGE_CACHE.time = Date.now()
+    STORAGE_CACHE.data = info
+    return info
+  } catch {
+    return STORAGE_CACHE.data
+  }
+}
+
 // ── GET: List files (also returns Drive config status) ──
+// PERFORMANCE: Serve from DB instantly, sync Drive in background
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -135,18 +191,12 @@ export async function GET(req: NextRequest) {
     const trashed = searchParams.get("trashed") === "true"
     const pageToken = searchParams.get("pageToken") || undefined
     const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "50"), 100)
+    const forceSync = searchParams.get("forceSync") === "true"
 
     // Check Drive configuration
     const credentialStatus = drive.getCredentialStatus()
 
-    // Sync from Drive (blocking on first load when DB is likely empty)
-    try {
-      await syncDriveFolder(parentId, userId)
-    } catch (err: any) {
-      console.error("[files] Drive sync failed:", err?.message)
-    }
-
-    // Build where clause
+    // Build where clause FIRST — so we serve from DB immediately
     const where: Record<string, unknown> = {}
 
     if (trashed) {
@@ -184,7 +234,7 @@ export async function GET(req: NextRequest) {
       where.name = { contains: search }
     }
 
-    // Fetch files with pagination
+    // ── SERVE FROM DB INSTANTLY ──
     const files = await db.fileMetadata.findMany({
       where,
       orderBy: { updatedAt: "desc" },
@@ -193,13 +243,22 @@ export async function GET(req: NextRequest) {
       ...(pageToken ? { cursor: { id: pageToken } } : {}),
     })
 
-    // Get storage info (best-effort)
-    let storageInfo = { usedBytes: 0, totalBytes: 0 }
-    try {
-      storageInfo = await drive.getStorageUsage()
-    } catch (err) {
-      // Non-critical
+    // ── BACKGROUND SYNC: Don't block the response ──
+    // Sync from Drive in background if cache expired or forced
+    if (credentialStatus.configured) {
+      // Fire and forget — don't await
+      if (forceSync) {
+        // Clear cache for this folder to force re-sync
+        const cacheKey = `sync:${parentId || "root"}`
+        syncCache.delete(cacheKey)
+      }
+      syncDriveFolder(parentId, userId).catch(err => {
+        console.error("[files] Background sync error:", err)
+      })
     }
+
+    // Get storage info (cached)
+    const storageInfo = await getCachedStorageInfo()
 
     return NextResponse.json(JSON.parse(JSON.stringify({
       files,
@@ -299,6 +358,10 @@ export async function POST(req: NextRequest) {
 
       const dbParentId = driveFolder.parents?.[0] || null
 
+      // Invalidate sync cache for this folder
+      const cacheKey = `sync:${parentId || "root"}`
+      syncCache.delete(cacheKey)
+
       // Save to DB
       try {
         const metadata = await db.fileMetadata.create({
@@ -381,6 +444,10 @@ export async function POST(req: NextRequest) {
     }
 
     const dbParentId = driveFile.parents?.[0] || null
+
+    // Invalidate sync cache for this folder
+    const cacheKey = `sync:${parentId || "root"}`
+    syncCache.delete(cacheKey)
 
     // Save metadata to DB
     try {

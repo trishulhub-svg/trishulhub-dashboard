@@ -279,8 +279,8 @@ export default function FilesPage() {
   const [driveConfigured, setDriveConfigured] = useState<boolean | null>(null)
   const [credentialHint, setCredentialHint] = useState<string>("")
 
-  // ── Fetch files ──
-  const fetchFiles = useCallback(async () => {
+  // ── Fetch files (instant from DB, background sync from Drive) ──
+  const fetchFiles = useCallback(async (forceSync = false) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -288,6 +288,7 @@ export default function FilesPage() {
       if (filter === "starred") params.set("starred", "true")
       if (filter === "shared") params.set("shared", "true")
       if (filter === "trashed") params.set("trashed", "true")
+      if (forceSync) params.set("forceSync", "true")
 
       const res = await fetch(`/api/files?${params}`)
       if (res.ok) {
@@ -341,24 +342,25 @@ export default function FilesPage() {
 
       try {
         const rootFolderNames = files.filter(f => isFolder(f.mimeType)).map(f => f.name)
-        let created = 0
+        const missing = DEPARTMENTS.filter(d => !rootFolderNames.includes(d.name))
 
-        for (const dept of DEPARTMENTS) {
-          if (!rootFolderNames.includes(dept.name)) {
+        if (missing.length === 0) return
+
+        // Create all missing folders in parallel for speed
+        const results = await Promise.allSettled(
+          missing.map(async (dept) => {
             const formData = new FormData()
             formData.append("action", "folder")
             formData.append("folderName", dept.name)
             const res = await fetch("/api/files", { method: "POST", body: formData })
-            if (res.ok) {
-              created++
-            } else {
+            if (!res.ok) {
               const errData = await res.json().catch(() => ({}))
-              console.error(`[Files] Failed to create "${dept.name}":`, errData.error)
-              // If first folder creation fails (likely Drive issue), stop trying
-              if (created === 0) break
+              throw new Error(errData.error || "Failed")
             }
-          }
-        }
+            return dept.name
+          })
+        )
+        const created = results.filter(r => r.status === "fulfilled").length
         if (created > 0) {
           fetchFiles()
         }
@@ -922,15 +924,9 @@ export default function FilesPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  fetch("/api/files/sync", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                  }).then(() => {
-                    toast.success("Sync started")
-                    fetchFiles()
-                  })
-                }
+                onClick={() => {
+                  fetchFiles(true).then(() => toast.success("Synced from Drive"))
+                }}
               >
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Sync
