@@ -766,17 +766,32 @@ export default function FilesPage() {
           for (const subName of PROJECT_SUBFOLDERS) {
             await createFolderInDrive(subName, projectFolder.driveFileId)
           }
+        } else {
+          setCreatingSmartFolder(false)
+          return // Don't close dialog or show success — error already shown by createFolderInDrive
         }
       } else if (smartFolderType === "company") {
-        await createFolderInDrive(smartFolderName.trim(), parentForFolder)
+        const result = await createFolderInDrive(smartFolderName.trim(), parentForFolder)
+        if (!result) {
+          setCreatingSmartFolder(false)
+          return
+        }
         toast.success(`Company document folder "${smartFolderName}" created`)
       } else if (smartFolderType === "department") {
         const folderName = smartFolderName.trim() || `New Folder in ${smartFolderDepartment}`
-        await createFolderInDrive(folderName, parentForFolder)
+        const result = await createFolderInDrive(folderName, parentForFolder)
+        if (!result) {
+          setCreatingSmartFolder(false)
+          return
+        }
         toast.success(`Folder created in ${smartFolderDepartment}`)
       } else {
         // General
-        await createFolderInDrive(smartFolderName.trim(), parentForFolder)
+        const result = await createFolderInDrive(smartFolderName.trim(), parentForFolder)
+        if (!result) {
+          setCreatingSmartFolder(false)
+          return
+        }
         toast.success(`Folder "${smartFolderName}" created`)
       }
 
@@ -1033,6 +1048,23 @@ export default function FilesPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Drive Configuration Warning ── */}
+      {driveConfigured === false && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 rounded-xl border border-destructive/50 bg-destructive/5"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-destructive">Google Drive Not Connected</h3>
+              <p className="text-xs text-muted-foreground mt-1">File operations (create, upload, sync) require Google Drive to be configured. {credentialHint && <span className="block mt-1">Hint: {credentialHint}</span>}</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* ── File Content ── */}
       {loading ? (

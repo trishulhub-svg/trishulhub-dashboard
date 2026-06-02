@@ -18,34 +18,62 @@ export interface CredentialStatus {
 // ── Environment variable validation ──
 function getCredentials() {
   const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
-  const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
+  let privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
 
   if (!clientEmail || !privateKey) {
     return null
   }
 
-  // Handle escaped newlines in private key
-  let cleanKey = privateKey.replace(/\\n/g, "\n")
+  // Step 1: Trim whitespace from start/end
+  let cleanKey = privateKey.trim()
 
-  // Strip surrounding quotes if present (common Vercel env var mistake)
+  // Step 2: Strip surrounding quotes if present (common Vercel env var mistake)
   if (
     (cleanKey.startsWith('"') && cleanKey.endsWith('"')) ||
     (cleanKey.startsWith("'") && cleanKey.endsWith("'"))
   ) {
-    cleanKey = cleanKey.slice(1, -1)
+    cleanKey = cleanKey.slice(1, -1).trim()
   }
 
-  // Validate key format: must contain PEM header
+  // Step 3: Handle escaped newlines (Vercel stores \n as literal backslash-n)
+  cleanKey = cleanKey.replace(/\\n/g, "\n")
+
+  // Step 4: If still no PEM header, try base64 decode (common mistake)
+  if (!cleanKey.includes("-----BEGIN")) {
+    try {
+      const decoded = Buffer.from(cleanKey, "base64").toString("utf-8")
+      if (decoded.includes("-----BEGIN")) {
+        cleanKey = decoded.trim()
+      }
+    } catch {
+      // Not base64, continue with original key
+    }
+  }
+
+  // Step 5: If still no PEM header, try URL decode
+  if (!cleanKey.includes("-----BEGIN")) {
+    try {
+      const urlDecoded = decodeURIComponent(cleanKey)
+      if (urlDecoded.includes("-----BEGIN")) {
+        cleanKey = urlDecoded.trim()
+      }
+    } catch {
+      // Not URL encoded, continue with original key
+    }
+  }
+
+  // Step 6: Final validation — must contain PEM header
   if (!cleanKey.includes("-----BEGIN")) {
     console.error(
       "[google-drive] GOOGLE_DRIVE_PRIVATE_KEY is missing PEM header (-----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----). " +
-      "Make sure you pasted the full key from your service account JSON file."
+      "Make sure you pasted the full key from your service account JSON file. " +
+      "Key starts with: " + cleanKey.substring(0, 30).replace(/[^a-zA-Z0-9+/=]/g, "*")
     )
     return null
   }
 
-  // Ensure the key has proper line breaks
+  // Step 7: Ensure the key has proper line breaks
   if (!cleanKey.includes("\n")) {
     // Key is all on one line — try to fix it by adding breaks before headers
     cleanKey = cleanKey
@@ -69,20 +97,41 @@ export function getCredentialStatus(): CredentialStatus {
   let keyHint: string | undefined
 
   if (hasKey) {
-    const k = privateKey!
+    const k = privateKey!.trim()
+
+    // Check for common encoding issues and provide specific hints
     if (k.includes("-----BEGIN PRIVATE KEY-----") || k.includes("-----BEGIN RSA PRIVATE KEY-----")) {
       keyValid = true
     } else if (k.includes("-----BEGIN")) {
       keyValid = true
       keyHint = "Key header looks unusual. Make sure it is a standard PEM private key."
     } else {
-      keyHint = "Missing PEM header. The key should start with -----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----"
+      // Key doesn't have PEM header — diagnose why
+      const isLikelyBase64 = /^[A-Za-z0-9+/=]+$/.test(k.replace(/\s/g, ""))
+      const isLikelyUrlEncoded = k.includes("%")
+      const isLikelyJson = k.startsWith("{")
+
+      if (isLikelyBase64) {
+        keyHint = "The key appears to be base64 encoded. Please paste the RAW key from your Google service account JSON file, NOT base64 encoded. Copy only the 'private_key' value including -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- headers."
+      } else if (isLikelyUrlEncoded) {
+        keyHint = "The key appears to be URL encoded. Please paste the RAW key without URL encoding."
+      } else if (isLikelyJson) {
+        keyHint = "You pasted the full JSON file content. Please copy ONLY the 'private_key' field value from the JSON, not the entire file."
+      } else {
+        const firstChars = k.substring(0, 40).replace(/[^a-zA-Z0-9+/=\-]/g, "*")
+        keyHint = `Missing PEM header. The key should start with -----BEGIN PRIVATE KEY-----. Your key starts with: ${firstChars}. Make sure you copied ONLY the 'private_key' value from your service account JSON file.`
+      }
     }
 
     // Check for common mistakes
     if (k.length < 100) {
       keyValid = false
-      keyHint = "Key seems too short. Make sure you copied the entire private key from the service account JSON."
+      keyHint = "Key seems too short (" + k.length + " chars). A valid private key is usually 1600+ characters. Make sure you copied the ENTIRE private key from the service account JSON."
+    }
+
+    // Check if it has quotes around the whole value
+    if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
+      keyHint = (keyHint || "") + " Also: remove the surrounding quotes from the env var value in Vercel."
     }
   } else {
     keyHint = "GOOGLE_DRIVE_PRIVATE_KEY env var is not set in Vercel."
@@ -92,13 +141,21 @@ export function getCredentialStatus(): CredentialStatus {
     keyHint = "GOOGLE_DRIVE_CLIENT_EMAIL env var is not set in Vercel."
   }
 
+  // Also check if getCredentials() can actually parse it (with all decoding attempts)
+  let actuallyConfigured = false
+  try {
+    actuallyConfigured = getCredentials() !== null
+  } catch {
+    actuallyConfigured = false
+  }
+
   return {
-    configured: hasEmail && hasKey && keyValid,
+    configured: hasEmail && hasKey && keyValid && actuallyConfigured,
     clientEmail: hasEmail,
     privateKey: hasKey,
     privateKeyValid: keyValid,
     folderId: true, // Always has fallback
-    error: !hasEmail ? "Missing GOOGLE_DRIVE_CLIENT_EMAIL" : !hasKey ? "Missing GOOGLE_DRIVE_PRIVATE_KEY" : !keyValid ? "Private key format is invalid" : undefined,
+    error: !hasEmail ? "Missing GOOGLE_DRIVE_CLIENT_EMAIL" : !hasKey ? "Missing GOOGLE_DRIVE_PRIVATE_KEY" : !keyValid ? "Private key format is invalid" : !actuallyConfigured ? "Private key could not be parsed after all decoding attempts" : undefined,
     hint: keyHint,
   }
 }
