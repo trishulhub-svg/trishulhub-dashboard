@@ -456,6 +456,12 @@ model Task {
   updatedAt   DateTime @updatedAt
 
   project     Project? @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, status])
+  @@index([assignedTo, status])
+  @@index([createdBy])
+  @@index([status, createdAt])
+  @@index([category])
 }
 
 // ━━ Invoices ━━

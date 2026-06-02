@@ -1001,7 +1001,7 @@ export default function GlobalTodosPage() {
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load tasks");
       const td = deepSanitize(await res.json());
-      return Array.isArray(td) ? td : [];
+      return Array.isArray((td as any)?.tasks) ? (td as any).tasks : Array.isArray(td) ? td : [];
     },
     staleTime: 15 * 1000, retry: 1,
   });
@@ -1013,7 +1013,7 @@ export default function GlobalTodosPage() {
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load tasks");
       const td = deepSanitize(await res.json());
-      return Array.isArray(td) ? td : [];
+      return Array.isArray((td as any)?.tasks) ? (td as any).tasks : Array.isArray(td) ? td : [];
     },
     staleTime: 15 * 1000, retry: 1, enabled: isAdminUser,
   });

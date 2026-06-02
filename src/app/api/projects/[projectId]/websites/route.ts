@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
-// Strip HTML tags and enforce length
+// TODO (M-5): Extract this sanitizeInput function to a shared utility (e.g., @/lib/sanitize)
+// so it can be reused across API routes instead of being duplicated here and in /api/projects/route.ts.
+// NOTE (M-3): This regex-based sanitization is a basic defense. For production, consider
+// using a proper library like DOMPurify or sanitize-html to handle edge cases (e.g., unclosed tags,
+// attribute-based XSS, HTML entity encoding).
 function sanitizeInput(str: string, maxLength: number): string {
   const stripped = str.replace(/<[^>]*>/g, "").trim();
   return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped;
@@ -18,6 +23,12 @@ export async function GET(
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // P-H5 FIX: Add rate limiting
+    const rl = rateLimit(`projects-websites-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
     const { projectId } = await params;
@@ -37,7 +48,7 @@ export async function GET(
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to load websites";
     console.error("[project-websites] GET error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load websites" }, { status: 500 });
   }
 }
 
@@ -52,6 +63,12 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // P-H5 FIX: Add rate limiting
+    const rl = rateLimit(`projects-websites-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
     const { projectId } = await params;
     const userRole = session.user.role || "DEVELOPER";
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -60,7 +77,14 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await req.json();
+    // P-H6 FIX: Gracefully validate JSON body
+    let body: { url?: unknown; label?: unknown; isPrimary?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
     const { url, label, isPrimary } = body;
 
     if (!url || typeof url !== "string" || !url.trim()) {
@@ -103,7 +127,7 @@ export async function POST(
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to add website";
     console.error("[project-websites] POST error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to add website" }, { status: 500 });
   }
 }
 
@@ -118,6 +142,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // P-H5 FIX: Add rate limiting
+    const rl = rateLimit(`projects-websites-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
     const { projectId } = await params;
     const userRole = session.user.role || "DEVELOPER";
     const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -126,7 +156,13 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await req.json();
+    let body: { id?: unknown; url?: unknown; label?: unknown; isPrimary?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
     const { id, url, label, isPrimary } = body;
 
     if (!id) {
@@ -136,7 +172,7 @@ export async function PATCH(
     // If setting as primary, unset other primaries
     if (isPrimary) {
       await db.projectWebsite.updateMany({
-        where: { projectId, isPrimary: true, id: { not: id } },
+        where: { projectId, isPrimary: true, id: { not: id as string } },
         data: { isPrimary: false },
       });
     }
@@ -160,7 +196,7 @@ export async function PATCH(
     }
 
     const website = await db.projectWebsite.update({
-      where: { id, projectId },
+      where: { id: id as string, projectId },
       data: updateData,
     });
 
@@ -168,7 +204,7 @@ export async function PATCH(
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to update website";
     console.error("[project-websites] PATCH error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update website" }, { status: 500 });
   }
 }
 
@@ -181,6 +217,12 @@ export async function DELETE(
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // P-H5 FIX: Add rate limiting
+    const rl = rateLimit(`projects-websites-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
     const { projectId } = await params;
@@ -206,6 +248,6 @@ export async function DELETE(
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to delete website";
     console.error("[project-websites] DELETE error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete website" }, { status: 500 });
   }
 }

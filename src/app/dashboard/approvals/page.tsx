@@ -321,8 +321,9 @@ export default function ApprovalsPage() {
 
       // Handle tasks
       if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
-        const taskData = safeArray<TaskItem>(await tasksRes.value.json());
-        setTasks(taskData);
+        const raw = await tasksRes.value.json();
+        const taskData = Array.isArray((raw as any)?.tasks) ? (raw as any).tasks : Array.isArray(raw) ? raw : (Array.isArray((raw as any)?.data) ? (raw as any).data : []);
+        setTasks(safeArray<TaskItem>(taskData));
       }
     } catch (err) {
       console.error(err);

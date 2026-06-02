@@ -10,6 +10,28 @@ const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
 const VALID_TASK_CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]
 
+// ── Helper: serialize Task dates for JSON response ──
+function serializeTask(t: any) {
+  return {
+    ...t,
+    createdAt: t.createdAt?.toISOString(),
+    updatedAt: t.updatedAt?.toISOString(),
+    deadline: t.deadline?.toISOString() ?? null,
+    completedAt: t.completedAt?.toISOString() ?? null,
+    approvedAt: t.approvedAt?.toISOString() ?? null,
+  }
+}
+
+// ── Helper: check if assignee is on approved leave during task period ──
+async function checkAssigneeLeave(db: any, userId: string, deadline: Date): Promise<{ name: string; leaveType: string; startDate: Date; endDate: Date } | null> {
+  const leave = await db.leave.findFirst({
+    where: { userId, status: "APPROVED", startDate: { lte: deadline }, endDate: { gte: new Date() } },
+    include: { user: { select: { name: true } } },
+  })
+  if (!leave) return null
+  return { name: leave.user.name, leaveType: leave.leaveType, startDate: leave.startDate, endDate: leave.endDate }
+}
+
 // ── Helper: send notification to a user ──
 async function sendNotification(userId: string, title: string, message: string, type: string, link: string | null) {
   try {
@@ -41,6 +63,8 @@ export async function GET(req: NextRequest) {
   const createdByFilter = searchParams.get("createdBy")
   const standaloneFilter = searchParams.get("standalone")
   const categoryFilter = searchParams.get("category")
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)))
 
   // SUPER_ADMIN sees all tasks; others have RBAC restrictions
   if (isSuperAdmin(userRole)) {
@@ -69,10 +93,15 @@ export async function GET(req: NextRequest) {
       where.category = categoryFilter
     }
 
-    const tasks = await db.task.findMany({
-      where,
-      orderBy: { createdAt: "desc" }
-    })
+    const [tasks, total] = await Promise.all([
+      db.task.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: (page - 1) * limit,
+      }),
+      db.task.count({ where }),
+    ])
 
     // Resolve userIds to names for assignee, approver, and creator
     const userIds = new Set<string>()
@@ -91,12 +120,12 @@ export async function GET(req: NextRequest) {
     }
 
     const enriched = tasks.map(t => ({
-      ...JSON.parse(JSON.stringify(t)),
+      ...serializeTask(t),
       assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
       approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
       createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
     }))
-    return NextResponse.json(enriched)
+    return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   }
 
   // ── Non-admin users: RBAC-filtered view ──
@@ -108,7 +137,7 @@ export async function GET(req: NextRequest) {
   // If a specific projectId is requested, verify access and restrict to it
   if (projectId) {
     if (assignedProjectIds && !(assignedProjectIds as string[]).includes(projectId)) {
-      return NextResponse.json([])
+      return NextResponse.json({ tasks: [], total: 0, page: 1, totalPages: 0 })
     }
     where.projectId = projectId
   } else if (standaloneFilter === "true") {
@@ -118,29 +147,32 @@ export async function GET(req: NextRequest) {
     where.projectId = { in: assignedProjectIds }
   }
 
-  // assignedTo filter
-  if (assignedToFilter && assignedToFilter !== "current") {
-    where.assignedTo = assignedToFilter
-  } else if (assignedToFilter === "current") {
+  // assignedTo filter — non-admin: only allow "current"
+  if (assignedToFilter === "current") {
     where.assignedTo = userId
   }
+  // else: ignore any other value for non-admin
 
-  // createdBy filter
+  // createdBy filter — non-admin: only allow "current"
   if (createdByFilter === "current") {
     where.createdBy = userId
-  } else if (createdByFilter) {
-    where.createdBy = createdByFilter
   }
+  // else: ignore any other value for non-admin
 
   // category filter
   if (categoryFilter) {
     where.category = categoryFilter
   }
 
-  const tasks = await db.task.findMany({
-    where,
-    orderBy: { createdAt: "desc" }
-  })
+  const [tasks, total] = await Promise.all([
+    db.task.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: (page - 1) * limit,
+    }),
+    db.task.count({ where }),
+  ])
 
   // For non-admin: filter tasks they can see:
   // assignedTo = userId OR createdBy = userId OR they are a ProjectMember of the task's project
@@ -173,12 +205,12 @@ export async function GET(req: NextRequest) {
   }
 
   const enriched = visibleTasks.map(t => ({
-    ...JSON.parse(JSON.stringify(t)),
+    ...serializeTask(t),
     assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
     approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
   }))
-  return NextResponse.json(enriched)
+  return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   } catch (error: any) {
     console.error("[tasks] GET error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -277,20 +309,10 @@ export async function POST(req: NextRequest) {
 
   // Check if assignee is on approved leave during the task period
   if (data.assignedTo && data.deadline) {
-    const assigneeLeave = await db.leave.findFirst({
-      where: {
-        userId: data.assignedTo as string,
-        status: "APPROVED",
-        startDate: { lte: data.deadline as Date },
-        endDate: { gte: new Date() },
-      },
-      include: {
-        user: { select: { name: true } },
-      },
-    })
+    const assigneeLeave = await checkAssigneeLeave(db, data.assignedTo as string, data.deadline as Date)
     if (assigneeLeave) {
       return NextResponse.json({
-        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+        error: `Cannot assign task: ${assigneeLeave.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
       }, { status: 400 })
     }
   }
@@ -346,6 +368,25 @@ export async function PATCH(req: NextRequest) {
   const existingTask = await db.task.findUnique({ where: { id } })
   if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // AUTHORIZATION: verify user can edit this task BEFORE processing fields
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (!isAdmin(userRole) && existingTask.projectId) {
+    const membership = await db.projectMember.findFirst({
+      where: { userId, projectId: existingTask.projectId }
+    })
+    if (!membership) {
+      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+        return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
+      }
+    }
+  }
+  if (!isAdmin(userRole) && !existingTask.projectId) {
+    if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+      return NextResponse.json({ error: "Forbidden: You can only update tasks assigned or created by you" }, { status: 403 })
+    }
+  }
+
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data: Parameters<typeof db.task.update>[0]["data"] = {}
   if (body.title !== undefined) data.title = String(body.title)
@@ -373,7 +414,12 @@ export async function PATCH(req: NextRequest) {
     }
     data.assignedTo = newAssignee
   }
-  if (body.assigneeType !== undefined) data.assigneeType = String(body.assigneeType)
+  if (body.assigneeType !== undefined) {
+    if (!["HUMAN", "AI"].includes(String(body.assigneeType))) {
+      return NextResponse.json({ error: "Invalid assigneeType. Must be HUMAN or AI" }, { status: 400 })
+    }
+    data.assigneeType = String(body.assigneeType)
+  }
   if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(String(body.deadline)) : null
   if (body.category !== undefined) {
     if (!VALID_TASK_CATEGORIES.includes(String(body.category))) {
@@ -440,61 +486,20 @@ export async function PATCH(req: NextRequest) {
     data.projectId = String(body.projectId)
   }
 
-  // Developers can only update tasks in their assigned projects (only applies to project tasks)
-  if (!isAdmin(userRole) && existingTask.projectId) {
-    const membership = await db.projectMember.findFirst({
-      where: { userId, projectId: existingTask.projectId }
-    })
-    if (!membership) {
-      // Also check if the user is the creator of the task (standalone or not)
-      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
-        return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
-      }
-    }
-  }
-
-  // For non-admin updating a standalone task: must be creator or assignee
-  if (!isAdmin(userRole) && !existingTask.projectId) {
-    if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
-      return NextResponse.json({ error: "Forbidden: You can only update tasks assigned or created by you" }, { status: 403 })
-    }
+  // Check if data object is empty — nothing to update
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "No fields to update" }, { status: 400 })
   }
 
   // Check if assignee is on approved leave during the task period
   const assignedUserId = typeof data.assignedTo === "string" ? data.assignedTo : null
-  const taskDeadline = data.deadline instanceof Date ? data.deadline : null
+  const effectiveDeadline = data.deadline instanceof Date ? data.deadline : (existingTask?.deadline || null)
 
-  if (assignedUserId && taskDeadline) {
-    const assigneeLeave = await db.leave.findFirst({
-      where: {
-        userId: assignedUserId,
-        status: "APPROVED",
-        startDate: { lte: taskDeadline },
-        endDate: { gte: new Date() },
-      },
-      include: { user: { select: { name: true } } },
-    })
+  if (assignedUserId && effectiveDeadline) {
+    const assigneeLeave = await checkAssigneeLeave(db, assignedUserId, effectiveDeadline)
     if (assigneeLeave) {
       return NextResponse.json({
-        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
-      }, { status: 400 })
-    }
-  }
-
-  // Also check if only assignedTo is being changed (with existing deadline)
-  if (assignedUserId && !taskDeadline && existingTask?.deadline) {
-    const assigneeLeave = await db.leave.findFirst({
-      where: {
-        userId: assignedUserId,
-        status: "APPROVED",
-        startDate: { lte: existingTask.deadline },
-        endDate: { gte: new Date() },
-      },
-      include: { user: { select: { name: true } } },
-    })
-    if (assigneeLeave) {
-      return NextResponse.json({
-        error: `Cannot assign task: ${assigneeLeave.user.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+        error: `Cannot assign task: ${assigneeLeave.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
       }, { status: 400 })
     }
   }
@@ -519,23 +524,25 @@ export async function PATCH(req: NextRequest) {
 
   const finalStatus = data.status as string | undefined
 
-  // Task sent for approval → notify all admin/superadmin
+  // Task sent for approval → notify all admin/superadmin (batch createMany)
   if (finalStatus === "AWAITING_APPROVAL") {
     const admins = await db.user.findMany({
       where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
       select: { id: true }
     })
-    const taskLink = `/dashboard/projects/todos`
     const assigneeName = existingTask.assignedTo ? (await db.user.findUnique({ where: { id: existingTask.assignedTo }, select: { name: true } }))?.name || "Someone" : "Someone"
 
-    for (const admin of admins) {
-      await sendNotification(
-        admin.id,
-        "Task Pending Approval",
-        `${assigneeName} submitted "${existingTask.title}" for your review.`,
-        "APPROVAL",
-        taskLink
-      )
+    if (admins.length > 0) {
+      await db.notification.createMany({
+        data: admins.map(admin => ({
+          userId: admin.id,
+          title: `Task approval needed: ${existingTask.title}`,
+          message: `${assigneeName} submitted "${existingTask.title}" for review`,
+          type: "TASK",
+          link: `/dashboard/todos`,
+          isRead: false,
+        }))
+      })
     }
   }
 
@@ -569,7 +576,7 @@ export async function PATCH(req: NextRequest) {
   if (updatedTask.projectId) {
     syncTasksToGit().catch(() => {})
   }
-  return NextResponse.json(JSON.parse(JSON.stringify(updatedTask)))
+  return NextResponse.json(serializeTask(updatedTask))
   } catch (error: any) {
     console.error("[tasks] PATCH error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

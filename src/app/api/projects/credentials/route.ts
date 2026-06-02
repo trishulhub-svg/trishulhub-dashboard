@@ -6,50 +6,66 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encrypt, decrypt } from "@/lib/encryption"
 
-// GET /api/projects/credentials — List credentials for a project
-export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const rl = rateLimit(`credentials-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  const { searchParams } = new URL(req.url)
-  const projectId = searchParams.get("projectId")
-  if (!projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 })
-
-  // Verify project exists
-  const project = await db.project.findUnique({ where: { id: projectId } })
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
-
-  // For non-admin users, check project access
-  if (!isAdmin(session.user.role)) {
-    if (session.user.role === "CLIENT") {
-      const client = await db.client.findFirst({ where: { userId: session.user.id } })
-      if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    } else {
-      const member = await db.projectMember.findFirst({ where: { projectId, userId: session.user.id } })
-      if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+// Helper: verify the user has access to a given project.
+// ADMIN/SUPER_ADMIN always pass. CLIENT must own the project. DEVELOPER must be a member.
+async function verifyProjectAccess(userId: string, userRole: string, projectId: string): Promise<boolean> {
+  if (isAdmin(userRole)) return true
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { clientId: true } })
+  if (!project) return false
+  if (userRole === "CLIENT") {
+    const client = await db.client.findFirst({ where: { userId } })
+    return !!client && client.id === project.clientId
   }
+  // DEVELOPER or VIEWER: check project membership
+  const member = await db.projectMember.findFirst({ where: { projectId, userId } })
+  return !!member
+}
 
-  const credentials = await db.projectCredential.findMany({
-    where: { projectId },
-    select: { id: true, title: true, username: true, password: true, iv: true, tag: true, createdAt: true, updatedAt: true },
-    orderBy: { createdAt: "desc" },
-  })
+// GET /api/projects/credentials — List credentials for a project
+// P-C1 FIX: Restricted to ADMIN and SUPER_ADMIN only (decrypted passwords must not reach non-admin users)
+// P-H4 FIX: Wrapped in try/catch to prevent stack trace leaks
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Decrypt passwords before sending to client
-  const decrypted = credentials.map((cred) => {
-    try {
-      const password = decrypt(cred.password, cred.iv, cred.tag)
-      return { ...cred, password, iv: undefined, tag: undefined }
-    } catch {
-      return { ...cred, password: "[DECRYPTION ERROR]", iv: undefined, tag: undefined }
+    // P-C1: Only admins may view decrypted credentials
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
-  })
 
-  return NextResponse.json(decrypted)
+    const rl = rateLimit(`credentials-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    const { searchParams } = new URL(req.url)
+    const projectId = searchParams.get("projectId")
+    if (!projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 })
+
+    // Verify project exists
+    const project = await db.project.findUnique({ where: { id: projectId } })
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
+    const credentials = await db.projectCredential.findMany({
+      where: { projectId },
+      select: { id: true, title: true, username: true, password: true, iv: true, tag: true, createdAt: true, updatedAt: true },
+      orderBy: { createdAt: "desc" },
+    })
+
+    // Decrypt passwords before sending to client
+    const decrypted = credentials.map((cred) => {
+      try {
+        const password = decrypt(cred.password, cred.iv, cred.tag)
+        return { ...cred, password, iv: undefined, tag: undefined }
+      } catch {
+        return { ...cred, password: "[DECRYPTION ERROR]", iv: undefined, tag: undefined }
+      }
+    })
+
+    return NextResponse.json(decrypted)
+  } catch (error: unknown) {
+    console.error("[credentials] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load credentials" }, { status: 500 })
+  }
 }
 
 // POST /api/projects/credentials — Create a new credential
@@ -96,10 +112,11 @@ export async function POST(req: NextRequest) {
 }
 
 // PATCH /api/projects/credentials — Update a credential
+// P-C2 FIX: Added project-level authorization check
+// P-H3 FIX: Replaced Record<string, unknown> with proper Prisma type
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
 
   const rl = rateLimit(`credentials-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
   if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -116,12 +133,19 @@ export async function PATCH(req: NextRequest) {
   const existing = await db.projectCredential.findUnique({ where: { id: body.id } })
   if (!existing) return NextResponse.json({ error: "Credential not found" }, { status: 404 })
 
-  // H-PRJ-2 FIX: Verify the associated project exists
+  // P-C2: Verify project-level authorization
+  const hasAccess = await verifyProjectAccess(session.user.id, session.user.role, existing.projectId)
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden: No access to this credential's project" }, { status: 403 })
+  }
+
+  // Verify the associated project exists
   const project = await db.project.findUnique({ where: { id: existing.projectId } })
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
   try {
-    const data: Record<string, unknown> = {}
+    // P-H3: Use proper Prisma data type instead of Record<string, unknown>
+    const data: Parameters<typeof db.projectCredential.update>[0]["data"] = {}
     if (body.title) data.title = body.title.trim()
     if (body.username) data.username = body.username.trim()
     if (body.password) {
@@ -142,10 +166,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 // DELETE /api/projects/credentials — Remove a credential
+// P-C2 FIX: Added project-level authorization check
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
 
   const rl = rateLimit(`credentials-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
   if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -155,9 +179,15 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Credential ID is required" }, { status: 400 })
 
   try {
-    // H-PRJ-3 FIX: Verify credential exists before deleting
+    // Verify credential exists before deleting
     const existing = await db.projectCredential.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Credential not found" }, { status: 404 })
+
+    // P-C2: Verify project-level authorization
+    const hasAccess = await verifyProjectAccess(session.user.id, session.user.role, existing.projectId)
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Forbidden: No access to this credential's project" }, { status: 403 })
+    }
 
     await db.projectCredential.delete({ where: { id } })
     return NextResponse.json({ success: true })

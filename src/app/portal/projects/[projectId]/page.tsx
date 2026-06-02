@@ -58,7 +58,7 @@ export default function PortalProjectDetailPage() {
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
-        const raw = Array.isArray(taskData) ? taskData : (Array.isArray(taskData?.data) ? taskData.data : []);
+        const raw = Array.isArray((taskData as any)?.tasks) ? (taskData as any).tasks : Array.isArray(taskData) ? taskData : (Array.isArray((taskData as any)?.data) ? (taskData as any).data : []);
         setTasks(deepSanitize<Record<string, unknown>[]>(raw));
       }
     } catch (err) {

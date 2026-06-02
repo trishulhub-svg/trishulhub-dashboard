@@ -10,6 +10,9 @@ import { syncTasksToGit } from "@/lib/git-sync"
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
 // M-PRJ-3, M-PRJ-4: Server-side input sanitization — strip HTML tags and enforce length
+// NOTE (M-3): This regex-based sanitization is a basic defense. For production, consider
+// using a proper library like DOMPurify or sanitize-html to handle edge cases (e.g., unclosed tags,
+// attribute-based XSS, HTML entity encoding).
 function sanitizeInput(str: string, maxLength: number): string {
   const stripped = str.replace(/<[^>]*>/g, "").trim()
   return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped
@@ -60,8 +63,8 @@ export async function GET(req: NextRequest) {
     // DEVELOPER users only see projects they're assigned to
     const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
-    // Build where clause
-    const where: Record<string, unknown> = {}
+    // Build where clause — P-H2: Properly typed Prisma where input
+    const where: Parameters<typeof db.project.findMany>[0]["where"] = {}
     if (assignedProjectIds) {
       where.id = { in: assignedProjectIds }
     }
@@ -143,7 +146,10 @@ export async function POST(req: NextRequest) {
     const description = typeof data.description === 'string' ? sanitizeInput(data.description, 5000) : undefined
     const status = typeof data.status === 'string' ? data.status : undefined
     const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
-    const budget = typeof data.budget === 'number' ? data.budget : undefined
+    // P-H7 FIX: Accept budget as number or non-empty string so "0" becomes 0, not null
+    const budget = typeof data.budget === 'number' ? data.budget
+      : typeof data.budget === 'string' && data.budget !== '' ? parseFloat(data.budget)
+      : undefined
     const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 })
@@ -229,7 +235,8 @@ export async function PUT(req: NextRequest) {
 
     // SECURITY: Sanitize project update data (whitelist allowed fields)
     const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
-    const sanitizedData: Record<string, unknown> = {}
+    // P-H2 FIX: Use proper Prisma data type instead of Record<string, unknown>
+    const sanitizedData: Parameters<typeof db.project.update>[0]["data"] = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "deadline") {
@@ -246,10 +253,19 @@ export async function PUT(req: NextRequest) {
           }
           sanitizedData[key] = progressVal
         } else if (key === "budget") {
-          if (typeof data[key] === 'number' && (data[key] as number) < 0) {
+          // P-H7 FIX: Accept budget as number or non-empty string so "0" becomes 0
+          let budgetVal: number | undefined
+          if (typeof data[key] === 'number') {
+            budgetVal = data[key] as number
+          } else if (typeof data[key] === 'string' && (data[key] as string) !== '') {
+            budgetVal = parseFloat(data[key] as string)
+          }
+          if (budgetVal !== undefined && budgetVal < 0) {
             return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
           }
-          sanitizedData[key] = data[key]
+          if (budgetVal !== undefined) {
+            sanitizedData[key] = budgetVal
+          }
         } else if (key === "name") {
           // M-PRJ-3, M-PRJ-4: Sanitize name
           sanitizedData[key] = typeof data[key] === 'string' ? sanitizeInput(data[key] as string, 500) : data[key]
