@@ -194,3 +194,76 @@ npx tsc --noEmit → exit 0, no errors
 
 ## Status: ✅ COMPLETE
 All 27 instances fixed. TypeScript compilation passes with zero errors.
+
+---
+---
+
+# Worklog: Final Fix — Dynamic Prisma Types → `Record<string, any>`
+
+**Task ID:** final-fix
+**Date:** 2025-01-XX
+**Scope:** `/home/z/my-project/src/app/api/`
+**Problem:** Prisma `UncheckedUpdateInput` types are strict per-field types. Dynamic property assignment via loops (`sanitizedData[key] = value`) fails because `key` is a `string` and TypeScript can't verify the assignment.
+
+**Solution:** Two-category approach:
+- **Category A (explicit):** Keep `Prisma.ModelUncheckedUpdateInput` when all properties are assigned via explicit named access (e.g., `data.title = "foo"`)
+- **Category B (dynamic loop):** Use `Record<string, any>` when properties are assigned in loops via dynamic keys (e.g., `for (const key of fields) { data[key] = value }`)
+
+---
+
+## Changes Made (17 instances changed to `Record<string, any>`)
+
+| # | File | Line | Old Type | Category | Removed Prisma Import? |
+|---|------|------|----------|----------|----------------------|
+| 1 | `contacts/[id]/route.ts` | 100 | `Prisma.ContactUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 2 | `leads/route.ts` | 47 | `Prisma.LeadUncheckedUpdateInput` | B (loop) | ❌ No (LeadWhereInput) |
+| 3 | `deals/[id]/route.ts` | 110 | `Prisma.DealUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 4 | `leads/[id]/route.ts` | 244 | `Prisma.LeadUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 5 | `notification-preferences/route.ts` | 62 | `Prisma.NotificationPreferenceUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 6 | `subscriptions/[id]/route.ts` | 57 | `Prisma.SubscriptionUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 7 | `invoices/route.ts` | 244 | `Prisma.InvoiceUncheckedUpdateInput` | B (loop) | ❌ No (InvoiceWhereInput) |
+| 8 | `contracts/route.ts` | 237 | `Prisma.ContractUncheckedUpdateInput` | B (loop) | ✅ Yes |
+| 9 | `clients/[id]/route.ts` | 215 | `Prisma.ClientUncheckedUpdateInput` | B (loop) | ❌ No (ClientInclude) |
+| 10 | `support/route.ts` | 120 | `Prisma.SupportTicketUncheckedUpdateInput` | B (loop) | ✅ Yes (both) |
+| 11 | `support/route.ts` | 194 | `Prisma.SupportTicketUncheckedUpdateInput` | B (loop) | (same file) |
+| 12 | `projects/route.ts` | 240 | `Prisma.ProjectUncheckedUpdateInput` | B (loop) | ❌ No (ProjectWhereInput) |
+| 13 | `expenses/route.ts` | 216 | `Prisma.ExpenseUncheckedUpdateInput` | B (loop) | ❌ No (ExpenseWhereInput) |
+| 14 | `team/route.ts` | 675 | `Prisma.AttendanceUncheckedUpdateInput` | B (loop) | ❌ No (LeaveRequest) |
+| 15 | `team/route.ts` | 744 | `Prisma.UserUncheckedUpdateInput` | B (values from `Record<string, unknown>`) | ❌ No (LeaveRequest) |
+| 16 | `timetable/personal-tasks/[id]/route.ts` | 39 | `Prisma.PersonalTimetableTaskUncheckedUpdateInput` | B (values from `Record<string, unknown>`) | ✅ Yes |
+| 17 | `timetable/settings/route.ts` | 92 | `Prisma.TimetableSettingsUncheckedUpdateInput` | B (values from `Record<string, unknown>`) | ✅ Yes |
+
+## Kept as-is (Category A — explicit property assignments, 10 instances)
+
+| # | File | Line | Prisma Type | Reason |
+|---|------|------|-------------|--------|
+| 1 | `tasks/route.ts` | 298 | `Prisma.TaskUncheckedCreateInput` | Explicit field assignments |
+| 2 | `tasks/route.ts` | 392 | `Prisma.TaskUncheckedUpdateInput` | Explicit + values typed via `String()`/`new Date()` |
+| 3 | `projects/credentials/route.ts` | 149 | `Prisma.ProjectCredentialUncheckedUpdateInput` | Explicit field assignments |
+| 4 | `expenses/route.ts` | 352 | `Prisma.ExpenseUncheckedUpdateInput` | Explicit + values from typed body |
+| 5 | `projects/[projectId]/websites/route.ts` | 183 | `Prisma.ProjectWebsiteUncheckedUpdateInput` | Explicit field assignments |
+| 6 | `team/route.ts` | 637 | `Prisma.LeaveRequestUncheckedUpdateInput` | Explicit field assignments |
+| 7 | `time-tracking/[id]/route.ts` | 56 | `Prisma.TimeEntryUncheckedUpdateInput` | Explicit + values from validation |
+| 8 | `time-tracking/[id]/route.ts` | 107 | `Prisma.TimeEntryUncheckedUpdateInput` | Explicit + values from validation |
+| 9 | `files/[id]/route.ts` | 96 | `Prisma.FileMetadataUncheckedUpdateInput` | Explicit field assignments |
+| 10 | `api-keys/route.ts` | 94 | `Prisma.ApiKeyUncheckedUpdateInput` | Explicit field assignments |
+
+---
+
+## Prisma Imports Removed (7 files)
+
+`contacts/[id]/route.ts`, `deals/[id]/route.ts`, `leads/[id]/route.ts`, `notification-preferences/route.ts`, `subscriptions/[id]/route.ts`, `contracts/route.ts`, `support/route.ts`, `timetable/personal-tasks/[id]/route.ts`, `timetable/settings/route.ts`
+
+---
+
+## Verification
+
+```bash
+NODE_OPTIONS="--max-old-space-size=4096" npx tsc --noEmit 2>&1 | rg "error TS"
+# → ZERO errors
+```
+
+---
+
+## Status: ✅ COMPLETE
+TypeScript compilation passes with zero errors. This is the FINAL fix — the root cause (dynamic property assignment incompatible with strict Prisma types) has been resolved with the correct two-category approach.
