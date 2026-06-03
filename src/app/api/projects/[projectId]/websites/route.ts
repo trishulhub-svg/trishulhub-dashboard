@@ -180,7 +180,7 @@ export async function PATCH(
       });
     }
 
-    const updateData: Prisma.ProjectWebsiteUpdateInput = {};
+    const updateData: Prisma.ProjectWebsiteUncheckedUpdateInput = {};
     if (url !== undefined) {
       const trimmedUrl = String(url).trim();
       if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {

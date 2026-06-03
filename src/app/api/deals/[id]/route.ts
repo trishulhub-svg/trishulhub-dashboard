@@ -107,7 +107,7 @@ export async function PATCH(
     // Remove id from update data and sanitize
     const { id: _id, ...updateData } = data
 
-    const sanitizedData: Prisma.DealUpdateInput = {}
+    const sanitizedData: Prisma.DealUncheckedUpdateInput = {}
     for (const key of ALLOWED_FIELDS) {
       if (updateData[key] !== undefined) {
         // Convert date strings to Date objects

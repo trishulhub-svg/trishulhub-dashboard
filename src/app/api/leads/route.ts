@@ -44,7 +44,7 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
     }
 
     // Only allow updating specific fields
-    const sanitizedData: Prisma.LeadUpdateInput = {}
+    const sanitizedData: Prisma.LeadUncheckedUpdateInput = {}
     for (const key of ALLOWED_FIELDS) {
       if (data[key] !== undefined) {
         sanitizedData[key] = data[key]

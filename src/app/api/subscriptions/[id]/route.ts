@@ -54,7 +54,7 @@ export async function PATCH(
   const data = validation.data
   const { id: _id, ...updateFields } = data
 
-  const sanitizedData: Prisma.SubscriptionUpdateInput = {}
+  const sanitizedData: Prisma.SubscriptionUncheckedUpdateInput = {}
   const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "endDate", "notes"]
 
   for (const key of allowedFields) {

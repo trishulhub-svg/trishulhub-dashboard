@@ -36,7 +36,7 @@ export async function PATCH(
     }
 
     const { title, description, startTime, endTime, priority, status, category } = body;
-    const updateData: Prisma.PersonalTimetableTaskUpdateInput = {};
+    const updateData: Prisma.PersonalTimetableTaskUncheckedUpdateInput = {};
 
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description || null;

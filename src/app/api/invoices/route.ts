@@ -241,7 +241,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
-    const sanitizedData: Prisma.InvoiceUpdateInput = {}
+    const sanitizedData: Prisma.InvoiceUncheckedUpdateInput = {}
     const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
     for (const key of allowedFields) {
       if (data[key] !== undefined) {

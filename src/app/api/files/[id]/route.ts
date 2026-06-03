@@ -93,7 +93,7 @@ export async function PUT(
       return NextResponse.json({ error: "You don't have permission to edit this file. VIEW access only allows viewing and downloading." }, { status: 403 })
     }
 
-    const updateData: Prisma.FileMetadataUpdateInput = {}
+    const updateData: Prisma.FileMetadataUncheckedUpdateInput = {}
 
     // Rename
     if (body.name !== undefined && typeof body.name === "string") {

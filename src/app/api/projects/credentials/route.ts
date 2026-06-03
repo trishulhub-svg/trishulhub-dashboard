@@ -146,7 +146,7 @@ export async function PATCH(req: NextRequest) {
 
   try {
     // P-H3: Use proper Prisma data type instead of Record<string, unknown>
-    const data: Prisma.ProjectCredentialUpdateInput = {}
+    const data: Prisma.ProjectCredentialUncheckedUpdateInput = {}
     if (body.title) data.title = body.title.trim()
     if (body.username) data.username = body.username.trim()
     if (body.password) {

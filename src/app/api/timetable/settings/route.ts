@@ -89,7 +89,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const { sleepHours, workSplitPercent, weekStartsOn } = body;
-    const updateData: Prisma.TimetableSettingsUpdateInput = {};
+    const updateData: Prisma.TimetableSettingsUncheckedUpdateInput = {};
 
     if (sleepHours !== undefined) updateData.sleepHours = sleepHours;
     if (workSplitPercent !== undefined) updateData.workSplitPercent = workSplitPercent;

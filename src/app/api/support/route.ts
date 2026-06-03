@@ -117,7 +117,7 @@ export async function PUT(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Prisma.SupportTicketUpdateInput = {}
+  const sanitizedData: Prisma.SupportTicketUncheckedUpdateInput = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }
@@ -191,7 +191,7 @@ export async function PATCH(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Prisma.SupportTicketUpdateInput = {}
+  const sanitizedData: Prisma.SupportTicketUncheckedUpdateInput = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }

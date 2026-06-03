@@ -53,7 +53,7 @@ export async function PATCH(
         }
 
         const { description, projectId, clockIn, clockOut } = validation.data
-        const updateData: Prisma.TimeEntryUpdateInput = {}
+        const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
         if (description !== undefined) updateData.description = description
         if (projectId !== undefined) updateData.projectId = projectId || null
@@ -104,7 +104,7 @@ export async function PATCH(
 
     const { description, projectId, status } = validation.data
 
-    const updateData: Prisma.TimeEntryUpdateInput = {}
+    const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null

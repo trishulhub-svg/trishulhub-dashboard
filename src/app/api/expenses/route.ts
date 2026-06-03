@@ -213,7 +213,7 @@ export async function PATCH(req: NextRequest) {
     const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
 
     const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
-    const sanitizedData: Prisma.ExpenseUpdateInput = {}
+    const sanitizedData: Prisma.ExpenseUncheckedUpdateInput = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "amount") {
@@ -349,7 +349,7 @@ export async function PUT(req: NextRequest) {
         const existing = await tx.expense.findUnique({ where: { id } })
         if (!existing) throw new Error("NOT_FOUND")
 
-        const updateData: Prisma.ExpenseUpdateInput = {}
+        const updateData: Prisma.ExpenseUncheckedUpdateInput = {}
         if (category !== undefined) updateData.category = category
         if (description !== undefined) updateData.description = description
         if (parsed !== undefined) updateData.amount = parsed

@@ -91,7 +91,7 @@ export async function PUT(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
 
     // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-    const data: Prisma.ApiKeyUpdateInput = {}
+    const data: Prisma.ApiKeyUncheckedUpdateInput = {}
     if (body.keyName !== undefined) data.keyName = body.keyName
     if (body.keyValue !== undefined) data.keyValue = body.keyValue
     if (body.provider !== undefined) data.provider = body.provider

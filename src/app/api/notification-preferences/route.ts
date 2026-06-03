@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest) {
     // HH:mm time format regex for quiet hours
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
 
-    const updateData: Prisma.NotificationPreferenceUpdateInput = { updatedAt: new Date() }
+    const updateData: Prisma.NotificationPreferenceUncheckedUpdateInput = { updatedAt: new Date() }
     for (const key of allowedFields) {
       if (key in body) {
         if (typeof body[key] === "boolean") {

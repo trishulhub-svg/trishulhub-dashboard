@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Prisma.TaskCreateInput = {
+  const data: Prisma.TaskUncheckedCreateInput = {
     title: String(body.title),
     description: body.description ? String(body.description) : null,
     status: taskStatus,
@@ -389,7 +389,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Prisma.TaskUpdateInput = {}
+  const data: Prisma.TaskUncheckedUpdateInput = {}
   if (body.title !== undefined) data.title = String(body.title)
   if (body.description !== undefined) data.description = body.description ? String(body.description) : null
   if (body.priority !== undefined) {
