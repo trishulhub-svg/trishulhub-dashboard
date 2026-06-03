@@ -48,6 +48,8 @@
     "copy-standalone.js",
     "hostinger-setup.sh",
     "scripts",
-    "trishulhub-dashboard"
+    "trishulhub-dashboard",
+    "trishulhub-dash-repo",
+    "trishulhub-repo"
   ]
 }
