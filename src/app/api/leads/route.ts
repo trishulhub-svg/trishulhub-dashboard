@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { createLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -43,7 +44,7 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
     }
 
     // Only allow updating specific fields
-    const sanitizedData: Parameters<typeof db.lead.update>[0]["data"] = {}
+    const sanitizedData: Prisma.LeadUpdateInput = {}
     for (const key of ALLOWED_FIELDS) {
       if (data[key] !== undefined) {
         sanitizedData[key] = data[key]
@@ -107,7 +108,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause
-    const where: Parameters<typeof db.lead.findMany>[0]["where"] = {}
+    const where: Prisma.LeadWhereInput = {}
     if (status) where.status = status
     if (source) where.source = source
     if (search) {

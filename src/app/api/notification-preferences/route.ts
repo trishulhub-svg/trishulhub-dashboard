@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
@@ -58,7 +59,7 @@ export async function PATCH(req: NextRequest) {
     // HH:mm time format regex for quiet hours
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
 
-    const updateData: Parameters<typeof db.notificationPreference.upsert>[0]["update"] = { updatedAt: new Date() }
+    const updateData: Prisma.NotificationPreferenceUpdateInput = { updatedAt: new Date() }
     for (const key of allowedFields) {
       if (key in body) {
         if (typeof body[key] === "boolean") {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin, isSuperAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { syncTasksToGit } from "@/lib/git-sync"
@@ -294,7 +295,7 @@ export async function POST(req: NextRequest) {
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Parameters<typeof db.task.create>[0]["data"] = {
+  const data: Prisma.TaskCreateInput = {
     title: String(body.title),
     description: body.description ? String(body.description) : null,
     status: taskStatus,
@@ -388,7 +389,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
-  const data: Parameters<typeof db.task.update>[0]["data"] = {}
+  const data: Prisma.TaskUpdateInput = {}
   if (body.title !== undefined) data.title = String(body.title)
   if (body.description !== undefined) data.description = body.description ? String(body.description) : null
   if (body.priority !== undefined) {

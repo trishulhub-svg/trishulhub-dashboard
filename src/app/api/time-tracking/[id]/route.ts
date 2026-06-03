@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { updateTimeEntrySchema, adminUpdateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
@@ -52,7 +53,7 @@ export async function PATCH(
         }
 
         const { description, projectId, clockIn, clockOut } = validation.data
-        const updateData: Parameters<typeof db.timeEntry.update>[0]["data"] = {}
+        const updateData: Prisma.TimeEntryUpdateInput = {}
 
         if (description !== undefined) updateData.description = description
         if (projectId !== undefined) updateData.projectId = projectId || null
@@ -103,7 +104,7 @@ export async function PATCH(
 
     const { description, projectId, status } = validation.data
 
-    const updateData: Parameters<typeof db.timeEntry.update>[0]["data"] = {}
+    const updateData: Prisma.TimeEntryUpdateInput = {}
 
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null

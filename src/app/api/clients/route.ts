@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Build where clause
-  const where: Parameters<typeof db.client.findMany>[0]["where"] = {}
+  const where: Prisma.ClientWhereInput = {}
 
   // Developers only see clients from their assigned projects
   if (assignedClientIds) {
@@ -182,7 +183,7 @@ export async function GET(req: NextRequest) {
 
   // CLI-033: Aggregate stats (computed across ALL matching clients, NOT just current page)
   // Uses base filters (assignedClientIds, status, date) but WITHOUT text search
-  const statsWhere: Parameters<typeof db.client.findMany>[0]["where"] = {}
+  const statsWhere: Prisma.ClientWhereInput = {}
   if (assignedClientIds) statsWhere.id = { in: assignedClientIds }
   if (status && status !== "ALL") statsWhere.status = status
   const statsDateFilter = buildDateFilter(dateFromParam, dateToParam)

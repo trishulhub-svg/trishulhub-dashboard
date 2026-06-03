@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
     const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
     // Build where clause — P-H2: Properly typed Prisma where input
-    const where: Parameters<typeof db.project.findMany>[0]["where"] = {}
+    const where: Prisma.ProjectWhereInput = {}
     if (assignedProjectIds) {
       where.id = { in: assignedProjectIds }
     }
@@ -236,7 +237,7 @@ export async function PUT(req: NextRequest) {
     // SECURITY: Sanitize project update data (whitelist allowed fields)
     const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
     // P-H2 FIX: Use proper Prisma data type instead of Record<string, unknown>
-    const sanitizedData: Parameters<typeof db.project.update>[0]["data"] = {}
+    const sanitizedData: Prisma.ProjectUpdateInput = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "deadline") {

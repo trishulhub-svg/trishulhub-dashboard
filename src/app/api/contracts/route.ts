@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -233,7 +234,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Sanitize text fields
-    const sanitized: Parameters<typeof db.contract.update>[0]["data"] = {}
+    const sanitized: Prisma.ContractUpdateInput = {}
     const textFields = ["title", "scopeOfWork", "paymentTerms", "paymentSchedule", "termsAndConditions", "amendments", "specialClauses", "clientName", "clientEmail", "clientCompany", "clientPhone", "clientAddress", "projectName", "projectDescription", "projectType", "projectMethod", "projectStartDate", "deliveryDate", "startDate", "endDate", "currency", "templateText", "templateFileName"]
     for (const key of textFields) {
       if (data[key] !== undefined) sanitized[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]

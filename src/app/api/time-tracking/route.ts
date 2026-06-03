@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status")
 
     // Non-admins can only see their own entries
-    const where: Parameters<typeof db.timeEntry.findMany>[0]["where"] = {}
+    const where: Prisma.TimeEntryWhereInput = {}
 
     if (!isAdminUser) {
       where.userId = userId

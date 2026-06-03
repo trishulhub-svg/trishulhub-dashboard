@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid endDate format" }, { status: 400 })
     }
 
-    const where: Parameters<typeof db.expense.findMany>[0]["where"] = {}
+    const where: Prisma.ExpenseWhereInput = {}
     if (startDate || endDate) {
       where.date = {}
       if (startDate) where.date.gte = new Date(startDate)

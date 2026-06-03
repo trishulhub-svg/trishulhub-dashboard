@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { canPerformFileAction, isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -92,7 +93,7 @@ export async function PUT(
       return NextResponse.json({ error: "You don't have permission to edit this file. VIEW access only allows viewing and downloading." }, { status: 403 })
     }
 
-    const updateData: Parameters<typeof db.fileMetadata.update>[0]["data"] = {}
+    const updateData: Prisma.FileMetadataUpdateInput = {}
 
     // Rename
     if (body.name !== undefined && typeof body.name === "string") {

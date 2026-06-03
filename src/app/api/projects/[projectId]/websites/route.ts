@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // TODO (M-5): Extract this sanitizeInput function to a shared utility (e.g., @/lib/sanitize)
@@ -179,7 +180,7 @@ export async function PATCH(
       });
     }
 
-    const updateData: Parameters<typeof db.projectWebsite.update>[0]["data"] = {};
+    const updateData: Prisma.ProjectWebsiteUpdateInput = {};
     if (url !== undefined) {
       const trimmedUrl = String(url).trim();
       if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {

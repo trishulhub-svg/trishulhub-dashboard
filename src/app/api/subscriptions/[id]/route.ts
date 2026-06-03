@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -53,7 +54,7 @@ export async function PATCH(
   const data = validation.data
   const { id: _id, ...updateFields } = data
 
-  const sanitizedData: Parameters<typeof db.subscription.update>[0]["data"] = {}
+  const sanitizedData: Prisma.SubscriptionUpdateInput = {}
   const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "endDate", "notes"]
 
   for (const key of allowedFields) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, ensureTimetableTables } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 // GET /api/timetable/settings — Get timetable settings for the logged-in user
 export async function GET() {
@@ -88,7 +89,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const { sleepHours, workSplitPercent, weekStartsOn } = body;
-    const updateData: Parameters<typeof db.timetableSettings.upsert>[0]["update"] = {};
+    const updateData: Prisma.TimetableSettingsUpdateInput = {};
 
     if (sleepHours !== undefined) updateData.sleepHours = sleepHours;
     if (workSplitPercent !== undefined) updateData.workSplitPercent = workSplitPercent;

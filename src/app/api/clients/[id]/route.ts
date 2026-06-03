@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -123,7 +124,7 @@ export async function GET(
 
     const client = await db.client.findUnique({
       where: { id },
-      include: includeObj as Parameters<typeof db.client.findUnique>[0]["include"],
+      include: includeObj as Prisma.ClientInclude,
     })
 
     if (!client) {
@@ -211,7 +212,7 @@ export async function PATCH(
   const { id: _id, websites: websitesData, ...updateData } = data
 
   // Clean up undefined/null fields
-  const sanitizedData: Parameters<typeof db.client.update>[0]["data"] = {}
+  const sanitizedData: Prisma.ClientUpdateInput = {}
   for (const [key, value] of Object.entries(updateData)) {
     if (value !== undefined) {
       sanitizedData[key] = value === "" ? null : value

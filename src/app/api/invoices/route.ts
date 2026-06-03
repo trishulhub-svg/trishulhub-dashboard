@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     // CLIENT users can only see their own invoices
     if (userRole === "CLIENT") {
       const client = await db.client.findFirst({ where: { userId } })
-      const where: Parameters<typeof db.invoice.findMany>[0]["where"] = client ? { clientId: client.id } : { clientId: "__none__" }
+      const where: Prisma.InvoiceWhereInput = client ? { clientId: client.id } : { clientId: "__none__" }
       if (status && status !== "ALL") where.status = status
 
       const [invoices, total] = await Promise.all([
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
 
     // DEVELOPER users only see invoices from their assigned projects' clients
     const assignedClientIds = await getAssignedClientIds(userId, userRole)
-    const where: Parameters<typeof db.invoice.findMany>[0]["where"] = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    const where: Prisma.InvoiceWhereInput = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     if (status && status !== "ALL") where.status = status
 
     const [invoices, total] = await Promise.all([
@@ -240,7 +241,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
-    const sanitizedData: Parameters<typeof db.invoice.update>[0]["data"] = {}
+    const sanitizedData: Prisma.InvoiceUpdateInput = {}
     const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
     for (const key of allowedFields) {
       if (data[key] !== undefined) {

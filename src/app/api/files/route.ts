@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -197,7 +198,7 @@ export async function GET(req: NextRequest) {
     const credentialStatus = drive.getCredentialStatus()
 
     // Build where clause FIRST — so we serve from DB immediately
-    const where: Parameters<typeof db.fileMetadata.findMany>[0]["where"] = {}
+    const where: Prisma.FileMetadataWhereInput = {}
 
     if (trashed) {
       where.trashed = true

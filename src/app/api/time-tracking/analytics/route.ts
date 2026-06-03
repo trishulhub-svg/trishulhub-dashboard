@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/time-tracking/analytics - Analytics data
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
       endDate.setDate(endDate.getDate() + 7)
     }
 
-    const where: Parameters<typeof db.timeEntry.findMany>[0]["where"] = {
+    const where: Prisma.TimeEntryWhereInput = {
       date: { gte: startDate, lt: endDate },
       status: "COMPLETED",
     }

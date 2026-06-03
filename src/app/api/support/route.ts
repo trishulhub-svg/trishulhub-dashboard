@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 
 export async function GET() {
@@ -116,7 +117,7 @@ export async function PUT(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Parameters<typeof db.supportTicket.update>[0]["data"] = {}
+  const sanitizedData: Prisma.SupportTicketUpdateInput = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }
@@ -190,7 +191,7 @@ export async function PATCH(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Parameters<typeof db.supportTicket.update>[0]["data"] = {}
+  const sanitizedData: Prisma.SupportTicketUpdateInput = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }

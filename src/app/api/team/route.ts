@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -633,7 +634,7 @@ export async function PATCH(req: NextRequest) {
         : undefined
 
       // SECURITY: Set approvedBy ONLY when status actually changes
-      const updatePayload: Parameters<typeof db.leaveRequest.update>[0]["data"] = { feedback: sanitizedFeedback }
+      const updatePayload: Prisma.LeaveRequestUpdateInput = { feedback: sanitizedFeedback }
       if (data.status && data.status !== "PENDING") {
         updatePayload.status = data.status
         updatePayload.approvedBy = session.user.id
@@ -671,7 +672,7 @@ export async function PATCH(req: NextRequest) {
       }
       // SECURITY: Sanitize attendance update data
       const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
-      const sanitizedAttData: Parameters<typeof db.attendance.update>[0]["data"] = {}
+      const sanitizedAttData: Prisma.AttendanceUpdateInput = {}
       for (const key of allowedAttFields) {
         if (data[key] !== undefined) sanitizedAttData[key] = data[key]
       }
@@ -740,7 +741,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid department" }, { status: 400 });
     }
 
-    const updateData: Parameters<typeof db.user.update>[0]["data"] = {}
+    const updateData: Prisma.UserUpdateInput = {}
     if (data.name) {
       // Validate name: trim, length limit, no control characters
       const trimmedName = (data.name as string).trim()

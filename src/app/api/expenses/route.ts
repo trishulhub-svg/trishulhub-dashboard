@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 200)
     const offset = (page - 1) * limit
 
-    const where: Parameters<typeof db.expense.findMany>[0]["where"] = {}
+    const where: Prisma.ExpenseWhereInput = {}
 
     // Date range filter
     if (startDate || endDate) {
@@ -212,7 +213,7 @@ export async function PATCH(req: NextRequest) {
     const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
 
     const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
-    const sanitizedData: Parameters<typeof db.expense.update>[0]["data"] = {}
+    const sanitizedData: Prisma.ExpenseUpdateInput = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "amount") {
@@ -348,7 +349,7 @@ export async function PUT(req: NextRequest) {
         const existing = await tx.expense.findUnique({ where: { id } })
         if (!existing) throw new Error("NOT_FOUND")
 
-        const updateData: Parameters<typeof db.expense.update>[0]["data"] = {}
+        const updateData: Prisma.ExpenseUpdateInput = {}
         if (category !== undefined) updateData.category = category
         if (description !== undefined) updateData.description = description
         if (parsed !== undefined) updateData.amount = parsed

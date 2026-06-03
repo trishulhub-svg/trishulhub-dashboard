@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encrypt, decrypt } from "@/lib/encryption"
@@ -145,7 +146,7 @@ export async function PATCH(req: NextRequest) {
 
   try {
     // P-H3: Use proper Prisma data type instead of Record<string, unknown>
-    const data: Parameters<typeof db.projectCredential.update>[0]["data"] = {}
+    const data: Prisma.ProjectCredentialUpdateInput = {}
     if (body.title) data.title = body.title.trim()
     if (body.username) data.username = body.username.trim()
     if (body.password) {

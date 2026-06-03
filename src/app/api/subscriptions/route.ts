@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "100") || 100), 200)
   const offset = (page - 1) * limit
 
-  const where: Parameters<typeof db.subscription.findMany>[0]["where"] = {}
+  const where: Prisma.SubscriptionWhereInput = {}
   if (status) where.status = status
 
   const [subscriptions, total] = await Promise.all([

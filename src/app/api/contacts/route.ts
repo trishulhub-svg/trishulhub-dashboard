@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { createContactSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause
-    const where: Parameters<typeof db.contact.findMany>[0]["where"] = {}
+    const where: Prisma.ContactWhereInput = {}
     if (clientId) where.clientId = clientId
     if (leadId) where.leadId = leadId
     if (isPrimary === "true") where.isPrimary = true

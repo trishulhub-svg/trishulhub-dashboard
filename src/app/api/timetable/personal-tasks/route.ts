@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, ensureTimetableTables } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 // GET /api/timetable/personal-tasks — Fetch personal tasks for the logged-in user
 export async function GET(req: NextRequest) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id;
     const { searchParams } = new URL(req.url);
 
-    const where: Parameters<typeof db.personalTimetableTask.findMany>[0]["where"] = { userId };
+    const where: Prisma.PersonalTimetableTaskWhereInput = { userId };
 
     const date = searchParams.get("date");
     const startDate = searchParams.get("startDate");
