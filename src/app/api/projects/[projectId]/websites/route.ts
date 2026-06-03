@@ -85,7 +85,8 @@ export async function POST(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { url, label, isPrimary } = body;
+    const isPrimaryBool = Boolean(isPrimary);
+    const { url, label } = body;
 
     if (!url || typeof url !== "string" || !url.trim()) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 });
@@ -107,7 +108,7 @@ export async function POST(
     }
 
     // If setting as primary, unset other primaries
-    if (isPrimary) {
+    if (isPrimaryBool) {
       await db.projectWebsite.updateMany({
         where: { projectId, isPrimary: true },
         data: { isPrimary: false },
@@ -118,7 +119,7 @@ export async function POST(
       data: {
         url: sanitizeInput(trimmedUrl, 2000),
         label: label ? sanitizeInput(String(label), 100) : null,
-        isPrimary: isPrimary || false,
+        isPrimary: isPrimaryBool,
         projectId,
       },
     });
@@ -163,21 +164,22 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { id, url, label, isPrimary } = body;
+    const isPrimaryBool = Boolean(isPrimary);
+    const { id, url, label } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Website ID is required" }, { status: 400 });
     }
 
     // If setting as primary, unset other primaries
-    if (isPrimary) {
+    if (isPrimaryBool) {
       await db.projectWebsite.updateMany({
         where: { projectId, isPrimary: true, id: { not: id as string } },
         data: { isPrimary: false },
       });
     }
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: Parameters<typeof db.projectWebsite.update>[0]["data"] = {};
     if (url !== undefined) {
       const trimmedUrl = String(url).trim();
       if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {
@@ -191,8 +193,8 @@ export async function PATCH(
     if (label !== undefined) {
       updateData.label = label ? sanitizeInput(String(label), 100) : null;
     }
-    if (isPrimary !== undefined) {
-      updateData.isPrimary = Boolean(isPrimary);
+    if (typeof body.isPrimary !== "undefined") {
+      updateData.isPrimary = isPrimaryBool;
     }
 
     const website = await db.projectWebsite.update({
