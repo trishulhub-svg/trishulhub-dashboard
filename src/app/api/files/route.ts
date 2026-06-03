@@ -218,8 +218,11 @@ export async function GET(req: NextRequest) {
     if (parentId) {
       where.parentId = parentId
     } else if (!trashed) {
-      // Root level: parentId is null
-      where.parentId = null
+      // Root level: use Drive root folder ID (not null) to match what createFolder/sync store in DB
+      const rootDriveId = drive.getRootId()
+      if (rootDriveId) {
+        where.parentId = rootDriveId
+      }
     }
 
     // RBAC: SUPER_ADMIN/ADMIN see all, others see own + shared
@@ -252,7 +255,7 @@ export async function GET(req: NextRequest) {
         const cacheKey = `sync:${parentId || "root"}`
         syncCache.delete(cacheKey)
       }
-      syncDriveFolder(parentId, userId).catch(err => {
+      syncDriveFolder(parentId || drive.getRootId(), userId).catch(err => {
         console.error("[files] Background sync error:", err)
       })
     }

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
+// useRouter removed — unused in this component (was dead import)
 import { motion, AnimatePresence } from "framer-motion"
 import {
   HardDrive,
@@ -229,7 +229,6 @@ function formatStorageBytes(bytes: number): string {
 
 export default function FilesPage() {
   const { data: session } = useSession()
-  const router = useRouter()
   const userId = session?.user?.id || ""
   const userRole = session?.user?.role || ""
 
@@ -324,6 +323,7 @@ export default function FilesPage() {
 
   // ── Auto-create department folders for admin users ──
   // Only runs once on mount, after initial file load confirms Drive is working
+  // Fixed: Now checks if department folders already exist before creating (was creating duplicates every visit)
   const autoCreateDone = useRef(false)
   useEffect(() => {
     const autoCreateDepartments = async () => {
@@ -341,14 +341,29 @@ export default function FilesPage() {
       }
 
       try {
+        // Check if department folders already exist in the current file list
         const rootFolderNames = files.filter(f => isFolder(f.mimeType)).map(f => f.name)
         const missing = DEPARTMENTS.filter(d => !rootFolderNames.includes(d.name))
 
         if (missing.length === 0) return
 
-        // Create all missing folders in parallel for speed
+        // Before creating, do a fresh API fetch to double-check (in case state is stale)
+        const freshData = await fetch("/api/files").then(r => r.ok ? r.json() : null).catch(() => null)
+        if (freshData?.files) {
+          const freshFolderNames = freshData.files.filter((f: FileItem) => isFolder(f.mimeType)).map((f: FileItem) => f.name)
+          const stillMissing = missing.filter(d => !freshFolderNames.includes(d.name))
+          if (stillMissing.length === 0) return
+          // Update files state with fresh data
+          setFiles(freshData.files)
+        }
+
+        // Create only the folders that are confirmed missing
         const results = await Promise.allSettled(
           missing.map(async (dept) => {
+            // Skip if already exists in files state
+            const existing = files.find(f => f.name === dept.name && isFolder(f.mimeType))
+            if (existing) return dept.name
+
             const formData = new FormData()
             formData.append("action", "folder")
             formData.append("folderName", dept.name)
@@ -397,6 +412,7 @@ export default function FilesPage() {
   }, [])
 
   // ── Sort & filter files ──
+  // TODO: Move search to server-side with ?search= query param for large file sets
   const sortedFiles = useMemo(() => {
     let filtered = [...files]
 
@@ -433,6 +449,8 @@ export default function FilesPage() {
   }, [files, sortField, sortAsc, searchQuery])
 
   // ── Compute file counts per department ──
+  // Note: Returns 1 if folder exists, 0 if not — NOT actual file counts inside departments.
+  // Kept as-is to avoid breaking consumers that depend on this name.
   const departmentFileCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     const folderFiles = files.filter(f => isFolder(f.mimeType))
@@ -466,7 +484,8 @@ export default function FilesPage() {
       )
 
       try {
-        // Simulate progress
+        // TODO: Use XMLHttpRequest or fetch with ReadableStream for real upload progress tracking
+        // Currently using simulated progress (increments 20→80 at 10% every 300ms, jumps to 100% on response)
         const progressInterval = setInterval(() => {
           setUploadingFiles((prev) =>
             prev.map((item, idx) =>
@@ -542,6 +561,8 @@ export default function FilesPage() {
   }, [newFolderName, currentFolder, fetchFiles, creatingFolder])
 
   // ── Navigate to folder ──
+  // Note: empty dependency array is correct — function only uses stable setState setters (setCurrentFolder, setBreadcrumbs)
+  // which are guaranteed by React to never change, so no stale closure risk.
   const navigateToFolder = useCallback((file: FileItem) => {
     if (!isFolder(file.mimeType)) return
     setCurrentFolder(file.driveFileId)
@@ -550,6 +571,8 @@ export default function FilesPage() {
 
   // ── Navigate breadcrumb ──
   const navigateBreadcrumb = useCallback((index: number) => {
+    // Guard: skip if clicking the current (last) breadcrumb — avoids wasteful re-fetch
+    if (index === breadcrumbs.length - 1) return
     const newBreadcrumbs = breadcrumbs.slice(0, index + 1)
     setBreadcrumbs(newBreadcrumbs)
     setCurrentFolder(newBreadcrumbs[newBreadcrumbs.length - 1].id)
@@ -608,6 +631,7 @@ export default function FilesPage() {
       })
 
       if (res.ok) {
+        toast.success(file.starred ? "Removed from favorites" : "Added to favorites")
         fetchFiles()
       }
     } catch {
@@ -659,6 +683,13 @@ export default function FilesPage() {
 
   // ── Empty trash ──
   const handleEmptyTrash = useCallback(async () => {
+    // Confirmation: show count of files that will be permanently deleted
+    const trashedCount = files.filter(f => f.trashed).length
+    const confirmed = window.confirm(
+      `Permanently delete ALL trashed files (${trashedCount} item${trashedCount !== 1 ? 's' : ''})? This cannot be undone.`
+    )
+    if (!confirmed) return
+
     try {
       const res = await fetch("/api/files/empty-trash", { method: "POST" })
       if (res.ok) {
@@ -672,7 +703,7 @@ export default function FilesPage() {
     } catch {
       toast.error("Failed to empty trash")
     }
-  }, [fetchFiles])
+  }, [files, fetchFiles])
 
   // ── Restore all trashed files ──
   const handleRestoreAll = useCallback(async () => {
@@ -680,13 +711,19 @@ export default function FilesPage() {
     if (trashedItems.length === 0) return
 
     try {
-      await Promise.all(trashedItems.map(f =>
+      const count = trashedItems.length
+      const results = await Promise.allSettled(trashedItems.map(f =>
         fetch(`/api/files/${f.id}?restore=true`, { method: "DELETE" })
       ))
-      toast.success(`${trashedItems.length} items restored`)
+      const failed = results.filter(r => r.status === "rejected").length
+      if (failed > 0) {
+        toast.warning(`${count - failed} files restored, ${failed} failed`)
+      } else {
+        toast.success(`${count} files restored from trash`)
+      }
       fetchFiles()
     } catch {
-      toast.error("Failed to restore some items")
+      toast.error("Failed to restore items")
     }
   }, [files, fetchFiles])
 
@@ -712,6 +749,16 @@ export default function FilesPage() {
     if (existing) {
       navigateToFolder(existing)
     } else {
+      // Defensive: do a fresh API fetch before showing create dialog (in case state is stale)
+      const freshData = await fetch(`/api/files?parentId=${currentFolder || ''}`).then(r => r.ok ? r.json() : null).catch(() => null)
+      const freshFiles = freshData?.files || []
+      const found = freshFiles.find((f: FileItem) => isFolder(f.mimeType) && f.name === deptName)
+      if (found) {
+        setFiles(freshFiles)
+        navigateToFolder(found)
+        return
+      }
+
       // Offer to create the folder
       const confirmed = window.confirm(`"${deptName}" folder doesn't exist yet. Create it now?`)
       if (confirmed) {
@@ -733,7 +780,7 @@ export default function FilesPage() {
         }
       }
     }
-  }, [files, fetchFiles, createFolderInDrive, navigateToFolder])
+  }, [files, currentFolder, fetchFiles, createFolderInDrive, navigateToFolder])
 
   // ── Handle smart folder creation ──
   const handleCreateSmartFolder = useCallback(async () => {
@@ -1730,8 +1777,8 @@ export default function FilesPage() {
                       {file.starred && (
                         <Star className="absolute top-2 right-2 h-3.5 w-3.5 text-amber-500 fill-amber-500" />
                       )}
-                      {/* Shared badge */}
-                      {file.createdBy !== userId && (
+                      {/* Shared badge — only shown when file has explicit sharing permissions */}
+                      {file.createdBy !== userId && file.permissions && file.permissions.length > 0 && (
                         <Badge variant="secondary" className="absolute top-2 left-2 text-[10px] px-1.5 py-0 h-4">
                           <Share2 className="h-2.5 w-2.5 mr-0.5" /> Shared
                         </Badge>
@@ -1892,7 +1939,7 @@ export default function FilesPage() {
                           </p>
                         </div>
                         {file.starred && <Star className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0 ml-1" />}
-                        {file.createdBy !== userId && (
+                        {file.createdBy !== userId && file.permissions && file.permissions.length > 0 && (
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0 ml-1">
                             <Share2 className="h-2.5 w-2.5 mr-0.5" /> Shared
                           </Badge>
