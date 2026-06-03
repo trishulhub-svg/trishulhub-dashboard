@@ -78,7 +78,7 @@ export async function POST(
     }
 
     // P-H6 FIX: Gracefully validate JSON body
-    let body: { url?: unknown; label?: unknown; isPrimary?: unknown };
+    let body: { url?: unknown; label?: unknown; isPrimary?: boolean | string };
     try {
       body = await req.json();
     } catch {
@@ -156,7 +156,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    let body: { id?: unknown; url?: unknown; label?: unknown; isPrimary?: unknown };
+    let body: { id?: unknown; url?: unknown; label?: unknown; isPrimary?: boolean | string };
     try {
       body = await req.json();
     } catch {
