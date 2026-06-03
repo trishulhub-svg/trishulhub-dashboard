@@ -237,7 +237,7 @@ export async function PUT(req: NextRequest) {
     // SECURITY: Sanitize project update data (whitelist allowed fields)
     const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
     // P-H2 FIX: Use proper Prisma data type instead of Record<string, unknown>
-    const sanitizedData: Prisma.ProjectUncheckedUpdateInput = {}
+    const sanitizedData: Record<string, any> = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "deadline") {

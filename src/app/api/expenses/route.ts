@@ -213,7 +213,7 @@ export async function PATCH(req: NextRequest) {
     const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
 
     const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
-    const sanitizedData: Prisma.ExpenseUncheckedUpdateInput = {}
+    const sanitizedData: Record<string, any> = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "amount") {

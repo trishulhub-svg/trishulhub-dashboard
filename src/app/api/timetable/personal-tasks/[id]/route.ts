@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, ensureTimetableTables } from "@/lib/db";
-import { Prisma } from "@prisma/client";
 
 // PATCH /api/timetable/personal-tasks/[id] — Update a personal task
 export async function PATCH(
@@ -36,7 +35,7 @@ export async function PATCH(
     }
 
     const { title, description, startTime, endTime, priority, status, category } = body;
-    const updateData: Prisma.PersonalTimetableTaskUncheckedUpdateInput = {};
+    const updateData: Record<string, any> = {};
 
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description || null;

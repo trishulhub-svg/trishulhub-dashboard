@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { Prisma } from "@prisma/client"
 import { updateDealSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -107,7 +106,7 @@ export async function PATCH(
     // Remove id from update data and sanitize
     const { id: _id, ...updateData } = data
 
-    const sanitizedData: Prisma.DealUncheckedUpdateInput = {}
+    const sanitizedData: Record<string, any> = {}
     for (const key of ALLOWED_FIELDS) {
       if (updateData[key] !== undefined) {
         // Convert date strings to Date objects

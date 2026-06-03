@@ -672,7 +672,7 @@ export async function PATCH(req: NextRequest) {
       }
       // SECURITY: Sanitize attendance update data
       const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
-      const sanitizedAttData: Prisma.AttendanceUncheckedUpdateInput = {}
+      const sanitizedAttData: Record<string, any> = {}
       for (const key of allowedAttFields) {
         if (data[key] !== undefined) sanitizedAttData[key] = data[key]
       }
@@ -741,7 +741,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid department" }, { status: 400 });
     }
 
-    const updateData: Prisma.UserUncheckedUpdateInput = {}
+    const updateData: Record<string, any> = {}
     if (data.name) {
       // Validate name: trim, length limit, no control characters
       const trimmedName = (data.name as string).trim()
