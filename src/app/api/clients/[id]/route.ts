@@ -211,7 +211,7 @@ export async function PATCH(
   const { id: _id, websites: websitesData, ...updateData } = data
 
   // Clean up undefined/null fields
-  const sanitizedData: Record<string, unknown> = {}
+  const sanitizedData: Parameters<typeof db.client.update>[0]["data"] = {}
   for (const [key, value] of Object.entries(updateData)) {
     if (value !== undefined) {
       sanitizedData[key] = value === "" ? null : value

@@ -633,7 +633,7 @@ export async function PATCH(req: NextRequest) {
         : undefined
 
       // SECURITY: Set approvedBy ONLY when status actually changes
-      const updatePayload: Record<string, unknown> = { feedback: sanitizedFeedback }
+      const updatePayload: Parameters<typeof db.leaveRequest.update>[0]["data"] = { feedback: sanitizedFeedback }
       if (data.status && data.status !== "PENDING") {
         updatePayload.status = data.status
         updatePayload.approvedBy = session.user.id
@@ -671,7 +671,7 @@ export async function PATCH(req: NextRequest) {
       }
       // SECURITY: Sanitize attendance update data
       const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
-      const sanitizedAttData: Record<string, unknown> = {}
+      const sanitizedAttData: Parameters<typeof db.attendance.update>[0]["data"] = {}
       for (const key of allowedAttFields) {
         if (data[key] !== undefined) sanitizedAttData[key] = data[key]
       }
@@ -740,7 +740,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid department" }, { status: 400 });
     }
 
-    const updateData: Record<string, unknown> = {}
+    const updateData: Parameters<typeof db.user.update>[0]["data"] = {}
     if (data.name) {
       // Validate name: trim, length limit, no control characters
       const trimmedName = (data.name as string).trim()

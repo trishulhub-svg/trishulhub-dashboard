@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id;
     const { searchParams } = new URL(req.url);
 
-    const where: Record<string, unknown> = { userId };
+    const where: Parameters<typeof db.personalTimetableTask.findMany>[0]["where"] = { userId };
 
     const date = searchParams.get("date");
     const startDate = searchParams.get("startDate");

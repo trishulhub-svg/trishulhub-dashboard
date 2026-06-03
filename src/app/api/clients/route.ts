@@ -54,9 +54,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Build date filter helper (reused for where and statsWhere)
-  const buildDateFilter = (fromParam: string | null, toParam: string | null): Record<string, unknown> | null => {
+  const buildDateFilter = (fromParam: string | null, toParam: string | null): { gte?: Date; lte?: Date } | null => {
     if (!fromParam && !toParam) return null
-    const dateFilter: Record<string, unknown> = {}
+    const dateFilter: { gte?: Date; lte?: Date } = {}
     if (fromParam) dateFilter.gte = new Date(fromParam)
     if (toParam) {
       const endOfDay = new Date(toParam)
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Build where clause
-  const where: Record<string, unknown> = {}
+  const where: Parameters<typeof db.client.findMany>[0]["where"] = {}
 
   // Developers only see clients from their assigned projects
   if (assignedClientIds) {
@@ -182,7 +182,7 @@ export async function GET(req: NextRequest) {
 
   // CLI-033: Aggregate stats (computed across ALL matching clients, NOT just current page)
   // Uses base filters (assignedClientIds, status, date) but WITHOUT text search
-  const statsWhere: Record<string, unknown> = {}
+  const statsWhere: Parameters<typeof db.client.findMany>[0]["where"] = {}
   if (assignedClientIds) statsWhere.id = { in: assignedClientIds }
   if (status && status !== "ALL") statsWhere.status = status
   const statsDateFilter = buildDateFilter(dateFromParam, dateToParam)

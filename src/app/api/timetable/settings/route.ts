@@ -88,7 +88,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const { sleepHours, workSplitPercent, weekStartsOn } = body;
-    const updateData: Record<string, unknown> = {};
+    const updateData: Parameters<typeof db.timetableSettings.upsert>[0]["update"] = {};
 
     if (sleepHours !== undefined) updateData.sleepHours = sleepHours;
     if (workSplitPercent !== undefined) updateData.workSplitPercent = workSplitPercent;

@@ -52,7 +52,7 @@ export async function PATCH(
         }
 
         const { description, projectId, clockIn, clockOut } = validation.data
-        const updateData: Record<string, unknown> = {}
+        const updateData: Parameters<typeof db.timeEntry.update>[0]["data"] = {}
 
         if (description !== undefined) updateData.description = description
         if (projectId !== undefined) updateData.projectId = projectId || null
@@ -103,7 +103,7 @@ export async function PATCH(
 
     const { description, projectId, status } = validation.data
 
-    const updateData: Record<string, unknown> = {}
+    const updateData: Parameters<typeof db.timeEntry.update>[0]["data"] = {}
 
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null

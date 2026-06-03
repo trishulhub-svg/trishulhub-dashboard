@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.contact.findMany>[0]["where"] = {}
     if (clientId) where.clientId = clientId
     if (leadId) where.leadId = leadId
     if (isPrimary === "true") where.isPrimary = true

@@ -85,7 +85,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const isPrimaryBool = Boolean(isPrimary);
+    const isPrimaryBool = Boolean(body.isPrimary);
     const { url, label } = body;
 
     if (!url || typeof url !== "string" || !url.trim()) {
@@ -164,7 +164,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const isPrimaryBool = Boolean(isPrimary);
+    const isPrimaryBool = Boolean(body.isPrimary);
     const { id, url, label } = body;
 
     if (!id) {

@@ -43,7 +43,7 @@ async function _updateLead(id: string, data: Record<string, unknown>) {
     }
 
     // Only allow updating specific fields
-    const sanitizedData: Record<string, unknown> = {}
+    const sanitizedData: Parameters<typeof db.lead.update>[0]["data"] = {}
     for (const key of ALLOWED_FIELDS) {
       if (data[key] !== undefined) {
         sanitizedData[key] = data[key]
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.lead.findMany>[0]["where"] = {}
     if (status) where.status = status
     if (source) where.source = source
     if (search) {

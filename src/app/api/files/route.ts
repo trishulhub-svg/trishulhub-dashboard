@@ -197,7 +197,7 @@ export async function GET(req: NextRequest) {
     const credentialStatus = drive.getCredentialStatus()
 
     // Build where clause FIRST — so we serve from DB immediately
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.fileMetadata.findMany>[0]["where"] = {}
 
     if (trashed) {
       where.trashed = true

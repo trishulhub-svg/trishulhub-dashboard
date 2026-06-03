@@ -35,7 +35,7 @@ export async function PATCH(
     }
 
     const { title, description, startTime, endTime, priority, status, category } = body;
-    const updateData: Record<string, unknown> = {};
+    const updateData: Parameters<typeof db.personalTimetableTask.update>[0]["data"] = {};
 
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description || null;

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Build where clause
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.deal.findMany>[0]["where"] = {}
     if (stage) where.stage = stage
     if (clientId) where.clientId = clientId
     if (leadId) where.leadId = leadId

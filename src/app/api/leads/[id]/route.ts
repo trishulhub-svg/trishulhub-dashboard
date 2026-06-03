@@ -240,7 +240,7 @@ export async function PATCH(
     // Remove id from update data and sanitize
     const { id: _id, ...updateData } = data
 
-    const sanitizedData: Record<string, unknown> = {}
+    const sanitizedData: Parameters<typeof db.lead.update>[0]["data"] = {}
     for (const key of ALLOWED_FIELDS) {
       if (updateData[key] !== undefined) {
         sanitizedData[key] = updateData[key] === "" ? null : updateData[key]

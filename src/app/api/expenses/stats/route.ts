@@ -35,11 +35,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid endDate format" }, { status: 400 })
     }
 
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.expense.findMany>[0]["where"] = {}
     if (startDate || endDate) {
       where.date = {}
-      if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate)
-      if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate)
+      if (startDate) where.date.gte = new Date(startDate)
+      if (endDate) where.date.lte = new Date(endDate)
     }
 
     const expenses = await db.expense.findMany({

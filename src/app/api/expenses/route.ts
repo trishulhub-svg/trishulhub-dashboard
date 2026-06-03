@@ -34,13 +34,13 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 200)
     const offset = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.expense.findMany>[0]["where"] = {}
 
     // Date range filter
     if (startDate || endDate) {
       where.date = {}
-      if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate)
-      if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate)
+      if (startDate) where.date.gte = new Date(startDate)
+      if (endDate) where.date.lte = new Date(endDate)
     }
 
     // Category filter
@@ -212,7 +212,7 @@ export async function PATCH(req: NextRequest) {
     const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
 
     const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
-    const sanitizedData: Record<string, unknown> = {}
+    const sanitizedData: Parameters<typeof db.expense.update>[0]["data"] = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "amount") {
@@ -348,7 +348,7 @@ export async function PUT(req: NextRequest) {
         const existing = await tx.expense.findUnique({ where: { id } })
         if (!existing) throw new Error("NOT_FOUND")
 
-        const updateData: Record<string, unknown> = {}
+        const updateData: Parameters<typeof db.expense.update>[0]["data"] = {}
         if (category !== undefined) updateData.category = category
         if (description !== undefined) updateData.description = description
         if (parsed !== undefined) updateData.amount = parsed

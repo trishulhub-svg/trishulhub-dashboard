@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status")
 
     // Non-admins can only see their own entries
-    const where: Record<string, unknown> = {}
+    const where: Parameters<typeof db.timeEntry.findMany>[0]["where"] = {}
 
     if (!isAdminUser) {
       where.userId = userId

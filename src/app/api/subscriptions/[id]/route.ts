@@ -53,7 +53,7 @@ export async function PATCH(
   const data = validation.data
   const { id: _id, ...updateFields } = data
 
-  const sanitizedData: Record<string, unknown> = {}
+  const sanitizedData: Parameters<typeof db.subscription.update>[0]["data"] = {}
   const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "endDate", "notes"]
 
   for (const key of allowedFields) {

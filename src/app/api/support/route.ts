@@ -116,12 +116,12 @@ export async function PUT(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Record<string, unknown> = {}
+  const sanitizedData: Parameters<typeof db.supportTicket.update>[0]["data"] = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }
 
-  const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData as Record<string, string> })
+  const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(ticket)
   } catch (error: unknown) {
     console.error("[support] PUT error:", error instanceof Error ? error.message : error)
@@ -190,12 +190,12 @@ export async function PATCH(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields to prevent mass assignment
   const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-  const sanitizedData: Record<string, unknown> = {}
+  const sanitizedData: Parameters<typeof db.supportTicket.update>[0]["data"] = {}
   for (const key of allowedFields) {
     if (rest[key] !== undefined) sanitizedData[key] = rest[key]
   }
 
-  const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData as Record<string, string> })
+  const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData })
   return NextResponse.json(ticket)
   } catch (error: unknown) {
     console.error("[support] PATCH error:", error instanceof Error ? error.message : error)

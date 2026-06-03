@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       endDate.setDate(endDate.getDate() + 7)
     }
 
-    const where: Record<string, unknown> = {
+    const where: Parameters<typeof db.timeEntry.findMany>[0]["where"] = {
       date: { gte: startDate, lt: endDate },
       status: "COMPLETED",
     }

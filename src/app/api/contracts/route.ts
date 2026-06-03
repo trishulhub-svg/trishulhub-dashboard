@@ -233,7 +233,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Sanitize text fields
-    const sanitized: Record<string, unknown> = {}
+    const sanitized: Parameters<typeof db.contract.update>[0]["data"] = {}
     const textFields = ["title", "scopeOfWork", "paymentTerms", "paymentSchedule", "termsAndConditions", "amendments", "specialClauses", "clientName", "clientEmail", "clientCompany", "clientPhone", "clientAddress", "projectName", "projectDescription", "projectType", "projectMethod", "projectStartDate", "deliveryDate", "startDate", "endDate", "currency", "templateText", "templateFileName"]
     for (const key of textFields) {
       if (data[key] !== undefined) sanitized[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]

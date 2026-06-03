@@ -92,7 +92,7 @@ export async function PUT(
       return NextResponse.json({ error: "You don't have permission to edit this file. VIEW access only allows viewing and downloading." }, { status: 403 })
     }
 
-    const updateData: Record<string, unknown> = {}
+    const updateData: Parameters<typeof db.fileMetadata.update>[0]["data"] = {}
 
     // Rename
     if (body.name !== undefined && typeof body.name === "string") {

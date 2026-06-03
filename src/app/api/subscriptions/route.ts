@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "100") || 100), 200)
   const offset = (page - 1) * limit
 
-  const where: Record<string, unknown> = {}
+  const where: Parameters<typeof db.subscription.findMany>[0]["where"] = {}
   if (status) where.status = status
 
   const [subscriptions, total] = await Promise.all([

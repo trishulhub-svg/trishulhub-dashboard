@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     // CLIENT users can only see their own invoices
     if (userRole === "CLIENT") {
       const client = await db.client.findFirst({ where: { userId } })
-      const where: Record<string, unknown> = client ? { clientId: client.id } : { clientId: "__none__" }
+      const where: Parameters<typeof db.invoice.findMany>[0]["where"] = client ? { clientId: client.id } : { clientId: "__none__" }
       if (status && status !== "ALL") where.status = status
 
       const [invoices, total] = await Promise.all([
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 
     // DEVELOPER users only see invoices from their assigned projects' clients
     const assignedClientIds = await getAssignedClientIds(userId, userRole)
-    const where: Record<string, unknown> = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    const where: Parameters<typeof db.invoice.findMany>[0]["where"] = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     if (status && status !== "ALL") where.status = status
 
     const [invoices, total] = await Promise.all([
@@ -240,7 +240,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
-    const sanitizedData: Record<string, unknown> = {}
+    const sanitizedData: Parameters<typeof db.invoice.update>[0]["data"] = {}
     const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
