@@ -108,3 +108,89 @@ const create: Parameters<typeof db.MODEL.upsert>[0]["create"] = {}
 
 ## Status: ✅ COMPLETE
 All `Record<string, unknown>` variables passed to Prisma operations have been replaced with proper Prisma types. All remaining `Record<string, unknown>` usages are safe (req.json() parsing, response building, or already-cast includes).
+
+---
+---
+
+# Worklog: Fix `Prisma.ModelUpdateInput` → `Prisma.ModelUncheckedUpdateInput`
+
+**Task ID:** unchecked-fix
+**Date:** 2025-01-XX
+**Scope:** `/home/z/my-project/src/app/api/`
+**Pattern:** Replace `Prisma.ModelUpdateInput` with `Prisma.ModelUncheckedUpdateInput` (and `Prisma.ModelCreateInput` with `Prisma.ModelUncheckedCreateInput` where raw FK fields are used)
+
+---
+
+## Summary
+
+- **Total files changed:** 21 files
+- **Total replacements:** 27 (26 UpdateInput + 1 CreateInput)
+- **TypeScript check:** ✅ Zero errors (`npx tsc --noEmit`)
+
+---
+
+## Files Changed
+
+| # | File | Line(s) | Change |
+|---|------|---------|--------|
+| 1 | `tasks/route.ts` | 298 | `TaskCreateInput` → `TaskUncheckedCreateInput` |
+| 2 | `tasks/route.ts` | 392 | `TaskUpdateInput` → `TaskUncheckedUpdateInput` |
+| 3 | `contacts/[id]/route.ts` | 100 | `ContactUpdateInput` → `ContactUncheckedUpdateInput` |
+| 4 | `leads/route.ts` | 47 | `LeadUpdateInput` → `LeadUncheckedUpdateInput` |
+| 5 | `deals/[id]/route.ts` | 110 | `DealUpdateInput` → `DealUncheckedUpdateInput` |
+| 6 | `leads/[id]/route.ts` | 244 | `LeadUpdateInput` → `LeadUncheckedUpdateInput` |
+| 7 | `notification-preferences/route.ts` | 62 | `NotificationPreferenceUpdateInput` → `NotificationPreferenceUncheckedUpdateInput` |
+| 8 | `projects/credentials/route.ts` | 149 | `ProjectCredentialUpdateInput` → `ProjectCredentialUncheckedUpdateInput` |
+| 9 | `support/route.ts` | 120 | `SupportTicketUpdateInput` → `SupportTicketUncheckedUpdateInput` |
+| 10 | `support/route.ts` | 194 | `SupportTicketUpdateInput` → `SupportTicketUncheckedUpdateInput` |
+| 11 | `projects/route.ts` | 240 | `ProjectUpdateInput` → `ProjectUncheckedUpdateInput` |
+| 12 | `expenses/route.ts` | 216 | `ExpenseUpdateInput` → `ExpenseUncheckedUpdateInput` |
+| 13 | `expenses/route.ts` | 352 | `ExpenseUpdateInput` → `ExpenseUncheckedUpdateInput` |
+| 14 | `subscriptions/[id]/route.ts` | 57 | `SubscriptionUpdateInput` → `SubscriptionUncheckedUpdateInput` |
+| 15 | `invoices/route.ts` | 244 | `InvoiceUpdateInput` → `InvoiceUncheckedUpdateInput` |
+| 16 | `projects/[projectId]/websites/route.ts` | 183 | `ProjectWebsiteUpdateInput` → `ProjectWebsiteUncheckedUpdateInput` |
+| 17 | `team/route.ts` | 637 | `LeaveRequestUpdateInput` → `LeaveRequestUncheckedUpdateInput` |
+| 18 | `team/route.ts` | 675 | `AttendanceUpdateInput` → `AttendanceUncheckedUpdateInput` |
+| 19 | `team/route.ts` | 744 | `UserUpdateInput` → `UserUncheckedUpdateInput` |
+| 20 | `time-tracking/[id]/route.ts` | 56 | `TimeEntryUpdateInput` → `TimeEntryUncheckedUpdateInput` |
+| 21 | `time-tracking/[id]/route.ts` | 107 | `TimeEntryUpdateInput` → `TimeEntryUncheckedUpdateInput` |
+| 22 | `timetable/settings/route.ts` | 92 | `TimetableSettingsUpdateInput` → `TimetableSettingsUncheckedUpdateInput` |
+| 23 | `timetable/personal-tasks/[id]/route.ts` | 39 | `PersonalTimetableTaskUpdateInput` → `PersonalTimetableTaskUncheckedUpdateInput` |
+| 24 | `files/[id]/route.ts` | 96 | `FileMetadataUpdateInput` → `FileMetadataUncheckedUpdateInput` |
+| 25 | `api-keys/route.ts` | 94 | `ApiKeyUpdateInput` → `ApiKeyUncheckedUpdateInput` |
+| 26 | `contracts/route.ts` | 237 | `ContractUpdateInput` → `ContractUncheckedUpdateInput` |
+| 27 | `clients/[id]/route.ts` | 215 | `ClientUpdateInput` → `ClientUncheckedUpdateInput` |
+
+---
+
+## Rationale
+
+Prisma has two type variants for `update` and `create` inputs:
+- **`Prisma.ModelUpdateInput`** — requires relation syntax: `{ client: { connect: { id: "xxx" } } }`
+- **`Prisma.ModelUncheckedUpdateInput`** — uses raw FK field names: `{ clientId: "xxx" }`
+
+All code in this project uses raw FK fields (`clientId`, `projectId`, `userId`, `assignedTo`, `createdBy`, etc.), so the `Unchecked` variant is the correct type.
+
+The one `CreateInput` fix (`TaskCreateInput`) was also needed because `tasks/route.ts` uses raw FK fields like `projectId`, `assignedTo`, and `createdBy`.
+
+---
+
+## Verification
+
+```bash
+# Pre-fix: 26 non-Unchecked UpdateInput + 1 non-Unchecked CreateInput found
+rg "Prisma\.\w+UpdateInput" src/ | rg -v "Unchecked"  → 26 matches
+rg "Prisma\.\w+CreateInput" src/ | rg -v "Unchecked"  → 1 match
+
+# Post-fix: zero remaining non-Unchecked types
+rg "Prisma\.\w+UpdateInput" src/ | rg -v "Unchecked"  → 0 matches
+rg "Prisma\.\w+CreateInput" src/ | rg -v "Unchecked"  → 0 matches
+
+# TypeScript: zero errors
+npx tsc --noEmit → exit 0, no errors
+```
+
+---
+
+## Status: ✅ COMPLETE
+All 27 instances fixed. TypeScript compilation passes with zero errors.
