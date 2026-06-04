@@ -4,11 +4,15 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/tasks/counts
 // Returns { [projectId]: pendingCount } where pending = status !== "DONE"
 export async function GET() {
   try {
+    // Auto-migrate: ensure all tables/columns exist before querying
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

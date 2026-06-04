@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
 
 // GET /api/projects/[projectId]/members - List project members
@@ -12,6 +13,9 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
+    // Auto-migrate: ensure all tables/columns exist before querying
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

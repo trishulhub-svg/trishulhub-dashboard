@@ -127,13 +127,13 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
  */
 export async function ensureAllTables(): Promise<void> {
   if (syncDone) return
-  syncDone = true
 
   try {
     // Quick DB connectivity check
     await db.$queryRawUnsafe("SELECT 1")
   } catch (err: any) {
     console.error("[auto-migrate] Database connection failed:", err?.message)
+    // Do NOT set syncDone — allow retry on next cold start
     return
   }
 
@@ -238,6 +238,9 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${err?.message}`)
       }
     }
+
+    // Mark as done ONLY after all migrations succeed
+    syncDone = true
   } catch (err: any) {
     console.error("[auto-migrate] Schema check error (non-fatal):", err?.message)
   }

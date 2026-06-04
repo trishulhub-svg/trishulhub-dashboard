@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const [session, _migrateResult] = await Promise.all([
       getServerSession(authOptions),
-      ensureAllTables().catch(() => {}),
+      ensureAllTables().catch((err) => { console.error('[dashboard/stats] ensureAllTables failed:', err instanceof Error ? err.message : err) }),
     ])
 
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

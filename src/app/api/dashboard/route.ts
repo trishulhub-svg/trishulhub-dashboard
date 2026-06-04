@@ -10,7 +10,7 @@ export async function GET() {
     // PERF: Run auth + rbac + auto-migrate in parallel
     const [session, _migrateResult] = await Promise.all([
       getServerSession(authOptions),
-      ensureAllTables().catch(() => {}),
+      ensureAllTables().catch((err) => { console.error('[dashboard] ensureAllTables failed:', err instanceof Error ? err.message : err) }),
     ])
 
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

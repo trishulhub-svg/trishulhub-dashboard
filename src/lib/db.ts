@@ -19,6 +19,14 @@ function createPrismaClient() {
   }
 
   // Fallback to local SQLite for development
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      '[db] CRITICAL: TURSO_DATABASE_URL is not configured or has invalid format!',
+      'App will use a LOCAL SQLite database with NO data.',
+      'All API queries will return empty results.',
+      'Fix: Set TURSO_DATABASE_URL (libsql://...) and TURSO_AUTH_TOKEN in Vercel env vars.'
+    )
+  }
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   })

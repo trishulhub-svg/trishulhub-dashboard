@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdmin, isSuperAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
@@ -46,6 +47,9 @@ async function sendNotification(userId: string, title: string, message: string, 
 
 export async function GET(req: NextRequest) {
   try {
+  // Auto-migrate: ensure all tables/columns exist before querying
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -220,6 +224,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -345,6 +351,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -586,6 +594,8 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+  await ensureAllTables()
+
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
