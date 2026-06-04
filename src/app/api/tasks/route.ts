@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin, isSuperAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
@@ -71,8 +71,8 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)))
 
-  // SUPER_ADMIN sees all tasks; others have RBAC restrictions
-  if (isSuperAdmin(userRole)) {
+  // SUPER_ADMIN and ADMIN see all tasks with unrestricted filters; others have RBAC restrictions
+  if (isAdmin(userRole)) {
     // Build where clause with all filters — no RBAC restriction
     const where: { projectId?: string | null | { in: string[] }; assignedTo?: string; createdBy?: string; category?: string } = {}
 
@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
   // projectId is optional now — standalone tasks are allowed
   // But if projectId IS provided, check project membership for non-admins
   if (body.projectId) {
-    if (!isSuperAdmin(userRole)) {
+    if (!isAdmin(userRole)) {
       const membership = await db.projectMember.findFirst({
         where: { userId, projectId: String(body.projectId) }
       })

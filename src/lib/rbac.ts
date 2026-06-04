@@ -34,8 +34,8 @@ export async function getFileAccessLevel(
   role: string,
   _depth: number = 0
 ): Promise<FileAccessLevel | null> {
-  // Super Admin has ADMIN on everything
-  if (isSuperAdmin(role)) return FILE_ACCESS.ADMIN
+  // Admin (SUPER_ADMIN and ADMIN) has ADMIN on everything
+  if (isAdmin(role)) return FILE_ACCESS.ADMIN
 
   // Max recursion depth for folder traversal
   if (_depth > 10) return null
@@ -118,16 +118,15 @@ export async function getDescendantFileIds(parentDriveId: string, depth: number 
 
 /**
  * Get the list of project IDs that a user has access to.
- * SUPER_ADMIN sees all projects (returns null to indicate "no filter needed").
- * ADMIN sees only projects they are explicitly added to as a member.
+ * SUPER_ADMIN and ADMIN see all projects (returns null to indicate "no filter needed").
  * CLIENT users see projects belonging to their linked client record.
  * DEVELOPER / VIEWER see only projects they are members of.
  * 
- * @returns Array of project IDs the user has access to, or null if SUPER_ADMIN (all access)
+ * @returns Array of project IDs the user has access to, or null if admin (all access)
  */
 export async function getAssignedProjectIds(userId: string, role: string): Promise<string[] | null> {
-  // Only SUPER_ADMIN can see all projects
-  if (isSuperAdmin(role)) return null
+  // SUPER_ADMIN and ADMIN can see all projects
+  if (isAdmin(role)) return null
 
   // CLIENT users: find projects via their linked Client record
   if (role === "CLIENT") {
@@ -155,7 +154,8 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
  * Useful for filtering clients, invoices, etc.
  */
 export async function getAssignedClientIds(userId: string, role: string): Promise<string[] | null> {
-  if (isSuperAdmin(role)) return null
+  // SUPER_ADMIN and ADMIN can see all clients
+  if (isAdmin(role)) return null
 
   // CLIENT users: return their own linked client ID
   if (role === "CLIENT") {
