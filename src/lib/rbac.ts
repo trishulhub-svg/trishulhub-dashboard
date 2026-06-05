@@ -171,5 +171,5 @@ export async function getAssignedClientIds(userId: string, role: string): Promis
     select: { clientId: true },
   })
   
-  return [...new Set(projects.map(p => p.clientId))]
+  return [...new Set(projects.map(p => p.clientId).filter((id): id is string => !!id))]
 }

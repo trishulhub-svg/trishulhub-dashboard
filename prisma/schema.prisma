@@ -381,7 +381,7 @@ model Project {
   id          String   @id @default(cuid())
   name        String
   description String?
-  clientId    String
+  clientId    String?
   status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
   progress    Int      @default(0)
   deadline    DateTime?
@@ -389,7 +389,7 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client       Client        @relation(fields: [clientId], references: [id])
+  client       Client?       @relation(fields: [clientId], references: [id])
   tasks        Task[]
   invoices     Invoice[]
   timeEntries  TimeEntry[]

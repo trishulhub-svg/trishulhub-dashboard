@@ -146,6 +146,7 @@ export async function POST(req: NextRequest) {
     const name = typeof data.name === 'string' ? sanitizeInput(data.name, 500) : undefined
     const description = typeof data.description === 'string' ? sanitizeInput(data.description, 5000) : undefined
     const status = typeof data.status === 'string' ? data.status : undefined
+    // Client is optional — empty string means "No Client" (Internal project)
     const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
     // P-H7 FIX: Accept budget as number or non-empty string so "0" becomes 0, not null
     const budget = typeof data.budget === 'number' ? data.budget
@@ -155,8 +156,13 @@ export async function POST(req: NextRequest) {
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 })
     }
-    if (!clientId) {
-      return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
+
+    // If clientId is provided, verify client exists
+    if (clientId && clientId.trim()) {
+      const clientExists = await db.client.findUnique({ where: { id: clientId } })
+      if (!clientExists) {
+        return NextResponse.json({ error: "Client not found" }, { status: 400 })
+      }
     }
 
     // H4: Validate budget is non-negative
@@ -170,18 +176,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
     }
 
-    // Verify client exists
-    const clientExists = await db.client.findUnique({ where: { id: clientId } })
-    if (!clientExists) {
-      return NextResponse.json({ error: "Client not found" }, { status: 400 })
-    }
-
     const project = await db.project.create({
       data: {
         name,
         description: description || null,
         status: projectStatus,
-        clientId,
+        clientId: clientId && clientId.trim() ? clientId : null,
         // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
         budget: budget ?? null,
         deadline: deadline ? new Date(deadline) : null,

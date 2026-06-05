@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -541,6 +541,154 @@ function ListViewRow({
   );
 }
 
+// ━━ Searchable Client Select (Combobox) ━━
+// Shows "No Client" option + 10 most recent clients by default.
+// Typing in the search box filters the full client list.
+function ClientSearchSelect({
+  name,
+  defaultValue,
+  clients,
+  required = false,
+}: {
+  name: string;
+  defaultValue?: string;
+  clients: Array<{ id: string; name: string; company?: string }>;
+  required?: boolean;
+}) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState(defaultValue || "");
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Display name for currently selected client
+  const selectedClient = selectedId
+    ? clients.find((c) => c.id === selectedId)
+    : null;
+  const displayValue = selectedClient
+    ? selectedClient.company || selectedClient.name
+    : selectedId === "__none__"
+      ? "No Client (Internal)"
+      : "";
+
+  // Filter: "No Client" always shows first, then 10 recent by default, or search results
+  const filtered = useMemo(() => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return clients.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.company && c.company.toLowerCase().includes(q))
+      );
+    }
+    // Default: show 10 most recent
+    return clients.slice(0, 10);
+  }, [clients, search]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Hidden input to store the value for form submission */}
+      <input type="hidden" name={name} value={selectedId} />
+
+      {/* Trigger button — shows selected value or placeholder */}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-9 w-full items-center justify-between rounded-md border px-3 py-2 text-sm bg-background transition-colors",
+          "hover:bg-accent hover:border-accent-foreground/20",
+          open && "ring-2 ring-ring",
+          !selectedId && "text-muted-foreground"
+        )}
+      >
+        <span className="truncate">{displayValue || "Select client..."}</span>
+        <Search className="h-3.5 w-3.5 shrink-0 ml-2 text-muted-foreground" />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-[240px] overflow-hidden">
+          {/* Search input */}
+          <div className="p-1.5 border-b">
+            <input
+              type="text"
+              placeholder="Search clients..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-8 rounded border bg-background px-2.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+              autoFocus
+            />
+          </div>
+
+          {/* Options */}
+          <div className="overflow-y-auto max-h-[170px] p-1">
+            {/* "No Client" option */}
+            <button
+              type="button"
+              className={cn(
+                "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+                selectedId === "__none__"
+                  ? "bg-primary text-primary-foreground font-medium"
+                  : "hover:bg-accent"
+              )}
+              onClick={() => {
+                setSelectedId("__none__");
+                setOpen(false);
+                setSearch("");
+              }}
+            >
+              <span className="text-muted-foreground italic">No Client (Internal)</span>
+            </button>
+
+            {filtered.length === 0 && (
+              <p className="px-2.5 py-2 text-xs text-muted-foreground text-center">
+                {search ? "No clients found" : "No clients registered"}
+              </p>
+            )}
+
+            {filtered.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={cn(
+                  "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+                  selectedId === c.id
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "hover:bg-accent"
+                )}
+                onClick={() => {
+                  setSelectedId(c.id);
+                  setOpen(false);
+                  setSearch("");
+                }}
+              >
+                <span className="font-medium">{c.company || c.name}</span>
+                {c.company && c.name !== c.company && (
+                  <span className="text-muted-foreground ml-1.5 text-xs">({c.name})</span>
+                )}
+              </button>
+            ))}
+
+            {!search && clients.length > 10 && (
+              <p className="px-2.5 py-1.5 text-[10px] text-muted-foreground text-center border-t mt-1">
+                Showing 10 recent — type to search all {clients.length} clients
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -665,11 +813,11 @@ export default function ProjectsPage() {
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const clientId = form.get("clientId") as string;
+    let clientId = form.get("clientId") as string;
 
-    if (!clientId) {
-      toast.error("Please select a client");
-      return;
+    // "No Client" means skip client requirement — the API will handle it
+    if (!clientId || clientId === "__none__") {
+      clientId = "";
     }
 
     const data = {
@@ -728,7 +876,7 @@ export default function ProjectsPage() {
       name: form.get("name") as string,
       description: form.get("description") as string || null,
       status: form.get("status") as string,
-      clientId: form.get("clientId") as string || null,
+      clientId: (form.get("clientId") as string === "__none__" ? null : form.get("clientId") as string) || null,
       budget: parseFloat(form.get("budget") as string) || null,
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
@@ -1237,13 +1385,11 @@ export default function ProjectsPage() {
                   <Textarea name="description" rows={2} />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Client *</Label>
-                  <select name="clientId" required className="border rounded px-3 py-2 text-sm bg-background w-full">
-                    <option value="">{clients.length === 0 ? "No clients available" : "Select client"}</option>
-                    {(clients as { id: string; name: string }[]).map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <Label className="text-xs">Client</Label>
+                  <ClientSearchSelect
+                    name="clientId"
+                    clients={(clients as { id: string; name: string; company?: string }[])}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -1455,16 +1601,11 @@ export default function ProjectsPage() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Client</Label>
-                      <select
+                      <ClientSearchSelect
                         name="clientId"
                         defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
-                        className="border rounded px-3 py-2 text-sm bg-background w-full"
-                      >
-                        <option value="">Select client</option>
-                        {(clients as { id: string; name: string; company?: string }[]).map((c) => (
-                          <option key={c.id} value={c.id}>{c.company || c.name}</option>
-                        ))}
-                      </select>
+                        clients={(clients as { id: string; name: string; company?: string }[])}
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
