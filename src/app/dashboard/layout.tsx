@@ -215,11 +215,19 @@ const SidebarContent = React.memo(function SidebarContent({
     }))
     .filter((group) => group.items.length > 0);
 
-  // Collapsible section state — Overview always expanded, all others default expanded
+  // Collapsible section state — Overview always expanded, others only expand when active
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     visibleGroups.forEach((g) => {
-      initial[g.label] = true; // All groups start expanded
+      if (g.label === "Overview") {
+        initial[g.label] = true;
+      } else {
+        // Only expand if this group contains the currently active page
+        const isActive = g.items.some(
+          (item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))
+        );
+        initial[g.label] = isActive;
+      }
     });
     return initial;
   });
@@ -261,8 +269,9 @@ const SidebarContent = React.memo(function SidebarContent({
         <nav className="space-y-2 px-3">
           {visibleGroups.map((group, groupIdx) => {
             const isOverview = group.label === "Overview";
-            const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? true);
             const hasActive = group.items.some((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")));
+            // When sidebar is collapsed, show all expanded. Otherwise, expand if explicitly toggled OR if group contains active page
+            const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? false) || hasActive;
             // Count badges for the group (for collapsed header indicator)
             const groupBadgeTotal = group.items.reduce((sum, item) => sum + (badgeCounts[item.href] || 0), 0);
 
