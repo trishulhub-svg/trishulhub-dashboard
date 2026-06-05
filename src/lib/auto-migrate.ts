@@ -183,7 +183,51 @@ export async function ensureAllTables(): Promise<void> {
       console.warn(`[auto-migrate] Subscription column rename: ${err?.message}`)
     }
 
-    // 1e. Create indexes for FileMetadata
+    // 1e. Make Project.clientId nullable (was NOT NULL, now optional for "No client" projects)
+    try {
+      const projCols = await db.$queryRawUnsafe(
+        `PRAGMA table_info("Project")`
+      ) as Array<{ name: string; notnull: number }>
+      const clientIdCol = projCols.find(c => c.name === "clientId")
+      if (clientIdCol && clientIdCol.notnull === 1) {
+        // Try Turso's native ALTER COLUMN DROP NOT NULL first
+        try {
+          await db.$executeRawUnsafe(`ALTER TABLE "Project" ALTER COLUMN "clientId" DROP NOT NULL`)
+          console.log(`[auto-migrate] Made Project.clientId nullable (via ALTER COLUMN)`)
+        } catch {
+          // Fallback: recreate table (standard SQLite approach)
+          await db.$executeRawUnsafe(`
+            CREATE TABLE "Project_new" (
+              "id" TEXT NOT NULL PRIMARY KEY,
+              "name" TEXT NOT NULL,
+              "description" TEXT,
+              "clientId" TEXT,
+              "status" TEXT NOT NULL DEFAULT 'PLANNING',
+              "progress" INTEGER NOT NULL DEFAULT 0,
+              "deadline" DATETIME,
+              "budget" REAL,
+              "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              "updatedAt" DATETIME NOT NULL,
+              FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE
+            )
+          `)
+          await db.$executeRawUnsafe(`
+            INSERT INTO "Project_new" ("id", "name", "description", "clientId", "status", "progress", "deadline", "budget", "createdAt", "updatedAt")
+            SELECT "id", "name", "description", "clientId", "status", "progress", "deadline", "budget", "createdAt", "updatedAt" FROM "Project"
+          `)
+          await db.$executeRawUnsafe(`DROP TABLE "Project"`)
+          await db.$executeRawUnsafe(`ALTER TABLE "Project_new" RENAME TO "Project"`)
+          await db.$executeRawUnsafe(`CREATE INDEX "Project_clientId_idx" ON "Project"("clientId")`)
+          await db.$executeRawUnsafe(`CREATE INDEX "Project_status_idx" ON "Project"("status")`)
+          await db.$executeRawUnsafe(`CREATE INDEX "Project_deadline_idx" ON "Project"("deadline")`)
+          console.log(`[auto-migrate] Made Project.clientId nullable (via table recreation)`)
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[auto-migrate] Project.clientId nullable migration: ${err?.message}`)
+    }
+
+    // 1f. Create indexes for FileMetadata
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_parentId_idx" ON "FileMetadata"("parentId")`)
     } catch (err: any) {
