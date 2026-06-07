@@ -4,13 +4,13 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
-// GET /api/projects/[id]/methods — Get methods assigned to a project
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// GET /api/projects/[projectId]/methods — Get methods assigned to a project
+export async function GET(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { id } = await params
+    const { projectId: id } = await params
     if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 })
 
     await ensureAllTables()
@@ -27,13 +27,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-// PUT /api/projects/[id]/methods — Assign methods to a project
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// PUT /api/projects/[projectId]/methods — Assign methods to a project
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { id } = await params
+    const { projectId: id } = await params
     if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 })
 
     await ensureAllTables()

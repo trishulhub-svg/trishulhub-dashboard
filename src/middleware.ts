@@ -14,7 +14,15 @@ export async function middleware(request: NextRequest) {
   }
 
   // Decode JWT token to check session validity
-  const token = await getToken({ req: request })
+  // Wrap in try/catch: if NEXTAUTH_SECRET is missing, getToken() throws
+  // instead of returning null, which would crash ALL matched routes.
+  let token: any = null
+  try {
+    token = await getToken({ req: request })
+  } catch (err) {
+    // Degrade gracefully — treat as unauthenticated
+    console.error("[middleware] getToken failed:", err instanceof Error ? err.message : err)
+  }
 
     // No valid token — redirect to login for pages only.
   // API routes are NOT blocked here because every route handler already
