@@ -323,6 +323,7 @@ model ProjectMethod {
   updatedAt DateTime @updatedAt
 
   clients   Client[]  @relation("ClientProjectMethod")
+  projects   Project[]
 }
 
 // ━━ Clients ━━
@@ -401,6 +402,7 @@ model Project {
   attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
+  methods      ProjectMethod[]
 
   @@index([clientId])
   @@index([status])

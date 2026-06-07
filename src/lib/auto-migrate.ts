@@ -127,6 +127,10 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     name: "FilePermission",
     sql: `CREATE TABLE IF NOT EXISTS "FilePermission" ("id" TEXT NOT NULL PRIMARY KEY, "fileId" TEXT NOT NULL, "driveFileId" TEXT NOT NULL, "userId" TEXT NOT NULL, "accessLevel" TEXT NOT NULL DEFAULT 'VIEW', "grantedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("fileId") REFERENCES "FileMetadata"("id") ON DELETE CASCADE)`
   },
+  {
+    name: "_ProjectMethodToProject",
+    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL REFERENCES "ProjectMethod"("id") ON DELETE CASCADE, "B" TEXT NOT NULL REFERENCES "Project"("id") ON DELETE CASCADE, CONSTRAINT "_ProjectMethodToProject_AB_unique" UNIQUE("A", "B"))`
+  },
 ]
 
 /**
@@ -248,6 +252,15 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: any) {
       if (!err?.message?.includes('already exists')) {
         console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${err?.message}`)
+      }
+    }
+
+    // Join table indexes for Project ↔ ProjectMethod
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_B_index" ON "_ProjectMethodToProject"("B")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] _ProjectMethodToProject_B_index: ${err?.message}`)
       }
     }
 

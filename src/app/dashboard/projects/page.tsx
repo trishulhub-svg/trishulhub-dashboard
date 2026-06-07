@@ -200,6 +200,17 @@ function KanbanProjectCard({
         </span>
       </div>
 
+      {/* Method badges */}
+      {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+          {(project.methods as Array<{name: string}>).map((m, i) => (
+            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              {m.name}
+            </Badge>
+          ))}
+        </div>
+      )}
+
       {/* Pending Tasks Badge — clickable */}
       {typeof pendingCount === "number" && pendingCount > 0 && !isDragging && (
         <button
@@ -471,7 +482,18 @@ function ListViewRow({
         <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
         <div className="min-w-0">
           <h4 className="text-sm font-semibold truncate" title={pName}>{pName}</h4>
-          <p className="text-[11px] text-muted-foreground">{pClientName}</p>
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            <span className="text-[11px] text-muted-foreground">{pClientName}</span>
+            {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+              <span className="flex items-center gap-0.5">
+                {(project.methods as Array<{name: string}>).map((m, i) => (
+                  <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                    {m.name}
+                  </Badge>
+                ))}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -852,6 +874,10 @@ export default function ProjectsPage() {
   const [editingMethodName, setEditingMethodName] = useState("");
   const [deleteMethodTarget, setDeleteMethodTarget] = useState<{ id: string; name: string } | null>(null);
 
+  // Project method assignments (when editing a project)
+  const [assignedMethodIds, setAssignedMethodIds] = useState<string[]>([]);
+  const [methodAssignLoading, setMethodAssignLoading] = useState(false);
+
   // ━━ Project Methods CRUD Handlers ━━
   const fetchProjectMethods = useCallback(async () => {
     if (!isAdminUser) return;
@@ -944,6 +970,49 @@ export default function ProjectsPage() {
       }
     } catch { toast.error("Failed to delete method"); } finally { setMethodSaving(false); setDeleteMethodTarget(null); }
   }, [deleteMethodTarget, fetchProjectMethods]);
+
+  // ━━ Project Method Assignment Handlers ━━
+  const fetchProjectAssignedMethods = useCallback(async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/methods`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setAssignedMethodIds(Array.isArray(data) ? data.map((m: { id: string }) => m.id) : []);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const handleSaveProjectMethods = useCallback(async () => {
+    if (!editProject) return;
+    setMethodAssignLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${safeText(editProject.id, "")}/methods`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ methodIds: assignedMethodIds }),
+      });
+      if (res.ok) {
+        toast.success("Project methods updated");
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error || "Failed to update project methods");
+      }
+    } catch {
+      toast.error("Failed to update project methods");
+    } finally {
+      setMethodAssignLoading(false);
+    }
+  }, [editProject, assignedMethodIds, queryClient]);
+
+  const toggleProjectMethod = useCallback((methodId: string) => {
+    setAssignedMethodIds((prev) =>
+      prev.includes(methodId)
+        ? prev.filter((id) => id !== methodId)
+        : [...prev, methodId]
+    );
+  }, []);
 
   // Fetch project methods on mount (admin only)
   useEffect(() => {
@@ -1156,6 +1225,7 @@ export default function ProjectsPage() {
     setEditOpen(true);
     fetchAttachments(safeText(project.id, ""));
     fetchCredentials(safeText(project.id, ""));
+    fetchProjectAssignedMethods(safeText(project.id, ""));
     setShowPasswords({});
     setNewCred({ title: "", username: "", password: "" });
     setEditingCredId(null);
@@ -1963,6 +2033,66 @@ export default function ProjectsPage() {
               {isAdminUser && (
               <TabsContent value="methods">
                 <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+
+                  {/* Section 1: Assign methods to this project */}
+                  {editProject && (
+                    <div className="space-y-3 pb-4 border-b border-white/20 dark:border-white/10">
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Methods for this Project
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground">Select which methods apply to this project.</p>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {methodLoading ? (
+                          <div className="space-y-2">
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="h-8 bg-muted/50 animate-pulse rounded-lg" />
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            {projectMethods.length === 0 && (
+                              <p className="text-sm text-muted-foreground text-center py-4">No methods available. Add methods below first.</p>
+                            )}
+                            {projectMethods.map((pm) => (
+                              <label
+                                key={pm.id}
+                                className={cn(
+                                  "flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-all",
+                                  assignedMethodIds.includes(pm.id)
+                                    ? "border-primary/40 bg-primary/5 dark:bg-primary/10"
+                                    : "border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:border-primary/20"
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={assignedMethodIds.includes(pm.id)}
+                                  onChange={() => toggleProjectMethod(pm.id)}
+                                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary/30"
+                                />
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <div className={cn(
+                                    "h-2 w-2 rounded-full shrink-0",
+                                    assignedMethodIds.includes(pm.id) ? "bg-primary" : "bg-muted-foreground/40"
+                                  )} />
+                                  <span className="text-sm font-medium truncate">{pm.name}</span>
+                                </div>
+                              </label>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={methodAssignLoading}
+                        onClick={handleSaveProjectMethods}
+                        className="h-8 px-4"
+                      >
+                        {methodAssignLoading ? "Saving..." : "Save Methods"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Section 2: Manage All Methods */}
                   <div className="space-y-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                       <Settings className="h-3.5 w-3.5" /> Manage Project Methods

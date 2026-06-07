@@ -97,9 +97,32 @@ export async function GET(req: NextRequest) {
       take: limit,
     })
 
+    // Fetch all project-method assignments in one query
+    let methodsMap: Record<string, Array<{ id: string; name: string }>> = {}
+    try {
+      const assignments = await db.$queryRawUnsafe(
+        `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id"`
+      ) as Array<{ projectId: string; id: string; name: string }>
+      for (const a of assignments) {
+        if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
+        methodsMap[a.projectId].push({ id: a.id, name: a.name })
+      }
+    } catch (err: any) {
+      // Join table may not exist yet — non-fatal
+      if (!err?.message?.includes('no such table')) {
+        console.warn('[projects] Failed to fetch project methods:', err?.message)
+      }
+    }
+
+    // Attach methods to each project
+    const projectsWithMethods = projects.map((p: any) => ({
+      ...p,
+      methods: methodsMap[p.id] || [],
+    }))
+
     // For developers: hide budget and client financial details
     if (!includeBudget) {
-      const filtered = projects.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
+      const filtered = projectsWithMethods.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
         ...rest,
         budget: undefined,
         client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
@@ -109,7 +132,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Layer 0: JSON round-trip to strip Date objects → ISO strings
-    return NextResponse.json(JSON.parse(JSON.stringify(projects)))
+    return NextResponse.json(JSON.parse(JSON.stringify(projectsWithMethods)))
   } catch (error: any) {
     console.error("[projects] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load projects" }, { status: 500 })

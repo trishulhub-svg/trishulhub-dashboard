@@ -66,8 +66,6 @@ interface ClientRow {
   userId: string | null;
   notes: string | null;
   projectType: string | null;
-  projectMethodId: string | null;
-  projectMethod?: { id: string; name: string } | null;
   // projectStartDate removed from client — now managed per-project
   deliveryDate: string | null;
   mediatorName: string | null;
@@ -439,7 +437,6 @@ export default function ClientsPage() {
     websites: [] as string[],
     status: "ACTIVE" as ClientStatus,
     projectType: "",
-    projectMethodId: "",
     deliveryDate: "",
     mediatorName: "",
     mediatorPhone: "",
@@ -450,9 +447,7 @@ export default function ClientsPage() {
 
   const [showMediator, setShowMediator] = useState(false);
 
-  // Feature 1: Project methods state (read-only — management moved to projects page)
-  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
-  const [methodLoading, setMethodLoading] = useState(false);
+
 
   // Contract panel state
   const [contractClient, setContractClient] = useState<ClientRow | null>(null);
@@ -476,61 +471,12 @@ export default function ClientsPage() {
     return false;
   }, [router]);
 
-  // ━━ Fetch project methods ━━
-  const fetchProjectMethods = useCallback(async () => {
-    setMethodLoading(true);
-    try {
-      const res = await fetch("/api/project-methods", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setProjectMethods(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setMethodLoading(false);
-    }
-  }, []);
-
-  // Seed default project methods if empty (M-CLI-5: Promise.all)
-  const seedDefaultMethods = useCallback(async () => {
-    try {
-      const res = await fetch("/api/project-methods", { credentials: "include" });
-      if (res.ok) {
-        const existing: { id: string; name: string }[] = await res.json();
-        if (!Array.isArray(existing) || existing.length === 0) {
-          const defaults = ["JAVA", "PHP", "HTML", "Other"];
-          await Promise.all(defaults.map((name) =>
-            fetch("/api/project-methods", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ name }),
-            })
-          ));
-          fetchProjectMethods();
-        } else {
-          setProjectMethods(existing);
-        }
-      }
-    } catch {
-      // silently fail
-    }
-  }, [fetchProjectMethods]);
-
   // Redirect non-admin users away from this page
   useEffect(() => {
     if (status === "authenticated" && !isAdminUser) {
       router.push("/dashboard");
     }
   }, [status, router, isAdminUser]);
-
-  // Fetch project methods on mount
-  useEffect(() => {
-    if (status === "authenticated" && isAdminUser) {
-      seedDefaultMethods();
-    }
-  }, [status, isAdminUser, seedDefaultMethods]);
 
   // ━━ Fetch clients ━━
   const fetchClients = useCallback(async (signal?: AbortSignal, page: number = 1) => {
@@ -597,7 +543,6 @@ export default function ClientsPage() {
       websites: [""],
       status: "ACTIVE",
       projectType: "",
-      projectMethodId: "",
       deliveryDate: "",
       mediatorName: "", mediatorPhone: "", mediatorEmail: "",
       notes: "", createdAt: "",
@@ -626,7 +571,6 @@ export default function ClientsPage() {
       websites: parsedWebsites,
       status: (client.status as ClientStatus) || "ACTIVE",
       projectType: client.projectType || "",
-      projectMethodId: client.projectMethodId || "",
       deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
       mediatorName: client.mediatorName || "",
       mediatorPhone: client.mediatorPhone || "",
@@ -692,7 +636,6 @@ export default function ClientsPage() {
             status: formData.status,
             notes: formData.notes || null,
             projectType: formData.projectType || null,
-            projectMethodId: formData.projectMethodId || null,
             deliveryDate: formData.deliveryDate || null,
             // Transform string array to API-expected object array
             websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
@@ -730,7 +673,6 @@ export default function ClientsPage() {
           status: formData.status,
           notes: formData.notes || undefined,
           projectType: formData.projectType || undefined,
-          projectMethodId: formData.projectMethodId || undefined,
           deliveryDate: formData.deliveryDate || undefined,
           // Transform string array to API-expected object array
           websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
@@ -1559,17 +1501,6 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="client-project-method" className="text-xs font-medium">Method of Project</Label>
-                <Select value={formData.projectMethodId} onValueChange={(v) => setFormData({ ...formData, projectMethodId: v })}>
-                  <SelectTrigger id="client-project-method" className="h-11 text-base sm:text-sm"><SelectValue placeholder="Select method..." /></SelectTrigger>
-                  <SelectContent>
-                    {projectMethods.map((pm) => (
-                      <SelectItem key={pm.id} value={pm.id}>{pm.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
             {/* Delivery Date */}
@@ -1792,13 +1723,6 @@ export default function ClientsPage() {
                     <div className="flex items-center gap-1.5">
                       <Badge className={`text-[10px] ${projectTypeBadgeColors[detailClient.projectType] || defaultBadgeColor}`}>
                         {projectTypeOptions.find(p => p.value === detailClient.projectType)?.label || safeText(detailClient.projectType)}
-                      </Badge>
-                    </div>
-                  )}
-                  {detailClient.projectMethod && (
-                    <div className="flex items-center gap-1.5">
-                      <Badge className="text-[10px] bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300">
-                        {safeText(detailClient.projectMethod.name)}
                       </Badge>
                     </div>
                   )}
