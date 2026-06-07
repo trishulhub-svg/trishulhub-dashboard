@@ -18,7 +18,12 @@ export async function GET() {
 
     await ensureAllTables()
 
-    const methods = await db.projectMethod.findMany({ orderBy: { name: "asc" } })
+    // Use raw SQL — only select id and name.
+    // Avoids Prisma trying to SELECT "updatedAt" which may not exist on older deployments.
+    const methods = await db.$queryRawUnsafe(
+      `SELECT "id", "name" FROM "ProjectMethod" ORDER BY "name" ASC`
+    ) as Array<{ id: string; name: string }>
+
     return NextResponse.json(methods)
   } catch (error: unknown) {
     console.error("[project-methods] GET failed:", error instanceof Error ? error.message : error)
@@ -48,36 +53,45 @@ export async function POST(req: NextRequest) {
 
     await ensureAllTables()
 
-    // Ensure the updatedAt column exists — it may be missing on older deployments
-    // due to a BigInt serialization bug in auto-migrate's PRAGMA table_info check.
-    try {
-      await db.$executeRawUnsafe(
-        `ALTER TABLE "ProjectMethod" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`
-      )
-    } catch {
-      // Column already exists — expected and OK
-    }
-
-    // Now safe to INSERT with all columns including updatedAt
     const id = `pm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const now = new Date().toISOString()
 
+    // INSERT only id, name, createdAt — NEVER reference updatedAt.
+    // On older deployments the updatedAt column may not exist in the table,
+    // causing "table ProjectMethod has no column named updatedAt" error.
+    // createdAt is safe because it has always been in the CREATE TABLE.
     try {
       await db.$executeRawUnsafe(
-        `INSERT INTO "ProjectMethod" ("id", "name", "createdAt", "updatedAt") VALUES (?, ?, ?, ?)`,
-        id, name, now, now
+        `INSERT INTO "ProjectMethod" ("id", "name", "createdAt") VALUES (?, ?, ?)`,
+        id, name, now
       )
     } catch (dbError: unknown) {
       const msg = dbError instanceof Error ? dbError.message : String(dbError)
       if (msg.includes("UNIQUE") || msg.includes("unique")) {
         return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
       }
-      console.error("[project-methods] POST INSERT failed:", msg)
-      return NextResponse.json({ error: "Failed to create method", debug: msg }, { status: 500 })
+      // If createdAt is also missing (very old table), insert just id and name
+      if (msg.includes("no column named createdAt") || msg.includes("createdAt")) {
+        try {
+          await db.$executeRawUnsafe(
+            `INSERT INTO "ProjectMethod" ("id", "name") VALUES (?, ?)`,
+            id, name
+          )
+        } catch (dbError2: unknown) {
+          const msg2 = dbError2 instanceof Error ? dbError2.message : String(dbError2)
+          if (msg2.includes("UNIQUE") || msg2.includes("unique")) {
+            return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
+          }
+          console.error("[project-methods] POST INSERT (fallback) failed:", msg2)
+          return NextResponse.json({ error: "Failed to create method", debug: msg2 }, { status: 500 })
+        }
+      } else {
+        console.error("[project-methods] POST INSERT failed:", msg)
+        return NextResponse.json({ error: "Failed to create method", debug: msg }, { status: 500 })
+      }
     }
 
-    const method = await db.projectMethod.findUnique({ where: { id } })
-    return NextResponse.json(method, { status: 201 })
+    return NextResponse.json({ id, name, createdAt: now }, { status: 201 })
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error("[project-methods] POST failed:", errMsg)
@@ -108,21 +122,11 @@ export async function PATCH(req: NextRequest) {
 
     await ensureAllTables()
 
-    // Ensure updatedAt column exists
+    // UPDATE only name — NEVER reference updatedAt
     try {
       await db.$executeRawUnsafe(
-        `ALTER TABLE "ProjectMethod" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`
-      )
-    } catch {
-      // Column already exists — OK
-    }
-
-    // Update name and updatedAt
-    const now = new Date().toISOString()
-    try {
-      await db.$executeRawUnsafe(
-        `UPDATE "ProjectMethod" SET "name" = ?, "updatedAt" = ? WHERE "id" = ?`,
-        name, now, body.id
+        `UPDATE "ProjectMethod" SET "name" = ? WHERE "id" = ?`,
+        name, body.id
       )
     } catch (dbError: unknown) {
       const msg = dbError instanceof Error ? dbError.message : String(dbError)
@@ -133,8 +137,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Failed to update method", debug: msg }, { status: 500 })
     }
 
-    const method = await db.projectMethod.findUnique({ where: { id: body.id } })
-    return NextResponse.json(method)
+    return NextResponse.json({ id: body.id, name })
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error("[project-methods] PATCH failed:", errMsg)
@@ -158,13 +161,13 @@ export async function DELETE(req: NextRequest) {
 
     await ensureAllTables()
 
-    // Nullify projectMethodId on any clients that reference this method
+    // Nullify projectMethodId on clients (safe — wrapped in try since column may not exist)
     try {
       await db.$executeRawUnsafe(`UPDATE "Client" SET "projectMethodId" = NULL WHERE "projectMethodId" = ?`, id)
     } catch {
-      // Non-critical — client table might not have the column yet
+      // Non-critical
     }
-    // Delete the method
+
     await db.$executeRawUnsafe(`DELETE FROM "ProjectMethod" WHERE "id" = ?`, id)
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
