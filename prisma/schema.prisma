@@ -316,6 +316,10 @@ model AgentActivityLog {
 }
 
 // ━━ Project Method ━━
+// NOTE: Project ↔ ProjectMethod many-to-many is handled via raw SQL
+// on the _ProjectMethodToProject join table (see auto-migrate.ts).
+// We do NOT use Prisma's implicit many-to-many because it caused
+// build OOM on Vercel and added unnecessary type complexity.
 model ProjectMethod {
   id        String   @id @default(cuid())
   name      String   @unique
@@ -323,7 +327,6 @@ model ProjectMethod {
   updatedAt DateTime @updatedAt
 
   clients   Client[]  @relation("ClientProjectMethod")
-  projects   Project[]
 }
 
 // ━━ Clients ━━
@@ -402,7 +405,7 @@ model Project {
   attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
-  methods      ProjectMethod[]
+  // methods are fetched via raw SQL on _ProjectMethodToProject join table
 
   @@index([clientId])
   @@index([status])
