@@ -112,6 +112,7 @@ const statusColors: Record<string, string> = {
   REJECTED: "border-red-300 bg-red-50/50 dark:border-red-700 dark:bg-red-900/10",
   NEEDS_IMPROVEMENT: "border-orange-300 bg-orange-50/50 dark:border-orange-700 dark:bg-orange-900/10",
   AWAITING_APPROVAL: "border-yellow-300 bg-yellow-50/50 dark:border-yellow-700 dark:bg-yellow-900/10",
+  DONE: "border-green-300 bg-green-50/50 dark:border-green-700 dark:bg-green-900/10",
 };
 
 const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -203,6 +204,8 @@ export default function ApprovalsPage() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [historyItems, setHistoryItems] = useState<Approval[]>([]);
+  const [taskHistory, setTaskHistory] = useState<TaskItem[]>([]);
+  const [leaveHistory, setLeaveHistory] = useState<LeaveRequest[]>([]);
 
   // UI states
   const [loading, setLoading] = useState(true);
@@ -303,7 +306,7 @@ export default function ApprovalsPage() {
         return;
       }
 
-      // Handle approved + rejected + needs_improvement for history
+      // Handle approved + rejected + needs_improvement AI approvals for history
       const historyPromises = [approvedRes, rejectedRes, needsImprovementRes]
         .filter((r) => r.status === "fulfilled" && r.value.ok)
         .map(async (r) => safeArray<Approval>(await (r as PromiseFulfilledResult<Response>).value.json()));
@@ -314,17 +317,36 @@ export default function ApprovalsPage() {
         )
       );
 
-      // Handle leaves
+      // Handle leaves — use for both pending list and history
+      let rawLeaves: LeaveRequest[] = [];
       if (leavesRes.status === "fulfilled" && leavesRes.value.ok) {
-        setLeaveRequests(safeArray<LeaveRequest>(await leavesRes.value.json()));
+        rawLeaves = safeArray<LeaveRequest>(await leavesRes.value.json());
+        setLeaveRequests(rawLeaves);
       }
 
-      // Handle tasks
+      // Build leave history: approved/rejected leaves
+      setLeaveHistory(
+        rawLeaves
+          .filter((l: LeaveRequest) => l.status === "APPROVED" || l.status === "REJECTED")
+          .sort((a: LeaveRequest, b: LeaveRequest) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      );
+
+      // Handle tasks — use for both pending list and history
+      let rawTasks: TaskItem[] = [];
       if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
         const raw = await tasksRes.value.json();
-        const taskData = Array.isArray((raw as any)?.tasks) ? (raw as any).tasks : Array.isArray(raw) ? raw : (Array.isArray((raw as any)?.data) ? (raw as any).data : []);
-        setTasks(safeArray<TaskItem>(taskData));
+        rawTasks = safeArray<TaskItem>(
+          Array.isArray((raw as any)?.tasks) ? (raw as any).tasks : Array.isArray(raw) ? raw : (Array.isArray((raw as any)?.data) ? (raw as any).data : [])
+        );
+        setTasks(rawTasks);
       }
+
+      // Build task history: approved (DONE with approvedAt) tasks
+      setTaskHistory(
+        rawTasks
+          .filter((t: TaskItem) => t.status === "DONE" && t.approvedAt)
+          .sort((a: TaskItem, b: TaskItem) => new Date(b.approvedAt!).getTime() - new Date(a.approvedAt!).getTime())
+      );
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -422,7 +444,7 @@ export default function ApprovalsPage() {
         body.status = "DONE";
       } else {
         body.status = "IN_PROGRESS";
-        body.description = feedback ? { feedback } : undefined;
+        // Note: feedback is optional and shown via toast; we don't overwrite task description
       }
 
       const res = await fetch("/api/tasks", {
@@ -901,44 +923,142 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  // History card (simplified, no actions)
-  const renderHistoryCard = (item: Approval) => {
-    const parsedData = safeJsonParse<Record<string, unknown>>(item.data, {});
+  // Combined history items with unified sorting
+  interface HistoryEntry {
+    id: string;
+    source: "AI" | "TASK" | "LEAVE";
+    title: string;
+    status: string;
+    statusLabel: string;
+    updatedAt: string;
+    feedback: string | null;
+    approvedByName: string | null;
+    type?: string;
+    agent?: { id: string; name: string; type: string } | null;
+    requesterType?: string;
+    description?: string | null;
+    priority?: string;
+    assigneeName?: string | null;
+    userName?: string | null;
+    leaveType?: string;
+    startDate?: string;
+    endDate?: string;
+  }
+
+  const allHistory: HistoryEntry[] = [
+    ...historyItems.map((a) => ({
+      id: a.id,
+      source: "AI" as const,
+      title: safeText(a.title, "Untitled"),
+      status: a.status,
+      statusLabel: a.status.replace(/_/g, " "),
+      updatedAt: a.updatedAt,
+      feedback: a.feedback,
+      approvedByName: a.approvedBy?.name || null,
+      type: a.type,
+      agent: a.agent,
+      requesterType: a.requesterType,
+      description: a.description,
+    })),
+    ...taskHistory.map((t) => ({
+      id: t.id,
+      source: "TASK" as const,
+      title: safeText(t.title, "Untitled Task"),
+      status: "APPROVED",
+      statusLabel: "Approved",
+      updatedAt: t.approvedAt || t.updatedAt,
+      feedback: null,
+      approvedByName: t.approvedByName || null,
+      description: t.description,
+      priority: t.priority,
+      assigneeName: t.assignedToName,
+    })),
+    ...leaveHistory.map((l) => ({
+      id: l.id,
+      source: "LEAVE" as const,
+      title: `${safeText(l.user?.name, "Unknown")} — ${l.type} Leave`,
+      status: l.status,
+      statusLabel: l.status.replace(/_/g, " "),
+      updatedAt: l.createdAt,
+      feedback: l.feedback,
+      approvedByName: null,
+      userName: l.user?.name || null,
+      leaveType: l.type,
+      startDate: l.startDate,
+      endDate: l.endDate,
+    })),
+  ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  // History card (unified for all types, no actions)
+  const renderHistoryCard = (item: HistoryEntry) => {
+    const src = item.source === "AI"
+      ? sourceTypeConfig.AI
+      : item.source === "TASK"
+        ? sourceTypeConfig.TASK
+        : sourceTypeConfig.LEAVE;
+
     return (
       <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
         <CardContent className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${approvalTypeColors[item.type] || "bg-muted"}`}>
-                {item.requesterType === "AI" ? <Bot className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${src.color}`}>
+                {src.icon}
               </div>
               <div>
-                <p className="text-sm font-medium">{safeText(item.title, "Untitled")}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <Badge variant="secondary" className="text-[10px]">
-                    {item.type.replace(/_/g, " ")}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium">{item.title}</p>
+                  <Badge variant="secondary" className={`text-[10px] ${src.color}`}>
+                    {src.label}
                   </Badge>
-                  {item.agent && (
+                  {item.source === "TASK" && item.priority && (
+                    <Badge variant="secondary" className={`text-[10px] ${priorityBadge[item.priority] || ""}`}>
+                      {item.priority}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {item.source === "AI" && item.type && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {item.type.replace(/_/g, " ")}
+                    </Badge>
+                  )}
+                  {item.source === "AI" && item.agent && (
                     <span className="text-xs text-muted-foreground">{safeText(item.agent.name, "AI")}</span>
+                  )}
+                  {item.source === "TASK" && item.assigneeName && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      <span>{safeText(item.assigneeName, "")}</span>
+                    </div>
+                  )}
+                  {item.source === "LEAVE" && item.startDate && item.endDate && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Calendar className="h-3 w-3" />
+                      <span>{new Date(item.startDate).toLocaleDateString()} — {new Date(item.endDate).toLocaleDateString()}</span>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
             <div className="text-right">
               <Badge variant={statusBadgeVariant[item.status] || "secondary"} className="text-xs">
-                {item.status.replace(/_/g, " ")}
+                {item.statusLabel}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1">
                 {new Date(item.updatedAt).toLocaleString()}
               </p>
             </div>
           </div>
+          {item.description && item.source === "TASK" && (
+            <p className="mt-2 text-sm text-muted-foreground">{safeText(item.description, "")}</p>
+          )}
           {item.feedback && (
             <div className="mt-2 text-xs text-muted-foreground bg-muted rounded p-2">
               <span className="font-medium">Feedback: </span>
               {safeText(item.feedback, "")}
-              {item.approvedBy && (
-                <span className="ml-1">— {safeText(item.approvedBy.name, "")}</span>
+              {item.approvedByName && (
+                <span className="ml-1">— {safeText(item.approvedByName, "")}</span>
               )}
             </div>
           )}
@@ -1117,11 +1237,11 @@ export default function ApprovalsPage() {
         <TabsContent value="history" className="mt-4">
           {loading ? (
             renderLoading()
-          ) : historyItems.length === 0 ? (
+          ) : allHistory.length === 0 ? (
             renderEmpty("No resolved items in history.", <Clock className="h-12 w-12 text-muted-foreground" />)
           ) : (
             <div className="space-y-2">
-              {historyItems.map((item) => renderHistoryCard(item))}
+              {allHistory.map((item) => renderHistoryCard(item))}
             </div>
           )}
         </TabsContent>
