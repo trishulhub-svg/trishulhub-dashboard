@@ -369,3 +369,29 @@ Stage Summary:
 - Projects API returns `methods[]` array with each project
 - Projects page shows method checkboxes in Methods tab + method badges on cards
 - Client page no longer has method selection/management UI (cleaned up completely)
+---
+Task ID: 1
+Agent: Main Agent (multi-agent investigation)
+Task: Fix completely broken web app - only shows logo and loading dots
+
+Work Log:
+- Launched 2 parallel investigation agents (Explore type) to find root cause
+- Agent 1: Analyzed loading chain - LoadingScreen shown in 3 places, all depend on useSession() which calls /api/auth/session
+- Agent 2: Checked git history, found cc5cc6a removed implicit M2M, build works locally
+- Read all critical files: schema.prisma, auto-migrate.ts, db.ts, auth.ts, session-manager.ts, middleware.ts
+- Verified prisma generate works (281ms), next build succeeds locally (108 pages)
+- Found tsc --noEmit OOMs (2GB heap) due to 126K lines of Prisma types - pre-existing, not caused by commit
+- Identified ROOT CAUSE: session-manager.ts fail-CLOSED behavior - when ActiveSession table or Turso DB is unreachable, validateSessionToken() returns false, causing session to be kicked, creating infinite redirect loop (login → session check → DB fail → kicked → redirect to login → loading forever)
+- Also: All loading screens had no timeout fallback - once stuck, no recovery possible
+
+Fixes applied:
+1. src/app/page.tsx: Added 12s timeout → "Go to Login" button
+2. src/app/dashboard/layout.tsx: Added 15s timeout → "Sign In Again" button
+3. src/app/login/page.tsx: Fixed authenticated redirect (was blocking with LoadingScreen)
+4. src/lib/session-manager.ts: Changed fail-CLOSED to fail-OPEN with 5s timeout on session validation; Added 3-5s timeouts on ActiveSession table creation
+5. Build verified: next build succeeds after all changes
+
+Stage Summary:
+- Commit 15424b6 pushed to GitHub (main)
+- Vercel will auto-deploy from this commit
+- User should see either: normal app (if Turso responds in time) OR timeout fallback button
