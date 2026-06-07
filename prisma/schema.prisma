@@ -384,6 +384,7 @@ model Project {
   clientId    String?
   status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
   progress    Int      @default(0)
+  startDate   DateTime?
   deadline    DateTime?
   budget      Float?
   createdAt   DateTime @default(now())

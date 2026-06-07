@@ -153,6 +153,7 @@ export async function POST(req: NextRequest) {
       : typeof data.budget === 'string' && data.budget !== '' ? parseFloat(data.budget)
       : undefined
     const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
+    const startDate = typeof data.startDate === 'string' ? data.startDate : undefined
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 })
     }
@@ -184,6 +185,7 @@ export async function POST(req: NextRequest) {
         clientId: clientId && clientId.trim() ? clientId : null,
         // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
         budget: budget ?? null,
+        startDate: startDate ? new Date(startDate) : null,
         deadline: deadline ? new Date(deadline) : null,
       },
     })
@@ -235,12 +237,14 @@ export async function PUT(req: NextRequest) {
     }
 
     // SECURITY: Sanitize project update data (whitelist allowed fields)
-    const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress"]
+    const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress", "startDate"]
     // P-H2 FIX: Use proper Prisma data type instead of Record<string, unknown>
     const sanitizedData: Record<string, any> = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
         if (key === "deadline") {
+          sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
+        } else if (key === "startDate") {
           sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
         } else if (key === "status") {
           if (typeof data[key] !== 'string' || !VALID_PROJECT_STATUSES.includes(data[key])) {

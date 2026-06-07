@@ -8,7 +8,7 @@ import {
   Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
   FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
   ChevronLeft, ChevronRight, X, Calendar, Link2, UserCircle, ChevronDown, ChevronUp,
-  Settings, Eye, EyeOff, FileSignature, Send, Download, Upload, Sparkles, Loader2,
+  Settings, Eye, EyeOff, FileSignature, Send, Download, Upload, Sparkles, Loader2, Check,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,7 +68,7 @@ interface ClientRow {
   projectType: string | null;
   projectMethodId: string | null;
   projectMethod?: { id: string; name: string } | null;
-  projectStartDate: string | null;
+  // projectStartDate removed from client — now managed per-project
   deliveryDate: string | null;
   mediatorName: string | null;
   mediatorPhone: string | null;
@@ -440,7 +440,6 @@ export default function ClientsPage() {
     status: "ACTIVE" as ClientStatus,
     projectType: "",
     projectMethodId: "",
-    projectStartDate: "",
     deliveryDate: "",
     mediatorName: "",
     mediatorPhone: "",
@@ -678,7 +677,6 @@ export default function ClientsPage() {
       status: "ACTIVE",
       projectType: "",
       projectMethodId: "",
-      projectStartDate: "",
       deliveryDate: "",
       mediatorName: "", mediatorPhone: "", mediatorEmail: "",
       notes: "", createdAt: "",
@@ -708,7 +706,6 @@ export default function ClientsPage() {
       status: (client.status as ClientStatus) || "ACTIVE",
       projectType: client.projectType || "",
       projectMethodId: client.projectMethodId || "",
-      projectStartDate: client.projectStartDate ? client.projectStartDate.split("T")[0] : "",
       deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
       mediatorName: client.mediatorName || "",
       mediatorPhone: client.mediatorPhone || "",
@@ -775,7 +772,6 @@ export default function ClientsPage() {
             notes: formData.notes || null,
             projectType: formData.projectType || null,
             projectMethodId: formData.projectMethodId || null,
-            projectStartDate: formData.projectStartDate || null,
             deliveryDate: formData.deliveryDate || null,
             // Transform string array to API-expected object array
             websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
@@ -814,7 +810,6 @@ export default function ClientsPage() {
           notes: formData.notes || undefined,
           projectType: formData.projectType || undefined,
           projectMethodId: formData.projectMethodId || undefined,
-          projectStartDate: formData.projectStartDate || undefined,
           deliveryDate: formData.deliveryDate || undefined,
           // Transform string array to API-expected object array
           websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
@@ -1576,7 +1571,7 @@ export default function ClientsPage() {
 
       {/* ━━ Add/Edit Client Dialog — Glassmorphism ━━ */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10 sm:p-6 p-4">
           <DialogHeader>
             <DialogTitle className="text-lg">{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
             <DialogDescription className="text-sm">{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
@@ -1588,14 +1583,14 @@ export default function ClientsPage() {
                 <Label htmlFor="client-name" className="text-xs font-medium">Name *</Label>
                 <Input id="client-name" placeholder="Client name" value={formData.name}
                   onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors({ ...formErrors, name: undefined }); }}
-                  className={formErrors.name ? "border-red-500" : ""} />
+                  className={cn("h-11 text-base sm:text-sm", formErrors.name ? "border-red-500" : "")} />
                 {formErrors.name && <p className="text-xs text-red-500">{formErrors.name}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="client-email" className="text-xs font-medium">Email *</Label>
                 <Input id="client-email" placeholder="email@example.com" type="email" value={formData.email}
                   onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFormErrors({ ...formErrors, email: undefined }); }}
-                  className={formErrors.email ? "border-red-500" : ""} />
+                  className={cn("h-11 text-base sm:text-sm", formErrors.email ? "border-red-500" : "")} />
                 {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
               </div>
             </div>
@@ -1605,12 +1600,14 @@ export default function ClientsPage() {
               <div className="space-y-2">
                 <Label htmlFor="client-phone" className="text-xs font-medium">Phone</Label>
                 <Input id="client-phone" placeholder="+1 (555) 000-0000" value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="h-11 text-base sm:text-sm" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="client-company" className="text-xs font-medium">Company</Label>
                 <Input id="client-company" placeholder="Company name" value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })} />
+                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  className="h-11 text-base sm:text-sm" />
               </div>
             </div>
 
@@ -1619,7 +1616,7 @@ export default function ClientsPage() {
               <div className="space-y-2">
                 <Label htmlFor="client-status" className="text-xs font-medium">Status</Label>
                 <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v as ClientStatus })}>
-                  <SelectTrigger id="client-status"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="client-status" className="h-11 text-base sm:text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ACTIVE">Active</SelectItem>
                     <SelectItem value="INACTIVE">Inactive</SelectItem>
@@ -1633,7 +1630,7 @@ export default function ClientsPage() {
               <div className="space-y-2">
                 <Label htmlFor="client-project-type" className="text-xs font-medium">Project Type</Label>
                 <Select value={formData.projectType} onValueChange={(v) => setFormData({ ...formData, projectType: v })}>
-                  <SelectTrigger id="client-project-type"><SelectValue placeholder="Select type..." /></SelectTrigger>
+                  <SelectTrigger id="client-project-type" className="h-11 text-base sm:text-sm"><SelectValue placeholder="Select type..." /></SelectTrigger>
                   <SelectContent>
                     {projectTypeOptions.map((pt) => (
                       <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
@@ -1642,17 +1639,9 @@ export default function ClientsPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="client-project-method" className="text-xs font-medium">Method of Project</Label>
-                  {isAdminUser && (
-                    <Button type="button" variant="ghost" size="sm" className="h-6 text-xs gap-1 text-muted-foreground"
-                      onClick={() => setManageMethodsOpen(true)}>
-                      <Settings className="h-3 w-3" /> Manage
-                    </Button>
-                  )}
-                </div>
+                <Label htmlFor="client-project-method" className="text-xs font-medium">Method of Project</Label>
                 <Select value={formData.projectMethodId} onValueChange={(v) => setFormData({ ...formData, projectMethodId: v })}>
-                  <SelectTrigger id="client-project-method"><SelectValue placeholder="Select method..." /></SelectTrigger>
+                  <SelectTrigger id="client-project-method" className="h-11 text-base sm:text-sm"><SelectValue placeholder="Select method..." /></SelectTrigger>
                   <SelectContent>
                     {projectMethods.map((pm) => (
                       <SelectItem key={pm.id} value={pm.id}>{pm.name}</SelectItem>
@@ -1662,18 +1651,12 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Dates */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="client-start-date" className="text-xs font-medium">Project Start Date</Label>
-                <Input id="client-start-date" type="date" value={formData.projectStartDate}
-                  onChange={(e) => setFormData({ ...formData, projectStartDate: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="client-delivery-date" className="text-xs font-medium">Delivery Date</Label>
-                <Input id="client-delivery-date" type="date" value={formData.deliveryDate}
-                  onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })} />
-              </div>
+            {/* Delivery Date */}
+            <div className="space-y-2">
+              <Label htmlFor="client-delivery-date" className="text-xs font-medium">Delivery Date</Label>
+              <Input id="client-delivery-date" type="date" value={formData.deliveryDate}
+                onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
+                className="h-11 text-base sm:text-sm" />
             </div>
 
             {/* Websites — dynamic list */}
@@ -1760,6 +1743,103 @@ export default function ClientsPage() {
                 {submitting ? "Saving..." : editingClient ? "Update Client" : "Create Client"}
               </Button>
             </div>
+
+            {/* Manage Project Methods — collapsible section for admins */}
+            {isAdminUser && (
+            <>
+            <div className="border-t border-white/10 dark:border-white/5 pt-4 mt-2">
+            <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
+              <button type="button" className="flex items-center justify-between w-full p-3 text-left"
+                onClick={() => setManageMethodsOpen(!manageMethodsOpen)}>
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-xs font-medium cursor-pointer">Manage Project Methods</Label>
+                </div>
+                {manageMethodsOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+              {manageMethodsOpen && (
+                <div className="px-3 pb-3 space-y-3">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="New method name..."
+                      value={newMethodName}
+                      onChange={(e) => setNewMethodName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); handleSaveNewMethod(); }
+                      }}
+                      className="h-10 text-base sm:text-sm"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!newMethodName.trim() || methodSaving}
+                      onClick={handleSaveNewMethod}
+                      className="h-10 px-4"
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      <span className="hidden sm:inline">Add</span>
+                    </Button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1.5">
+                    {methodLoading ? (
+                      <div className="space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-8 bg-muted/50 animate-pulse rounded" />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {projectMethods.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-3">No methods defined yet</p>
+                        )}
+                        {projectMethods.map((pm) => (
+                          <div key={pm.id} className="flex items-center gap-2 rounded-lg border border-white/20 dark:border-white/10 px-3 py-2">
+                            {editingMethodId === pm.id ? (
+                              <>
+                                <Input
+                                  className="h-8 text-sm flex-1"
+                                  value={editingMethodName}
+                                  onChange={(e) => setEditingMethodName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.preventDefault(); handleSaveEditMethod(pm.id, editingMethodName); }
+                                    if (e.key === "Escape") setEditingMethodId(null);
+                                  }}
+                                  autoFocus
+                                />
+                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8"
+                                  disabled={methodSaving}
+                                  onClick={() => handleSaveEditMethod(pm.id, editingMethodName)}>
+                                  <Check className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8"
+                                  onClick={() => setEditingMethodId(null)}>
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="flex-1 text-sm truncate">{pm.name}</span>
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0"
+                                  onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0 text-red-500"
+                                  onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            </div>
+            </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -1806,95 +1886,6 @@ export default function ClientsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* ━━ Manage Project Methods Dialog ━━ */}
-      <Dialog open={manageMethodsOpen} onOpenChange={setManageMethodsOpen}>
-        <DialogContent className="max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10">
-          <DialogHeader>
-            <DialogTitle className="text-lg">Manage Project Methods</DialogTitle>
-            <DialogDescription className="text-sm">Add, edit, or remove project method options.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Add New */}
-            <div className="flex gap-2">
-              <Input
-                placeholder="New method name..."
-                value={newMethodName}
-                onChange={(e) => setNewMethodName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleSaveNewMethod();
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                size="sm"
-                disabled={!newMethodName.trim() || methodSaving}
-                onClick={handleSaveNewMethod}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Existing Methods */}
-            <div className="max-h-64 overflow-y-auto space-y-2">
-              {methodLoading ? (
-                <div className="space-y-2">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-8 bg-muted/50 animate-pulse rounded" />
-                  ))}
-                </div>
-              ) : (
-                <>
-                  {projectMethods.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">No methods defined</p>
-                  )}
-                  {projectMethods.map((pm) => (
-                    <div key={pm.id} className="flex items-center gap-2">
-                      {editingMethodId === pm.id ? (
-                        <>
-                          <Input
-                            className="h-8 text-sm"
-                            value={editingMethodName}
-                            onChange={(e) => setEditingMethodName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") { e.preventDefault(); handleSaveEditMethod(pm.id, editingMethodName); }
-                              if (e.key === "Escape") setEditingMethodId(null);
-                            }}
-                          />
-                          <Button type="button" variant="ghost" size="sm" className="h-8"
-                            disabled={methodSaving}
-                            onClick={() => handleSaveEditMethod(pm.id, editingMethodName)}>
-                            ✓
-                          </Button>
-                          <Button type="button" variant="ghost" size="sm" className="h-8"
-                            onClick={() => setEditingMethodId(null)}>
-                            ✕
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="flex-1 text-sm">{pm.name}</span>
-                          <Button type="button" variant="ghost" size="sm" className="h-7 w-7"
-                            onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500"
-                            onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* ━━ Delete Method Confirmation (L2) ━━ */}
       <AlertDialog open={!!deleteMethodTarget} onOpenChange={(open) => !open && setDeleteMethodTarget(null)}>
@@ -2007,9 +1998,6 @@ export default function ClientsPage() {
                   <span className="text-muted-foreground">Since: <span className="font-medium text-foreground">{formatDate(detailClient.createdAt)}</span></span>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
-                  {detailClient.projectStartDate && (
-                    <span>Start: <span className="text-foreground font-medium">{formatDate(detailClient.projectStartDate)}</span></span>
-                  )}
                   {detailClient.deliveryDate && (
                     <span>Delivery: <span className="text-foreground font-medium">{formatDate(detailClient.deliveryDate)}</span></span>
                   )}

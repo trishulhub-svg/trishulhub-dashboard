@@ -689,6 +689,77 @@ function ClientSearchSelect({
   );
 }
 
+// ━━ Helper: Calculate and format period between two dates ━━
+function calcProjectPeriod(startDate: string, deadline: string): string | null {
+  if (!startDate || !deadline) return null;
+  const start = new Date(startDate);
+  const end = new Date(deadline);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs < 0) return "Start date is after deadline";
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days === 0) return "Same day";
+  const months = Math.floor(days / 30);
+  const remainDays = days % 30;
+  if (months > 0 && remainDays > 0) return `${months}m ${remainDays}d (${days} days)`;
+  if (months > 0) return `${months}m (${days} days)`;
+  return `${days} days`;
+}
+
+// ━━ Create Project Form with Start Date + Total Period ━━
+function CreateProjectForm({ onSubmit, clients }: {
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  clients: { id: string; name: string; company?: string }[];
+}) {
+  const [startDate, setStartDate] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const period = useMemo(() => calcProjectPeriod(startDate, deadline), [startDate, deadline]);
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs">Project Name *</Label>
+        <Input name="name" required />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Description</Label>
+        <Textarea name="description" rows={2} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Client</Label>
+        <ClientSearchSelect name="clientId" clients={clients} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Start Date</Label>
+          <Input name="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Deadline</Label>
+          <Input name="deadline" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+        </div>
+      </div>
+      {period && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10">
+          <Activity className="h-3.5 w-3.5 text-primary" />
+          <span className="text-xs font-medium text-primary">Total Period: {period}</span>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Budget (₹)</Label>
+          <Input name="budget" type="number" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Live URL</Label>
+          <Input name="liveUrl" type="url" placeholder="https://example.com" />
+        </div>
+      </div>
+      <Button type="submit" className="w-full">Create Project</Button>
+    </form>
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -825,6 +896,7 @@ export default function ProjectsPage() {
       description: form.get("description") as string,
       clientId,
       budget: parseFloat(form.get("budget") as string) || null,
+      startDate: form.get("startDate") as string || null,
       deadline: form.get("deadline") as string || null,
     };
     const liveUrl = (form.get("liveUrl") as string)?.trim();
@@ -878,6 +950,7 @@ export default function ProjectsPage() {
       status: form.get("status") as string,
       clientId: (form.get("clientId") as string === "__none__" ? null : form.get("clientId") as string) || null,
       budget: parseFloat(form.get("budget") as string) || null,
+      startDate: form.get("startDate") as string || null,
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
     };
@@ -1373,40 +1446,9 @@ export default function ProjectsPage() {
                 <Plus className="h-3.5 w-3.5" /> New Project
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-[480px]">
               <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
-              <form onSubmit={handleCreateProject} className="space-y-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Project Name *</Label>
-                  <Input name="name" required />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Description</Label>
-                  <Textarea name="description" rows={2} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Client</Label>
-                  <ClientSearchSelect
-                    name="clientId"
-                    clients={(clients as { id: string; name: string; company?: string }[])}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Budget (₹)</Label>
-                    <Input name="budget" type="number" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Deadline</Label>
-                    <Input name="deadline" type="date" />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Live URL</Label>
-                  <Input name="liveUrl" type="url" placeholder="https://example.com" />
-                </div>
-                <Button type="submit" className="w-full">Create Project</Button>
-              </form>
+              <CreateProjectForm onSubmit={handleCreateProject} clients={clients as { id: string; name: string; company?: string }[]} />
             </DialogContent>
           </Dialog>
           )}
@@ -1627,22 +1669,57 @@ export default function ProjectsPage() {
                         <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Deadline</Label>
-                        <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} />
+                        <Label className="text-xs">Live URL</Label>
+                        <Input
+                          name="liveUrl"
+                          type="url"
+                          placeholder="https://example.com"
+                          defaultValue={(() => {
+                            const ws = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+                            const primary = ws.find((w) => w.isPrimary === true || w.isPrimary === "true") || ws[0];
+                            return primary ? safeText(primary.url, "") : "";
+                          })()}
+                        />
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Live URL</Label>
-                      <Input
-                        name="liveUrl"
-                        type="url"
-                        placeholder="https://example.com"
-                        defaultValue={(() => {
-                          const ws = (editProject.websites as Record<string, unknown>[] | undefined) || [];
-                          const primary = ws.find((w) => w.isPrimary === true || w.isPrimary === "true") || ws[0];
-                          return primary ? safeText(primary.url, "") : "";
-                        })()}
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Start Date</Label>
+                        <Input name="startDate" type="date" defaultValue={editProject.startDate ? String(editProject.startDate).slice(0, 10) : ''} id="edit-start-date" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const deadlineInput = document.getElementById("edit-deadline") as HTMLInputElement | null;
+                          const sd = e.target.value;
+                          const dl = deadlineInput?.value || "";
+                          const period = calcProjectPeriod(sd, dl);
+                          const el = document.getElementById("edit-period-display");
+                          if (el) el.style.display = period ? "" : "none";
+                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+                        }} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Deadline</Label>
+                        <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} id="edit-deadline" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const startInput = document.getElementById("edit-start-date") as HTMLInputElement | null;
+                          const sd = startInput?.value || "";
+                          const dl = e.target.value;
+                          const period = calcProjectPeriod(sd, dl);
+                          const el = document.getElementById("edit-period-display");
+                          if (el) el.style.display = period ? "" : "none";
+                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+                        }} />
+                      </div>
+                    </div>
+                    <div id="edit-period-display" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10" style={{ display: (() => {
+                      const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+                      const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+                      return calcProjectPeriod(sd, dl) ? "" : "none";
+                    })() }}>
+                      <Activity className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-medium text-primary">{(() => {
+                        const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+                        const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+                        const p = calcProjectPeriod(sd, dl);
+                        return p ? `Total Period: ${p}` : "";
+                      })()}</span>
                     </div>
                     <div className="flex gap-2 pt-2">
                       <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
