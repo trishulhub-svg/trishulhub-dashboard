@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/project-methods — List all project methods (admin only)
 export async function GET() {
@@ -14,8 +15,15 @@ export async function GET() {
   const rl = rateLimit(`project-methods-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
   if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  const methods = await db.projectMethod.findMany({ orderBy: { name: "asc" } })
-  return NextResponse.json(methods)
+  await ensureAllTables()
+
+  try {
+    const methods = await db.projectMethod.findMany({ orderBy: { name: "asc" } })
+    return NextResponse.json(methods)
+  } catch (error: unknown) {
+    console.error("[project-methods] GET failed:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to fetch methods" }, { status: 500 })
+  }
 }
 
 // POST /api/project-methods — Create a new project method (admin only)
@@ -37,6 +45,8 @@ export async function POST(req: NextRequest) {
   const name = (body.name || "").trim()
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
 
+  await ensureAllTables()
+
   try {
     const method = await db.projectMethod.create({ data: { name } })
     return NextResponse.json(method, { status: 201 })
@@ -45,6 +55,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof Error && error.message.includes("Unique")) {
       return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
     }
+    console.error("[project-methods] POST failed:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create method" }, { status: 500 })
   }
 }
@@ -69,6 +80,8 @@ export async function PATCH(req: NextRequest) {
   const name = (body.name || "").trim()
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
 
+  await ensureAllTables()
+
   try {
     const method = await db.projectMethod.update({
       where: { id: body.id },
@@ -79,6 +92,7 @@ export async function PATCH(req: NextRequest) {
     if (error instanceof Error && error.message.includes("Unique")) {
       return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
     }
+    console.error("[project-methods] PATCH failed:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to update method" }, { status: 500 })
   }
 }
@@ -96,12 +110,15 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
 
+  await ensureAllTables()
+
   try {
     // Nullify projectMethodId on any clients that reference this method
     await db.client.updateMany({ where: { projectMethodId: id }, data: { projectMethodId: null } })
     await db.projectMethod.delete({ where: { id } })
     return NextResponse.json({ success: true })
-  } catch {
+  } catch (error: unknown) {
+    console.error("[project-methods] DELETE failed:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to delete method" }, { status: 500 })
   }
 }
