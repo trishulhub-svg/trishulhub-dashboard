@@ -317,3 +317,27 @@ Stage Summary:
 - Fixed task rejection feedback corruption bug
 - Push: https://github.com/trishulhub-svg/trishulhub-dashboard.git (eab31e9)
 
+---
+Task ID: 2
+Agent: main
+Task: Move project methods management from clients to projects page, fix DB error
+
+Work Log:
+- Investigated root cause: auto-migrate.ts created ProjectMethod table without updatedAt column
+- Prisma schema requires updatedAt but table was missing it → INSERT fails → "Failed to create method"
+- Fixed auto-migrate.ts: added updatedAt to CREATE TABLE + ALTER TABLE fallback for existing tables
+- Removed entire "Manage Project Methods" UI section from clients/page.tsx (handlers, UI, delete dialog)
+- Kept read-only fetchProjectMethods + seedDefaultMethods for client form dropdown selector
+- Added 4th "Methods" tab in Edit Project Dialog on projects/page.tsx (admin only)
+- Full CRUD: add new method (Enter key support), inline edit, delete with confirmation dialog
+- Auto-seeds default methods (JAVA, PHP, HTML, Other) on first load
+- Added Settings, Check, ChevronDown, ChevronUp icon imports to projects page
+- TypeScript: 0 errors, Build: passed
+- Committed as f04dd34, pushed to GitHub
+
+Stage Summary:
+- "Failed to create" error FIXED (root cause: missing updatedAt column in auto-migrate SQL)
+- Project methods management MOVED from clients page to projects page Edit Project Dialog
+- Methods tab is admin-only (4th tab: Details | Attachments | Credentials | Methods)
+- Client form still has "Method of Project" dropdown (read-only, no management UI)
+
