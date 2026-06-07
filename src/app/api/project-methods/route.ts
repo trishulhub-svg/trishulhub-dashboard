@@ -8,16 +8,16 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/project-methods — List all project methods (admin only)
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const rl = rateLimit(`project-methods-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  await ensureAllTables()
-
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+    const rl = rateLimit(`project-methods-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    await ensureAllTables()
+
     const methods = await db.projectMethod.findMany({ orderBy: { name: "asc" } })
     return NextResponse.json(methods)
   } catch (error: unknown) {
@@ -28,97 +28,127 @@ export async function GET() {
 
 // POST /api/project-methods — Create a new project method (admin only)
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const rl = rateLimit(`project-methods-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  let body: { name?: string }
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  const name = (body.name || "").trim()
-  if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
+    const rl = rateLimit(`project-methods-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  await ensureAllTables()
+    let body: { name?: string }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
-  try {
-    const method = await db.projectMethod.create({ data: { name } })
+    const name = (body.name || "").trim()
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
+
+    await ensureAllTables()
+
+    // Use raw SQL for create — more reliable across Turso/libSQL edge cases
+    const id = `pm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const now = new Date().toISOString()
+
+    try {
+      await db.$executeRawUnsafe(
+        `INSERT INTO "ProjectMethod" ("id", "name", "createdAt", "updatedAt") VALUES (?, ?, ?, ?)`,
+        id, name, now, now
+      )
+    } catch (dbError: unknown) {
+      const msg = dbError instanceof Error ? dbError.message : String(dbError)
+      // Unique constraint — check if method name already exists
+      if (msg.includes("UNIQUE") || msg.includes("unique")) {
+        return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
+      }
+      console.error("[project-methods] POST raw INSERT failed:", msg)
+      return NextResponse.json({ error: "Failed to create method", debug: msg }, { status: 500 })
+    }
+
+    // Fetch and return the created method
+    const method = await db.projectMethod.findUnique({ where: { id } })
     return NextResponse.json(method, { status: 201 })
   } catch (error: unknown) {
-    // Unique constraint violation
-    if (error instanceof Error && error.message.includes("Unique")) {
-      return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
-    }
-    console.error("[project-methods] POST failed:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to create method" }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error("[project-methods] POST failed:", errMsg)
+    return NextResponse.json({ error: "Failed to create method", debug: errMsg }, { status: 500 })
   }
 }
 
 // PATCH /api/project-methods — Update a project method (admin only)
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const rl = rateLimit(`project-methods-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  let body: { id?: string; name?: string }
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  if (!body.id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
-  const name = (body.name || "").trim()
-  if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
+    const rl = rateLimit(`project-methods-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  await ensureAllTables()
+    let body: { id?: string; name?: string }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
-  try {
-    const method = await db.projectMethod.update({
-      where: { id: body.id },
-      data: { name },
-    })
+    if (!body.id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
+    const name = (body.name || "").trim()
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
+
+    await ensureAllTables()
+
+    // Use raw SQL for update
+    const now = new Date().toISOString()
+    try {
+      await db.$executeRawUnsafe(
+        `UPDATE "ProjectMethod" SET "name" = ?, "updatedAt" = ? WHERE "id" = ?`,
+        name, now, body.id
+      )
+    } catch (dbError: unknown) {
+      const msg = dbError instanceof Error ? dbError.message : String(dbError)
+      if (msg.includes("UNIQUE") || msg.includes("unique")) {
+        return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
+      }
+      console.error("[project-methods] PATCH raw UPDATE failed:", msg)
+      return NextResponse.json({ error: "Failed to update method", debug: msg }, { status: 500 })
+    }
+
+    const method = await db.projectMethod.findUnique({ where: { id: body.id } })
     return NextResponse.json(method)
   } catch (error: unknown) {
-    if (error instanceof Error && error.message.includes("Unique")) {
-      return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
-    }
-    console.error("[project-methods] PATCH failed:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to update method" }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error("[project-methods] PATCH failed:", errMsg)
+    return NextResponse.json({ error: "Failed to update method", debug: errMsg }, { status: 500 })
   }
 }
 
 // DELETE /api/project-methods — Remove a project method (admin only)
 export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const rl = rateLimit(`project-methods-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  const { searchParams } = new URL(req.url)
-  const id = searchParams.get("id")
-  if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
-
-  await ensureAllTables()
-
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+    const rl = rateLimit(`project-methods-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
+
+    await ensureAllTables()
+
     // Nullify projectMethodId on any clients that reference this method
-    await db.client.updateMany({ where: { projectMethodId: id }, data: { projectMethodId: null } })
-    await db.projectMethod.delete({ where: { id } })
+    await db.$executeRawUnsafe(`UPDATE "Client" SET "projectMethodId" = NULL WHERE "projectMethodId" = ?`, id)
+    // Delete the method
+    await db.$executeRawUnsafe(`DELETE FROM "ProjectMethod" WHERE "id" = ?`, id)
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[project-methods] DELETE failed:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to delete method" }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error("[project-methods] DELETE failed:", errMsg)
+    return NextResponse.json({ error: "Failed to delete method", debug: errMsg }, { status: 500 })
   }
 }

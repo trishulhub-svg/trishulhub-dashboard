@@ -895,10 +895,15 @@ export default function ProjectsPage() {
         fetchProjectMethods();
         toast.success("Method added successfully");
       } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to add method");
+        const data = await res.json().catch(() => ({})) as Record<string, string>;
+        const errMsg = data.error || "Failed to add method";
+        console.error("[project-methods] Create failed:", errMsg, data.debug || "");
+        toast.error(errMsg, { description: data.debug || undefined, duration: 6000 });
       }
-    } catch { toast.error("Failed to add method"); } finally { setMethodSaving(false); }
+    } catch (err) {
+      console.error("[project-methods] Network error:", err);
+      toast.error("Failed to add method — network error");
+    } finally { setMethodSaving(false); }
   }, [newMethodName, methodSaving, fetchProjectMethods]);
 
   const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
