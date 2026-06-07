@@ -129,7 +129,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "_ProjectMethodToProject",
-    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL REFERENCES "ProjectMethod"("id") ON DELETE CASCADE, "B" TEXT NOT NULL REFERENCES "Project"("id") ON DELETE CASCADE, CONSTRAINT "_ProjectMethodToProject_AB_unique" UNIQUE("A", "B"))`
+    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL)`
   },
 ]
 
