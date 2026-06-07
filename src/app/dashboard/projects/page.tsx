@@ -14,6 +14,7 @@ import {
   Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
   Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2,
   LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
+  Settings, Check, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -842,6 +843,110 @@ export default function ProjectsPage() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
 
+  // Feature 4: Project Methods management state
+  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
+  const [methodLoading, setMethodLoading] = useState(false);
+  const [methodSaving, setMethodSaving] = useState(false);
+  const [newMethodName, setNewMethodName] = useState("");
+  const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
+  const [editingMethodName, setEditingMethodName] = useState("");
+  const [deleteMethodTarget, setDeleteMethodTarget] = useState<{ id: string; name: string } | null>(null);
+
+  // ━━ Project Methods CRUD Handlers ━━
+  const fetchProjectMethods = useCallback(async () => {
+    if (!isAdminUser) return;
+    setMethodLoading(true);
+    try {
+      const res = await fetch("/api/project-methods", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const methods: { id: string; name: string }[] = Array.isArray(data) ? data : [];
+        setProjectMethods(methods);
+        // Seed defaults if empty
+        if (methods.length === 0) {
+          const defaults = ["JAVA", "PHP", "HTML", "Other"];
+          await Promise.all(defaults.map((name) =>
+            fetch("/api/project-methods", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ name }),
+            })
+          ));
+          const res2 = await fetch("/api/project-methods", { credentials: "include" });
+          if (res2.ok) setProjectMethods(await res2.json());
+        }
+      }
+    } catch { /* silent */ } finally { setMethodLoading(false); }
+  }, [isAdminUser]);
+
+  const handleSaveNewMethod = useCallback(async () => {
+    if (!newMethodName.trim() || methodSaving) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch("/api/project-methods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: newMethodName.trim() }),
+      });
+      if (res.ok) {
+        setNewMethodName("");
+        fetchProjectMethods();
+        toast.success("Method added successfully");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error || "Failed to add method");
+      }
+    } catch { toast.error("Failed to add method"); } finally { setMethodSaving(false); }
+  }, [newMethodName, methodSaving, fetchProjectMethods]);
+
+  const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
+    if (!name.trim() || methodSaving) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch("/api/project-methods", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: methodId, name: name.trim() }),
+      });
+      if (res.ok) {
+        setEditingMethodId(null);
+        fetchProjectMethods();
+        toast.success("Method updated");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error || "Failed to update method");
+      }
+    } catch { toast.error("Failed to update method"); } finally { setMethodSaving(false); }
+  }, [methodSaving, fetchProjectMethods]);
+
+  const handleDeleteMethod = useCallback(async () => {
+    if (!deleteMethodTarget) return;
+    setMethodSaving(true);
+    try {
+      const res = await fetch(`/api/project-methods?id=${deleteMethodTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Method deleted");
+        fetchProjectMethods();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error || "Failed to delete method");
+      }
+    } catch { toast.error("Failed to delete method"); } finally { setMethodSaving(false); setDeleteMethodTarget(null); }
+  }, [deleteMethodTarget, fetchProjectMethods]);
+
+  // Fetch project methods on mount (admin only)
+  useEffect(() => {
+    if (sessionStatus === "authenticated" && isAdminUser) {
+      fetchProjectMethods();
+    }
+  }, [sessionStatus, isAdminUser, fetchProjectMethods]);
+
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -1611,10 +1716,10 @@ export default function ProjectsPage() {
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, and credentials.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, credentials, and methods.</DialogDescription></DialogHeader>
           {editProject && (
             <Tabs defaultValue="details">
-              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
+              <TabsList className="grid w-full grid-cols-4 bg-muted/50 p-1">
                 <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Pencil className="h-3 w-3" /> Details
                 </TabsTrigger>
@@ -1624,6 +1729,11 @@ export default function ProjectsPage() {
                 <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Key className="h-3 w-3" /> Credentials
                 </TabsTrigger>
+                {isAdminUser && (
+                <TabsTrigger value="methods" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+                  <Settings className="h-3 w-3" /> Methods
+                </TabsTrigger>
+                )}
               </TabsList>
 
               {/* Details Tab */}
@@ -1843,6 +1953,98 @@ export default function ProjectsPage() {
                   </div>
                 </div>
               </TabsContent>
+
+              {/* Methods Tab — admin only */}
+              {isAdminUser && (
+              <TabsContent value="methods">
+                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Settings className="h-3.5 w-3.5" /> Manage Project Methods
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">Add, edit, or remove project methods (e.g., JAVA, PHP, HTML). These are used when creating clients.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="New method name..."
+                      value={newMethodName}
+                      onChange={(e) => setNewMethodName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); handleSaveNewMethod(); }
+                      }}
+                      className="h-9 text-sm flex-1"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!newMethodName.trim() || methodSaving}
+                      onClick={handleSaveNewMethod}
+                      className="h-9 px-4"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      <span className="hidden sm:inline">Add</span>
+                    </Button>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-1.5">
+                    {methodLoading ? (
+                      <div className="space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-9 bg-muted/50 animate-pulse rounded-lg" />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {projectMethods.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-6">No methods defined yet. Add one above.</p>
+                        )}
+                        {projectMethods.map((pm) => (
+                          <div key={pm.id} className="flex items-center gap-2 rounded-lg border border-white/20 dark:border-white/10 px-3 py-2.5 bg-white/40 dark:bg-white/[0.02]">
+                            {editingMethodId === pm.id ? (
+                              <>
+                                <Input
+                                  className="h-8 text-sm flex-1"
+                                  value={editingMethodName}
+                                  onChange={(e) => setEditingMethodName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.preventDefault(); handleSaveEditMethod(pm.id, editingMethodName); }
+                                    if (e.key === "Escape") setEditingMethodId(null);
+                                  }}
+                                  autoFocus
+                                />
+                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 shrink-0"
+                                  disabled={methodSaving}
+                                  onClick={() => handleSaveEditMethod(pm.id, editingMethodName)}>
+                                  <Check className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 shrink-0"
+                                  onClick={() => setEditingMethodId(null)}>
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <div className="h-2 w-2 rounded-full bg-primary/60 shrink-0" />
+                                  <span className="text-sm font-medium truncate">{pm.name}</span>
+                                </div>
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0"
+                                  onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0 text-red-500"
+                                  onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+              )}
             </Tabs>
           )}
         </DialogContent>
@@ -1879,6 +2081,24 @@ export default function ProjectsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCredential} className="bg-red-600 hover:bg-red-700">
               Delete Credential
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ━━━━ Method Delete Confirmation ━━━━ */}
+      <AlertDialog open={!!deleteMethodTarget} onOpenChange={(open) => { if (!open) setDeleteMethodTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Project Method</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{safeText(deleteMethodTarget?.name)}&quot;? This action cannot be undone. Any clients using this method will have it removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={methodSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteMethod} className="bg-red-600 hover:bg-red-700" disabled={methodSaving}>
+              {methodSaving ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

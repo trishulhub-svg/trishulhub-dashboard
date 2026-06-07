@@ -450,14 +450,8 @@ export default function ClientsPage() {
 
   const [showMediator, setShowMediator] = useState(false);
 
-  // Feature 1: Project methods state
+  // Feature 1: Project methods state (read-only — management moved to projects page)
   const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
-  const [manageMethodsOpen, setManageMethodsOpen] = useState(false);
-  const [newMethodName, setNewMethodName] = useState("");
-  const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
-  const [editingMethodName, setEditingMethodName] = useState("");
-  const [deleteMethodTarget, setDeleteMethodTarget] = useState<{id: string, name: string} | null>(null);
-  const [methodSaving, setMethodSaving] = useState(false);
   const [methodLoading, setMethodLoading] = useState(false);
 
   // Contract panel state
@@ -481,30 +475,6 @@ export default function ClientsPage() {
     }
     return false;
   }, [router]);
-
-  // ━━ Delete method handler (L2) ━━
-  const handleDeleteMethod = async () => {
-    if (!deleteMethodTarget) return;
-    setMethodSaving(true);
-    try {
-      const res = await fetch(`/api/project-methods?id=${deleteMethodTarget.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Method deleted successfully");
-        fetchProjectMethods();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete method");
-      }
-    } catch {
-      toast.error("Failed to delete method");
-    } finally {
-      setMethodSaving(false);
-      setDeleteMethodTarget(null);
-    }
-  };
 
   // ━━ Fetch project methods ━━
   const fetchProjectMethods = useCallback(async () => {
@@ -616,55 +586,6 @@ export default function ClientsPage() {
     const controller = new AbortController();
     fetchClients(controller.signal, page);
   };
-
-  // Shared handlers for method CRUD (M-CLI-9 + L-CLI-7)
-  const handleSaveNewMethod = useCallback(async () => {
-    if (!newMethodName.trim() || methodSaving) return;
-    setMethodSaving(true);
-    try {
-      const res = await fetch("/api/project-methods", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name: newMethodName.trim() }),
-      });
-      if (res.ok) {
-        setNewMethodName("");
-        fetchProjectMethods();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to add method");
-      }
-    } catch {
-      toast.error("Failed to add method");
-    } finally {
-      setMethodSaving(false);
-    }
-  }, [newMethodName, methodSaving, fetchProjectMethods]);
-
-  const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
-    if (!name.trim() || methodSaving) return;
-    setMethodSaving(true);
-    try {
-      const res = await fetch("/api/project-methods", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: methodId, name: name.trim() }),
-      });
-      if (res.ok) {
-        setEditingMethodId(null);
-        fetchProjectMethods();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to update method");
-      }
-    } catch {
-      toast.error("Failed to update method");
-    } finally {
-      setMethodSaving(false);
-    }
-  }, [methodSaving, fetchProjectMethods]);
 
   // ━━ Open add dialog ━━
   const handleAdd = () => {
@@ -1744,102 +1665,7 @@ export default function ClientsPage() {
               </Button>
             </div>
 
-            {/* Manage Project Methods — collapsible section for admins */}
-            {isAdminUser && (
-            <>
-            <div className="border-t border-white/10 dark:border-white/5 pt-4 mt-2">
-            <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
-              <button type="button" className="flex items-center justify-between w-full p-3 text-left"
-                onClick={() => setManageMethodsOpen(!manageMethodsOpen)}>
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-xs font-medium cursor-pointer">Manage Project Methods</Label>
-                </div>
-                {manageMethodsOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-              </button>
-              {manageMethodsOpen && (
-                <div className="px-3 pb-3 space-y-3">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="New method name..."
-                      value={newMethodName}
-                      onChange={(e) => setNewMethodName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); handleSaveNewMethod(); }
-                      }}
-                      className="h-10 text-base sm:text-sm"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!newMethodName.trim() || methodSaving}
-                      onClick={handleSaveNewMethod}
-                      className="h-10 px-4"
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      <span className="hidden sm:inline">Add</span>
-                    </Button>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1.5">
-                    {methodLoading ? (
-                      <div className="space-y-2">
-                        {[1, 2, 3].map((i) => (
-                          <div key={i} className="h-8 bg-muted/50 animate-pulse rounded" />
-                        ))}
-                      </div>
-                    ) : (
-                      <>
-                        {projectMethods.length === 0 && (
-                          <p className="text-sm text-muted-foreground text-center py-3">No methods defined yet</p>
-                        )}
-                        {projectMethods.map((pm) => (
-                          <div key={pm.id} className="flex items-center gap-2 rounded-lg border border-white/20 dark:border-white/10 px-3 py-2">
-                            {editingMethodId === pm.id ? (
-                              <>
-                                <Input
-                                  className="h-8 text-sm flex-1"
-                                  value={editingMethodName}
-                                  onChange={(e) => setEditingMethodName(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") { e.preventDefault(); handleSaveEditMethod(pm.id, editingMethodName); }
-                                    if (e.key === "Escape") setEditingMethodId(null);
-                                  }}
-                                  autoFocus
-                                />
-                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8"
-                                  disabled={methodSaving}
-                                  onClick={() => handleSaveEditMethod(pm.id, editingMethodName)}>
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button type="button" variant="ghost" size="sm" className="h-8 w-8"
-                                  onClick={() => setEditingMethodId(null)}>
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <span className="flex-1 text-sm truncate">{pm.name}</span>
-                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0"
-                                  onClick={() => { setEditingMethodId(pm.id); setEditingMethodName(pm.name); }}>
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0 text-red-500"
-                                  onClick={() => setDeleteMethodTarget({ id: pm.id, name: pm.name })}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            </div>
-            </>
-            )}
+
           </div>
         </DialogContent>
       </Dialog>
@@ -1887,23 +1713,7 @@ export default function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ━━ Delete Method Confirmation (L2) ━━ */}
-      <AlertDialog open={!!deleteMethodTarget} onOpenChange={(open) => !open && setDeleteMethodTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Project Method</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete &quot;{safeText(deleteMethodTarget?.name)}&quot;? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={methodSaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteMethod} className="bg-red-600 hover:bg-red-700" disabled={methodSaving}>
-              {methodSaving ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
 
       {/* ━━ Client Detail Drawer ━━ */}
       <Sheet
