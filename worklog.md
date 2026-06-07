@@ -341,3 +341,31 @@ Stage Summary:
 - Methods tab is admin-only (4th tab: Details | Attachments | Credentials | Methods)
 - Client form still has "Method of Project" dropdown (read-only, no management UI)
 
+
+---
+Task ID: 3
+Agent: main
+Task: Add Project ↔ ProjectMethod many-to-many relation, API, and UI; remove client methods UI
+
+Work Log:
+- Added `methods ProjectMethod[]` to Project model and `projects Project[]` to ProjectMethod model in prisma/schema.prisma
+- Ran `npx prisma generate` — success, implicit join table `_ProjectMethodToProject` defined
+- Added `_ProjectMethodToProject` to CRITICAL_TABLES in auto-migrate.ts with FK constraints + unique index
+- Added `_ProjectMethodToProject_B_index` index creation in auto-migrate.ts
+- Created new API endpoint `src/app/api/projects/[id]/methods/route.ts` (GET + PUT)
+- Updated `src/app/api/projects/route.ts` GET handler to fetch all project-method assignments via raw SQL and attach `methods[]` array to each project
+- Added method assignment state (assignedMethodIds, methodAssignLoading) to projects page
+- Added 3 handlers: fetchProjectAssignedMethods, handleSaveProjectMethods, toggleProjectMethod
+- Added fetchProjectAssignedMethods call in openEditDialog
+- Added "Methods for this Project" checkbox section in the Methods tab of Edit Project Dialog
+- Added method badges (violet) on KanbanProjectCard and ListViewRow
+- Removed all method-related code from clients page: ClientRow type fields, formData.projectMethodId, projectMethods/methodLoading state, fetchProjectMethods, seedDefaultMethods, useEffect for seeding, projectMethodId in handleAdd/handleEdit/handleSubmit, method select UI, and method badge in detail drawer
+- TypeScript: 0 errors in project code (only node_modules type errors)
+- Committed as fe945e4, pushed to GitHub origin/main
+
+Stage Summary:
+- Many-to-many Project ↔ ProjectMethod relation added with join table
+- API endpoints for GET (list) and PUT (assign) project methods working
+- Projects API returns `methods[]` array with each project
+- Projects page shows method checkboxes in Methods tab + method badges on cards
+- Client page no longer has method selection/management UI (cleaned up completely)
