@@ -291,3 +291,29 @@ Stage Summary:
 - No manual prisma db push needed — the auto-migrate handles it
 - Existing projects with clients are completely unaffected
 - New projects can now be created with "No client" option
+---
+Task ID: 1
+Agent: main
+Task: Fix approvals page - approved tasks not visible + history not updating
+
+Work Log:
+- Investigated approvals page component (1133 lines) and tasks API route
+- Found root cause: History tab only queried Approval table (AI/system approvals)
+- Task approvals update task status to DONE but never create Approval records
+- Leave approvals/rejections stored in Leave table, not queried for history
+- Fixed feedback corruption bug: { feedback } object became "[object Object]"
+- Added taskHistory and leaveHistory state arrays
+- Rebuilt data fetching to extract approved tasks and resolved leaves
+- Created unified HistoryEntry interface and allHistory combined sorted array
+- Rewrote renderHistoryCard to handle AI, Task, and Leave source types
+- Added source type badges (System/Task Approval/Leave Request) to history cards
+- Added DONE status color mapping (green border)
+- TypeScript check: 0 errors, Build: passed
+- Committed as 17eb67a (rebased to eab31e9), pushed to GitHub
+
+Stage Summary:
+- History tab now shows all resolved items: AI approvals + approved tasks + approved/rejected leaves
+- Approved tasks visible in history after approval with assignee name and approval timestamp
+- Fixed task rejection feedback corruption bug
+- Push: https://github.com/trishulhub-svg/trishulhub-dashboard.git (eab31e9)
+
