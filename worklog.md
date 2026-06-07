@@ -395,3 +395,35 @@ Stage Summary:
 - Commit 15424b6 pushed to GitHub (main)
 - Vercel will auto-deploy from this commit
 - User should see either: normal app (if Turso responds in time) OR timeout fallback button
+---
+Task ID: 2
+Agent: Main Agent (10 parallel investigation agents)
+Task: Find and fix root cause of completely broken web app
+
+Work Log:
+- Launched 5 parallel Explore agents for initial investigation
+- Agent 1: Found git history, identified eab31e9 as last-known-good commit
+- Agent 2: Analyzed all diffs in fe945e4 — added implicit M2M + join table with FKs
+- Agent 3: Confirmed NO top-level import crashes in any module
+- Agent 4: Discovered UUID commits are worklog saves, NOT Vercel deploys
+- Agent 5: Confirmed lock files not the cause (fe945e4 didn't touch bun.lock)
+- Launched 5 more agents for deeper investigation
+- Agent 6: Confirmed FK constraints NOT causing Turso lockup (already removed)
+- Agent 7: Compared eab31e9..HEAD diffs — auto-migrate, session-manager changed
+- Agent 8 (CRITICAL): Started dev server and found FATAL ERROR:
+  "You cannot use different slug names for the same dynamic path ('id' !== 'projectId')"
+  - [id]/methods/route.ts conflicted with [projectId]/members/route.ts
+  - This is a FATAL Next.js 16 error that prevents the ENTIRE server from starting
+- Agent 9: Confirmed all imports are safe — no module-level crashes
+- Agent 10: Found getToken() in middleware could throw if NEXTAUTH_SECRET missing
+
+Fixes applied:
+1. Renamed src/app/api/projects/[id]/methods/ → [projectId]/methods/
+2. Updated params type to use { projectId: string } instead of { id: string }
+3. Added try/catch around getToken() in middleware.ts
+
+Stage Summary:
+- Commit 6bbed2e pushed to GitHub (main)
+- ROOT CAUSE: Route slug conflict ([id] vs [projectId]) crashed Next.js server on startup
+- This prevented ALL routes from responding, causing infinite loading screen
+- Build verified: clean build with 108 pages, no errors
