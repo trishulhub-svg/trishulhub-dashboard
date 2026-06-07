@@ -92,8 +92,19 @@ function LoginForm() {
   }, []);
 
   // While session is loading or authenticated+redirecting, show shared loading screen
-  if (status === "loading" || (status === "authenticated" && session)) {
+  if (status === "loading") {
     return <LoadingScreen />;
+  }
+
+  if (status === "authenticated" && session) {
+    // Redirect immediately if already authenticated
+    const role = (session.user as any)?.role;
+    if (role === "CLIENT") {
+      router.replace("/portal");
+    } else {
+      router.replace("/dashboard");
+    }
+    return <LoadingScreen message="Redirecting..." />;
   }
 
   const handleSetup = async () => {

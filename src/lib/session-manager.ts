@@ -17,25 +17,31 @@ async function ensureActiveSessionTable(): Promise<boolean> {
   if (sessionTableChecked && sessionTableExists) return true
 
   try {
-    await (db as any).activeSession.count({ take: 1 })
+    await Promise.race([
+      (db as any).activeSession.count({ take: 1 }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+    ])
     sessionTableChecked = true
     sessionTableExists = true
     return true
   } catch {
-    // Table not found, will auto-create below
+    // Table not found or timeout, will auto-create below
   }
 
   try {
-    await db.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "ActiveSession" (
-        "id" TEXT PRIMARY KEY NOT NULL,
-        "userId" TEXT NOT NULL UNIQUE,
-        "sessionToken" TEXT NOT NULL,
-        "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
-        "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
-        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
-      )
-    `)
+    await Promise.race([
+      db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ActiveSession" (
+          "id" TEXT PRIMARY KEY NOT NULL,
+          "userId" TEXT NOT NULL UNIQUE,
+          "sessionToken" TEXT NOT NULL,
+          "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+    ])
     try {
       await db.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "ActiveSession_userId_idx" ON "ActiveSession"("userId")`
@@ -118,39 +124,54 @@ export async function validateSessionToken(
     return cached.token === token
   }
 
-  // Cache miss or expired - check DB
+  // Cache miss or expired - check DB with timeout
+  // If DB is unreachable, allow session to continue (fail-open with warning)
+  // This prevents the app from being completely inaccessible when Turso is slow/down
+  try {
+    const result = await Promise.race([
+      doValidateSession(userId, token),
+      new Promise<boolean>((resolve) => setTimeout(() => {
+        console.warn("[session] Session validation timed out (5s) — allowing session to continue (fail-open)")
+        resolve(true) // Allow session on timeout
+      }, 5000)),
+    ])
+    return result
+  } catch (err: any) {
+    // Network-level error — allow session (fail-open for reliability)
+    console.error("[session] Session validation error (allowing session — fail-open):", err.message)
+    return true
+  }
+}
+
+/**
+ * Actual DB-based session validation
+ */
+async function doValidateSession(
+  userId: string,
+  token: string
+): Promise<boolean> {
   const tableReady = await ensureActiveSessionTable()
   if (!tableReady) {
-    // Fail-closed: if table doesn't exist, deny access — never accept
-    // an unverifiable session token, as that would let ANY token through
-    // when the DB is down (critical security hole).
-    console.error("[session] ActiveSession table not available, denying session (fail-closed)")
-    return false
+    // Table not available — allow session (fail-open)
+    console.warn("[session] ActiveSession table not available, allowing session (fail-open)")
+    return true
   }
 
-  try {
-    const session = await (db as any).activeSession.findUnique({
-      where: { userId },
+  const session = await (db as any).activeSession.findUnique({
+    where: { userId },
+  })
+
+  const isValid = session?.sessionToken === token
+
+  // Update cache
+  if (session) {
+    sessionCache.set(userId, {
+      token: session.sessionToken,
+      checkedAt: Date.now(),
     })
-
-    const isValid = session?.sessionToken === token
-
-    // Update cache
-    if (session) {
-      sessionCache.set(userId, {
-        token: session.sessionToken,
-        checkedAt: Date.now(),
-      })
-    }
-
-    return isValid
-  } catch (err: any) {
-    // Fail-closed: if DB check fails, deny access — we cannot verify the
-    // session token, so we must not accept it. Returning true here would
-    // let ANY token pass validation when the DB is down.
-    console.error("[session] Session token validation DB error (denying — fail-closed):", err.message)
-    return false
   }
+
+  return isValid
 }
 
 /**

@@ -525,8 +525,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setMobileOpen(false);
   };
 
-  if (status === "loading") {
+  // Safety timeout for session loading — show fallback after 15s
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  useEffect(() => {
+    if (status !== "loading") return;
+    const t = setTimeout(() => setSessionTimedOut(true), 15000);
+    return () => clearTimeout(t);
+  }, [status]);
+
+  if (status === "loading" && !sessionTimedOut) {
     return <LoadingScreen />;
+  }
+
+  if (sessionTimedOut && status === "loading") {
+    return (
+      <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-sm text-muted-foreground">Session is taking too long to load...</p>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+          >
+            Sign In Again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!session) return null;
