@@ -67,11 +67,10 @@ export async function GET(request: NextRequest) {
           }
           const row = rows[0];
           const tk = row.configToken || "";
-          // C9: Only return full configToken for SUPER_ADMIN users
-          const isSuperAdmin = token.role === "SUPER_ADMIN";
+          // Return full configToken to all authenticated users so they can copy & use it
           return {
             id: row.id,
-            configToken: isSuperAdmin ? tk : "",
+            configToken: tk,
             configTokenMasked: tk.length <= 12 ? "••••••••" : tk.slice(0, 4) + "••••••••" + tk.slice(-4),
             configTokenLabel: row.configTokenLabel || "Workspace Token",
             hasToken: !!tk,
@@ -85,11 +84,11 @@ export async function GET(request: NextRequest) {
           const rows: any[] = await db.$queryRawUnsafe(
             `SELECT "code", "updatedAt" FROM "UserCode" WHERE "userId" = ?`, userId
           );
-          if (!rows.length) return { hasCode: false, codeMasked: "" };
+          if (!rows.length) return { hasCode: false, code: "", codeMasked: "" };
           const code = rows[0].code || "";
-          // I21: Only return masked code, never the full user code
-          return { hasCode: !!code, codeMasked: code ? "••••••••" : "", updatedAt: rows[0].updatedAt || null };
-        } catch { return { hasCode: false, codeMasked: "" }; }
+          // Return the full code to the owning user so they can copy & use it
+          return { hasCode: !!code, code: code, codeMasked: code ? (code.length <= 8 ? "••••••••" : code.slice(0, 3) + "••••" + code.slice(-3)) : "", updatedAt: rows[0].updatedAt || null };
+        } catch { return { hasCode: false, code: "", codeMasked: "" }; }
       })(),
 
       // 4. Admin-only: Git config (with stale PENDING reset)

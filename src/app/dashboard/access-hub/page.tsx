@@ -775,7 +775,7 @@ export default function AccessHubPage() {
     </Card>
   );
 
-  // Workspace Token card (read-only)
+  // Workspace Token card (all users can view/copy)
   const WorkspaceTokenCard = ({ canManage }: { canManage?: boolean }) => (
     <Card className="overflow-hidden border-border/60">
       <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
@@ -795,17 +795,15 @@ export default function AccessHubPage() {
           <div className="space-y-2">
             <div className="relative">
               <Input
-                type={showWsToken && canManage ? "text" : "password"}
-                value={showWsToken && canManage ? (wsConfig?.configToken || "") : (wsConfig?.configTokenMasked || "••••••••")}
+                type={showWsToken ? "text" : "password"}
+                value={showWsToken ? (wsConfig?.configToken || "") : (wsConfig?.configTokenMasked || "••••••••")}
                 readOnly
                 className="pr-20 font-mono text-xs bg-muted/50"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                {canManage && (
-                  <button type="button" onClick={() => setShowWsToken(!showWsToken)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                    {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                )}
+                <button type="button" onClick={() => setShowWsToken(!showWsToken)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">

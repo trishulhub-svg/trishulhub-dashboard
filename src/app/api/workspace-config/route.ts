@@ -62,14 +62,12 @@ export async function GET(request: NextRequest) {
     }
 
     const row = rows[0];
-    const isSuperAdmin = (token as any).role === "SUPER_ADMIN";
-
-    // C7: configToken is stored in plaintext. Mask for non-admin responses.
+    // C7: configToken is stored in plaintext.
     // TODO: Encrypt configToken at rest using AES-256-GCM (similar to task-git-config tokenEncrypted pattern)
     return NextResponse.json({
       id: row.id,
-      // Only return full configToken for SUPER_ADMIN users
-      configToken: isSuperAdmin ? (row.configToken || "") : "",
+      // Return full configToken to all authenticated users (they need it to use it)
+      configToken: row.configToken || "",
       configTokenMasked: maskToken(row.configToken),
       configTokenLabel: row.configTokenLabel || "Workspace Token",
       hasToken: !!row.configToken,

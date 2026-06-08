@@ -56,9 +56,11 @@ export async function GET(request: NextRequest) {
     const row = rows[0];
     const code = row.code || "";
 
+    // Return the full code to the owning user so they can copy & use it
     return NextResponse.json({
       hasCode: !!code,
-      codeMasked: code ? "••••••••" : "",
+      code: code,
+      codeMasked: code ? (code.length <= 8 ? "••••••••" : code.slice(0, 3) + "••••" + code.slice(-3)) : "",
       updatedAt: row.updatedAt || null,
     });
   } catch (error: unknown) {
