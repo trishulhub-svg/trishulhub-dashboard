@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
 
     await ensureAllTables()
 
-    const id = `pm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    // W46: Use crypto.randomUUID() instead of weak ID generation
+    const id = crypto.randomUUID()
     const now = new Date().toISOString()
 
     // INSERT only id, name, createdAt — NEVER reference updatedAt.
@@ -83,11 +84,11 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
           }
           console.error("[project-methods] POST INSERT (fallback) failed:", msg2)
-          return NextResponse.json({ error: "Failed to create method", debug: msg2 }, { status: 500 })
+          return NextResponse.json({ error: "Failed to create method" }, { status: 500 })
         }
       } else {
         console.error("[project-methods] POST INSERT failed:", msg)
-        return NextResponse.json({ error: "Failed to create method", debug: msg }, { status: 500 })
+        return NextResponse.json({ error: "Failed to create method" }, { status: 500 })
       }
     }
 
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error("[project-methods] POST failed:", errMsg)
-    return NextResponse.json({ error: "Failed to create method", debug: errMsg }, { status: 500 })
+    return NextResponse.json({ error: "Failed to create method" }, { status: 500 })
   }
 }
 
@@ -134,14 +135,14 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "A method with this name already exists" }, { status: 409 })
       }
       console.error("[project-methods] PATCH UPDATE failed:", msg)
-      return NextResponse.json({ error: "Failed to update method", debug: msg }, { status: 500 })
+      return NextResponse.json({ error: "Failed to update method" }, { status: 500 })
     }
 
     return NextResponse.json({ id: body.id, name })
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error("[project-methods] PATCH failed:", errMsg)
-    return NextResponse.json({ error: "Failed to update method", debug: errMsg }, { status: 500 })
+    return NextResponse.json({ error: "Failed to update method" }, { status: 500 })
   }
 }
 
@@ -168,11 +169,18 @@ export async function DELETE(req: NextRequest) {
       // Non-critical
     }
 
+    // C13: Clean up join table before deleting the method
+    try {
+      await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "A" = ?`, id)
+    } catch {
+      // Non-critical if join table doesn't exist
+    }
+
     await db.$executeRawUnsafe(`DELETE FROM "ProjectMethod" WHERE "id" = ?`, id)
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error("[project-methods] DELETE failed:", errMsg)
-    return NextResponse.json({ error: "Failed to delete method", debug: errMsg }, { status: 500 })
+    return NextResponse.json({ error: "Failed to delete method" }, { status: 500 })
   }
 }

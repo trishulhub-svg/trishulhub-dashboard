@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isAdmin } from "@/lib/rbac"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/projects/[projectId]/methods — Get methods assigned to a project
@@ -10,8 +11,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+    // C2: Authorization check — non-admin users must be a member of the project
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const { projectId: id } = await params
-    if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 })
+    // W33: Validate projectId format
+    if (!id || !/^[a-zA-Z0-9_-]{1,50}$/.test(id)) {
+      return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
 
     await ensureAllTables()
 
@@ -33,8 +42,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+    // C1: Admin authorization check
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
+
     const { projectId: id } = await params
-    if (!id) return NextResponse.json({ error: "Project ID required" }, { status: 400 })
+    // W33: Validate projectId format
+    if (!id || !/^[a-zA-Z0-9_-]{1,50}$/.test(id)) {
+      return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
 
     await ensureAllTables()
 
@@ -47,25 +62,43 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
 
     const methodIds = Array.isArray(body.methodIds) ? body.methodIds : []
 
-    // Delete all existing assignments
-    await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
+    // C23: Validate method IDs against existing records
+    if (methodIds.length > 0) {
+      const validIds = methodIds.filter((m) => m && typeof m === "string")
+      const placeholders = validIds.map(() => "?").join(", ")
+      const existingMethods = await db.$queryRawUnsafe(
+        `SELECT "id" FROM "ProjectMethod" WHERE "id" IN (${placeholders})`,
+        ...validIds
+      ) as Array<{ id: string }>
+      const existingIdSet = new Set(existingMethods.map((m) => m.id))
+      const invalidIds = validIds.filter((m) => !existingIdSet.has(m))
+      if (invalidIds.length > 0) {
+        return NextResponse.json({ error: `Invalid method IDs: ${invalidIds.join(", ")}` }, { status: 400 })
+      }
+    }
 
-    // Insert new assignments
-    for (const methodId of methodIds) {
-      if (methodId && typeof methodId === "string") {
-        try {
-          await db.$executeRawUnsafe(
-            `INSERT INTO "_ProjectMethodToProject" ("A", "B") VALUES (?, ?)`,
-            methodId, id
-          )
-        } catch (err: any) {
-          // Ignore duplicate/unique constraint errors
-          if (!err?.message?.includes("UNIQUE") && !err?.message?.includes("unique")) {
-            console.warn(`[project-methods] Failed to assign method ${methodId}:`, err?.message)
+    // C9: Wrap delete-all + insert in a transaction
+    await db.$transaction(async (tx) => {
+      // Delete all existing assignments
+      await tx.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
+
+      // Insert new assignments
+      for (const methodId of methodIds) {
+        if (methodId && typeof methodId === "string") {
+          try {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO "_ProjectMethodToProject" ("A", "B") VALUES (?, ?)`,
+              methodId, id
+            )
+          } catch (err: any) {
+            // Ignore duplicate/unique constraint errors
+            if (!err?.message?.includes("UNIQUE") && !err?.message?.includes("unique")) {
+              console.warn(`[project-methods] Failed to assign method ${methodId}:`, err?.message)
+            }
           }
         }
       }
-    }
+    })
 
     return NextResponse.json({ success: true, methodIds })
   } catch (error: unknown) {

@@ -51,7 +51,8 @@ export async function GET(
     // ZAI FIX #310: JSON round-trip to strip Date objects → ISO strings
     return NextResponse.json(JSON.parse(JSON.stringify(members)))
   } catch (error: unknown) {
-    console.error("[project-members] GET error")
+    // W8: Log the error object
+    console.error("[project-members] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -118,8 +119,8 @@ export async function POST(
       },
     })
 
-    // Background: sync team & task data to Git (fire-and-forget)
-    syncTasksToGit().catch(() => {})
+    // W9: Log errors from syncTasksToGit instead of swallowing them
+    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
 
     // Notify the user about project assignment
     try {
@@ -134,12 +135,14 @@ export async function POST(
         },
       })
     } catch (notifyErr: unknown) {
-      console.error("[project-members] notification error (non-blocking)")
+      // W8: Log the error object
+      console.error("[project-members] notification error (non-blocking):", notifyErr)
     }
 
     return NextResponse.json(JSON.parse(JSON.stringify(membership)), { status: 201 })
   } catch (error: unknown) {
-    console.error("[project-members] POST error")
+    // W8: Log the error object
+    console.error("[project-members] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -173,16 +176,22 @@ export async function DELETE(
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
-    await db.projectMember.deleteMany({
+    // I3: Check result count — return 404 if user wasn't a member
+    const result = await db.projectMember.deleteMany({
       where: { userId, projectId },
     })
 
-    // Background: sync team & task data to Git (fire-and-forget)
-    syncTasksToGit().catch(() => {})
+    if (result.count === 0) {
+      return NextResponse.json({ error: "User is not a member of this project" }, { status: 404 })
+    }
+
+    // W9: Log errors from syncTasksToGit instead of swallowing them
+    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[project-members] DELETE error")
+    // W8: Log the error object
+    console.error("[project-members] DELETE error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

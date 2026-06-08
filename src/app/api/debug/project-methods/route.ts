@@ -8,6 +8,11 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 // GET /api/debug/project-methods — Diagnostic endpoint
 // Tests the full flow and returns detailed results
 export async function GET() {
+  // C4: Guard — only available in development environment
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Not available in production" }, { status: 404 })
+  }
+
   const results: Array<{ step: string; status: string; detail?: string; data?: unknown }> = []
 
   // Step 1: Session check

@@ -3,17 +3,20 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { isAdmin } from "@/lib/rbac";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
-// TODO (M-5): Extract this sanitizeInput function to a shared utility (e.g., @/lib/sanitize)
-// so it can be reused across API routes instead of being duplicated here and in /api/projects/route.ts.
-// NOTE (M-3): This regex-based sanitization is a basic defense. For production, consider
+// TODO: Extract to @/lib/sanitize.ts
+// NOTE: This regex-based sanitization is a basic defense. For production, consider
 // using a proper library like DOMPurify or sanitize-html to handle edge cases (e.g., unclosed tags,
 // attribute-based XSS, HTML entity encoding).
 function sanitizeInput(str: string, maxLength: number): string {
   const stripped = str.replace(/<[^>]*>/g, "").trim();
   return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped;
 }
+
+// W34: Stricter URL validation regex
+const URL_REGEX = /^https?:\/\/(?:[\w-]+\.)+[\w]{2,}(?::\d{1,5})?(?:\/\S*)?$/;
 
 // ━━ GET /api/projects/[projectId]/websites ━━
 export async function GET(
@@ -33,10 +36,9 @@ export async function GET(
     }
 
     const { projectId } = await params;
-    const userRole = session.user.role || "DEVELOPER";
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-    if (!isAdmin) {
+    // W43: Use imported isAdmin instead of local shadow
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -71,10 +73,9 @@ export async function POST(
     }
 
     const { projectId } = await params;
-    const userRole = session.user.role || "DEVELOPER";
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-    if (!isAdmin) {
+    // W43: Use imported isAdmin instead of local shadow
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -93,9 +94,9 @@ export async function POST(
       return NextResponse.json({ error: "URL is required" }, { status: 400 });
     }
 
-    // Basic URL validation
+    // W34: Stricter URL validation
     const trimmedUrl = url.trim();
-    if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {
+    if (!URL_REGEX.test(trimmedUrl)) {
       return NextResponse.json(
         { error: "URL must start with http:// or https:// and contain a valid domain" },
         { status: 400 }
@@ -108,21 +109,24 @@ export async function POST(
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // If setting as primary, unset other primaries
-    if (isPrimaryBool) {
-      await db.projectWebsite.updateMany({
-        where: { projectId, isPrimary: true },
-        data: { isPrimary: false },
-      });
-    }
+    // C10: Wrap isPrimary toggle + create in a transaction for atomicity
+    const website = await db.$transaction(async (tx) => {
+      // If setting as primary, unset other primaries
+      if (isPrimaryBool) {
+        await tx.projectWebsite.updateMany({
+          where: { projectId, isPrimary: true },
+          data: { isPrimary: false },
+        });
+      }
 
-    const website = await db.projectWebsite.create({
-      data: {
-        url: sanitizeInput(trimmedUrl, 2000),
-        label: label ? sanitizeInput(String(label), 100) : null,
-        isPrimary: isPrimaryBool,
-        projectId,
-      },
+      return tx.projectWebsite.create({
+        data: {
+          url: sanitizeInput(trimmedUrl, 2000),
+          label: label ? sanitizeInput(String(label), 100) : null,
+          isPrimary: isPrimaryBool,
+          projectId,
+        },
+      });
     });
 
     return NextResponse.json(JSON.parse(JSON.stringify(website)), { status: 201 });
@@ -151,10 +155,9 @@ export async function PATCH(
     }
 
     const { projectId } = await params;
-    const userRole = session.user.role || "DEVELOPER";
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-    if (!isAdmin) {
+    // W43: Use imported isAdmin instead of local shadow
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -172,35 +175,42 @@ export async function PATCH(
       return NextResponse.json({ error: "Website ID is required" }, { status: 400 });
     }
 
-    // If setting as primary, unset other primaries
-    if (isPrimaryBool) {
-      await db.projectWebsite.updateMany({
-        where: { projectId, isPrimary: true, id: { not: id as string } },
-        data: { isPrimary: false },
-      });
-    }
-
-    const updateData: Prisma.ProjectWebsiteUncheckedUpdateInput = {};
+    // W34: Stricter URL validation
     if (url !== undefined) {
       const trimmedUrl = String(url).trim();
-      if (!/^https?:\/\/.+\..+/.test(trimmedUrl)) {
+      if (!URL_REGEX.test(trimmedUrl)) {
         return NextResponse.json(
           { error: "URL must start with http:// or https:// and contain a valid domain" },
           { status: 400 }
         );
       }
-      updateData.url = sanitizeInput(trimmedUrl, 2000);
-    }
-    if (label !== undefined) {
-      updateData.label = label ? sanitizeInput(String(label), 100) : null;
-    }
-    if (typeof body.isPrimary !== "undefined") {
-      updateData.isPrimary = isPrimaryBool;
     }
 
-    const website = await db.projectWebsite.update({
-      where: { id: id as string, projectId },
-      data: updateData,
+    // C10: Wrap isPrimary toggle + update in a transaction for atomicity
+    const website = await db.$transaction(async (tx) => {
+      // If setting as primary, unset other primaries
+      if (isPrimaryBool) {
+        await tx.projectWebsite.updateMany({
+          where: { projectId, isPrimary: true, id: { not: id as string } },
+          data: { isPrimary: false },
+        });
+      }
+
+      const updateData: Prisma.ProjectWebsiteUncheckedUpdateInput = {};
+      if (url !== undefined) {
+        updateData.url = sanitizeInput(String(url).trim(), 2000);
+      }
+      if (label !== undefined) {
+        updateData.label = label ? sanitizeInput(String(label), 100) : null;
+      }
+      if (typeof body.isPrimary !== "undefined") {
+        updateData.isPrimary = isPrimaryBool;
+      }
+
+      return tx.projectWebsite.update({
+        where: { id: id as string, projectId },
+        data: updateData,
+      });
     });
 
     return NextResponse.json(JSON.parse(JSON.stringify(website)));
@@ -229,10 +239,9 @@ export async function DELETE(
     }
 
     const { projectId } = await params;
-    const userRole = session.user.role || "DEVELOPER";
-    const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-    if (!isAdmin) {
+    // W43: Use imported isAdmin instead of local shadow
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

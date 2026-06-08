@@ -7,16 +7,33 @@ import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
+import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
 // M-PRJ-3, M-PRJ-4: Server-side input sanitization — strip HTML tags and enforce length
+// TODO: Extract to @/lib/sanitize.ts
 // NOTE (M-3): This regex-based sanitization is a basic defense. For production, consider
 // using a proper library like DOMPurify or sanitize-html to handle edge cases (e.g., unclosed tags,
 // attribute-based XSS, HTML entity encoding).
 function sanitizeInput(str: string, maxLength: number): string {
   const stripped = str.replace(/<[^>]*>/g, "").trim()
   return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped
+}
+
+// I1: Targeted Date serialization helper (avoids JSON.parse(JSON.stringify(...)))
+function serializeProjectDates(p: any): any {
+  return {
+    ...p,
+    createdAt: p.createdAt?.toISOString(),
+    updatedAt: p.updatedAt?.toISOString(),
+    deadline: p.deadline?.toISOString() ?? null,
+    startDate: p.startDate?.toISOString() ?? null,
+  }
+}
+
+function serializeProjects(projects: any[]): any[] {
+  return projects.map((p) => serializeProjectDates(p))
 }
 
 export async function GET(req: NextRequest) {
@@ -39,8 +56,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get("projectId")
 
-    // M-PRJ-2: Pagination limit (cap at 200, default 100)
-    const limit = Math.min(Number(searchParams.get("limit")) || 100, 200)
+    // W6: Reject negative/zero limit, cap at 200, default 100
+    const limit = Math.max(1, Math.min(Number(searchParams.get("limit")) || 100, 200))
+
+    // W5: Add offset pagination parameter
+    const offset = Math.max(Number(searchParams.get("offset")) || 0, 0)
 
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
@@ -56,9 +76,10 @@ export async function GET(req: NextRequest) {
         include: { ...(projectId ? {} : { client: true, tasks: true }) },
         orderBy: { createdAt: "desc" },
         take: limit,
+        skip: offset,
       })
-      // Layer 0: JSON round-trip to ensure Date objects are ISO strings
-      return NextResponse.json(JSON.parse(JSON.stringify(projects)))
+      // I1: Targeted Date serialization
+      return NextResponse.json(serializeProjects(projects))
     }
 
     // DEVELOPER users only see projects they're assigned to
@@ -95,6 +116,7 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
       take: limit,
+      skip: offset,
     })
 
     // Fetch all project-method assignments in one query
@@ -127,12 +149,12 @@ export async function GET(req: NextRequest) {
         budget: undefined,
         client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
       }))
-      // Layer 0: JSON round-trip to strip Date objects → ISO strings
-      return NextResponse.json(JSON.parse(JSON.stringify(filtered)))
+      // I1: Targeted Date serialization
+      return NextResponse.json(serializeProjects(filtered))
     }
 
-    // Layer 0: JSON round-trip to strip Date objects → ISO strings
-    return NextResponse.json(JSON.parse(JSON.stringify(projectsWithMethods)))
+    // I1: Targeted Date serialization
+    return NextResponse.json(serializeProjects(projectsWithMethods))
   } catch (error: any) {
     console.error("[projects] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load projects" }, { status: 500 })
@@ -164,22 +186,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    // SECURITY: Sanitize project creation data (whitelist allowed fields)
-    // M-PRJ-3, M-PRJ-4: Sanitize inputs (strip HTML tags, enforce length)
-    const name = typeof data.name === 'string' ? sanitizeInput(data.name, 500) : undefined
-    const description = typeof data.description === 'string' ? sanitizeInput(data.description, 5000) : undefined
-    const status = typeof data.status === 'string' ? data.status : undefined
-    // Client is optional — empty string means "No Client" (Internal project)
-    const clientId = typeof data.clientId === 'string' ? data.clientId : undefined
-    // P-H7 FIX: Accept budget as number or non-empty string so "0" becomes 0, not null
-    const budget = typeof data.budget === 'number' ? data.budget
-      : typeof data.budget === 'string' && data.budget !== '' ? parseFloat(data.budget)
-      : undefined
-    const deadline = typeof data.deadline === 'string' ? data.deadline : undefined
-    const startDate = typeof data.startDate === 'string' ? data.startDate : undefined
-    if (!name) {
-      return NextResponse.json({ error: "Project name is required" }, { status: 400 })
+    // C22: Validate with Zod schema (source of truth for field limits)
+    const parseResult = createProjectSchema.safeParse(data)
+    if (!parseResult.success) {
+      const errors = parseResult.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
+      return NextResponse.json({ error: `Validation failed: ${errors}` }, { status: 400 })
     }
+
+    const validated = parseResult.data
+
+    // SECURITY: Sanitize project creation data using validated (and schema-constrained) values
+    const name = sanitizeInput(validated.name, 200)
+    const description = validated.description ? sanitizeInput(validated.description, 2000) : null
+    const projectStatus = validated.status || "PLANNING"
+    const clientId = validated.clientId || null
 
     // If clientId is provided, verify client exists
     if (clientId && clientId.trim()) {
@@ -189,32 +209,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // H4: Validate budget is non-negative
-    if (budget !== undefined && budget < 0) {
-      return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
-    }
-
-    // Validate status
-    const projectStatus = status || "PLANNING"
-    if (!VALID_PROJECT_STATUSES.includes(projectStatus)) {
-      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
-    }
-
     const project = await db.project.create({
       data: {
         name,
-        description: description || null,
+        description: description,
         status: projectStatus,
         clientId: clientId && clientId.trim() ? clientId : null,
         // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
-        budget: budget ?? null,
-        startDate: startDate ? new Date(startDate) : null,
-        deadline: deadline ? new Date(deadline) : null,
+        budget: validated.budget ?? null,
+        deadline: validated.deadline ? new Date(validated.deadline) : null,
       },
     })
     // Background: sync project data to Git (fire-and-forget)
-    syncTasksToGit().catch(() => {})
-    return NextResponse.json(JSON.parse(JSON.stringify(project)), { status: 201 })
+    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
+    // I1: Targeted Date serialization
+    return NextResponse.json(serializeProjectDates(project), { status: 201 })
   } catch (error: any) {
     console.error("[projects] POST error:", error?.message)
     return NextResponse.json({ error: "Failed to create project" }, { status: 500 })
@@ -253,61 +262,46 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
     }
 
+    // C22: Validate with Zod schema (source of truth for field limits)
+    // Spread id into the data for the update schema which expects it
+    const parseResult = updateProjectSchema.safeParse({ id: projectId, ...data })
+    if (!parseResult.success) {
+      const errors = parseResult.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
+      return NextResponse.json({ error: `Validation failed: ${errors}` }, { status: 400 })
+    }
+
+    const validated = parseResult.data
+
     // Verify project exists
     const existing = await db.project.findUnique({ where: { id: projectId } })
     if (!existing) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
-    // SECURITY: Sanitize project update data (whitelist allowed fields)
-    const allowedFields = ["name", "description", "status", "clientId", "budget", "deadline", "progress", "startDate"]
-    // P-H2 FIX: Use proper Prisma data type instead of Record<string, unknown>
+    // SECURITY: Build sanitized update data from validated fields
     const sanitizedData: Record<string, any> = {}
-    for (const key of allowedFields) {
-      if (data[key] !== undefined) {
-        if (key === "deadline") {
-          sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
-        } else if (key === "startDate") {
-          sanitizedData[key] = typeof data[key] === 'string' ? new Date(data[key]) : null
-        } else if (key === "status") {
-          if (typeof data[key] !== 'string' || !VALID_PROJECT_STATUSES.includes(data[key])) {
-            return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_PROJECT_STATUSES.join(", ")}` }, { status: 400 })
-          }
-          sanitizedData[key] = data[key]
-        } else if (key === "progress") {
-          const progressVal = Number(data[key])
-          if (isNaN(progressVal) || progressVal < 0 || progressVal > 100) {
-            return NextResponse.json({ error: "Progress must be between 0 and 100" }, { status: 400 })
-          }
-          sanitizedData[key] = progressVal
-        } else if (key === "budget") {
-          // P-H7 FIX: Accept budget as number or non-empty string so "0" becomes 0
-          let budgetVal: number | undefined
-          if (typeof data[key] === 'number') {
-            budgetVal = data[key] as number
-          } else if (typeof data[key] === 'string' && (data[key] as string) !== '') {
-            budgetVal = parseFloat(data[key] as string)
-          }
-          if (budgetVal !== undefined && budgetVal < 0) {
-            return NextResponse.json({ error: "Budget cannot be negative" }, { status: 400 })
-          }
-          if (budgetVal !== undefined) {
-            sanitizedData[key] = budgetVal
-          }
-        } else if (key === "name") {
-          // M-PRJ-3, M-PRJ-4: Sanitize name
-          sanitizedData[key] = typeof data[key] === 'string' ? sanitizeInput(data[key] as string, 500) : data[key]
-        } else if (key === "description") {
-          // M-PRJ-3, M-PRJ-4: Sanitize description
-          sanitizedData[key] = typeof data[key] === 'string' ? sanitizeInput(data[key] as string, 5000) : data[key]
-        } else {
-          sanitizedData[key] = data[key]
-        }
-      }
+    if (validated.name !== undefined) {
+      sanitizedData.name = sanitizeInput(validated.name, 200)
+    }
+    if (validated.description !== undefined) {
+      sanitizedData.description = sanitizeInput(validated.description, 2000)
+    }
+    if (validated.status !== undefined) {
+      sanitizedData.status = validated.status
+    }
+    if (validated.progress !== undefined) {
+      sanitizedData.progress = validated.progress
+    }
+    if (validated.deadline !== undefined) {
+      sanitizedData.deadline = validated.deadline ? new Date(validated.deadline) : null
+    }
+    if (validated.budget !== undefined) {
+      sanitizedData.budget = validated.budget
     }
 
     const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
-    return NextResponse.json(JSON.parse(JSON.stringify(project)))
+    // I1: Targeted Date serialization
+    return NextResponse.json(serializeProjectDates(project))
   } catch (error: any) {
     console.error("[projects] PUT error:", error?.message)
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 })
