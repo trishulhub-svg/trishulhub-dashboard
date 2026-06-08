@@ -2,13 +2,23 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, User, Bot } from "lucide-react";
+import { ArrowLeft, User, Bot, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+import { safeText, deepClone, safeNumber, safeDate } from "@/lib/utils";
+
+/** Paginated API response shape */
+interface PaginatedResponse<T> {
+  data?: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  tasks?: T[];
+}
 
 const taskStatusColors: Record<string, string> = {
   TODO: "bg-gray-200 text-gray-800",
@@ -26,6 +36,15 @@ const projectStatusColors: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-800",
 };
 
+/** Extract array from various API response shapes */
+function extractArray<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data;
+  const resp = data as PaginatedResponse<T>;
+  if (Array.isArray(resp?.data)) return resp.data;
+  if (Array.isArray(resp?.tasks)) return resp.tasks;
+  return [];
+}
+
 export default function PortalProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -40,6 +59,7 @@ export default function PortalProjectDetailPage() {
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
   const [tasks, setTasks] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -49,20 +69,24 @@ export default function PortalProjectDetailPage() {
       ]);
       if (projRes.ok) {
         const projData = await projRes.json();
-        // ZAI FIX #310: Deep sanitize before storing in state
+        // ZAI FIX #310: Deep clone before storing in state
         let raw: unknown = null;
         if (Array.isArray(projData) && projData.length > 0) raw = projData[0];
-        else if (projData?.id) raw = projData;
-        else if (Array.isArray(projData?.data) && projData.data.length > 0) raw = projData.data[0];
-        if (raw) setProject(deepSanitize<Record<string, unknown>>(raw));
+        else if (projData && typeof projData === 'object' && 'id' in (projData as Record<string, unknown>)) raw = projData;
+        else {
+          const projArr = extractArray<Record<string, unknown>>(projData);
+          if (projArr.length > 0) raw = projArr[0];
+        }
+        if (raw) setProject(deepClone(raw as Record<string, unknown>));
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
-        const raw = Array.isArray((taskData as any)?.tasks) ? (taskData as any).tasks : Array.isArray(taskData) ? taskData : (Array.isArray((taskData as any)?.data) ? (taskData as any).data : []);
-        setTasks(deepSanitize<Record<string, unknown>[]>(raw));
+        const raw = extractArray<Record<string, unknown>>(taskData);
+        setTasks(deepClone<Record<string, unknown>[]>(raw));
       }
     } catch (err) {
-      console.error(err);
+      console.error("[portal/project-detail] Failed to load data:", err);
+      setError("Failed to load project data. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -81,8 +105,27 @@ export default function PortalProjectDetailPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={() => { setError(null); fetchData(); }}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
   if (!project) {
-    return <div className="text-center py-12 text-muted-foreground">Project not found</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <p className="text-muted-foreground">Project not found</p>
+        <Button variant="outline" onClick={() => router.push("/portal/projects")}>
+          Back to Projects
+        </Button>
+      </div>
+    );
   }
 
   return (

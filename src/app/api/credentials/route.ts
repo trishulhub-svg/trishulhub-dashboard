@@ -1,4 +1,4 @@
-// TODO: Implement encryption at rest for credential passwords using AES-256-GCM with server-side key
+// TODO: Implement AES-256-GCM encryption at rest for passwords (similar to task-git-config token encryption)
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -44,6 +44,7 @@ function maskPassword(password: string | null | undefined): string {
   return "****" + String(password).slice(-4);
 }
 
+// TODO: Use DOMPurify for proper XSS sanitization
 // ── Input Sanitization ──
 function sanitizeStr(value: string, maxLen: number): string {
   return value.slice(0, maxLen);
@@ -77,38 +78,40 @@ export async function GET(req: NextRequest) {
           where: { userId: targetUserId },
           include: { user: { select: { id: true, name: true, email: true, role: true } } },
           orderBy: { createdAt: "desc" },
+          take: 100,
         });
-        const masked = JSON.parse(JSON.stringify(credentials)).map((cred: Record<string, unknown>) => ({
-          ...cred,
-          password: maskPassword(cred.password as string),
-        }));
+        const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
         return NextResponse.json(masked);
       }
 
-      // Get all credentials grouped
-      const credentials = await db.userCredential.findMany({
-        include: { user: { select: { id: true, name: true, email: true, role: true } } },
-        orderBy: { createdAt: "desc" },
-      });
-      const masked = JSON.parse(JSON.stringify(credentials)).map((cred: Record<string, unknown>) => ({
-        ...cred,
-        password: maskPassword(cred.password as string),
-      }));
-      return NextResponse.json(masked);
+      // Get all credentials grouped (paginated)
+      const page = parseInt(searchParams.get("page") || "1", 10);
+      const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100);
+      const skip = (page - 1) * limit;
+
+      const [credentials, total] = await Promise.all([
+        db.userCredential.findMany({
+          include: { user: { select: { id: true, name: true, email: true, role: true } } },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          skip,
+        }),
+        db.userCredential.count(),
+      ]);
+      const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
+      return NextResponse.json({ data: masked, total, page, limit });
     }
 
     // Regular users — only their own credentials
     const credentials = await db.userCredential.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
+      take: 100,
     });
-    const masked = JSON.parse(JSON.stringify(credentials)).map((cred: Record<string, unknown>) => ({
-      ...cred,
-      password: maskPassword(cred.password as string),
-    }));
+    const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
     return NextResponse.json(masked);
-  } catch (error) {
-    console.error("Credentials GET error:", error);
+  } catch (error: unknown) {
+    console.error("[credentials] GET error:", error);
     return NextResponse.json({ error: "Failed to fetch credentials" }, { status: 500 });
   }
 }
@@ -168,10 +171,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    console.log("[credentials] CREATE by userId:", session.user.id, "credentialId:", credential.id);
-    return NextResponse.json(JSON.parse(JSON.stringify(credential)), { status: 201 });
-  } catch (error) {
-    console.error("Credentials POST error:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[credentials] CREATE by userId:", session.user.id, "credentialId:", credential.id);
+    }
+    const { password: _pwd, ...safe } = credential;
+    return NextResponse.json(safe, { status: 201 });
+  } catch (error: unknown) {
+    console.error("[credentials] POST error:", error);
     return NextResponse.json({ error: "Failed to create credential" }, { status: 500 });
   }
 }
@@ -208,33 +214,36 @@ export async function PUT(req: NextRequest) {
 
     const { id, label, username, password, url, notes } = parsed.data;
 
-    // Check credential exists before updating
-    const existing = await db.userCredential.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json({ error: "Credential not found" }, { status: 404 });
-    }
-
-    // Ownership check: ADMIN can only update their own credentials
-    if (session.user.role === "ADMIN" && existing.userId !== session.user.id) {
-      return NextResponse.json({ error: "Forbidden — Cannot update other users' credentials" }, { status: 403 });
-    }
-
-    const credential = await db.userCredential.update({
-      where: { id },
-      data: {
-        ...(label !== undefined && { label: sanitizeStr(label, 100) }),
-        ...(username !== undefined && { username: sanitizeStr(username, 200) }),
-        ...(password !== undefined && { password }),
-        ...(url !== undefined && { url }),
-        ...(notes !== undefined && { notes }),
-      },
+    // Atomic read-then-write
+    const credential = await db.$transaction(async (tx) => {
+      const existing = await tx.userCredential.findUnique({ where: { id } });
+      if (!existing) throw new Error("NOT_FOUND");
+      if (session.user.role !== "SUPER_ADMIN" && existing.userId !== session.user.id) throw new Error("FORBIDDEN");
+      return tx.userCredential.update({
+        where: { id },
+        data: {
+          ...(label !== undefined && { label: sanitizeStr(label, 100) }),
+          ...(username !== undefined && { username: sanitizeStr(username, 200) }),
+          ...(password !== undefined && { password }),
+          ...(url !== undefined && { url }),
+          ...(notes !== undefined && { notes }),
+        },
+      });
     });
 
-    console.log("[credentials] UPDATE by userId:", session.user.id, "credentialId:", credential.id);
-    return NextResponse.json(JSON.parse(JSON.stringify(credential)));
-  } catch (error) {
-    console.error("Credentials PUT error:", error);
-    // Handle Prisma P2025 specifically (record not found)
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[credentials] UPDATE by userId:", session.user.id, "credentialId:", credential.id);
+    }
+    const { password: _pwd, ...safe } = credential;
+    return NextResponse.json(safe);
+  } catch (error: unknown) {
+    console.error("[credentials] PUT error:", error);
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Credential not found" }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "FORBIDDEN") {
+      return NextResponse.json({ error: "Forbidden — Cannot update other users' credentials" }, { status: 403 });
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
       return NextResponse.json({ error: "Credential not found" }, { status: 404 });
     }
@@ -262,23 +271,25 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Credential ID is required" }, { status: 400 });
     }
 
-    // Check credential exists and verify ownership
-    const existing = await db.userCredential.findUnique({ where: { id } });
-    if (!existing) {
+    // Atomic read-then-delete
+    await db.$transaction(async (tx) => {
+      const existing = await tx.userCredential.findUnique({ where: { id } });
+      if (!existing) throw new Error("NOT_FOUND");
+      if (session.user.role !== "SUPER_ADMIN" && existing.userId !== session.user.id) throw new Error("FORBIDDEN");
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[credentials] DELETE by userId:", session.user.id, "credentialId:", id);
+      }
+      await tx.userCredential.delete({ where: { id } });
+    });
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    console.error("[credentials] DELETE error:", error);
+    if (error instanceof Error && error.message === "NOT_FOUND") {
       return NextResponse.json({ error: "Credential not found" }, { status: 404 });
     }
-
-    // Ownership check: ADMIN can only delete their own credentials
-    if (session.user.role === "ADMIN" && existing.userId !== session.user.id) {
+    if (error instanceof Error && error.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden — Cannot delete other users' credentials" }, { status: 403 });
     }
-
-    console.log("[credentials] DELETE by userId:", session.user.id, "credentialId:", id);
-
-    await db.userCredential.delete({ where: { id } });
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Credentials DELETE error:", error);
     return NextResponse.json({ error: "Failed to delete credential" }, { status: 500 });
   }
 }

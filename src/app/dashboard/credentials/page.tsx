@@ -9,8 +9,6 @@ import {
   KeyRound,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   ExternalLink,
   Shield,
   Plus,
@@ -93,7 +91,6 @@ export default function CredentialsPage() {
   const initialFetchDone = useRef(false);
 
   // UI state
-  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Admin state
@@ -122,7 +119,9 @@ export default function CredentialsPage() {
       const res = await fetch(`/api/credentials?${params.toString()}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setCredentials(safeArray<Credential>(data));
+        // Handle paginated response (admin) vs plain array (regular user)
+        const creds = Array.isArray(data) ? data : data.data;
+        setCredentials(safeArray<Credential>(creds));
       } else {
         setError("Failed to load credentials");
         toast.error("Failed to load credentials");
@@ -178,15 +177,6 @@ export default function CredentialsPage() {
     }
   };
 
-  const toggleReveal = (id: string) => {
-    setRevealedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const resetForm = () => {
     setFormLabel("");
     setFormUsername("");
@@ -206,7 +196,7 @@ export default function CredentialsPage() {
     setEditingCredential(cred);
     setFormLabel(cred.label);
     setFormUsername(cred.username);
-    setFormPassword(cred.password);
+    setFormPassword("");
     setFormUrl(cred.url || "");
     setFormNotes(cred.notes || "");
     setFormTargetUserId(cred.user?.id || session?.user?.id || "");
@@ -214,7 +204,7 @@ export default function CredentialsPage() {
   };
 
   const handleSave = async () => {
-    if (!formLabel || !formUsername || !formPassword) return;
+    if (!formLabel || !formUsername || (!formPassword && !editingCredential)) return;
     if (isAdmin && !formTargetUserId) return;
 
     setSaving(true);
@@ -222,7 +212,7 @@ export default function CredentialsPage() {
       const body: Record<string, string> = {
         label: formLabel,
         username: formUsername,
-        password: formPassword,
+        ...(formPassword && { password: formPassword }),
         url: formUrl,
         notes: formNotes,
       };
@@ -437,8 +427,6 @@ export default function CredentialsPage() {
       {hasCredentials && (
         <div className="grid gap-4 md:grid-cols-2">
           {filteredCredentials.map((cred) => {
-            const isRevealed = revealedIds.has(cred.id);
-            const maskedPassword = "••••••••••••";
             return (
               <Card key={cred.id} className="group">
                 <CardHeader className="pb-3">
@@ -465,6 +453,7 @@ export default function CredentialsPage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => openEditDialog(cred)}
+                          aria-label="Edit credential"
                         >
                           <Edit3 className="h-3 w-3" />
                         </Button>
@@ -473,6 +462,7 @@ export default function CredentialsPage() {
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
                           onClick={() => setDeleteId(cred.id)}
+                          aria-label="Delete credential"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -502,6 +492,7 @@ export default function CredentialsPage() {
                         onClick={() =>
                           copyToClipboard(cred.username, `user-${cred.id}`)
                         }
+                        aria-label="Copy username"
                       >
                         {copiedField === `user-${cred.id}` ? (
                           <Check className="h-3.5 w-3.5 text-green-500" />
@@ -519,24 +510,15 @@ export default function CredentialsPage() {
                     </p>
                     <div className="flex items-center gap-2">
                       <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">
-                        {isRevealed ? safeText(cred.password, "") : maskedPassword}
+                        {safeText(cred.password, "••••••••••••")}
                       </code>
+                      {/* NOTE: Password is masked from server. A separate /api/credentials/[id]/reveal endpoint would be needed for plaintext access. */}
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 shrink-0"
-                        onClick={() => toggleReveal(cred.id)}
-                      >
-                        {isRevealed ? (
-                          <EyeOff className="h-3.5 w-3.5" />
-                        ) : (
-                          <Eye className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0"
+                        title="Copy masked password (plaintext requires separate reveal endpoint)"
+                        aria-label="Copy password"
                         onClick={() =>
                           copyToClipboard(cred.password, `pass-${cred.id}`)
                         }
@@ -626,7 +608,7 @@ export default function CredentialsPage() {
               <Label>Password</Label>
               <Input
                 type="password"
-                placeholder="Enter the password"
+                placeholder={editingCredential ? "Leave blank to keep current password" : "Enter the password"}
                 value={formPassword}
                 onChange={(e) => setFormPassword(e.target.value)}
               />
@@ -657,7 +639,7 @@ export default function CredentialsPage() {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={!formLabel || !formUsername || !formPassword || saving}
+              disabled={!formLabel || !formUsername || (!formPassword && !editingCredential) || saving}
             >
               {saving ? (
                 "Saving..."

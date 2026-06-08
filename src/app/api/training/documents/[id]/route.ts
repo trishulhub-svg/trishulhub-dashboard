@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { canManageTraining } from "@/lib/rbac"
+// TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
 
@@ -14,7 +15,7 @@ export async function GET(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!canManageTraining(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
@@ -70,7 +71,7 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!canManageTraining(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
+import { rateLimit } from "@/lib/rate-limit";
 
 // NOTE [I19]: This route uses getToken() instead of getServerSession() like other routes.
 // This is intentional to avoid potential session deserialization issues with raw JWT tokens.
 // Changing to getServerSession could break existing clients depending on this pattern.
+// TODO (I25): Consider standardizing auth pattern across all utility routes.
 
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
@@ -32,6 +34,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // W58: Rate limit GET (30 per minute)
+    const rlResult = rateLimit(`user-code:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    if (!rlResult.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
     const userId = (token as any).sub || (token as any).id;
@@ -53,8 +61,9 @@ export async function GET(request: NextRequest) {
       codeMasked: code ? "••••••••" : "",
       updatedAt: row.updatedAt || null,
     });
-  } catch (error: any) {
-    console.error("[user-code] GET error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[user-code] GET error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -71,9 +80,21 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit PATCH (10 per minute)
+    const rlWrite = rateLimit(`user-code-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    if (!rlWrite.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { userId, code } = body;
 
     if (!userId || !code || typeof code !== "string") {
@@ -98,7 +119,8 @@ export async function PATCH(request: NextRequest) {
         existing[0].id
       );
     } else {
-      const id = "uc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      // W65: Use crypto.randomUUID() instead of weak ID generation
+      const id = "uc_" + crypto.randomUUID();
       await db.$executeRawUnsafe(
         `INSERT INTO "UserCode" (id, "userId", "code", "updatedBy")
          VALUES (?, ?, ?, ?)`,
@@ -110,8 +132,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[user-code] PATCH error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[user-code] PATCH error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

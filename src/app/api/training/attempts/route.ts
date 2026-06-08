@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit } from "@/lib/rate-limit"
+// TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
+// TODO: Use validateRequest() with submitTestAttemptSchema from validations.ts (W32)
 import { ensureTrainingTables } from "@/lib/training-migration"
 
 // POST /api/training/attempts - Submit test attempt
@@ -45,47 +47,50 @@ export async function POST(req: NextRequest) {
     if (!assignment) return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
     if (assignment.assignedTo !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (!assignment.test) return NextResponse.json({ error: "No test assigned" }, { status: 400 })
-    if (["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)) {
-      return NextResponse.json({ error: "Test already completed" }, { status: 400 })
-    }
 
-    // Parse questions and validate
-    let questions: { question: string; options: string[]; correctAnswer: number; explanation?: string }[]
-    try {
-      questions = JSON.parse(assignment.test.questions)
-    } catch {
-      return NextResponse.json({ error: "Failed to parse test questions" }, { status: 500 })
-    }
-
-    // Validate answers length matches questions count
-    if (answers.length !== questions.length) {
-      return NextResponse.json(
-        { error: `Expected ${questions.length} answers but received ${answers.length}` },
-        { status: 400 }
-      )
-    }
-
-    let score = 0
-
-    const results = questions.map((q, idx: number) => {
-      const selectedAnswer = answers[idx]
-      const correctAnswer = q.correctAnswer
-      const isCorrect = selectedAnswer === correctAnswer
-      if (isCorrect) score++
-      return {
-        question: q.question,
-        options: q.options,
-        correctAnswer,
-        selectedAnswer,
-        isCorrect,
-        explanation: q.explanation,
+    // C14: Transactional submission with TOCTOU re-check to prevent double submission race
+    const result = await db.$transaction(async (tx) => {
+      const current = await tx.trainingAssignment.findUnique({
+        where: { id: assignmentId },
+        include: { test: true, document: { select: { topic: true } } },
+      })
+      if (!current) throw new Error("NOT_FOUND")
+      if (current.assignedTo !== userId) throw new Error("FORBIDDEN")
+      if (!current.test) throw new Error("NO_TEST")
+      if (["COMPLETED", "PASSED", "FAILED"].includes(current.status)) {
+        throw new Error("ALREADY_COMPLETED")
       }
-    })
 
-    const passed = questions.length > 0 ? (score / questions.length) >= 0.7 : score >= 7
+      // Parse questions and validate
+      let questions: { question: string; options: string[]; correctAnswer: number; explanation?: string }[]
+      try {
+        questions = JSON.parse(current.test.questions)
+      } catch {
+        throw new Error("PARSE_ERROR")
+      }
 
-    // Create attempt and update assignment status in a transaction
-    const [attempt, updatedAssignment] = await db.$transaction(async (tx) => {
+      if (answers.length !== questions.length) {
+        throw new Error(`WRONG_COUNT:${questions.length}:${answers.length}`)
+      }
+
+      let score = 0
+      const results = questions.map((q, idx: number) => {
+        const selectedAnswer = answers[idx]
+        const correctAnswer = q.correctAnswer
+        const isCorrect = selectedAnswer === correctAnswer
+        if (isCorrect) score++
+        return {
+          question: q.question,
+          options: q.options,
+          correctAnswer,
+          selectedAnswer,
+          isCorrect,
+          explanation: q.explanation,
+        }
+      })
+
+      const passed = questions.length > 0 ? (score / questions.length) >= 0.7 : false
+
       const newAttempt = await tx.testAttempt.create({
         data: {
           assignmentId,
@@ -98,29 +103,26 @@ export async function POST(req: NextRequest) {
       })
       const updated = await tx.trainingAssignment.update({
         where: { id: assignmentId },
-        data: {
-          status: passed ? "PASSED" : "FAILED",
-        },
+        data: { status: passed ? "PASSED" : "FAILED" },
       })
-      return [newAttempt, updated]
+      return { attempt: newAttempt, assignment: updated, score, questions, results, passed }
     })
 
-    // Notify admins about completion
-    // TODO: Phase 7 — Use db.notification.createMany for batch notification creation
+    // Notify admins about completion (W40: batch createMany)
     try {
       const admins = await db.user.findMany({
-        where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+        where: { role: { in: ["SUPER_ADMIN", "ADMIN", "MANAGER"] }, isActive: true },
       })
-      for (const admin of admins) {
-        await db.notification.create({
-          data: {
-            userId: admin.id,
-            title: passed ? "Training Test Passed" : "Training Test Failed",
-            message: `${session.user.name} ${passed ? "passed" : "failed"} the "${assignment.document.topic}" test with a score of ${score}/${questions.length}`,
-            type: passed ? "SUCCESS" : "WARNING",
+      if (admins.length > 0) {
+        await db.notification.createMany({
+          data: admins.map(a => ({
+            userId: a.id,
+            title: result.passed ? "Training Test Passed" : "Training Test Failed",
+            message: `${session.user.name} ${result.passed ? "passed" : "failed"} the "${assignment.document.topic}" test with a score of ${result.score}/${result.questions.length}`,
+            type: result.passed ? "SUCCESS" : "WARNING",
             link: `/dashboard/training`,
-            metadata: JSON.stringify({ assignmentId, score, passed }),
-          },
+            metadata: JSON.stringify({ assignmentId, score: result.score, passed: result.passed }),
+          })),
         })
       }
     } catch (notifyErr: unknown) {
@@ -128,14 +130,35 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      attempt,
-      score,
-      total: questions.length,
-      passed,
-      results,
-      percentage: Math.round((score / questions.length) * 100),
+      attempt: result.attempt,
+      score: result.score,
+      total: result.questions.length,
+      passed: result.passed,
+      results: result.results,
+      percentage: Math.round((result.score / result.questions.length) * 100),
     })
   } catch (error: unknown) {
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "ALREADY_COMPLETED":
+          return NextResponse.json({ error: "Test already completed" }, { status: 400 })
+        case "NOT_FOUND":
+          return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+        case "FORBIDDEN":
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        case "NO_TEST":
+          return NextResponse.json({ error: "No test assigned" }, { status: 400 })
+        case "PARSE_ERROR":
+          return NextResponse.json({ error: "Failed to parse test questions" }, { status: 500 })
+      }
+      if (error.message.startsWith("WRONG_COUNT:")) {
+        const parts = error.message.split(":")
+        return NextResponse.json(
+          { error: `Expected ${parts[1]} answers but received ${parts[2]}` },
+          { status: 400 }
+        )
+      }
+    }
     console.error("[training/attempts] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

@@ -99,19 +99,22 @@ export function safeText(value: unknown, fallback: string = ""): string {
 }
 
 /**
- * Deep sanitization via JSON round-trip.
+ * Deep clone via JSON round-trip.
  * Strips Date objects (→ ISO strings), circular refs (→ removed),
  * BigInt, undefined, functions, Symbols.
  * Returns {} on failure to prevent downstream crashes.
  */
-export function deepSanitize<T>(data: unknown): T {
+export function deepClone<T>(obj: T): T {
   try {
-    return JSON.parse(JSON.stringify(data)) as T;
+    return JSON.parse(JSON.stringify(obj)) as T;
   } catch {
-    console.error("[ZAI #310] deepSanitize failed");
+    console.error("[utils] deepClone failed");
     return {} as T;
   }
 }
+
+/** @deprecated Use deepClone instead */
+export const deepSanitize = deepClone;
 
 /**
  * Safe number extraction. Returns 0 if value is not a valid number.

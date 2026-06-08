@@ -3,6 +3,10 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { syncTasksToGit } from "@/lib/git-sync";
+import { rateLimit } from "@/lib/rate-limit";
+
+// TODO (I25): This route uses getToken() instead of getServerSession().
+// Consider standardizing auth pattern across all utility routes.
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
@@ -32,6 +36,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit (10 per minute)
+    const rlResult = rateLimit(`git-sync:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    if (!rlResult.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
     // Check if config exists
@@ -52,7 +62,7 @@ export async function POST(request: NextRequest) {
       `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
       configId
     );
-    // TODO: Pass key as parameter to decrypt()/encrypt() and remove process.env mutation (C7)
+    // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
     if (keyRow.length > 0 && keyRow[0].encryptionKey) {
       process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
     }
@@ -68,15 +78,16 @@ export async function POST(request: NextRequest) {
     // Run the actual sync (synchronous within this function)
     const result = await syncTasksToGit();
 
-    console.log("[task-git-sync] Sync finished:", JSON.stringify(result));
+    console.log("[task-git-sync] Sync finished:", result.success ? "success" : "failed");
 
     return NextResponse.json({
       success: result.success,
       filesUpdated: result.filesUpdated || 0,
       error: result.error || null,
     });
-  } catch (error: any) {
-    console.error("[task-git-sync] Error:", error?.message || error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[task-git-sync] Error:", msg);
 
     // Try to update status to ERROR
     try {
@@ -86,7 +97,7 @@ export async function POST(request: NextRequest) {
       if (rows.length) {
         await db.$executeRawUnsafe(
           `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-          error?.message || String(error),
+          msg,
           rows[0].id
         );
       }
@@ -95,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: error?.message || "Sync failed" },
+      { error: "Sync failed" },
       { status: 500 }
     );
   }

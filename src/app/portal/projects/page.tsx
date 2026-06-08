@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { safeText, safeNumber, safeDate, deepSanitize } from "@/lib/utils";
+import { safeText, safeNumber, safeDate, deepClone } from "@/lib/utils";
 
 export default function PortalProjectsPage() {
   const router = useRouter();
@@ -18,18 +18,18 @@ export default function PortalProjectsPage() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch("/api/projects", { credentials: 'include' });
+      const res = await fetch("/api/projects?page=1&limit=20", { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         // Handle both array and paginated { data: [...] } responses
         const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
-        setProjects(deepSanitize(raw) as unknown[]);
+        setProjects(deepClone(raw) as unknown[]);
       } else {
         setError("Failed to load projects");
       }
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load projects");
+      console.error("[portal/projects] Failed to load projects:", err);
+      setError("Failed to load projects. Please try again.");
     } finally {
       setLoading(false);
     }

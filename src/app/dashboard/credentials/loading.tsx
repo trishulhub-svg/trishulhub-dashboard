@@ -1,14 +1,13 @@
+import { Skeleton } from "@/components/ui/skeleton";
+
 export default function CredentialsLoading() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 p-6">
       <span className="sr-only">Loading credentials...</span>
-      <div className="flex items-center justify-between">
-        <div className="h-6 w-44 animate-pulse rounded bg-muted/50" />
-        <div className="h-9 w-32 animate-pulse rounded bg-muted/50" />
-      </div>
-      <div className="space-y-3">
+      <Skeleton className="h-8 w-48" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/50" />
+          <Skeleton key={i} className="h-40 w-full rounded-lg" />
         ))}
       </div>
     </div>

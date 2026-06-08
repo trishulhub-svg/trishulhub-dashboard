@@ -113,6 +113,19 @@ export async function PATCH(
 
     // Handle attendee updates
     if (attendeeIds !== undefined) {
+      // C20: Validate attendeeIds exist as users before deleteMany + createMany
+      if (attendeeIds.length > 0) {
+        const existingUsers = await db.user.findMany({
+          where: { id: { in: attendeeIds } },
+          select: { id: true },
+        })
+        const validIds = new Set(existingUsers.map(u => u.id))
+        const invalidIds = attendeeIds.filter(aid => !validIds.has(aid))
+        if (invalidIds.length > 0) {
+          return NextResponse.json({ error: "Some attendee user IDs do not exist" }, { status: 400 })
+        }
+      }
+
       // Wrap attendee delete + create in transaction for atomicity
       await db.$transaction(async (tx) => {
         await tx.meetingAttendee.deleteMany({ where: { meetingId: id } })
@@ -194,57 +207,57 @@ export async function DELETE(
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    const existingMeeting = await db.meeting.findUnique({
-      where: { id },
-      include: { attendees: { include: { user: true } } },
-    })
+    // C22: Wrap findUnique + permission + cancelled check + update in transaction to prevent race conditions
+    let meeting
+    try {
+      meeting = await db.$transaction(async (tx) => {
+        const existing = await tx.meeting.findUnique({
+          where: { id },
+          include: { attendees: { include: { user: { select: { id: true, name: true, email: true } } } } },
+        })
+        if (!existing) throw new Error("NOT_FOUND")
 
-    if (!existingMeeting) {
-      return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
-    }
+        // Only organizer or admin to cancel
+        if (existing.organizerId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+          throw new Error("FORBIDDEN")
+        }
 
-    // Only organizer or admin to cancel
-    if (existingMeeting.organizerId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-      return NextResponse.json({ error: "Only the organizer or admin can cancel this meeting" }, { status: 403 })
-    }
+        // Prevent cancelling already-cancelled meetings
+        if (existing.status === "CANCELLED") {
+          throw new Error("ALREADY_CANCELLED")
+        }
 
-    // W40: Prevent cancelling already-cancelled meetings
-    if (existingMeeting.status === "CANCELLED") {
-      return NextResponse.json({ error: "Meeting already cancelled" }, { status: 400 })
-    }
-
-    // Wrap findUnique + update in transaction
-    const meeting = await db.$transaction(async (tx) => {
-      const existing = await tx.meeting.findUnique({
-        where: { id },
-        include: { attendees: { include: { user: { select: { id: true, name: true, email: true } } } } },
-      })
-      if (!existing) throw new Error("Meeting not found")
-
-      return tx.meeting.update({
-        where: { id },
-        data: { status: "CANCELLED" },
-        include: {
-          organizer: { select: { id: true, name: true, email: true } },
-          project: { select: { id: true, name: true } },
-          attendees: {
-            include: {
-              user: { select: { id: true, name: true, email: true } },
+        return tx.meeting.update({
+          where: { id },
+          data: { status: "CANCELLED" },
+          include: {
+            organizer: { select: { id: true, name: true, email: true } },
+            project: { select: { id: true, name: true } },
+            attendees: {
+              include: {
+                user: { select: { id: true, name: true, email: true } },
+              },
             },
           },
-        },
+        })
       })
-    })
+    } catch (txErr: unknown) {
+      const msg = txErr instanceof Error ? txErr.message : ""
+      if (msg === "NOT_FOUND") return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
+      if (msg === "FORBIDDEN") return NextResponse.json({ error: "Only the organizer or admin can cancel this meeting" }, { status: 403 })
+      if (msg === "ALREADY_CANCELLED") return NextResponse.json({ error: "Meeting already cancelled" }, { status: 400 })
+      throw txErr
+    }
 
     // W39: Notify attendees about cancellation in parallel using Promise.allSettled
     await Promise.allSettled(
-      existingMeeting.attendees.map(async (attendee: { userId: string; user: { id: string; name: string; email: string } }) => {
+      (meeting.attendees || []).map(async (attendee: { userId: string; user: { id: string; name: string; email: string } | null }) => {
         try {
           await db.notification.create({
             data: {
               userId: attendee.userId,
               title: "Meeting Cancelled",
-              message: `"${existingMeeting.title}" on ${new Date(existingMeeting.date).toLocaleDateString()} has been cancelled`,
+              message: `"${meeting.title}" on ${new Date(meeting.date).toLocaleDateString()} has been cancelled`,
               type: "WARNING",
               link: "/dashboard/meetings",
               metadata: JSON.stringify({ meetingId: id }),

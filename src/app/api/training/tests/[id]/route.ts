@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { canManageTraining } from "@/lib/rbac"
+// TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
 
@@ -18,7 +19,7 @@ export async function GET(
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -45,22 +46,22 @@ export async function GET(
       return NextResponse.json({ error: "Failed to parse test questions" }, { status: 500 })
     }
 
-    // Check if this is an employee taking the test (via assignment check)
+    // C13: Authorization check — non-admin must have a valid assignment for this test
     const assignmentId = new URL(req.url).searchParams.get("assignmentId")
     let hideAnswers = false
 
-    if (assignmentId) {
-      const assignment = await db.trainingAssignment.findFirst({
-        where: { id: assignmentId, assignedTo: userId, testId: id },
-      })
-      if (assignment && !["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)) {
-        hideAnswers = true
+    if (!canManageTraining(session.user.role)) {
+      if (!assignmentId) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 })
       }
-    }
-
-    // If user is not admin, hide answers
-    if (!isAdmin(session.user.role)) {
-      hideAnswers = true
+      // Check if assignment exists and belongs to user
+      const assignment = await db.trainingAssignment.findFirst({
+        where: { id: assignmentId, testId: id, assignedTo: userId },
+      })
+      if (!assignment) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      }
+      hideAnswers = !["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)
     }
 
     const responseData = {
@@ -88,12 +89,12 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!canManageTraining(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id

@@ -39,28 +39,35 @@ export async function POST(
       return NextResponse.json({ error: "RSVP status must be ACCEPTED or DECLINED" }, { status: 400 })
     }
 
-    // Check if the user is an attendee
-    const attendee = await db.meetingAttendee.findUnique({
-      where: {
-        meetingId_userId: {
-          meetingId: id,
-          userId,
-        },
-      },
-    })
-
-    if (!attendee) {
-      return NextResponse.json({ error: "You are not an attendee of this meeting" }, { status: 403 })
+    // C26: Check attendee + update in transaction to prevent TOCTOU race condition
+    let updated
+    try {
+      updated = await db.$transaction(async (tx) => {
+        const attendee = await tx.meetingAttendee.findUnique({
+          where: {
+            meetingId_userId: {
+              meetingId: id,
+              userId,
+            },
+          },
+        })
+        if (!attendee) throw new Error("NOT_ATTENDEE")
+        return tx.meetingAttendee.update({
+          where: { id: attendee.id },
+          data: { rsvpStatus },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            meeting: { select: { id: true, title: true, organizerId: true } },
+          },
+        })
+      })
+    } catch (txErr: unknown) {
+      const msg = txErr instanceof Error ? txErr.message : ""
+      if (msg === "NOT_ATTENDEE") {
+        return NextResponse.json({ error: "You are not an attendee of this meeting" }, { status: 403 })
+      }
+      throw txErr
     }
-
-    const updated = await db.meetingAttendee.update({
-      where: { id: attendee.id },
-      data: { rsvpStatus },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        meeting: { select: { id: true, title: true, organizerId: true } },
-      },
-    })
 
     // Notify organizer about RSVP (fire-and-forget)
     try {

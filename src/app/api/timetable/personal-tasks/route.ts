@@ -6,9 +6,12 @@ import { Prisma } from "@prisma/client";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // W7: Valid enum values for personal tasks (from schema comments)
+// W56: TODO: Extract to shared constants file
 const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const VALID_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 const VALID_CATEGORIES = ["PERSONAL", "HEALTH", "FINANCE", "STUDY", "SOCIAL", "OTHER", "WORK_LOCAL"];
+
+// W57: TODO: Create createPersonalTaskSchema in validations.ts
 
 // GET /api/timetable/personal-tasks — Fetch personal tasks for the logged-in user
 export async function GET(req: NextRequest) {
@@ -29,6 +32,11 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
     const status = searchParams.get("status");
+
+    // W50: Pagination support
+    const page = Math.max(Number(searchParams.get("page")) || 1, 1);
+    const limit = Math.max(Number(searchParams.get("limit")) || 100, 1);
+    const skip = (page - 1) * limit;
 
     if (date) {
       const d = new Date(date);
@@ -51,12 +59,20 @@ export async function GET(req: NextRequest) {
       where.status = status;
     }
 
-    const tasks = await db.personalTimetableTask.findMany({
-      where,
-      orderBy: [{ startTime: "asc" }, { priority: "desc" }],
-    });
+    const [tasks, total] = await Promise.all([
+      db.personalTimetableTask.findMany({
+        where,
+        orderBy: [{ startTime: "asc" }, { priority: "desc" }],
+        take: limit,
+        skip,
+      }),
+      db.personalTimetableTask.count({ where }),
+    ]);
 
-    return NextResponse.json(tasks);
+    return NextResponse.json({
+      data: tasks,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "An error occurred";
     console.error("[timetable/personal-tasks] GET error:", message);
@@ -95,6 +111,14 @@ export async function POST(req: NextRequest) {
         { error: "Title, startTime, endTime, and date are required" },
         { status: 400 }
       );
+    }
+
+    // C25: Validate title and description length bounds
+    if (typeof title !== "string" || title.trim().length < 1 || title.length > 500) {
+      return NextResponse.json({ error: "Title must be 1-500 characters" }, { status: 400 });
+    }
+    if (description !== undefined && typeof description === "string" && description.length > 5000) {
+      return NextResponse.json({ error: "Description must be at most 5000 characters" }, { status: 400 });
     }
 
     // W8: Validate date fields

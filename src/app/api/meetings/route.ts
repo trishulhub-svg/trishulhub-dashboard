@@ -69,12 +69,17 @@ export async function GET(req: NextRequest) {
       where.date = { gte: today }
     }
 
-    // Role-based access: developers see their own + where they're attendee
+    // W55: Role-based access — for non-admins, incorporate projectId/organizerId into the OR clause
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      const projectFilter = projectId ? { projectId } : {}
       where.OR = [
-        { organizerId: userId },
-        { attendees: { some: { userId } } },
+        { organizerId: userId, ...projectFilter },
+        { attendees: { some: { userId } }, ...projectFilter },
       ]
+      // For non-admins, only apply organizerId if it matches the user or is already in the OR
+      // Remove top-level organizerId/projectId for non-admins since they're now in the OR clause
+      delete where.organizerId
+      delete where.projectId
     }
 
     const [meetings, total] = await Promise.all([

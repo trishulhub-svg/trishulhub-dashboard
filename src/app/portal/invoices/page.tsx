@@ -6,7 +6,22 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { safeArray } from "@/lib/utils";
+
+/** Paginated API response shape */
+interface PaginatedResponse<T> {
+  data?: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+}
+
+/** Unwrap paginated { data: [...] } or plain array response */
+function unwrapResponse<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw;
+  const resp = raw as PaginatedResponse<T>;
+  return Array.isArray(resp?.data) ? resp.data : [];
+}
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800",
@@ -15,6 +30,22 @@ const invoiceStatusColors: Record<string, string> = {
   OVERDUE: "bg-red-100 text-red-800",
 };
 
+interface InvoiceItem {
+  description: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+/** Safely parse invoice items — handles string, array, or malformed data */
+function safeParseItems(items: unknown): InvoiceItem[] {
+  if (Array.isArray(items)) return items as InvoiceItem[];
+  if (typeof items === "string") {
+    try { return JSON.parse(items) as InvoiceItem[]; } catch { /* ignore */ }
+  }
+  return [];
+}
+
 export default function PortalInvoicesPage() {
   const [invoices, setInvoices] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,12 +53,16 @@ export default function PortalInvoicesPage() {
 
   const fetchInvoices = useCallback(async () => {
     try {
-      const res = await fetch("/api/invoices", { credentials: 'include' });
-      if (res.ok) setInvoices(safeArray(await res.json()));
-      else setError("Failed to load invoices");
+      const res = await fetch("/api/invoices?page=1&limit=20", { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setInvoices(unwrapResponse(data));
+      } else {
+        setError("Failed to load invoices");
+      }
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load invoices");
+      console.error("[portal/invoices] Failed to load invoices:", err);
+      setError("Failed to load invoices. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -72,9 +107,8 @@ export default function PortalInvoicesPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {(invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string; items: string }[]).map((inv) => {
-            let items: { description: string; quantity: number; rate: number; amount: number }[] = [];
-            try { items = JSON.parse(inv.items || "[]"); } catch { /* ignore malformed JSON */ }
+          {(invoices as { id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string; items: unknown }[]).map((inv) => {
+            const items = safeParseItems(inv.items);
             return (
               <Card key={inv.id}>
                 <CardContent className="p-4">

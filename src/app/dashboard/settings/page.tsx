@@ -42,6 +42,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { safeArray } from "@/lib/utils";
 
+// ─── Module-Level Constants ─────────────────────────────────────
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+// TODO: Read from package.json via env var
+const APP_VERSION = "1.0.0";
+const APP_NAME = "TrishulHub";
+
 // ─── Team Member Type ──────────────────────────────────────────
 interface TeamMember {
   id: string;
@@ -131,6 +137,39 @@ const emailTypeLabels: Record<string, string> = {
   DIRECT_RESET: "Direct Reset",
 };
 
+// ─── PasswordStrengthMeter Component ────────────────────────────
+function PasswordStrengthMeter({ password }: { password: string }) {
+  if (!password) return null;
+  const strength = getPasswordStrength(password);
+  return (
+    <div className="mt-1">
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${strength.color}`} style={{ width: strength.width }} />
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-0.5">
+        Password strength: {strength.label}
+      </p>
+    </div>
+  );
+}
+
+// ─── PasswordToggle Component ─────────────────────────────────────
+function PasswordToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+      onClick={onToggle}
+      tabIndex={-1}
+      aria-label={visible ? "Hide password" : "Show password"}
+    >
+      {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+    </Button>
+  );
+}
+
 export default function SettingsPage() {
   const { data: session, status, update: updateSession } = useSession();
   const { theme, setTheme } = useTheme();
@@ -186,7 +225,7 @@ export default function SettingsPage() {
   const [smtpLoading, setSmtpLoading] = useState(false);
   const [smtpDialogOpen, setSmtpDialogOpen] = useState(false);
   const [smtpEditId, setSmtpEditId] = useState<string | null>(null);
-  const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
+  const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [smtpTesting, setSmtpTesting] = useState(false);
   const [smtpDeleteConfirm, setSmtpDeleteConfirm] = useState<string | null>(null);
@@ -224,7 +263,7 @@ export default function SettingsPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
+  // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
   // ── Refs for OTP auto-submit handlers (avoids stale closures + dep loops) ──
   const handlePasswordVerifyOtpRef = useRef<(() => void) | null>(null);
@@ -269,7 +308,7 @@ export default function SettingsPage() {
       setPrefsLoading(true);
       const res = await fetch("/api/notification-preferences", { credentials: "include" });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPrefs({
           emailNotifications: data.emailNotifications ?? true,
           budgetAlerts: data.budgetAlerts ?? true,
@@ -283,7 +322,7 @@ export default function SettingsPage() {
         });
       }
     } catch (err) {
-      console.error(err);
+      console.error("[settings] Failed to fetch notification preferences:", err);
     } finally {
       setPrefsLoading(false);
     }
@@ -323,13 +362,13 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/team?type=users", { credentials: "include" });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setTeamMembers(safeArray(data));
       } else {
         toast.error("Failed to load team members");
       }
     } catch (err) {
-      console.error("Failed to fetch team members:", err);
+      console.error("[settings] Failed to fetch team members:", err);
     } finally {
       setTeamLoading(false);
     }
@@ -346,13 +385,13 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/smtp", { credentials: "include" });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setSmtpConfigs(safeArray(data));
       } else {
         toast.error("Failed to load SMTP configurations");
       }
     } catch (err) {
-      console.error("Failed to fetch SMTP configs:", err);
+      console.error("[settings] Failed to fetch SMTP configs:", err);
     } finally {
       setSmtpLoading(false);
     }
@@ -372,14 +411,14 @@ export default function SettingsPage() {
       if (emailLogStatusFilter !== "ALL") params.set("status", emailLogStatusFilter);
       const res = await fetch(`/api/email-logs?${params.toString()}`, { credentials: "include" });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setEmailLogs(data.logs || []);
         setEmailLogsTotal(data.total || 0);
       } else {
         toast.error("Failed to load email logs");
       }
     } catch (err) {
-      console.error("Failed to fetch email logs:", err);
+      console.error("[settings] Failed to fetch email logs:", err);
     } finally {
       setEmailLogsLoading(false);
     }
@@ -399,8 +438,7 @@ export default function SettingsPage() {
       toast.error("Password must be at least 8 characters");
       return;
     }
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(newUserEmail)) {
+    if (!EMAIL_REGEX.test(newUserEmail)) {
       toast.error("Please enter a valid email address");
       return;
     }
@@ -432,7 +470,7 @@ export default function SettingsPage() {
         setShowNewUserPassword(false);
         fetchTeamMembers();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         toast.error(err.error || "Failed to add user");
       }
     } catch {
@@ -458,7 +496,7 @@ export default function SettingsPage() {
         setEditingUserId(null);
         fetchTeamMembers();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         toast.error(err.error || "Failed to update role");
       }
     } catch {
@@ -487,7 +525,7 @@ export default function SettingsPage() {
         toast.success(currentActive ? "User deactivated" : "User activated");
         fetchTeamMembers();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         toast.error(err.error || "Failed to update user status");
       }
     } catch {
@@ -554,7 +592,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({ currentPassword }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setPasswordOtpSent(true);
         toast.success(data.message || "OTP sent to your email");
@@ -582,7 +620,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({ otp: passwordOtpCode, newPassword }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || "Password changed successfully!");
         setCurrentPassword("");
@@ -612,6 +650,7 @@ export default function SettingsPage() {
   handlePasswordVerifyOtpRef.current = handlePasswordVerifyOtp;
 
   // ── Change Password: Resend OTP (no password re-verification) ──
+  // OTP session persists server-side — no password re-verification needed
   const handleResendPasswordOtp = async () => {
     setChangingPassword(true);
     try {
@@ -619,9 +658,9 @@ export default function SettingsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ currentPassword }),
+        body: JSON.stringify({ action: "resend" }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || "New OTP sent to your email");
       } else {
@@ -641,8 +680,7 @@ export default function SettingsPage() {
       return;
     }
     // Client-side email format validation
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(newEmailAddress)) {
+    if (!EMAIL_REGEX.test(newEmailAddress)) {
       toast.error("Please enter a valid email address");
       return;
     }
@@ -654,7 +692,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({ newEmail: newEmailAddress, currentPassword: emailChangePassword }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setOtpSent(true);
         toast.success(data.message || "OTP sent to your new email");
@@ -682,7 +720,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({ otp: otpCode, newEmail: newEmailAddress }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || "Email changed successfully!");
         setChangeEmailOpen(false);
@@ -715,7 +753,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify({ newEmail: newEmailAddress, currentPassword: emailChangePassword }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || "New OTP sent to your new email");
       } else {
@@ -747,25 +785,26 @@ export default function SettingsPage() {
         ? { id: smtpEditId, ...smtpForm }
         : smtpForm;
 
+      // SMTP credentials transmitted over HTTPS — transport encryption is adequate
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(smtpEditId ? "SMTP config updated" : "SMTP config added");
         setSmtpDialogOpen(false);
         setSmtpEditId(null);
-        setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
-        fetchSmtpConfigs();
+        setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
       } else {
-        if (data.detail) console.warn("[settings] SMTP error detail:", data.detail);
+          console.warn("[settings] SMTP save failed");
         toast.error(`${data.error || "Failed to save SMTP config"}`, { duration: 8000 });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Network error or timeout - likely Vercel function timeout
+      console.error("[settings] SMTP save failed");
       toast.error("Network error saving SMTP. This may be a timeout - try clicking Add again.", { duration: 8000 });
     } finally {
       setSmtpSaving(false);
@@ -784,13 +823,14 @@ export default function SettingsPage() {
     }
     setSmtpTesting(true);
     try {
+      // SMTP credentials transmitted over HTTPS — transport encryption is adequate
       const res = await fetch("/api/smtp/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(smtpForm),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         toast.success("SMTP connection successful!");
       } else {
@@ -813,7 +853,7 @@ export default function SettingsPage() {
         setSmtpDeleteConfirm(null);
         fetchSmtpConfigs();
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to delete");
       }
     } catch {
@@ -848,7 +888,7 @@ export default function SettingsPage() {
         method: "DELETE",
         credentials: "include",
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || `Deleted ${data.deleted} old log(s)`);
         setClearLogsConfirm(false);
@@ -888,7 +928,7 @@ export default function SettingsPage() {
 
     setResetPasswordLoading(true);
     try {
-      const body: Record<string, any> = {
+      const body: { userId: string; action: "send_link" | "direct_reset"; newPassword?: string } = {
         userId: resetPasswordUser.id,
         action: resetPasswordAction,
       };
@@ -902,7 +942,7 @@ export default function SettingsPage() {
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success(data.message || "Password reset successful");
         setResetPasswordOpen(false);
@@ -949,6 +989,8 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-4xl">
       <PageHeader title="Settings" description="Manage your account and application settings" />
 
+      {/* TODO: Extract to ProfileSection.tsx */}
+      {/* --- Profile Section Start --- */}
       {/* Profile */}
       <Card>
         <CardHeader>
@@ -990,7 +1032,10 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+      {/* --- Profile Section End --- */}
 
+      {/* TODO: Extract to PasswordChangeSection.tsx */}
+      {/* --- Password Change Section Start --- */}
       {/* Change Password - OTP Flow */}
       <Card>
         <CardHeader>
@@ -1013,17 +1058,7 @@ export default function SettingsPage() {
                     placeholder="Enter current password"
                     className="pr-10"
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    tabIndex={-1}
-                    aria-label="Toggle current password visibility"
-                  >
-                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                  <PasswordToggle visible={showCurrentPassword} onToggle={() => setShowCurrentPassword(!showCurrentPassword)} />
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1038,28 +1073,9 @@ export default function SettingsPage() {
                       placeholder="Enter new password"
                       className="pr-10"
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      tabIndex={-1}
-                      aria-label="Toggle new password visibility"
-                    >
-                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
+                    <PasswordToggle visible={showNewPassword} onToggle={() => setShowNewPassword(!showNewPassword)} />
                   </div>
-                  {newPassword && (
-                    <div className="mt-1">
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${getPasswordStrength(newPassword).color}`} style={{ width: getPasswordStrength(newPassword).width }} />
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Password strength: {getPasswordStrength(newPassword).label}
-                      </p>
-                    </div>
-                  )}
+                  <PasswordStrengthMeter password={newPassword} />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Confirm New Password</Label>
@@ -1071,17 +1087,7 @@ export default function SettingsPage() {
                       placeholder="Confirm new password"
                       className="pr-10"
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      tabIndex={-1}
-                      aria-label="Toggle confirm password visibility"
-                    >
-                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
+                  <PasswordToggle visible={showConfirmPassword} onToggle={() => setShowConfirmPassword(!showConfirmPassword)} />
                   </div>
                 </div>
               </div>
@@ -1156,7 +1162,10 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      {/* --- Password Change Section End --- */}
 
+      {/* TODO: Extract to ThemeSection.tsx */}
+      {/* --- Theme Section Start --- */}
       {/* Theme */}
       <Card>
         <CardHeader>
@@ -1164,7 +1173,7 @@ export default function SettingsPage() {
             <Palette className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Appearance</CardTitle>
           </div>
-          <CardDescription>Customize how TrishulHub looks for you</CardDescription>
+          <CardDescription>Customize how {APP_NAME} looks for you</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -1206,7 +1215,10 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      {/* --- Theme Section End --- */}
 
+      {/* TODO: Extract to NotificationsSection.tsx */}
+      {/* --- Notifications Section Start --- */}
       {/* Notification Preferences */}
       <Card>
         <CardHeader>
@@ -1292,7 +1304,10 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      {/* --- Notifications Section End --- */}
 
+      {/* TODO: Extract to TeamManagementSection.tsx */}
+      {/* --- Team Management Section Start --- */}
       {/* Team Management - ADMIN and above */}
       {isAdminOrAbove && (
         <Card>
@@ -1395,9 +1410,9 @@ export default function SettingsPage() {
                           ) : (
                             <Badge
                               variant="secondary"
-                              className={`text-[10px] ${isSuperAdminOnly && member.role !== "SUPER_ADMIN" ? "cursor-pointer" : ""} ${roleBadgeColors[member.role] || ""}`}
+                              className={`text-[10px] ${isSuperAdmin && member.role !== "SUPER_ADMIN" ? "cursor-pointer" : ""} ${roleBadgeColors[member.role] || ""}`}
                               onClick={() => {
-                                if (member.role !== "SUPER_ADMIN" && isSuperAdminOnly) {
+                                if (member.role !== "SUPER_ADMIN" && isSuperAdmin) {
                                   setEditingUserId(member.id);
                                   setEditRoleValue(member.role);
                                 }
@@ -1412,7 +1427,7 @@ export default function SettingsPage() {
                             <Switch
                               checked={member.isActive}
                               onCheckedChange={() => handleToggleActive(member.id, member.isActive, member.role)}
-                              disabled={member.role === "SUPER_ADMIN" || togglingUserId === member.id || !isSuperAdminOnly}
+                              disabled={member.role === "SUPER_ADMIN" || togglingUserId === member.id || !isSuperAdmin}
                             />
                             <span className={`text-xs ${member.isActive ? "text-green-600" : "text-muted-foreground"}`}>
                               {member.isActive ? "Active" : "Inactive"}
@@ -1420,7 +1435,7 @@ export default function SettingsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {member.role !== "SUPER_ADMIN" && isSuperAdminOnly && (
+                          {member.role !== "SUPER_ADMIN" && isSuperAdmin && (
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 size="icon"
@@ -1457,7 +1472,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {/* --- Team Management Section End --- */}
 
+      {/* TODO: Extract to SmtpConfigSection.tsx */}
+      {/* --- SMTP Config Section Start --- */}
       {/* SMTP Configuration - SUPER_ADMIN only */}
       {isSuperAdmin && (
         <Card>
@@ -1472,7 +1490,7 @@ export default function SettingsPage() {
               </div>
               <Button
                 size="sm"
-                onClick={() => { setSmtpEditId(null); setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true }); setShowSmtpPassword(false); setSmtpDialogOpen(true); }}
+                onClick={() => { setSmtpEditId(null); setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true }); setShowSmtpPassword(false); setSmtpDialogOpen(true); }}
                 disabled={smtpConfigs.length >= 2}
               >
                 <Plus className="h-4 w-4 mr-1" /> Add SMTP
@@ -1524,7 +1542,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {/* --- SMTP Config Section End --- */}
 
+      {/* TODO: Extract to EmailLogsSection.tsx */}
+      {/* --- Email Logs Section Start --- */}
       {/* Email Logs - SUPER_ADMIN only */}
       {isSuperAdmin && (
         <Card>
@@ -1662,7 +1683,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {/* --- Email Logs Section End --- */}
 
+      {/* TODO: Extract to SystemInfoSection.tsx */}
+      {/* --- System Info Section Start --- */}
       {/* System Info */}
       <Card>
         <CardHeader>
@@ -1675,11 +1699,11 @@ export default function SettingsPage() {
           <div className="grid gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Version</span>
-              <span>1.0.0</span>
+              <span>{APP_VERSION}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Platform</span>
-              <span>TrishulHub Dashboard</span>
+              <span>{APP_NAME} Dashboard</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Framework</span>
@@ -1692,6 +1716,7 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      {/* --- System Info Section End --- */}
 
       {/* Add User Dialog */}
       <Dialog open={addUserOpen} onOpenChange={setAddUserOpen}>
@@ -1731,28 +1756,9 @@ export default function SettingsPage() {
                   placeholder="Min. 8 characters"
                   className="pr-10"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowNewUserPassword(!showNewUserPassword)}
-                  tabIndex={-1}
-                  aria-label="Toggle password visibility"
-                >
-                  {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                <PasswordToggle visible={showNewUserPassword} onToggle={() => setShowNewUserPassword(!showNewUserPassword)} />
               </div>
-              {newUserPassword && (
-                <div className="mt-1">
-                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${getPasswordStrength(newUserPassword).color}`} style={{ width: getPasswordStrength(newUserPassword).width }} />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Password strength: {getPasswordStrength(newUserPassword).label}
-                  </p>
-                </div>
-              )}
+              <PasswordStrengthMeter password={newUserPassword} />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -1807,6 +1813,8 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* TODO: Extract to EmailChangeDialog.tsx */}
+      {/* --- Email Change Section Start --- */}
       {/* Email Change Dialog */}
       <Dialog open={changeEmailOpen} onOpenChange={(open) => {
           setChangeEmailOpen(open);
@@ -1852,17 +1860,7 @@ export default function SettingsPage() {
                   disabled={otpSent}
                   className="pr-10"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowEmailChangePassword(!showEmailChangePassword)}
-                  tabIndex={-1}
-                  aria-label="Toggle password visibility"
-                >
-                  {showEmailChangePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                <PasswordToggle visible={showEmailChangePassword} onToggle={() => setShowEmailChangePassword(!showEmailChangePassword)} />
               </div>
             </div>
 
@@ -1928,6 +1926,7 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* --- Email Change Section End --- */}
 
       {/* SMTP Config Dialog */}
       <Dialog open={smtpDialogOpen} onOpenChange={setSmtpDialogOpen}>
@@ -1986,17 +1985,7 @@ export default function SettingsPage() {
                     placeholder={smtpEditId ? "Leave blank to keep current" : "SMTP key/password"}
                     className="pr-10"
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                    onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                    tabIndex={-1}
-                    aria-label="Toggle SMTP password visibility"
-                  >
-                    {showSmtpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                  <PasswordToggle visible={showSmtpPassword} onToggle={() => setShowSmtpPassword(!showSmtpPassword)} />
                 </div>
               </div>
             </div>
@@ -2015,7 +2004,7 @@ export default function SettingsPage() {
                 <Input
                   value={smtpForm.fromName}
                   onChange={(e) => setSmtpForm({ ...smtpForm, fromName: e.target.value })}
-                  placeholder="TrishulHub"
+                  placeholder={APP_NAME}
                 />
               </div>
             </div>
@@ -2136,28 +2125,9 @@ export default function SettingsPage() {
                         placeholder="Min. 8 characters"
                         className="pr-10"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                        onClick={() => setShowResetPwd(!showResetPwd)}
-                        tabIndex={-1}
-                        aria-label="Toggle new password visibility"
-                      >
-                        {showResetPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
+                      <PasswordToggle visible={showResetPwd} onToggle={() => setShowResetPwd(!showResetPwd)} />
                     </div>
-                    {resetPasswordNewPwd && (
-                      <div className="mt-1">
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${getPasswordStrength(resetPasswordNewPwd).color}`} style={{ width: getPasswordStrength(resetPasswordNewPwd).width }} />
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Password strength: {getPasswordStrength(resetPasswordNewPwd).label}
-                        </p>
-                      </div>
-                    )}
+                    <PasswordStrengthMeter password={resetPasswordNewPwd} />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Confirm New Password *</Label>
@@ -2169,17 +2139,7 @@ export default function SettingsPage() {
                         placeholder="Confirm new password"
                         className="pr-10"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                        onClick={() => setShowResetPwdConfirm(!showResetPwdConfirm)}
-                        tabIndex={-1}
-                        aria-label="Toggle confirm password visibility"
-                      >
-                        {showResetPwdConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
+                      <PasswordToggle visible={showResetPwdConfirm} onToggle={() => setShowResetPwdConfirm(!showResetPwdConfirm)} />
                     </div>
                   </div>
                 </>

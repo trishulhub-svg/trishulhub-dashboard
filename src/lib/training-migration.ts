@@ -102,9 +102,9 @@ export async function ensureTrainingTables(): Promise<{ ok: boolean; error?: str
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
       console.log("[training] Auto-migration complete — all training tables created")
       return { ok: true }
-    } catch (createErr: any) {
-      console.error("[training] Auto-migration FAILED:", createErr.message)
-      return { ok: false, error: createErr.message }
+    } catch (createErr: unknown) {
+      console.error("[training] Auto-migration FAILED:", createErr instanceof Error ? createErr.message : createErr)
+      return { ok: false, error: createErr instanceof Error ? createErr.message : "Migration failed" }
     }
   }
 }

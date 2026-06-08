@@ -294,9 +294,14 @@ export const createMeetingSchema = z.object({
   startTime: timeFormat.min(1, "Start time is required"),
   endTime: timeFormat.optional(),
   meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
-  meetingLink: z.string().optional(),
+  meetingLink: z.string()
+    .max(2048)
+    .url("Must be a valid URL")
+    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
+    .optional()
+    .or(z.literal("")),
   projectId: z.string().optional(),
-  attendeeIds: z.array(z.string()).optional(),
+  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {
@@ -324,10 +329,15 @@ export const updateMeetingSchema = z.object({
   startTime: timeFormat.optional(),
   endTime: timeFormat.optional(),
   meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
-  meetingLink: z.string().optional(),
+  meetingLink: z.string()
+    .max(2048)
+    .url("Must be a valid URL")
+    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
+    .optional()
+    .or(z.literal("")),
   projectId: z.string().optional(),
   status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
-  attendeeIds: z.array(z.string()).optional(),
+  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {
@@ -660,6 +670,7 @@ export const submitTestAttemptSchema = z.object({
 export const VALID_RSVPS = ["PENDING", "ACCEPTED", "DECLINED"] as const;
 
 export const rsvpSchema = z.object({
+  // TODO: Field name 'status' in schema vs 'rsvpStatus' in route — should be unified
   status: z.enum(VALID_RSVPS),
 });
 

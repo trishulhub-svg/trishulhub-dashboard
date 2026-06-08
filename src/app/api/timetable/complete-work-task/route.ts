@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: true, task });
         }
 
-        // C12: Approval workflow — check current status
+        // C21: Approval workflow — use transaction to prevent TOCTOU race condition
         if (task.status === "AWAITING_APPROVAL") {
           // Approval case: only admin/superadmin can approve (not necessarily the assignee)
           if (!isAdmin(userRole)) {
@@ -60,15 +60,28 @@ export async function POST(req: NextRequest) {
           if (userRole === "ADMIN" && task.assignedTo === userId) {
             return NextResponse.json({ error: "Forbidden: You cannot approve your own task" }, { status: 403 });
           }
-          const updated = await db.task.update({
-            where: { id: taskId as string },
-            data: {
-              status: "DONE",
-              completedAt: new Date(),
-              approvedBy: userId,
-              approvedAt: new Date(),
-            },
-          });
+          let updated;
+          try {
+            updated = await db.$transaction(async (tx) => {
+              const recheck = await tx.task.findUnique({ where: { id: taskId as string } });
+              if (!recheck) throw new Error("NOT_FOUND");
+              if (recheck.status !== "AWAITING_APPROVAL") throw new Error("NOT_IN_APPROVAL_STATE");
+              return tx.task.update({
+                where: { id: taskId as string },
+                data: {
+                  status: "DONE",
+                  completedAt: new Date(),
+                  approvedBy: userId,
+                  approvedAt: new Date(),
+                },
+              });
+            });
+          } catch (txErr: unknown) {
+            const msg = txErr instanceof Error ? txErr.message : "";
+            if (msg === "NOT_FOUND") return NextResponse.json({ error: "Task not found" }, { status: 404 });
+            if (msg === "NOT_IN_APPROVAL_STATE") return NextResponse.json({ error: "Task is no longer awaiting approval" }, { status: 409 });
+            throw txErr;
+          }
           return NextResponse.json({ success: true, task: updated });
         }
 
@@ -78,6 +91,7 @@ export async function POST(req: NextRequest) {
         }
 
         // SUPER_ADMIN can directly mark as DONE; others go to AWAITING_APPROVAL
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateData: Record<string, any> = {};
         if (userRole === "SUPER_ADMIN") {
           updateData.status = "DONE";
@@ -180,7 +194,7 @@ export async function POST(req: NextRequest) {
 
       default:
         return NextResponse.json(
-          { error: `Unknown sourceType: ${sourceType}` },
+          { error: "Unknown sourceType" },
           { status: 400 }
         );
     }

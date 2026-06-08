@@ -17,6 +17,22 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
+/** Paginated API response shape */
+interface PaginatedResponse<T> {
+  data?: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+}
+
+/** Unwrap paginated { data: [...] } or plain array response */
+function unwrapResponse<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw;
+  const resp = raw as PaginatedResponse<T>;
+  return Array.isArray(resp?.data) ? resp.data : [];
+}
+
 const ticketStatusColors: Record<string, string> = {
   OPEN: "bg-blue-100 text-blue-800",
   IN_PROGRESS: "bg-yellow-100 text-yellow-800",
@@ -31,15 +47,21 @@ export default function PortalSupportPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Record<string, unknown> | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [replying, setReplying] = useState(false);
 
   const fetchTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/support", { credentials: 'include' });
-      if (res.ok) { const data = await res.json(); setTickets(Array.isArray(data) ? data : []); }
-      else setError("Failed to load tickets");
+      const res = await fetch("/api/support?page=1&limit=20", { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setTickets(unwrapResponse(data));
+      } else {
+        setError("Failed to load tickets");
+      }
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load tickets");
+      console.error("[portal/support] Failed to load tickets:", err);
+      setError("Failed to load tickets. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -51,6 +73,9 @@ export default function PortalSupportPage() {
 
   const handleCreateTicket = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+
     const form = new FormData(e.currentTarget);
 
     // Get the actual client ID from session - the API will handle scoping
@@ -76,13 +101,17 @@ export default function PortalSupportPage() {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to create ticket");
       }
-    } catch {
+    } catch (err) {
+      console.error("[portal/support] Failed to create ticket:", err);
       toast.error("Failed to create ticket");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleReply = async () => {
-    if (!selectedTicket || !replyText.trim()) return;
+    if (!selectedTicket || !replyText.trim() || replying) return;
+    setReplying(true);
 
     try {
       const res = await fetch("/api/support", {
@@ -101,16 +130,26 @@ export default function PortalSupportPage() {
         setReplyText("");
         // FIX: Optimistically append the reply to selectedTicket instead of
         // reading from stale `tickets` state (fetchTickets is async)
-        if (replyData && replyData.ticket) {
-          setSelectedTicket(replyData.ticket);
+        if (replyData && (replyData as Record<string, unknown>).ticket) {
+          setSelectedTicket((replyData as Record<string, unknown>).ticket as Record<string, unknown>);
         }
         fetchTickets();
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(data.error || "Failed to send reply");
       }
-    } catch {
+    } catch (err) {
+      console.error("[portal/support] Failed to send reply:", err);
       toast.error("Failed to send reply");
+    } finally {
+      setReplying(false);
+    }
+  };
+
+  const handleTicketKeyDown = (e: React.KeyboardEvent, ticket: unknown) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setSelectedTicket(ticket as Record<string, unknown>);
     }
   };
 
@@ -148,11 +187,11 @@ export default function PortalSupportPage() {
             <form onSubmit={handleCreateTicket} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Subject *</Label>
-                <Input name="subject" required />
+                <Input name="subject" required maxLength={300} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Description *</Label>
-                <Textarea name="description" rows={4} required />
+                <Textarea name="description" rows={4} required maxLength={10000} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Priority</Label>
@@ -166,7 +205,9 @@ export default function PortalSupportPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full">Submit Ticket</Button>
+              <Button type="submit" className="w-full" disabled={submitting}>
+                {submitting ? "Submitting..." : "Submit Ticket"}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -188,7 +229,10 @@ export default function PortalSupportPage() {
               <Card
                 key={ticket.id}
                 className={`cursor-pointer hover:shadow-md transition-shadow ${selectedTicket?.id === ticket.id ? "ring-2 ring-primary" : ""}`}
+                tabIndex={0}
+                role="button"
                 onClick={() => setSelectedTicket(ticket as unknown as Record<string, unknown>)}
+                onKeyDown={(e) => handleTicketKeyDown(e, ticket)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1">
@@ -231,8 +275,9 @@ export default function PortalSupportPage() {
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     rows={2}
+                    aria-label="Type your reply"
                   />
-                  <Button onClick={handleReply} disabled={!replyText.trim()}>
+                  <Button onClick={handleReply} disabled={!replyText.trim() || replying}>
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>

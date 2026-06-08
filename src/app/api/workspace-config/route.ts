@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
+import { rateLimit } from "@/lib/rate-limit";
+
+// TODO (I25): This route uses getToken() instead of getServerSession().
+// Consider standardizing auth pattern across all utility routes.
 
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
@@ -35,6 +39,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // W58: Rate limit GET (30 per minute)
+    const rlResult = rateLimit(`ws-config:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    if (!rlResult.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
     const rows: any[] = await db.$queryRawUnsafe(
@@ -54,16 +64,19 @@ export async function GET(request: NextRequest) {
     const row = rows[0];
     const isSuperAdmin = (token as any).role === "SUPER_ADMIN";
 
+    // C7: configToken is stored in plaintext. Mask for non-admin responses.
+    // TODO: Encrypt configToken at rest using AES-256-GCM (similar to task-git-config tokenEncrypted pattern)
     return NextResponse.json({
       id: row.id,
-      // C9: Only return full configToken for SUPER_ADMIN users
+      // Only return full configToken for SUPER_ADMIN users
       configToken: isSuperAdmin ? (row.configToken || "") : "",
       configTokenMasked: maskToken(row.configToken),
       configTokenLabel: row.configTokenLabel || "Workspace Token",
       hasToken: !!row.configToken,
     });
-  } catch (error: any) {
-    console.error("[workspace-config] GET error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[ws-config] GET error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -80,9 +93,21 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit PATCH (10 per minute)
+    const rlWrite = rateLimit(`ws-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    if (!rlWrite.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { configToken, configTokenLabel } = body;
 
     // Check existing config
@@ -93,7 +118,7 @@ export async function PATCH(request: NextRequest) {
     if (existing.length > 0) {
       // Build dynamic SET clause
       const updates: string[] = [];
-      const values: any[] = [];
+      const values: unknown[] = [];
 
       if (configToken !== undefined) {
         updates.push(`"configToken" = ?`);
@@ -119,7 +144,8 @@ export async function PATCH(request: NextRequest) {
       );
     } else {
       // Create new config row
-      const id = "wc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      // W65: Use crypto.randomUUID() instead of weak ID generation
+      const id = "wc_" + crypto.randomUUID();
       await db.$executeRawUnsafe(
         `INSERT INTO "WorkspaceConfig" (id, "configToken", "configTokenLabel", "updatedBy")
          VALUES (?, ?, ?, ?)`,
@@ -131,8 +157,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[workspace-config] PATCH error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[ws-config] PATCH error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

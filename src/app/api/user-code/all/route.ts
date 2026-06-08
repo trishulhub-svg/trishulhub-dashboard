@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
+import { rateLimit } from "@/lib/rate-limit";
+
+// TODO (I25): This route uses getToken() instead of getServerSession().
+// Consider standardizing auth pattern across all utility routes.
 
 /**
  * GET /api/user-code/all
@@ -15,9 +19,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit GET (30 per minute)
+    const rlResult = rateLimit(`user-code-all:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    if (!rlResult.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
-    // Join UserCode with User to get user info
+    // W63: Limit results to prevent unbounded queries
     const rows: any[] = await db.$queryRawUnsafe(`
       SELECT
         uc.id, uc."userId", uc.code, uc."updatedBy" as "codeUpdatedBy",
@@ -26,11 +36,12 @@ export async function GET(request: NextRequest) {
       FROM "UserCode" uc
       LEFT JOIN "User" u ON uc."userId" = u.id
       ORDER BY u.name ASC
+      LIMIT 100
     `);
 
     // Also fetch all users who don't have a code yet
     const allUsers: any[] = await db.$queryRawUnsafe(
-      `SELECT id, name, email, role FROM "User" ORDER BY name ASC`
+      `SELECT id, name, email, role FROM "User" ORDER BY name ASC LIMIT 100`
     );
 
     const codedUserIds = new Set(rows.map((r: any) => r.userId));
@@ -62,8 +73,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       userCodes: [...userCodes, ...usersWithoutCode],
     });
-  } catch (error: any) {
-    console.error("[user-code/all] GET error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[user-code/all] GET error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -5,7 +5,7 @@ import { rateLimit } from "@/lib/rate-limit"
 
 const BASE_CURRENCY = process.env.NEXT_PUBLIC_BASE_CURRENCY || "INR"
 
-// TODO: Store exchange rates in DB with timestamps. These hardcoded fallbacks become stale.
+// TODO (I26): Store exchange rates in DB with timestamps instead of hardcoded fallbacks.
 const FALLBACK_RATES: Record<string, number> = {
   INR: 1,
   USD: 83.5,
@@ -63,8 +63,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Global rate limit — exchange rates aren't user-specific
-    const { success } = rateLimit("exchange-rates:global", 10, 60 * 1000)
+    // I22: Use per-user rate limit instead of global
+    const { success } = rateLimit(`exchange-rates:${session.user.id}`, 10, 60 * 1000)
     if (!success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }

@@ -7,6 +7,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Paginated API response shape */
+interface PaginatedResponse<T> {
+  data?: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+}
+
+/** Unwrap paginated { data: [...] } or plain array response */
+function unwrapResponse<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw;
+  const resp = raw as PaginatedResponse<T>;
+  return Array.isArray(resp?.data) ? resp.data : [];
+}
+
 export default function PortalDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState({ projects: 0, invoices: 0, tickets: 0, pendingAmount: 0 });
@@ -16,13 +32,17 @@ export default function PortalDashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, invRes, ticketRes] = await Promise.all([
-        fetch("/api/projects", { credentials: 'include' }),
-        fetch("/api/invoices", { credentials: 'include' }),
-        fetch("/api/support", { credentials: 'include' }),
+        fetch("/api/projects?page=1&limit=20", { credentials: 'include' }),
+        fetch("/api/invoices?page=1&limit=20", { credentials: 'include' }),
+        fetch("/api/support?page=1&limit=20", { credentials: 'include' }),
       ]);
-      const projects = projRes.ok ? await projRes.json() : [];
-      const invoices = invRes.ok ? await invRes.json() : [];
-      const tickets = ticketRes.ok ? await ticketRes.json() : [];
+      const projRaw = projRes.ok ? await projRes.json() : [];
+      const invRaw = invRes.ok ? await invRes.json() : [];
+      const ticketRaw = ticketRes.ok ? await ticketRes.json() : [];
+
+      const projects = unwrapResponse(projRaw);
+      const invoices = unwrapResponse(invRaw);
+      const tickets = unwrapResponse(ticketRaw);
 
       const pending = (invoices as { status: string; total: number }[])
         .filter((i) => i.status === "SENT" || i.status === "OVERDUE")
@@ -31,12 +51,12 @@ export default function PortalDashboard() {
       setStats({
         projects: projects.length,
         invoices: invoices.length,
-        tickets: (tickets as unknown[]).length,
+        tickets: tickets.length,
         pendingAmount: pending,
       });
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      console.error("[portal/dashboard] Failed to load data:", err);
+      setError("Failed to load data. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -45,6 +65,13 @@ export default function PortalDashboard() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleCardKeyDown = (e: React.KeyboardEvent, path: string) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      router.push(path);
+    }
+  };
 
   if (loading) {
     return (
@@ -77,7 +104,13 @@ export default function PortalDashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/portal/projects")}>
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          tabIndex={0}
+          role="button"
+          onClick={() => router.push("/portal/projects")}
+          onKeyDown={(e) => handleCardKeyDown(e, "/portal/projects")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -91,7 +124,13 @@ export default function PortalDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/portal/invoices")}>
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          tabIndex={0}
+          role="button"
+          onClick={() => router.push("/portal/invoices")}
+          onKeyDown={(e) => handleCardKeyDown(e, "/portal/invoices")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
@@ -105,7 +144,13 @@ export default function PortalDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/portal/invoices")}>
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          tabIndex={0}
+          role="button"
+          onClick={() => router.push("/portal/invoices")}
+          onKeyDown={(e) => handleCardKeyDown(e, "/portal/invoices")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
@@ -119,7 +164,13 @@ export default function PortalDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/portal/support")}>
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          tabIndex={0}
+          role="button"
+          onClick={() => router.push("/portal/support")}
+          onKeyDown={(e) => handleCardKeyDown(e, "/portal/support")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">

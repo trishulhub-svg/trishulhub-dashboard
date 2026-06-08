@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { canManageTraining } from "@/lib/rbac"
+// TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
 
@@ -34,7 +35,7 @@ export async function GET(
         document: true,
         employee: { select: { id: true, name: true, email: true, avatar: true } },
         assigner: { select: { id: true, name: true } },
-        test: true,
+        test: { select: { id: true, level: true, timeLimit: true, createdAt: true, documentId: true, questions: true, generatedBy: true } },
         attempts: { orderBy: { createdAt: "desc" } },
       },
     })
@@ -42,23 +43,21 @@ export async function GET(
     if (!assignment) return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
 
     // Only admin or the assigned employee can view
-    if (!isAdmin(session.user.role) && assignment.assignedTo !== userId) {
+    if (!canManageTraining(session.user.role) && assignment.assignedTo !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // If employee and assignment not completed, hide correct answers from test
-    // If assignment IS completed, show correct answers + the employee's answers for review
-    if (assignment.test) {
+    // C12: Reconstruct response without leaking correct answers to non-completed employees
+    if (assignment.test && assignment.test.questions) {
       try {
-        // Create a safe copy instead of mutating Prisma object
-        const questions = typeof assignment.test.questions === 'string' 
-          ? JSON.parse(assignment.test.questions) 
+        const questions = typeof assignment.test.questions === 'string'
+          ? JSON.parse(assignment.test.questions)
           : assignment.test.questions || []
         const isCompleted = ["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)
 
-        if (!isAdmin(session.user.role) && !isCompleted) {
-          // Hide answers for employee taking the test
-          ;(assignment.test as Record<string, unknown>).questions = JSON.stringify(
+        if (!canManageTraining(session.user.role) && !isCompleted) {
+          // Strip correct answers for employee taking the test
+          assignment.test.questions = JSON.stringify(
             (questions as Array<{ question: string; options: string[] }>).map((q) => ({
               question: q.question,
               options: q.options,
@@ -66,18 +65,18 @@ export async function GET(
           )
         }
 
-        // For completed tests, attach the last attempt's answers to each question for review
+        // For completed tests, attach the last attempt's answers for review
         if (isCompleted && assignment.attempts.length > 0) {
           try {
             const attemptAnswers: number[] = JSON.parse(assignment.attempts[0].answers || "[]")
-            ;(assignment.test as Record<string, unknown>).questions = JSON.stringify(
+            assignment.test.questions = JSON.stringify(
               (questions as Array<{ question: string; options: string[]; correctAnswer?: number; explanation?: string }>).map((q, idx: number) => ({
                 ...q,
                 selectedAnswer: attemptAnswers[idx] ?? null,
               }))
             )
           } catch {
-            // ignore parse error — still show questions with correct answers
+            // ignore parse error
           }
         }
       } catch {
@@ -135,18 +134,18 @@ export async function PATCH(
     if (!assignment) return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
 
     // Only admin or the assigned employee can update
-    if (!isAdmin(session.user.role) && assignment.assignedTo !== userId) {
+    if (!canManageTraining(session.user.role) && assignment.assignedTo !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Status flow validation
+    // Status flow validation (W42: Admin bypass for any valid status transition)
     const validTransitions: Record<string, string[]> = {
       ASSIGNED: ["READ", "TEST_STARTED"],
       READ: ["TEST_STARTED"],
       TEST_STARTED: ["COMPLETED"],
     }
 
-    if (!isAdmin(session.user.role) && validTransitions[assignment.status] && !validTransitions[assignment.status].includes(status)) {
+    if (!canManageTraining(session.user.role) && validTransitions[assignment.status] && !validTransitions[assignment.status].includes(status)) {
       return NextResponse.json({ error: `Cannot transition from ${assignment.status} to ${status}` }, { status: 400 })
     }
 

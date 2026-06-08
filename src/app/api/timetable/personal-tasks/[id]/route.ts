@@ -5,6 +5,7 @@ import { db, ensureTimetableTables } from "@/lib/db";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // W7: Valid enum values for personal tasks (from schema comments)
+// W56: TODO: Extract to shared constants file
 const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const VALID_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 const VALID_CATEGORIES = ["PERSONAL", "HEALTH", "FINANCE", "STUDY", "SOCIAL", "OTHER", "WORK_LOCAL"];
@@ -47,6 +48,7 @@ export async function PATCH(
     }
 
     const { title, description, startTime, endTime, priority, status, category } = body;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = {};
 
     if (title !== undefined) updateData.title = title;

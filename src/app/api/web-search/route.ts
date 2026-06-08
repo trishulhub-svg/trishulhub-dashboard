@@ -24,7 +24,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests. Max 20 searches per minute." }, { status: 429 })
     }
 
-    const { query, numResults } = await req.json()
+    // W59: Wrap req.json() in try/catch
+    let body: { query?: string; numResults?: number }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+    const { query, numResults } = body
     if (!query) {
       return NextResponse.json({ error: "Search query is required" }, { status: 400 })
     }
@@ -45,14 +52,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Search query cannot be empty" }, { status: 400 })
     }
 
-    // W12: Pass env vars directly to SDK config — do NOT mutate process.env
-    // to avoid race conditions in concurrent serverless requests.
-    const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
-    const apiKey = process.env.ZAI_API_KEY
-
-    // W12: SDK reads ZAI_BASE_URL from process.env directly.
+    // C8/I27: SDK reads ZAI_BASE_URL from process.env directly.
     // Only set the fallback if ZAI_BASE_URL isn't already defined.
     // This minimizes process.env mutation to the strict necessary case.
+    // TODO (C8): Refactor SDK to accept baseUrl as config parameter instead of mutating process.env (serverless race condition risk)
     if (!process.env.ZAI_BASE_URL && process.env.ZAI_API_BASE_URL) {
       process.env.ZAI_BASE_URL = process.env.ZAI_API_BASE_URL
     }
@@ -71,8 +74,9 @@ export async function POST(req: NextRequest) {
       results: searchResult,
       count: Array.isArray(searchResult) ? searchResult.length : 0,
     })
-  } catch (error: any) {
-    console.error("[web-search] Error:", error.message)
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[web-search] Error:", msg)
     return NextResponse.json(
       { error: "Web search failed" },
       { status: 500 }

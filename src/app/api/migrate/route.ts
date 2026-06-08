@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit } from "@/lib/rate-limit"
+
+// TODO (I23): This endpoint duplicates auto-migrate.ts logic.
+// Consider consolidating into a single migration source.
 
 // POST /api/migrate - Create missing database tables (SUPER_ADMIN only)
 // This ensures SmtpConfig and EmailVerification tables exist without needing
@@ -15,6 +19,10 @@ export async function POST() {
   if (userRole !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can run migrations" }, { status: 403 })
   }
+
+  // C5/W66: Rate limit migration endpoint (1 per 5 minutes)
+  const rl = rateLimit(`migrate:${session.user.id}`, 1, 5 * 60 * 1000)
+  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
   const results: Record<string, string> = {}
 
@@ -42,8 +50,10 @@ export async function POST() {
         )
       `)
       results.SmtpConfig = "created"
-    } catch (err: any) {
-      results.SmtpConfig = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] SmtpConfig table creation failed:", err)
+      results.SmtpConfig = "failed: table creation error"
     }
   }
 
@@ -68,8 +78,10 @@ export async function POST() {
         )
       `)
       results.EmailVerification = "created"
-    } catch (err: any) {
-      results.EmailVerification = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] EmailVerification table creation failed:", err)
+      results.EmailVerification = "failed: table creation error"
     }
   }
 
@@ -97,8 +109,10 @@ export async function POST() {
         )
       `)
       results.Leave = "created"
-    } catch (err: any) {
-      results.Leave = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] Leave table creation failed:", err)
+      results.Leave = "failed: table creation error"
     }
   }
 
@@ -123,8 +137,10 @@ export async function POST() {
         )
       `)
       results.Availability = "created"
-    } catch (err: any) {
-      results.Availability = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] Availability table creation failed:", err)
+      results.Availability = "failed: table creation error"
     }
   }
 
@@ -149,8 +165,10 @@ export async function POST() {
         )
       `)
       results.AvailabilityOverride = "created"
-    } catch (err: any) {
-      results.AvailabilityOverride = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] AvailabilityOverride table creation failed:", err)
+      results.AvailabilityOverride = "failed: table creation error"
     }
   }
 
@@ -178,8 +196,10 @@ export async function POST() {
         )
       `)
       results.TrainingDocument = "created"
-    } catch (err: any) {
-      results.TrainingDocument = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] TrainingDocument table creation failed:", err)
+      results.TrainingDocument = "failed: table creation error"
     }
   }
 
@@ -204,8 +224,10 @@ export async function POST() {
         )
       `)
       results.TrainingTest = "created"
-    } catch (err: any) {
-      results.TrainingTest = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] TrainingTest table creation failed:", err)
+      results.TrainingTest = "failed: table creation error"
     }
   }
 
@@ -234,8 +256,10 @@ export async function POST() {
         )
       `)
       results.TrainingAssignment = "created"
-    } catch (err: any) {
-      results.TrainingAssignment = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] TrainingAssignment table creation failed:", err)
+      results.TrainingAssignment = "failed: table creation error"
     }
   }
 
@@ -259,8 +283,10 @@ export async function POST() {
         )
       `)
       results.TestAttempt = "created"
-    } catch (err: any) {
-      results.TestAttempt = `failed: ${err.message}`
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[migrate] TestAttempt table creation failed:", err)
+      results.TestAttempt = "failed: table creation error"
     }
   }
 
@@ -284,8 +310,10 @@ export async function POST() {
     try {
       await db.$executeRawUnsafe(idx.sql)
       indexResults.push(`${idx.name}: ok`)
-    } catch (err: any) {
-      indexResults.push(`${idx.name}: ${err.message}`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[migrate] Index creation failed (${idx.name}):`, err)
+      indexResults.push(`${idx.name}: index creation error`)
     }
   }
   results.indexes = indexResults.join("; ")
@@ -295,59 +323,68 @@ export async function POST() {
   try {
     const count = await db.smtpConfig.count({ take: 1 })
     verification.SmtpConfig = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.SmtpConfig = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] SmtpConfig verification failed:", err)
+    verification.SmtpConfig = "failed: verification error"
   }
   try {
     const count = await db.emailVerification.count({ take: 1 })
     verification.EmailVerification = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.EmailVerification = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] EmailVerification verification failed:", err)
+    verification.EmailVerification = "failed: verification error"
   }
 
   try {
     const count = await db.leave.count({ take: 1 })
     verification.Leave = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.Leave = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] Leave verification failed:", err)
+    verification.Leave = "failed: verification error"
   }
   try {
     const count = await (db as any).availability.count({ take: 1 })
     verification.Availability = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.Availability = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] Availability verification failed:", err)
+    verification.Availability = "failed: verification error"
   }
   try {
     const count = await (db as any).availabilityOverride.count({ take: 1 })
     verification.AvailabilityOverride = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.AvailabilityOverride = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] AvailabilityOverride verification failed:", err)
+    verification.AvailabilityOverride = "failed: verification error"
   }
 
   // Verify training tables
   try {
     const count = await (db as any).trainingDocument.count({ take: 1 })
     verification.TrainingDocument = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.TrainingDocument = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] TrainingDocument verification failed:", err)
+    verification.TrainingDocument = "failed: verification error"
   }
   try {
     const count = await (db as any).trainingTest.count({ take: 1 })
     verification.TrainingTest = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.TrainingTest = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] TrainingTest verification failed:", err)
+    verification.TrainingTest = "failed: verification error"
   }
   try {
     const count = await (db as any).trainingAssignment.count({ take: 1 })
     verification.TrainingAssignment = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.TrainingAssignment = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] TrainingAssignment verification failed:", err)
+    verification.TrainingAssignment = "failed: verification error"
   }
   try {
     const count = await (db as any).testAttempt.count({ take: 1 })
     verification.TestAttempt = `verified (${count} rows)`
-  } catch (err: any) {
-    verification.TestAttempt = `failed: ${err.message}`
+  } catch (err: unknown) {
+    console.error("[migrate] TestAttempt verification failed:", err)
+    verification.TestAttempt = "failed: verification error"
   }
 
   const allSuccess = verification.SmtpConfig.startsWith("verified") && verification.EmailVerification.startsWith("verified") && verification.Leave?.startsWith("verified") && verification.Availability?.startsWith("verified") && verification.AvailabilityOverride?.startsWith("verified") && verification.TrainingDocument?.startsWith("verified") && verification.TrainingTest?.startsWith("verified") && verification.TrainingAssignment?.startsWith("verified") && verification.TestAttempt?.startsWith("verified")

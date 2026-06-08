@@ -5,6 +5,10 @@ import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { encrypt } from "@/lib/encryption";
 import { parseRepoUrl } from "@/lib/git-sync";
+import { rateLimit } from "@/lib/rate-limit";
+
+// TODO (I25): This route uses getToken() instead of getServerSession().
+// Consider standardizing auth pattern across all utility routes.
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
@@ -21,6 +25,12 @@ export async function GET(request: NextRequest) {
     const token = await requireSuperAdmin(request);
     if (!token) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // W58: Rate limit GET (30 per minute)
+    const rlGet = rateLimit(`git-config:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    if (!rlGet.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 
     await ensureProtocolTables();
@@ -73,8 +83,9 @@ export async function GET(request: NextRequest) {
       encryptionKeyMasked: row.encryptionKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "",
       hasEncryptionKey: !!(row.encryptionKey || process.env.ENCRYPTION_KEY),
     });
-  } catch (error: any) {
-    console.error("[task-git-config] GET error:", error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[task-git-config] GET error:", msg);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -95,9 +106,21 @@ async function saveConfig(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit POST/PUT (10 per minute)
+    const rlWrite = rateLimit(`git-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    if (!rlWrite.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { repoUrl, token: gitToken, branch, isEnabled } = body;
 
     if (!repoUrl || !gitToken) {
@@ -113,7 +136,7 @@ async function saveConfig(request: NextRequest) {
       );
     }
 
-    // TODO: Pass key as parameter instead of mutating process.env (C7)
+    // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
     // Use DB-stored encryption key if available
     const configCheck: any[] = await db.$queryRawUnsafe(
       `SELECT "encryptionKey" FROM "TaskGitConfig" LIMIT 1`
@@ -126,8 +149,9 @@ async function saveConfig(request: NextRequest) {
     let encrypted: { encrypted: string; iv: string; tag: string };
     try {
       encrypted = encrypt(gitToken);
-    } catch (encError: any) {
-      console.error("[task-git-config] Encryption error:", encError?.message);
+    } catch (encError: unknown) {
+      const encMsg = encError instanceof Error ? encError.message : String(encError);
+      console.error("[task-git-config] Encryption error:", encMsg);
       return NextResponse.json(
         { error: "Encryption key not configured. Set ENCRYPTION_KEY environment variable." },
         { status: 500 }
@@ -180,7 +204,8 @@ async function saveConfig(request: NextRequest) {
         existing[0].id
       );
     } else {
-      const id = "tgc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      // W65: Use crypto.randomUUID() instead of weak ID generation
+      const id = "tgc_" + crypto.randomUUID();
       const currentEncKey = process.env.ENCRYPTION_KEY || "";
       await db.$executeRawUnsafe(
         `INSERT INTO "TaskGitConfig" (id, "repoUrl", "repoOwner", "repoName", "branch", "tokenEncrypted", "tokenIv", "tokenTag", "encryptionKey", "isEnabled", "createdBy")
@@ -200,8 +225,9 @@ async function saveConfig(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[task-git-config] POST error:", error?.message || error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[task-git-config] POST error:", msg);
     return NextResponse.json({ error: "Failed to save git configuration" }, { status: 500 });
   }
 }
@@ -214,9 +240,21 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // W58: Rate limit PATCH (10 per minute)
+    const rlPatch = rateLimit(`git-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    if (!rlPatch.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensureProtocolTables();
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { isEnabled, triggerSync } = body;
 
     // Check if config exists
@@ -285,10 +323,10 @@ export async function PATCH(request: NextRequest) {
             reEncrypted.tag,
             existing[0].id
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           // Re-encryption failed — revert to old key to prevent permanent data loss
           process.env.ENCRYPTION_KEY = previousKey;
-          console.error("[task-git-config] Failed to re-encrypt git token with new key:", err?.message);
+          console.error("[task-git-config] Failed to re-encrypt git token with new key:", err instanceof Error ? err.message : String(err));
           return NextResponse.json(
             { error: "Failed to re-encrypt git token with new key. Old encryption key preserved to prevent data loss." },
             { status: 500 }
@@ -297,7 +335,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       // Set new key (only reached if re-encryption succeeded or wasn't needed)
-      // TODO: Pass key as parameter instead of mutating process.env (C7)
+      // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
       process.env.ENCRYPTION_KEY = newKey;
 
       // Store the new key in DB
@@ -311,7 +349,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (triggerSync) {
-      // TODO: Pass key as parameter instead of mutating process.env (C7)
+      // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
       // Load encryption key from DB before triggering sync
       const keyRow: any[] = await db.$queryRawUnsafe(
         `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
@@ -329,8 +367,8 @@ export async function PATCH(request: NextRequest) {
 
       // Fire-and-forget sync
       const { syncTasksToGit } = await import("@/lib/git-sync");
-      syncTasksToGit().catch((err: any) => {
-        console.error("[task-git-config] Manual sync failed:", err?.message);
+      syncTasksToGit().catch((err: unknown) => {
+        console.error("[task-git-config] Manual sync failed:", err instanceof Error ? err.message : String(err));
       });
 
       return NextResponse.json({ success: true, message: "Sync triggered" });
@@ -350,8 +388,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ error: "No valid action specified" }, { status: 400 });
-  } catch (error: any) {
-    console.error("[task-git-config] PATCH error:", error?.message || error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[task-git-config] PATCH error:", msg);
     return NextResponse.json({ error: "Failed to update git configuration" }, { status: 500 });
   }
 }

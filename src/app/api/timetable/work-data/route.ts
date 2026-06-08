@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+
+// W51: Cap date ranges to 90 days max span
+const MAX_DATE_SPAN_MS = 90 * 24 * 60 * 60 * 1000;
 
 // GET /api/timetable/work-data — Fetch aggregated work data from multiple sources
 export async function GET(req: NextRequest) {
@@ -12,6 +16,13 @@ export async function GET(req: NextRequest) {
     }
 
     const userId = session.user.id;
+
+    // W49: Rate limiting for GET
+    const rl = rateLimit(`work-data-${userId}`, 30, 60_000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const { searchParams } = new URL(req.url);
 
     const date = searchParams.get("date");
@@ -32,14 +43,19 @@ export async function GET(req: NextRequest) {
       start.setHours(0, 0, 0, 0);
       end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
+      // W51: Cap date range to 90 days
+      if (end.getTime() - start.getTime() > MAX_DATE_SPAN_MS) {
+        end = new Date(start.getTime() + MAX_DATE_SPAN_MS);
+      }
     } else if (startDate) {
       start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
-      end = new Date("2099-12-31");
+      end = new Date(start.getTime() + MAX_DATE_SPAN_MS);
     } else if (endDate) {
-      start = new Date("2000-01-01");
       end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
+      start = new Date(end.getTime() - MAX_DATE_SPAN_MS);
+      start.setHours(0, 0, 0, 0);
     } else {
       // Default: today
       start = new Date();
@@ -48,20 +64,93 @@ export async function GET(req: NextRequest) {
       end.setDate(start.getDate() + 1);
     }
 
-    const results: Array<Record<string, unknown>> = [];
+    // I17: Run all 5 DB queries in parallel using Promise.all
+    const [projectTasks, trainingAssignments, meetingAttendees, leaves, approvals] = await Promise.all([
+      // 1. Project Tasks
+      db.task.findMany({
+        where: {
+          assignedTo: userId,
+          deadline: { gte: start, lt: end },
+          status: { notIn: ["DONE"] },
+        },
+        include: {
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { deadline: "asc" },
+        take: 100, // W51: Cap results
+      }),
 
-    // 1. Project Tasks
-    const projectTasks = await db.task.findMany({
-      where: {
-        assignedTo: userId,
-        deadline: { gte: start, lt: end },
-        status: { notIn: ["DONE"] },
-      },
-      include: {
-        project: { select: { id: true, name: true } },
-      },
-      orderBy: { deadline: "asc" },
-    });
+      // 2. Training Assignments
+      db.trainingAssignment.findMany({
+        where: {
+          assignedTo: userId,
+          status: { notIn: ["COMPLETED", "PASSED", "FAILED"] },
+          createdAt: { lte: end },
+          OR: [
+            { dueDate: { gte: start } },
+            { dueDate: null },
+          ],
+        },
+        include: {
+          document: { select: { id: true, topic: true } },
+        },
+        orderBy: { dueDate: "asc" },
+        take: 100, // W51: Cap results
+      }),
+
+      // 3. Meetings (via MeetingAttendee)
+      db.meetingAttendee.findMany({
+        where: {
+          userId,
+          meeting: {
+            date: { gte: start, lt: end },
+            status: { notIn: ["COMPLETED", "CANCELLED"] },
+          },
+        },
+        include: {
+          meeting: {
+            include: {
+              organizer: { select: { id: true, name: true } },
+              project: { select: { id: true, name: true } },
+            },
+          },
+        },
+        take: 100, // W51: Cap results
+      }),
+
+      // 4. Leaves
+      db.leave.findMany({
+        where: {
+          userId,
+          status: "APPROVED",
+          startDate: { lte: end },
+          endDate: { gte: start },
+        },
+        orderBy: { startDate: "asc" },
+        take: 100, // W51: Cap results
+      }),
+
+      // 5. Approvals (where user is requester or approver)
+      db.approval.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { requesterId: userId },
+                { approvedById: userId },
+              ],
+            },
+            {
+              status: "PENDING",
+            },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+    ]);
+
+    const results: Array<Record<string, unknown>> = [];
 
     for (const t of projectTasks) {
       results.push({
@@ -77,26 +166,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 3. Training Assignments — show on ALL days from assignment to due date (or today if ongoing)
-    // FIX Error 4: Changed from matching only dueDate to overlapping date range
-    const trainingAssignments = await db.trainingAssignment.findMany({
-      where: {
-        assignedTo: userId,
-        status: { notIn: ["COMPLETED", "PASSED", "FAILED"] },
-        // Show if: assignment was created before the end of the view AND
-        // (due date is after the start of the view OR due date is null)
-        createdAt: { lte: end },
-        OR: [
-          { dueDate: { gte: start } },
-          { dueDate: null },
-        ],
-      },
-      include: {
-        document: { select: { id: true, topic: true } },
-      },
-      orderBy: { dueDate: "asc" },
-    });
-
     for (const t of trainingAssignments) {
       results.push({
         id: t.id,
@@ -110,25 +179,6 @@ export async function GET(req: NextRequest) {
         startDate: t.createdAt.toISOString(),
       });
     }
-
-    // 4. Meetings (via MeetingAttendee)
-    const meetingAttendees = await db.meetingAttendee.findMany({
-      where: {
-        userId,
-        meeting: {
-          date: { gte: start, lt: end },
-          status: { notIn: ["COMPLETED", "CANCELLED"] },
-        },
-      },
-      include: {
-        meeting: {
-          include: {
-            organizer: { select: { id: true, name: true } },
-            project: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
 
     for (const ma of meetingAttendees) {
       const m = ma.meeting;
@@ -149,17 +199,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 5. Leaves
-    const leaves = await db.leave.findMany({
-      where: {
-        userId,
-        status: "APPROVED",
-        startDate: { lte: end },
-        endDate: { gte: start },
-      },
-      orderBy: { startDate: "asc" },
-    });
-
     for (const l of leaves) {
       results.push({
         id: l.id,
@@ -173,26 +212,6 @@ export async function GET(req: NextRequest) {
         endDate: l.endDate.toISOString(),
       });
     }
-
-    // 6. Approvals (where user is requester or approver)
-    // BUG #5 FIX: Show ALL pending approvals, not just ones created on selected date
-    const approvals = await db.approval.findMany({
-      where: {
-        AND: [
-          {
-            OR: [
-              { requesterId: userId },
-              { approvedById: userId },
-            ],
-          },
-          {
-            status: "PENDING",
-          },
-        ],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20, // Limit to prevent overwhelming the timetable
-    });
 
     for (const a of approvals) {
       results.push({

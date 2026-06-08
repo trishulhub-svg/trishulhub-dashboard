@@ -23,9 +23,10 @@ async function columnExists(table: string, column: string): Promise<boolean> {
 /** Helper: check if a table exists */
 async function tableExists(table: string): Promise<boolean> {
   try {
-    const result: any[] = await db.$queryRawUnsafe(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='${table}'`
-    );
+    const result = await db.$queryRawUnsafe(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+      table
+    ) as any[];
     return result.length > 0;
   } catch {
     return false;
@@ -56,8 +57,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] ProtocolVersion table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create ProtocolVersion:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create ProtocolVersion:", msg);
     }
   }
 
@@ -84,8 +86,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] ProtocolInvite table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create ProtocolInvite:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create ProtocolInvite:", msg);
     }
   } else if (!(await columnExists("ProtocolInvite", "protocolId"))) {
     // Schema fix: old table had "protocolVersionId" instead of "protocolId"
@@ -112,8 +115,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] ProtocolInvite recreated with correct schema.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to recreate ProtocolInvite:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to recreate ProtocolInvite:", msg);
     }
   } else if (!(await columnExists("ProtocolInvite", "usedBy"))) {
     // Schema fix: missing "usedBy" column — add it
@@ -121,8 +125,9 @@ export async function ensureProtocolTables(): Promise<void> {
     try {
       await db.$executeRawUnsafe(`ALTER TABLE "ProtocolInvite" ADD COLUMN "usedBy" TEXT`);
       console.log("[protocol] ProtocolInvite 'usedBy' column added.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to add usedBy column:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to add usedBy column:", msg);
     }
   }
 
@@ -142,8 +147,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] ProtocolAccessLog table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create ProtocolAccessLog:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create ProtocolAccessLog:", msg);
     }
   } else if (!(await columnExists("ProtocolAccessLog", "protocolId"))) {
     // Schema fix: old table had wrong columns (userId, action, userAgent)
@@ -162,8 +168,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] ProtocolAccessLog recreated with correct schema.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to recreate ProtocolAccessLog:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to recreate ProtocolAccessLog:", msg);
     }
   }
 
@@ -189,8 +196,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] UserProtocolAccess table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create UserProtocolAccess:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create UserProtocolAccess:", msg);
     }
   } else if (!(await columnExists("UserProtocolAccess", "protocolId"))) {
     // Schema fix: old table was missing protocolId and had inviteId instead
@@ -215,8 +223,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] UserProtocolAccess recreated with correct schema.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to recreate UserProtocolAccess:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to recreate UserProtocolAccess:", msg);
     }
   }
 
@@ -226,8 +235,9 @@ export async function ensureProtocolTables(): Promise<void> {
     try {
       await db.$executeRawUnsafe(`ALTER TABLE "ProtocolVersion" ADD COLUMN "downloadEnabled" BOOLEAN NOT NULL DEFAULT true`);
       console.log("[protocol] ProtocolVersion 'downloadEnabled' column added.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to add downloadEnabled column:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to add downloadEnabled column:", msg);
     }
   }
 
@@ -256,8 +266,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] TaskGitConfig table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create TaskGitConfig:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create TaskGitConfig:", msg);
     }
   }
 
@@ -267,8 +278,9 @@ export async function ensureProtocolTables(): Promise<void> {
     try {
       await db.$executeRawUnsafe(`ALTER TABLE "TaskGitConfig" ADD COLUMN "encryptionKey" TEXT NOT NULL DEFAULT ''`);
       console.log("[protocol] TaskGitConfig 'encryptionKey' column added.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to add encryptionKey column:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to add encryptionKey column:", msg);
     }
   }
 
@@ -287,8 +299,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] WorkspaceConfig table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create WorkspaceConfig:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create WorkspaceConfig:", msg);
     }
   }
 
@@ -308,8 +321,9 @@ export async function ensureProtocolTables(): Promise<void> {
         )
       `);
       console.log("[protocol] UserCode table created.");
-    } catch (err: any) {
-      console.error("[protocol] Failed to create UserCode:", err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[protocol] Failed to create UserCode:", msg);
     }
   }
 }
