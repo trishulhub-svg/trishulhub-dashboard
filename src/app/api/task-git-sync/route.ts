@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
       `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
       configId
     );
+    // TODO: Pass key as parameter to decrypt()/encrypt() and remove process.env mutation (C7)
     if (keyRow.length > 0 && keyRow[0].encryptionKey) {
       process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
     }

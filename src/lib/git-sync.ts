@@ -14,8 +14,18 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * Generate a unique slug for a project by appending a short ID suffix.
+ * W12: Handles non-Latin names that produce empty slugs.
+ * W13: Appends ID suffix to prevent slug collisions.
+ */
+function uniqueSlug(name: string, id: string): string {
+  const base = slugify(name) || name.toLowerCase().replace(/\s+/g, "-") || id.slice(0, 8);
+  return `${base}-${id.slice(-6)}`;
+}
+
 /** Parse a GitHub repo URL into { owner, repo } */
-function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
+export function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   try {
     // Supports: https://github.com/owner/repo, git@github.com:owner/repo.git, owner/repo
     const httpsMatch = repoUrl.match(
@@ -47,6 +57,10 @@ async function githubGet(
   branch: string,
 ): Promise<{ ok: boolean; data?: any; error?: string }> {
   try {
+    // W17: Validate branch name — prevent injection in URL
+    if (!/^[a-zA-Z0-9._/-]+$/.test(branch)) {
+      return { ok: false, error: "Invalid branch name" };
+    }
     const url = path
       ? `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${branch}`
       : `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
@@ -216,9 +230,11 @@ export async function testGitConnection(config: {
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
     } catch (err: any) {
+      // C8: Return generic error to caller — don't reveal crypto internals
+      console.error("[git-sync] Decrypt failed:", err);
       return {
         success: false,
-        error: `Failed to decrypt token: ${err?.message || String(err)}`,
+        error: "Authentication configuration error. Check encryption settings.",
       };
     }
 
@@ -333,24 +349,31 @@ export async function syncTasksToGit(): Promise<{
       return { success: false, error: "Repository URL not configured" };
     }
 
-    // ── 1.5 DEDUPLICATION: skip if a sync is already running or completed recently ──
+    // ── 1.5 DEDUPLICATION: atomic CAS to prevent concurrent syncs (C7) ──
+    // Rate limit: skip if recently synced successfully (optimization, non-atomic)
     const lastStatus = config.lastSyncStatus as string | null;
     const lastSync = config.lastSyncAt ? new Date(config.lastSyncAt) : null;
     const now = Date.now();
-
-    if (lastStatus === 'PENDING' && lastSync && (now - lastSync.getTime()) < 60000) {
-      console.log("[git-sync] Sync already in progress (PENDING < 60s ago) — skipping");
-      return { success: true, filesUpdated: 0, error: "Sync already in progress" };
-    }
 
     if (lastStatus === 'SUCCESS' && lastSync && (now - lastSync.getTime()) < 15000) {
       console.log("[git-sync] Sync completed recently (< 15s ago) — skipping to avoid API rate limits");
       return { success: true, filesUpdated: 0, error: "Recently synced" };
     }
 
+    // Atomic CAS: claim sync slot only if not currently PENDING or PENDING > 60s ago
+    const casResult = await db.$executeRawUnsafe(
+      `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'PENDING', "lastSyncAt" = ? WHERE id = ? AND ("lastSyncStatus" != 'PENDING' OR "lastSyncAt" < datetime('now', '-60 seconds'))`,
+      new Date().toISOString(),
+      config.id
+    ) as number;
+
+    if (!casResult || casResult === 0) {
+      console.log("[git-sync] Sync already in progress (atomic CAS) — skipping");
+      return { success: true, filesUpdated: 0, error: "Sync already in progress" };
+    }
+
     // ── 2. Load encryption key from DB if stored ────────────────────────
-    //    The saveConfig route stores the key in DB. We must load it here
-    //    so that decrypt() can find it in process.env.ENCRYPTION_KEY.
+    // C6: TODO: Remove process.env mutation from callers — pass key as parameter to decrypt()/encrypt()
     if (config.encryptionKey && config.encryptionKey.length === 64) {
       process.env.ENCRYPTION_KEY = config.encryptionKey;
       console.log("[git-sync] Loaded encryption key from DB config");
@@ -361,8 +384,8 @@ export async function syncTasksToGit(): Promise<{
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
     } catch (err: any) {
-      const errMsg = `Failed to decrypt token: ${err?.message || String(err)}`;
-      console.error(`[git-sync] ${errMsg}`);
+      const errMsg = "Failed to decrypt token. Check encryption settings.";
+      console.error(`[git-sync] Decrypt failed:`, err);
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
         errMsg,
@@ -397,6 +420,18 @@ export async function syncTasksToGit(): Promise<{
 
     const { owner, repo } = parsed;
     const branch = config.branch || "main";
+
+    // W17: Validate branch name — prevent injection in GitHub API URLs
+    if (!/^[a-zA-Z0-9._/-]+$/.test(branch)) {
+      const errMsg = `Invalid branch name: "${branch}"`;
+      console.error(`[git-sync] ${errMsg}`);
+      await db.$executeRawUnsafe(
+        `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+        errMsg,
+        config.id
+      );
+      return { success: false, error: errMsg };
+    }
 
     // ── 4.5 FIRST-TIME SYNC: cleanup existing repo content ────────────────
     //    Uses Git Trees API for instant cleanup (1 commit, no file-by-file).
@@ -453,13 +488,15 @@ export async function syncTasksToGit(): Promise<{
     }
 
     // ── 7. Query tasks (with assignee details) ─────────────────────────────
+    // W14: Also join Agent table for AI-assigned tasks (LEFT JOIN on User alone returns NULL)
     let tasks: any[];
     try {
       tasks = await db.$queryRawUnsafe(
         `SELECT t.id, t.title, t.description, t."projectId", t."assignedTo", t."assigneeType", t.status, t.priority, t.deadline, t."completedAt", t."approvedBy", t."approvedAt", t."createdAt", t."updatedAt",
-                u.name as "assigneeName", u.id as "assigneeId"
+                COALESCE(u.name, a.name) as "assigneeName", t."assignedTo" as "assigneeId"
          FROM "Task" t
-         LEFT JOIN "User" u ON t."assignedTo" = u.id`
+         LEFT JOIN "User" u ON t."assignedTo" = u.id AND t."assigneeType" = 'HUMAN'
+         LEFT JOIN "Agent" a ON t."assignedTo" = a.id AND t."assigneeType" = 'AI'`
       );
     } catch (err: any) {
       const errMsg = `Failed to query tasks: ${err?.message || String(err)}`;
@@ -516,7 +553,7 @@ export async function syncTasksToGit(): Promise<{
 
     // ── 9. Build and push projects/index.json ─────────────────────────────
     const indexProjects = projects.map((p: any) => {
-      const slug = slugify(p.name) || p.id;
+      const slug = uniqueSlug(p.name, p.id);
       const projectTasks = tasksByProject.get(p.id) || [];
       const projectTeam = teamByProject.get(p.id) || [];
       return {
@@ -566,7 +603,7 @@ export async function syncTasksToGit(): Promise<{
 
     // ── 10. Push individual project files ──────────────────────────────────
     for (const project of projects) {
-      const slug = slugify(project.name) || project.id;
+      const slug = uniqueSlug(project.name, project.id);
       const projectTasks = tasksByProject.get(project.id) || [];
       const projectTeam = teamByProject.get(project.id) || [];
 

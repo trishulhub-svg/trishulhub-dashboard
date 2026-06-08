@@ -1,8 +1,10 @@
+import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { encrypt } from "@/lib/encryption";
+import { parseRepoUrl } from "@/lib/git-sync";
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
@@ -62,13 +64,13 @@ export async function GET(request: NextRequest) {
     const row = rows[0];
     return NextResponse.json({
       repoUrl: row.repoUrl || "",
-      tokenMasked: "••••••••",
+      tokenMasked: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
       branch: row.branch || "main",
       isEnabled: !!row.isEnabled,
       lastSyncAt: row.lastSyncAt || null,
       lastSyncStatus: row.lastSyncStatus || null,
       lastSyncError: row.lastSyncError || null,
-      encryptionKeyMasked: row.encryptionKey ? "••••••••••••••••••••" : "",
+      encryptionKeyMasked: row.encryptionKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "",
       hasEncryptionKey: !!(row.encryptionKey || process.env.ENCRYPTION_KEY),
     });
   } catch (error: any) {
@@ -102,6 +104,16 @@ async function saveConfig(request: NextRequest) {
       return NextResponse.json({ error: "Repository URL and access token are required" }, { status: 400 });
     }
 
+    // W9: Validate repoUrl format before saving
+    const parsed = parseRepoUrl(repoUrl);
+    if (!parsed) {
+      return NextResponse.json(
+        { error: "Invalid GitHub repository URL. Expected: https://github.com/owner/repo or owner/repo" },
+        { status: 400 }
+      );
+    }
+
+    // TODO: Pass key as parameter instead of mutating process.env (C7)
     // Use DB-stored encryption key if available
     const configCheck: any[] = await db.$queryRawUnsafe(
       `SELECT "encryptionKey" FROM "TaskGitConfig" LIMIT 1`
@@ -122,16 +134,7 @@ async function saveConfig(request: NextRequest) {
       );
     }
 
-    // Parse owner/repo from URL
-    let repoOwner = "";
-    let repoName = "";
-    try {
-      const urlMatch = repoUrl.match(/\/([^/]+)\/([^/]+?)(\.git)?$/);
-      if (urlMatch) {
-        repoOwner = urlMatch[1];
-        repoName = urlMatch[2].replace(/\.git$/, "");
-      }
-    } catch { /* ignore */ }
+    const { owner: repoOwner, repo: repoName } = parsed;
 
     // Auto-detect default branch from GitHub
     let detectedBranch = "main";
@@ -251,7 +254,7 @@ export async function PATCH(request: NextRequest) {
           const oldEnc = configRow[0].tokenEncrypted;
 
           if (oldIv && oldTag && oldEnc && oldKey && oldKey.length === 64) {
-            const crypto = require("crypto");
+            // I11: Use top-level import instead of require inside async function
             const keyBuffer = Buffer.from(oldKey, "hex");
             const ivBuffer = Buffer.from(oldIv, "base64");
             const tagBuffer = Buffer.from(oldTag, "base64");
@@ -267,11 +270,11 @@ export async function PATCH(request: NextRequest) {
         }
       }
 
-      // Set new key in process.env
-      process.env.ENCRYPTION_KEY = newKey;
-
-      // Re-encrypt git token with new key if needed
+      // W28: Only re-encrypt if needed, and DON'T save new key if re-encryption fails
+      // This prevents permanent data loss if re-encryption fails mid-operation
       if (needsReEncrypt && plainToken) {
+        const previousKey = process.env.ENCRYPTION_KEY;
+        process.env.ENCRYPTION_KEY = newKey;
         try {
           const { encrypt: encryptFn } = await import("@/lib/encryption");
           const reEncrypted = encryptFn(plainToken);
@@ -283,9 +286,19 @@ export async function PATCH(request: NextRequest) {
             existing[0].id
           );
         } catch (err: any) {
-          console.error("[task-git-config] Failed to re-encrypt git token:", err?.message);
+          // Re-encryption failed — revert to old key to prevent permanent data loss
+          process.env.ENCRYPTION_KEY = previousKey;
+          console.error("[task-git-config] Failed to re-encrypt git token with new key:", err?.message);
+          return NextResponse.json(
+            { error: "Failed to re-encrypt git token with new key. Old encryption key preserved to prevent data loss." },
+            { status: 500 }
+          );
         }
       }
+
+      // Set new key (only reached if re-encryption succeeded or wasn't needed)
+      // TODO: Pass key as parameter instead of mutating process.env (C7)
+      process.env.ENCRYPTION_KEY = newKey;
 
       // Store the new key in DB
       await db.$executeRawUnsafe(
@@ -298,6 +311,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (triggerSync) {
+      // TODO: Pass key as parameter instead of mutating process.env (C7)
       // Load encryption key from DB before triggering sync
       const keyRow: any[] = await db.$queryRawUnsafe(
         `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
