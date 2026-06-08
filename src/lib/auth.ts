@@ -15,6 +15,55 @@ const isDev = process.env.NODE_ENV === "development"
 const log = isDev ? console.log.bind(console) : () => {}
 const logError = console.error.bind(console) // always log errors
 
+// ── In-memory brute-force protection for login attempts ──
+// Tracks failed login attempts per email to prevent credential stuffing.
+// NOTE: On Vercel serverless, this Map is per-instance and gets reset on cold start.
+// For production-scale protection, consider a Redis-based rate limiter.
+const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
+
+const RATE_LIMIT_5_THRESHOLD = 5
+const RATE_LIMIT_5_COOLDOWN_MS = 30 * 1000   // 30 seconds
+const RATE_LIMIT_20_THRESHOLD = 20
+const RATE_LIMIT_20_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+const RATE_LIMIT_CLEANUP_MS = 5 * 60 * 1000     // 5 minutes
+
+function isRateLimited(email: string): boolean {
+  const now = Date.now()
+  const attempts = failedAttempts.get(email)
+  if (!attempts) return false
+
+  const elapsed = now - attempts.lastAttempt
+
+  if (attempts.count >= RATE_LIMIT_20_THRESHOLD && elapsed < RATE_LIMIT_20_COOLDOWN_MS) {
+    console.warn(`[auth] Rate limited (${attempts.count} attempts, 5min cooldown): ${email}`)
+    return true
+  }
+
+  if (attempts.count >= RATE_LIMIT_5_THRESHOLD && elapsed < RATE_LIMIT_5_COOLDOWN_MS) {
+    console.warn(`[auth] Rate limited (${attempts.count} attempts, 30s cooldown): ${email}`)
+    return true
+  }
+
+  return false
+}
+
+function trackFailedAttempt(email: string): void {
+  const now = Date.now()
+  const existing = failedAttempts.get(email) || { count: 0, lastAttempt: 0 }
+  existing.count++
+  existing.lastAttempt = now
+  failedAttempts.set(email, existing)
+
+  // Periodic cleanup of stale entries (probabilistic to avoid overhead)
+  if (Math.random() < 0.1) {
+    for (const [key, val] of failedAttempts) {
+      if (now - val.lastAttempt > RATE_LIMIT_CLEANUP_MS) {
+        failedAttempts.delete(key)
+      }
+    }
+  }
+}
+
 // Debug: Log auth configuration on module load
 log("[auth] Module loaded")
 log("[auth] NEXTAUTH_URL:", process.env.NEXTAUTH_URL || "NOT SET (trustHost will auto-detect)")
@@ -38,22 +87,32 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
+        const email = credentials.email
+
+        // ── Brute-force / rate limiting check ──
+        // Returns null (same as invalid credentials) to avoid revealing rate limiting.
+        if (isRateLimited(email)) {
+          return null
+        }
+
         try {
           // Test database connection first
           log("[auth] Attempting database lookup...")
           const user = await db.user.findUnique({
-            where: { email: credentials.email },
+            where: { email },
           })
 
           log("[auth] User found:", user ? `id=${user.id}, role=${user.role}, active=${user.isActive}` : "NOT FOUND")
 
           if (!user) {
-            log("[auth] No user found with email:", credentials.email)
+            log("[auth] No user found with email:", email)
+            trackFailedAttempt(email)
             return null
           }
 
           if (!user.isActive) {
-            log("[auth] User account is deactivated:", credentials.email)
+            log("[auth] User account is deactivated:", email)
+            trackFailedAttempt(email)
             return null
           }
 
@@ -62,11 +121,12 @@ export const authOptions: NextAuthOptions = {
           log("[auth] Password valid:", isValid)
 
           if (!isValid) {
-            log("[auth] Invalid password for:", credentials.email)
+            log("[auth] Invalid password for:", email)
+            trackFailedAttempt(email)
             return null
           }
 
-          log("[auth] Authorization successful for:", credentials.email)
+          log("[auth] Authorization successful for:", email)
           return {
             id: user.id,
             email: user.email,
@@ -74,7 +134,9 @@ export const authOptions: NextAuthOptions = {
             role: user.role as UserRole,
           }
         } catch (error: unknown) {
-          logError("[auth] Authorize error:", error instanceof Error ? error.message : String(error))
+          const errMsg = error instanceof Error ? error.message : String(error)
+          logError(`[auth] Authorize error for ${email}: ${errMsg}`)
+          trackFailedAttempt(email)
           return null
         }
       },
@@ -98,9 +160,11 @@ export const authOptions: NextAuthOptions = {
           token.sessionToken = sessionToken
           log("[auth] Session token stored for user:", user.id)
         } catch (err) {
-          logError("[auth] Failed to store session token:", err)
-          // Don't set token.sessionToken — single-device enforcement disabled gracefully
-          // User can still log in, just without single-device enforcement
+          logError("[auth] Failed to store session token for user", user.id, "— single-device enforcement DEGRADED:", err)
+          // Don't set token.sessionToken — single-device enforcement disabled gracefully.
+          // The userId && currentToken guard in the JWT callback will skip validation,
+          // so the user can still log in but won't have single-device enforcement.
+          console.warn(`[auth] Single-device enforcement is DEGRADED for user ${user.id}. Monitor DB health.`)
         }
 
         return token

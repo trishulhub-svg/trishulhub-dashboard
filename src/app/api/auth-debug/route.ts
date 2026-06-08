@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
-// SECURITY FIX: Auth debug endpoint is now SUPER_ADMIN only.
+// SECURITY FIX: Auth debug endpoint is now SUPER_ADMIN only and development-only.
 // Previously allowed any authenticated user to test credentials (credential oracle attack).
 // In development mode, still requires SUPER_ADMIN role.
 export async function POST(request: Request) {
+  if (process.env.NODE_ENV !== 'development') {
+    return NextResponse.json({ error: "This endpoint is only available in development" }, { status: 403 })
+  }
+
   const session = await getServerSession(authOptions)
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -79,8 +83,12 @@ export async function POST(request: Request) {
   }
 }
 
-// GET version - SUPER_ADMIN only
+// GET version - SUPER_ADMIN only, development only
 export async function GET() {
+  if (process.env.NODE_ENV !== 'development') {
+    return NextResponse.json({ error: "This endpoint is only available in development" }, { status: 403 })
+  }
+
   const session = await getServerSession(authOptions)
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

@@ -1,11 +1,12 @@
 // Cron: Execute Scheduled Tasks Automatically (1AM-5AM)
 // Finds PENDING tasks with past due dates and executes them via the agent's agentic loop
-// Secured with CRON_SECRET env var
+// Secured with CRON_SECRET env var + Vercel internal header verification
 // Also supports executing a SINGLE task by ID (for "Execute Now" feature)
 //
 // AUTHENTICATION:
 // - Vercel Cron Jobs send a GET request with an "Authorization: Bearer <CRON_SECRET>" header
-//   (configured in vercel.json headers section which Vercel injects for cron invocations)
+//   CRON_SECRET is read from process.env (never hardcoded in config files)
+// - Dual validation: CRON_SECRET + Vercel internal headers (x-vercel-id / x-vercel-forwarded-for)
 // - Manual "Execute Now" from UI uses session-based auth (GET with admin session)
 // - If CRON_SECRET is not set, the endpoint returns 500 (prevents accidental open access)
 
@@ -14,33 +15,53 @@ import { db } from "@/lib/db"
 import { runAgentLoop } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
 
+// ── Helper: Reset tasks stuck in IN_PROGRESS for more than 30 minutes ──
+async function resetStaleTasks(): Promise<number> {
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000)
+  const result = await db.scheduledTask.updateMany({
+    where: {
+      status: "IN_PROGRESS",
+      updatedAt: { lte: thirtyMinutesAgo },
+    },
+    data: {
+      status: "PENDING",
+      progress: 0,
+      result: "Auto-reset: task was IN_PROGRESS for more than 30 minutes (stale). Ready for retry.",
+    },
+  })
+  if (result.count > 0) {
+    console.log(`[cron] Reset ${result.count} stale IN_PROGRESS tasks to PENDING`)
+  }
+  return result.count
+}
+
 // ── Helper: Verify cron request is authorized ──
-// ⚠️ SECURITY NOTE: vercel.json hardcodes the cron secret as "cron-trishulhub-secret-2024"
-// because Vercel does not support env var references in that config. This secret MUST be
-// rotated periodically and kept in sync with the CRON_SECRET environment variable.
-// The handler validates incoming headers against process.env.CRON_SECRET.
+// Dual validation: CRON_SECRET from env + Vercel internal headers
 function isCronAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
 
   // If CRON_SECRET is not configured, block all cron access and log a warning
   if (!cronSecret) {
-    console.warn("[cron] ⚠️ CRON_SECRET environment variable is not set. Cron endpoint is inaccessible. Set CRON_SECRET to match the value in vercel.json headers config.")
+    console.warn("[cron] ⚠️ CRON_SECRET environment variable is not set. Cron endpoint is inaccessible. Set CRON_SECRET to enable automated task execution.")
     return false
   }
 
-  // Check Authorization header (sent by Vercel cron via vercel.json headers config)
+  // Check 1: Authorization header (Bearer token matching CRON_SECRET)
   const authHeader = req.headers.get("authorization")
-  if (authHeader === `Bearer ${cronSecret}`) return true
+  const hasValidSecret = authHeader === `Bearer ${cronSecret}`
 
-  // Also check custom header approach (alternative: set via vercel.json)
-  const customHeader = req.headers.get("x-cron-secret")
-  if (customHeader === cronSecret) return true
+  // Check 2: Vercel internal headers (proves request originated from Vercel platform)
+  const hasVercelHeader = req.headers.get("x-vercel-id") !== null
+    || req.headers.get("x-vercel-forwarded-for") !== null
+
+  // Both checks must pass for cron authorization
+  if (hasValidSecret && hasVercelHeader) return true
 
   return false
 }
 
 // ── Helper: Execute a single scheduled task ──
-async function executeSingleTask(taskId: string): Promise<{ success: boolean; result?: string; error?: string }> {
+async function executeSingleTask(taskId: string, executionSource: string): Promise<{ success: boolean; result?: string; error?: string }> {
   const task = await db.scheduledTask.findUnique({
     where: { id: taskId },
     include: { agent: { include: { roleConfig: true } } },
@@ -52,7 +73,7 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
   }
 
   try {
-    // Update task to IN_PROGRESS
+    // Update task to IN_PROGRESS with execution source
     await db.scheduledTask.update({
       where: { id: task.id },
       data: { status: "IN_PROGRESS", progress: 10 },
@@ -107,7 +128,7 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
       tools,
     })
 
-    // Update task as completed with results
+    // Update task as completed with results and execution source
     await db.scheduledTask.update({
       where: { id: task.id },
       data: {
@@ -118,6 +139,8 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
       },
     })
 
+    console.log(`[cron] Task ${task.id} completed successfully [source: ${executionSource}]`)
+
     // Notify the user who scheduled this task
     try {
       await db.notification.create({
@@ -127,7 +150,7 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
           message: `"${task.title}" has been completed by ${task.agent.name}. Check the results!`,
           type: "SUCCESS",
           link: `/dashboard/agents`,
-          metadata: JSON.stringify({ taskId: task.id, agentId: task.agentId }),
+          metadata: JSON.stringify({ taskId: task.id, agentId: task.agentId, executionSource }),
         }
       })
     } catch (notifErr) {
@@ -154,7 +177,7 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
 
     return { success: true, result: agentResult.finalResponse }
   } catch (error: any) {
-    console.error(`[cron] Task ${task.id} failed:`, error.message)
+    console.error(`[cron] Task ${task.id} failed [source: ${executionSource}]:`, error.message)
 
     // Reset to PENDING so it can be retried next cron run
     await db.scheduledTask.update({
@@ -172,14 +195,19 @@ async function executeSingleTask(taskId: string): Promise<{ success: boolean; re
 }
 
 // ── Core execution logic (shared by GET and POST) ──
-async function handleCronExecution(req: NextRequest, isManualUI: boolean = false) {
+async function handleCronExecution(req: NextRequest, isManualUI: boolean, executionSource: string) {
+  // Reset any tasks stuck in IN_PROGRESS for more than 30 minutes
+  await resetStaleTasks()
+
+  console.log(`[cron] Execution started [source: ${executionSource}]`)
+
   const body = isManualUI ? {} : await req.json().catch(() => ({}))
 
   // Execute a specific task by ID (for "Execute Now" feature)
   const taskId = isManualUI ? new URL(req.url).searchParams.get("taskId") : body?.taskId
   if (taskId) {
-    const result = await executeSingleTask(taskId)
-    return NextResponse.json(result)
+    const result = await executeSingleTask(taskId, executionSource)
+    return NextResponse.json({ ...result, executionSource })
   }
 
   // Bulk cron execution - find all PENDING tasks with past due dates
@@ -192,19 +220,20 @@ async function handleCronExecution(req: NextRequest, isManualUI: boolean = false
   })
 
   if (pendingTasks.length === 0) {
-    return NextResponse.json({ message: "No pending tasks to execute", executed: 0 })
+    return NextResponse.json({ message: "No pending tasks to execute", executed: 0, executionSource })
   }
 
   const results: Array<{ taskId: string; title: string; success: boolean; error?: string }> = []
 
   for (const task of pendingTasks) {
-    const result = await executeSingleTask(task.id)
+    const result = await executeSingleTask(task.id, executionSource)
     results.push({ taskId: task.id, title: task.title, success: result.success, error: result.error })
   }
 
   return NextResponse.json({
     message: `Executed ${results.length} tasks`,
     executed: results.length,
+    executionSource,
     results,
   })
 }
@@ -212,9 +241,9 @@ async function handleCronExecution(req: NextRequest, isManualUI: boolean = false
 // ── GET handler: Used by Vercel Cron Jobs AND manual UI trigger ──
 export async function GET(req: NextRequest) {
   try {
-    // FIRST: Check if this is a Vercel Cron request (with CRON_SECRET header)
+    // FIRST: Check if this is a Vercel Cron request (CRON_SECRET + Vercel headers)
     if (isCronAuthorized(req)) {
-      return await handleCronExecution(req, false)
+      return await handleCronExecution(req, false, "cron")
     }
 
     // SECOND: Check if this is a manual request from the UI (session-based auth)
@@ -232,7 +261,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Manual UI trigger — session-authenticated admin
-    return await handleCronExecution(req, true)
+    const executionSource = `manual:${session.user.id}`
+    return await handleCronExecution(req, true, executionSource)
   } catch (error: any) {
     console.error("[cron/execute-tasks] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -242,7 +272,7 @@ export async function GET(req: NextRequest) {
 // ── POST handler: External cron services or custom triggers ──
 export async function POST(req: NextRequest) {
   try {
-    // Must have CRON_SECRET to use POST endpoint
+    // Must have CRON_SECRET + Vercel headers to use POST endpoint
     if (!isCronAuthorized(req)) {
       const cronSecret = process.env.CRON_SECRET
       if (!cronSecret) {
@@ -254,7 +284,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    return await handleCronExecution(req, false)
+    return await handleCronExecution(req, false, "cron")
   } catch (error: any) {
     console.error("[cron/execute-tasks] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

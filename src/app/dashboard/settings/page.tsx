@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
-  Settings, User, Bell, Palette, Shield, Bot, Moon, Sun, Monitor,
+  Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
   Users, UserPlus, Loader2, Pencil, Trash2, CheckCircle2, XCircle,
   Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
 } from "lucide-react";
@@ -227,20 +227,20 @@ export default function SettingsPage() {
   const isSuperAdminOnly = isSuperAdmin; // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
   // ── Refs for OTP auto-submit handlers (avoids stale closures + dep loops) ──
-  const handlePasswordVerifyOtpRef = useRef<() => void>(null!);
-  const handleVerifyOTPRef = useRef<() => void>(null!);
+  const handlePasswordVerifyOtpRef = useRef<(() => void) | null>(null);
+  const handleVerifyOTPRef = useRef<(() => void) | null>(null);
 
   // Auto-submit password OTP when 6 digits entered
   useEffect(() => {
     if (passwordOtpSent && passwordOtpCode.length === 6 && !changingPassword) {
-      handlePasswordVerifyOtpRef.current();
+      handlePasswordVerifyOtpRef.current?.();
     }
   }, [passwordOtpCode, passwordOtpSent, changingPassword]);
 
   // Auto-submit email change OTP when 6 digits entered
   useEffect(() => {
     if (otpSent && otpCode.length === 6 && !emailChangeLoading) {
-      handleVerifyOTPRef.current();
+      handleVerifyOTPRef.current?.();
     }
   }, [otpCode, otpSent, emailChangeLoading]);
 
@@ -249,16 +249,19 @@ export default function SettingsPage() {
     if (session?.user?.name) setName(session.user.name);
   }, [session?.user?.name]);
 
+  // Track any form modification for beforeunload warning
+  const isDirtyRef = useRef(false);
+
   // Warn before leaving with unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (name !== session?.user?.name) {
+      if (isDirtyRef.current) {
         e.preventDefault();
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [name, session?.user?.name]);
+  }, []);
 
   // ── Fetch Notification Preferences ──
   const fetchPrefs = useCallback(async () => {
@@ -287,6 +290,8 @@ export default function SettingsPage() {
   }, []);
 
   const savePrefs = useCallback(async (key: string, value: boolean | string | null) => {
+    const oldValue = prefs[key];
+    isDirtyRef.current = true;
     setPrefs(prev => ({ ...prev, [key]: value }));
     setPrefsSaving(true);
     try {
@@ -297,14 +302,15 @@ export default function SettingsPage() {
         body: JSON.stringify({ [key]: value }),
       });
       if (!res.ok) {
+        setPrefs(prev => ({ ...prev, [key]: oldValue }));
         toast.error("Failed to save preference");
       }
     } catch {
-      toast.error("Failed to save preference");
+      setPrefs(prev => ({ ...prev, [key]: oldValue }));
     } finally {
       setPrefsSaving(false);
     }
-  }, []);
+  }, [prefs]);
 
   useEffect(() => {
     fetchPrefs();
@@ -492,6 +498,7 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
+    if (!session?.user?.id) return;
     setSaving(true);
     try {
       const res = await fetch("/api/team", {
@@ -754,9 +761,8 @@ export default function SettingsPage() {
         setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: "TrishulHub", secure: false, isPrimary: true });
         fetchSmtpConfigs();
       } else {
-        // Show detailed error for debugging - includes backend detail if available
-        const errorDetail = data.detail ? ` (${data.detail})` : "";
-        toast.error(`${data.error || "Failed to save SMTP config"}${errorDetail}`, { duration: 8000 });
+        if (data.detail) console.warn("[settings] SMTP error detail:", data.detail);
+        toast.error(`${data.error || "Failed to save SMTP config"}`, { duration: 8000 });
       }
     } catch (err: any) {
       // Network error or timeout - likely Vercel function timeout
@@ -956,7 +962,7 @@ export default function SettingsPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs" htmlFor="profile-name">Name</Label>
-              <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)}
+              <Input id="profile-name" value={name} onChange={(e) => { setName(e.target.value); isDirtyRef.current = true; }}
                 onKeyDown={(e) => {
                   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                     handleSave();
@@ -1167,7 +1173,7 @@ export default function SettingsPage() {
               <Button
                 variant={theme === "light" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setTheme("light")}
+                onClick={() => { setTheme("light"); isDirtyRef.current = true; }}
                 className="flex-1"
               >
                 <Sun className="h-4 w-4 mr-2" /> Light
@@ -1175,7 +1181,7 @@ export default function SettingsPage() {
               <Button
                 variant={theme === "dark" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setTheme("dark")}
+                onClick={() => { setTheme("dark"); isDirtyRef.current = true; }}
                 className="flex-1"
               >
                 <Moon className="h-4 w-4 mr-2" /> Dark
@@ -1183,7 +1189,7 @@ export default function SettingsPage() {
               <Button
                 variant={theme === "system" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setTheme("system")}
+                onClick={() => { setTheme("system"); isDirtyRef.current = true; }}
                 className="flex-1"
               >
                 <Monitor className="h-4 w-4 mr-2" /> System
@@ -1191,7 +1197,7 @@ export default function SettingsPage() {
               <Button
                 variant={theme === "bluelight" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setTheme("bluelight")}
+                onClick={() => { setTheme("bluelight"); isDirtyRef.current = true; }}
                 className="flex-1"
               >
                 <Eye className="h-4 w-4 mr-2" /> Blue Light

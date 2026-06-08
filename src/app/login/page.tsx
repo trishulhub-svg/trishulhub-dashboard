@@ -63,32 +63,39 @@ function LoginForm() {
     ? rawCallbackUrl
     : "/dashboard";
 
+  function getRedirectUrl(role: string, callbackUrl: string) {
+    if (role === "CLIENT") {
+      return callbackUrl?.startsWith("/portal") ? callbackUrl : "/portal";
+    }
+    return callbackUrl || "/dashboard";
+  }
+
   // If already logged in, redirect
   useEffect(() => {
     if (status !== "authenticated" || !session) return;
 
     const role = session.user?.role;
-    if (role === "CLIENT") {
-      router.replace(callbackUrl.startsWith("/portal") ? callbackUrl : "/portal");
-    } else {
-      router.replace(callbackUrl);
-    }
+    router.replace(getRedirectUrl(role, callbackUrl));
   }, [status, session, router, callbackUrl]);
 
   // Check if database has users
   useEffect(() => {
-    fetch("/api/setup")
+    const controller = new AbortController();
+    fetch("/api/setup", { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
-        setDbReady(
-          data.status === "already_setup" || data.status === "success"
-            ? true
-            : data.status === "needs_setup"
-              ? false
-              : true // Unknown status — allow login attempt
-        );
+        if (!controller.signal.aborted) {
+          setDbReady(
+            data.status === "already_setup" || data.status === "success"
+              ? true
+              : data.status === "needs_setup"
+                ? false
+                : true // Unknown status — allow login attempt
+          );
+        }
       })
-      .catch(() => setDbReady(null)); // Network error — show checking state
+      .catch(() => { if (!controller.signal.aborted) setDbReady(null); }); // Network error — show checking state
+    return () => controller.abort();
   }, []);
 
   // While session is loading or authenticated+redirecting, show shared loading screen
@@ -98,12 +105,8 @@ function LoginForm() {
 
   if (status === "authenticated" && session) {
     // Redirect immediately if already authenticated
-    const role = (session.user as any)?.role;
-    if (role === "CLIENT") {
-      router.replace("/portal");
-    } else {
-      router.replace("/dashboard");
-    }
+    const role = session.user?.role;
+    router.replace(getRedirectUrl(role, callbackUrl));
     return <LoadingScreen message="Redirecting..." />;
   }
 
@@ -149,6 +152,7 @@ function LoginForm() {
         setLoading(false);
       } else {
         toast.success("Login successful!");
+        setLoading(false);  // Reset even on success (redirect may fail)
         setTimeout(() => router.refresh(), 300);
       }
     } catch {

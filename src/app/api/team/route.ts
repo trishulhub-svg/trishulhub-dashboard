@@ -11,6 +11,18 @@ import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 // [T4/T6] Valid role values
 const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
 
+// [W15] Helper: verify user account is still active
+async function requireActiveUser(userId: string): Promise<NextResponse | null> {
+  const currentUser = await db.user.findUnique({
+    where: { id: userId },
+    select: { isActive: true },
+  })
+  if (!currentUser?.isActive) {
+    return NextResponse.json({ error: "Account deactivated" }, { status: 403 })
+  }
+  return null
+}
+
 // GET /api/team - List team data
 export async function GET(req: NextRequest) {
   try {
@@ -25,6 +37,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    // [W15] Verify user is still active
+    const activeCheck = await requireActiveUser(session.user.id)
+    if (activeCheck) return activeCheck
+
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type")
 
@@ -34,6 +50,7 @@ export async function GET(req: NextRequest) {
       if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
+      // TODO: Add cursor-based pagination for large datasets
       const users = await db.user.findMany({
         where: { role: { not: "CLIENT" } },
         select: {
@@ -47,8 +64,9 @@ export async function GET(req: NextRequest) {
           createdAt: true,
         },
         orderBy: { name: "asc" },
+        take: 100,
       })
-      return NextResponse.json(JSON.parse(JSON.stringify(users)))
+      return NextResponse.json(users)
     }
 
     if (type === "attendance") {
@@ -61,14 +79,26 @@ export async function GET(req: NextRequest) {
       const dateFromStr = searchParams.get("from")
       const dateToStr = searchParams.get("to")
 
-      // Default: last 30 days
+      // [W12] Default: last 30 days when no explicit date provided
       const today = new Date()
-      const dateFrom = dateFromStr ? new Date(dateFromStr) : new Date(today)
-      dateFrom.setDate(dateFrom.getDate() - 30)
-      if (dateFromStr) dateFrom.setHours(0, 0, 0, 0)
+      let dateFrom: Date
+      if (dateFromStr) {
+        dateFrom = new Date(dateFromStr)
+        dateFrom.setHours(0, 0, 0, 0)
+      } else {
+        dateFrom = new Date(today)
+        dateFrom.setDate(dateFrom.getDate() - 30)
+        dateFrom.setHours(0, 0, 0, 0)
+      }
 
       const dateTo = dateToStr ? new Date(dateToStr) : new Date(today)
       dateTo.setHours(23, 59, 59, 999)
+
+      // [W13] Enforce maximum date range of 90 days
+      const rangeDays = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24))
+      if (rangeDays > 90) {
+        return NextResponse.json({ error: "Date range cannot exceed 90 days" }, { status: 400 })
+      }
 
       // 1. Fetch all active non-CLIENT users
       const activeUsers = await db.user.findMany({
@@ -289,22 +319,26 @@ export async function GET(req: NextRequest) {
       const userRole = session.user.role
       const userId = session.user.id
       if (!isAdmin(userRole)) {
+        // TODO: Add cursor-based pagination for large datasets
         const leaves = await db.leaveRequest.findMany({
           where: { userId },
           include: {
             user: { select: { id: true, name: true, email: true, role: true } },
           },
           orderBy: { createdAt: "desc" },
+          take: 100,
         })
-        return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
+        return NextResponse.json(leaves)
       }
+      // TODO: Add cursor-based pagination for large datasets
       const leaves = await db.leaveRequest.findMany({
         include: {
           user: { select: { id: true, name: true, email: true, role: true } },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       })
-      return NextResponse.json(JSON.parse(JSON.stringify(leaves)))
+      return NextResponse.json(leaves)
     }
 
     if (type === "agent-access") {
@@ -313,14 +347,16 @@ export async function GET(req: NextRequest) {
       if (!isAdmin(userRole)) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
+      // TODO: Add cursor-based pagination for large datasets
       const access = await db.userAgentAccess.findMany({
         include: {
           user: { select: { id: true, name: true, email: true, role: true, department: true } },
           agent: { select: { id: true, name: true, type: true } },
         },
         orderBy: { userId: "asc" },
+        take: 100,
       })
-      return NextResponse.json(JSON.parse(JSON.stringify(access)))
+      return NextResponse.json(access)
     }
 
     // Default: return team members with their agent access (admin-only)
@@ -328,6 +364,7 @@ export async function GET(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
+    // TODO: Add cursor-based pagination for large datasets
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
       include: {
@@ -339,8 +376,9 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: { name: "asc" },
+      take: 100,
     })
-    return NextResponse.json(JSON.parse(JSON.stringify(users)))
+    return NextResponse.json(users)
   } catch (error: unknown) {
     // [T2] Fixed error: any → error: unknown
     console.error("[team] GET error:", error instanceof Error ? error.message : String(error))
@@ -361,6 +399,10 @@ export async function POST(req: NextRequest) {
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
+
+    // [W15] Verify user is still active
+    const activeCheck = await requireActiveUser(session.user.id)
+    if (activeCheck) return activeCheck
 
     // [T3] try/catch on req.json()
     let body: Record<string, unknown>
@@ -529,6 +571,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
       }
 
+      // [W14] Password complexity: must contain at least one letter and one number
+      if (!/[a-zA-Z]/.test(password as string) || !/[0-9]/.test(password as string)) {
+        return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+      }
+
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email as string)) {
         return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
@@ -592,6 +639,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    // [W15] Verify user is still active
+    const activeCheck = await requireActiveUser(session.user.id)
+    if (activeCheck) return activeCheck
+
     // [T3] try/catch on req.json()
     let body: Record<string, unknown>
     try {
@@ -602,6 +653,11 @@ export async function PATCH(req: NextRequest) {
     const { type, id, ...data } = body
 
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
+
+    // [W18] Explicitly reject email changes on this endpoint
+    if (data.email) {
+      return NextResponse.json({ error: "Email changes are not allowed here. Use /api/email-change." }, { status: 400 })
+    }
 
     if (type === "leave") {
       // [FIX C5: Validate leave status against allowed values]
@@ -784,6 +840,10 @@ export async function DELETE(req: NextRequest) {
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
+
+    // [W15] Verify user is still active
+    const activeCheck = await requireActiveUser(session.user.id)
+    if (activeCheck) return activeCheck
 
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type")

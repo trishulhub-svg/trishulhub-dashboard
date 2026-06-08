@@ -39,9 +39,9 @@ async function ensurePasswordResetTable(): Promise<{ success: boolean; error?: s
         FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `)
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_token_idx" ON "PasswordReset"("token")`) } catch {}
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_userId_idx" ON "PasswordReset"("userId")`) } catch {}
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_expiresAt_idx" ON "PasswordReset"("expiresAt")`) } catch {}
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_token_idx" ON "PasswordReset"("token")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_userId_idx" ON "PasswordReset"("userId")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_expiresAt_idx" ON "PasswordReset"("expiresAt")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
     console.log("[password-reset] PasswordReset table created successfully")
   } catch (err: any) {
     console.error("[password-reset] Failed to create PasswordReset table:", err.message)
@@ -132,7 +132,8 @@ export async function POST(req: NextRequest) {
       if (!emailResult.success) {
         // Delete the token if email failed
         await (db as any).passwordReset.deleteMany({ where: { userId, token: hashToken(token) } })
-        return NextResponse.json({ error: `Failed to send reset email: ${emailResult.error}` }, { status: 500 })
+        console.error('[password-reset] Failed to send reset email:', emailResult.error)
+        return NextResponse.json({ error: "Failed to send reset email. Please try again later." }, { status: 500 })
       }
 
       return NextResponse.json({
@@ -250,12 +251,21 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // Hash and update the password
+    // Hash and update the password in a transaction to prevent TOCTOU race conditions
     const hashedPassword = await bcrypt.hash(newPassword, 12)
-    await db.user.update({
-      where: { id: user.id },
-      data: { password: hashedPassword },
-    })
+    await db.$transaction([
+      db.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      }),
+      (db as any).passwordReset.update({
+        where: { id: resetRecord.id },
+        data: { used: true },
+      }),
+      (db as any).passwordReset.deleteMany({
+        where: { userId: user.id, id: { not: resetRecord.id } },
+      }),
+    ])
 
     // SECURITY: Invalidate the user's session so they must re-login with new password
     try {
@@ -265,17 +275,6 @@ export async function PUT(req: NextRequest) {
       console.error("[password-reset] Failed to invalidate session after link reset:", err)
       // Non-blocking: the password reset still succeeded
     }
-
-    // Mark token as used
-    await (db as any).passwordReset.update({
-      where: { id: resetRecord.id },
-      data: { used: true },
-    })
-
-    // Clean up all other reset tokens for this user
-    await (db as any).passwordReset.deleteMany({
-      where: { userId: user.id, id: { not: resetRecord.id } },
-    })
 
     // Log the event
     await logEmailEvent({

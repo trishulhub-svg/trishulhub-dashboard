@@ -3,6 +3,10 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 
+// NOTE [I19]: This route uses getToken() instead of getServerSession() like other routes.
+// This is intentional to avoid potential session deserialization issues with raw JWT tokens.
+// Changing to getServerSession could break existing clients depending on this pattern.
+
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
@@ -46,7 +50,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       hasCode: !!code,
-      code: code,
       codeMasked: code ? "••••••••" : "",
       updatedAt: row.updatedAt || null,
     });

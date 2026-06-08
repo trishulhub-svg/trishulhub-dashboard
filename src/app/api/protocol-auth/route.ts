@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes, randomUUID } from "crypto";
+import { randomBytes, randomUUID, timingSafeEqual, createHmac } from "crypto";
 import { db } from "@/lib/db";
 import { sendEmailWithFailover, isValidEmail, logEmailEvent } from "@/lib/email";
+
+// ── OTP security constants ──
+// Secret key for HMAC-SHA256 computation used in timing-safe OTP comparison.
+// In production, override via OTP_HMAC_SECRET env var.
+const OTP_HMAC_SECRET = process.env.OTP_HMAC_SECRET || "trishul-protocol-otp-hmac-key-2024";
+const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+// Pre-computed dummy bcrypt hash for constant-time operations.
+// Used when no OTP record exists so bcrypt.compare always runs (prevents timing-based email enumeration).
+let _dummyBcryptHash: string | undefined;
+function getDummyBcryptHash(): string {
+  if (_dummyBcryptHash) return _dummyBcryptHash;
+  const bcrypt = require("bcryptjs");
+  _dummyBcryptHash = String(bcrypt.hashSync("protocol-dummy-otp-never-match", 4));
+  return _dummyBcryptHash;
+}
 
 // ── DB-based rate limiter ──
 const OTP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_OTP_REQUESTS = 5;
-const MAX_VERIFY_ATTEMPTS = 10;
+const MAX_VERIFY_ATTEMPTS = 5; // Max 5 verify attempts per window
 
 async function checkRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
   const windowStart = new Date(Date.now() - windowMs).toISOString()
@@ -39,6 +55,25 @@ async function checkRateLimit(key: string, maxAttempts: number, windowMs: number
   } catch (e) {
     // Fail-open on DB error
     return true
+  }
+}
+
+// ── Helper: Parse OTP storage format ──
+// New format: JSON { b: bcryptHash, h: hmacHex }
+// Legacy format: plaintext 6-digit string
+function parseOtpStorage(raw: string): { type: "secure"; b: string; h: string } | { type: "legacy"; plaintext: string } | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.b === "string" && typeof parsed.h === "string") {
+      return { type: "secure", b: parsed.b, h: parsed.h };
+    }
+    return null;
+  } catch {
+    // Not JSON — check if it looks like a legacy plaintext OTP
+    if (typeof raw === "string" && /^\d{6}$/.test(raw)) {
+      return { type: "legacy", plaintext: raw };
+    }
+    return null;
   }
 }
 
@@ -92,8 +127,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // W4: Log the actual reason server-side, return same message to client
     if (!user || !user.isActive) {
-      // Log the failed attempt
       await logEmailEvent({
         to: email,
         subject: "TRISHUL PROTOCOL - Login OTP",
@@ -102,23 +137,33 @@ export async function POST(request: NextRequest) {
         error: "User not found or inactive",
         metadata: JSON.stringify({ reason: "user_not_found_or_inactive" }),
       });
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 401 }
-      );
+      console.log("[protocol-auth] POST: user not found or inactive for", email.toLowerCase());
+
+      // W4: Return same success-like message to prevent user enumeration
+      return NextResponse.json({
+        success: true,
+        message: "If this email is registered, you will receive a code",
+      });
     }
 
     // Generate 6-digit OTP
     const otpNumber = randomBytes(3).readUIntBE(0, 3) % 1000000;
     const otp = String(otpNumber).padStart(6, "0");
 
-    // Store OTP in DB
+    // C1: Hash OTP with bcrypt for secure storage (never store plaintext)
+    const bcrypt = await import("bcryptjs");
+    const hashedOtp = await bcrypt.default.hash(otp, 10);
+
+    // W3: Compute HMAC-SHA256 for timing-safe comparison (fixed-length 32-byte digest)
+    const otpHmac = createHmac("sha256", OTP_HMAC_SECRET).update(otp).digest("hex");
+
+    // Store both hashes: bcrypt for security, HMAC for constant-time comparison
     await db.protocolOtp.create({
       data: {
         id: randomUUID(),
         email: email.toLowerCase(),
-        otp: otp.toString(),
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 min expiry
+        otp: JSON.stringify({ b: hashedOtp, h: otpHmac }),
+        expiresAt: new Date(Date.now() + OTP_EXPIRY_MS).toISOString(),
       },
     });
 
@@ -197,7 +242,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "OTP sent to your email",
+      message: "If this email is registered, you will receive a code",
     });
   } catch (error) {
     console.error("[protocol-auth] POST error:", error);
@@ -245,18 +290,70 @@ export async function PUT(request: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase();
+    const otpStr = otp.toString();
 
-    // Find valid OTP in DB
+    // W3: Find OTP by email only — never include OTP in DB query (prevents timing attacks on query)
     const record = await db.protocolOtp.findFirst({
       where: {
         email: normalizedEmail,
-        otp: otp.toString(),
         expiresAt: { gt: new Date().toISOString() },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!record) {
+    // Parse stored OTP data (handle both new secure format and legacy plaintext)
+    const otpData = record ? parseOtpStorage(record.otp) : null;
+
+    // W3: Constant-time OTP comparison to prevent timing attacks
+    // Always perform verification work regardless of whether a record exists,
+    // to prevent timing-based email enumeration.
+
+    let otpValid = false;
+
+    if (otpData?.type === "secure") {
+      // New format: bcrypt + HMAC
+      // 1. HMAC-SHA256 comparison using timingSafeEqual on fixed-length 32-byte buffers
+      const providedHmacBuf = createHmac("sha256", OTP_HMAC_SECRET).update(otpStr).digest();
+      const storedHmacBuf = Buffer.from(otpData.h, "hex");
+      let hmacValid = false;
+      try {
+        hmacValid = timingSafeEqual(providedHmacBuf, storedHmacBuf);
+      } catch {
+        hmacValid = false;
+      }
+
+      // 2. Authoritative bcrypt comparison (inherently constant-time hash comparison)
+      const bcrypt = await import("bcryptjs");
+      let bcryptValid = false;
+      try {
+        bcryptValid = await bcrypt.default.compare(otpStr, otpData.b);
+      } catch {
+        bcryptValid = false;
+      }
+
+      // Both checks must pass
+      otpValid = record !== null && hmacValid && bcryptValid;
+    } else if (otpData?.type === "legacy") {
+      // Legacy plaintext OTP — use timingSafeEqual on fixed-length padded buffers
+      const providedBuf = Buffer.from(otpStr.padStart(8, "0"), "utf8");
+      const storedBuf = Buffer.from(otpData.plaintext.padStart(8, "0"), "utf8");
+      try {
+        otpValid = record !== null && timingSafeEqual(providedBuf, storedBuf);
+      } catch {
+        otpValid = false;
+      }
+    } else {
+      // No record or unparseable data — always run dummy bcrypt to prevent timing leak
+      const bcrypt = await import("bcryptjs");
+      try {
+        await bcrypt.default.compare(otpStr, getDummyBcryptHash());
+      } catch {
+        // Intentionally swallowed — timing-safe dummy work
+      }
+      otpValid = false;
+    }
+
+    if (!otpValid) {
       await logEmailEvent({
         to: normalizedEmail,
         subject: "TRISHUL PROTOCOL - OTP Verify",
@@ -273,7 +370,7 @@ export async function PUT(request: NextRequest) {
 
     // Delete used OTP (one-time use)
     await db.protocolOtp.deleteMany({
-      where: { id: record.id },
+      where: { id: record!.id },
     });
 
     // Look up user (user info not stored in OTP record)

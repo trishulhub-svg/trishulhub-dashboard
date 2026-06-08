@@ -2,6 +2,9 @@
   "functions": {
     "src/app/api/task-git-sync/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/execute-tasks/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -24,17 +27,6 @@
     {
       "path": "/api/cron/execute-tasks",
       "schedule": "0 5 * * *"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/cron/(.*)",
-      "headers": [
-        {
-          "key": "x-cron-secret",
-          "value": "cron-trishulhub-secret-2024"
-        }
-      ]
     }
   ]
 }

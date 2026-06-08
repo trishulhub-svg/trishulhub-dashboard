@@ -167,6 +167,7 @@ function ResetPasswordForm() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <form onSubmit={(e) => { e.preventDefault(); handleReset(); }}>
           <div className="space-y-1">
             <Label className="text-xs">New Password *</Label>
             <div className="relative">
@@ -214,7 +215,7 @@ function ResetPasswordForm() {
           {error && (
             <p className="text-sm text-red-500">{error}</p>
           )}
-          <Button className="w-full" onClick={handleReset} disabled={resetting}>
+          <Button type="submit" className="w-full" disabled={resetting}>
             {resetting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Resetting...
@@ -223,6 +224,7 @@ function ResetPasswordForm() {
               "Reset Password"
             )}
           </Button>
+          </form>
         </CardContent>
       </Card>
     </div>

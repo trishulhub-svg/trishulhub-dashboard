@@ -219,14 +219,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Invalid OTP. Please try again." }, { status: 400 })
     }
 
-    // Mark as verified
-    await (db as any).passwordChange.update({
-      where: { id: verification.id },
-      data: { verified: true },
-    })
-
     // SECURITY: Check that new password is different from current password
-    // (must be done after fetching user record)
+    // BEFORE marking the OTP as verified — prevents OTP consumption on failure
     const currentUser = await db.user.findUnique({ where: { id: userId } })
     if (currentUser) {
       const passwordSame = await bcrypt.default.compare(newPassword, currentUser.password)
@@ -234,6 +228,12 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: "New password must be different from your current password" }, { status: 400 })
       }
     }
+
+    // Mark as verified only after all pre-checks pass
+    await (db as any).passwordChange.update({
+      where: { id: verification.id },
+      data: { verified: true },
+    })
 
     // Update the user's password
     const hashedPassword = await bcrypt.default.hash(newPassword, 12)

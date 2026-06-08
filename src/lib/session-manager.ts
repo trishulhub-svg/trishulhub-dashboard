@@ -5,9 +5,12 @@ import { randomUUID } from "crypto"
 // Handles single-device login enforcement and session invalidation.
 // Uses an ActiveSession table to track the current valid session token per user.
 
-// In-memory cache for session validation (60s TTL to reduce DB queries)
+// In-memory cache for session validation (best-effort, reduced TTL for Vercel serverless)
+// NOTE: On Vercel, each cold start gets a fresh Map, so this cache is unreliable
+// across invocations. The 15s TTL is a compromise between DB query reduction and
+// staleness tolerance. Single-device enforcement still relies on the DB as source of truth.
 const sessionCache = new Map<string, { token: string; checkedAt: number }>()
-const CACHE_TTL = 60 * 1000 // 60 seconds
+const CACHE_TTL = 15 * 1000 // 15 seconds
 
 // Evict expired cache entries if map grows large
 function evictExpiredCacheEntries() {
@@ -80,7 +83,22 @@ export async function setSessionToken(
 
 /**
  * Validate a session token against the database.
- * Uses in-memory cache with 60s TTL to reduce DB queries.
+ * Uses in-memory cache with 15s TTL to reduce DB queries.
+ *
+ * ── Fail-Open Design Decision ──
+ * This function uses a fail-open strategy: when the database is unreachable
+ * or times out, it returns `true` (allowing the session to continue). This
+ * prioritizes availability over strict security for single-device enforcement.
+ *
+ * Tradeoff: If Turso is down, a user who logged in on another device will NOT
+ * be kicked out until the DB recovers. This is acceptable because:
+ *   1. DB outages are rare and typically short-lived
+ *   2. Blocking all sessions during an outage would make the app completely unusable
+ *   3. The JWT still enforces authentication (user must have valid credentials)
+ *
+ * Monitoring recommendation: Alert on console.warn messages containing
+ * "fail-open" or "timed out" to detect DB reliability issues before they
+ * impact single-device enforcement.
  *
  * Returns true if the token matches the current valid session.
  * Returns false if the token is stale (user logged in elsewhere,
@@ -96,21 +114,23 @@ export async function validateSessionToken(
     return cached.token === token
   }
 
-  // Cache miss or expired - check DB with timeout
-  // If DB is unreachable, allow session to continue (fail-open with warning)
-  // This prevents the app from being completely inaccessible when Turso is slow/down
+  // Cache miss or expired — check DB with 5s timeout
+  // TIMEOUT: Resolve to true (fail-open). Acceptable for availability —
+  // the session cookie is still valid, user just won't be kicked from other devices.
   try {
     const result = await Promise.race([
       doValidateSession(userId, token),
       new Promise<boolean>((resolve) => setTimeout(() => {
-        console.warn("[session] Session validation timed out (5s) — allowing session to continue (fail-open)")
-        resolve(true) // Allow session on timeout
+        console.warn("[session] Session validation timed out (5s) — allowing session (fail-open). Monitor for repeated timeouts.")
+        resolve(true) // Fail-open on timeout for availability
       }, 5000)),
     ])
     return result
   } catch (err: any) {
-    // Network-level error — allow session (fail-open for reliability)
-    console.error("[session] Session validation error (allowing session — fail-open):", err.message)
+    // DB/network error — fail-open for availability (degraded mode).
+    // Single-device enforcement is disabled until DB recovers.
+    // Admins should monitor for these warnings to detect DB issues.
+    console.warn("[session] Session validation DB error — DEGRADED MODE, allowing session (fail-open):", err.message)
     return true
   }
 }
@@ -124,8 +144,8 @@ async function doValidateSession(
 ): Promise<boolean> {
   const tableReady = await ensureActiveSessionTable()
   if (!tableReady) {
-    // Table not available — allow session (fail-open)
-    console.warn("[session] ActiveSession table not available, allowing session (fail-open)")
+    // Table not available — fail-open for availability (degraded mode)
+    console.warn("[session] ActiveSession table not available — DEGRADED MODE, allowing session (fail-open)")
     return true
   }
 

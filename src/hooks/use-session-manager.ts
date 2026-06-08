@@ -16,7 +16,6 @@ const ACTIVITY_THROTTLE = 5000 // Throttle activity updates (5s)
 // Activity events to track
 const ACTIVITY_EVENTS = [
   "mousedown",
-  "mousemove",
   "keydown",
   "scroll",
   "touchstart",
@@ -64,6 +63,14 @@ export function useSessionManager() {
   useEffect(() => {
     if (status !== "authenticated") return
 
+    // Reset inactivity timer when tab becomes visible
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        lastActivityRef.current = Date.now()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+
     const interval = setInterval(() => {
       // Don't sign out multiple times
       if (hasSignedOutRef.current) return
@@ -71,11 +78,16 @@ export function useSessionManager() {
       const inactiveTime = Date.now() - lastActivityRef.current
       if (inactiveTime > INACTIVITY_TIMEOUT) {
         hasSignedOutRef.current = true
-        signOut({ callbackUrl: "/login?reason=timeout" })
+        signOut({ callbackUrl: "/login?reason=timeout" }).catch(() => {
+          window.location.href = "/login?reason=timeout"
+        })
       }
     }, CHECK_INTERVAL)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibility)
+    }
   }, [status])
 
   // ── 3. Server-Side Session Error Detection ──
@@ -88,9 +100,13 @@ export function useSessionManager() {
       hasSignedOutRef.current = true
 
       if (error === "SessionKicked") {
-        signOut({ callbackUrl: "/login?reason=kicked" })
+        signOut({ callbackUrl: "/login?reason=kicked" }).catch(() => {
+          window.location.href = "/login?reason=kicked"
+        })
       } else {
-        signOut({ callbackUrl: "/login?reason=error" })
+        signOut({ callbackUrl: "/login?reason=error" }).catch(() => {
+          window.location.href = "/login?reason=error"
+        })
       }
     }
   }, [session])

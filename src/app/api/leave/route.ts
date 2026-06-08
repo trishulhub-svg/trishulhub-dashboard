@@ -52,6 +52,12 @@ export async function POST(req: NextRequest) {
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const { leaveType, startDate, endDate, reason } = body
 
+    // [W16] Validate leave type against whitelist
+    const validLeaveTypes = ["SICK_LEAVE", "CASUAL_LEAVE", "EARNED_LEAVE", "MATERNITY_LEAVE", "PATERNITY_LEAVE", "COMPENSATORY_OFF", "HALF_DAY", "WORK_FROM_HOME"]
+    if (leaveType && !validLeaveTypes.includes(leaveType)) {
+      return NextResponse.json({ error: `Invalid leave type. Valid types: ${validLeaveTypes.join(", ")}` }, { status: 400 })
+    }
+
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
     }
@@ -133,6 +139,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 })
     }
 
+    // [C7] Prevent self-approval bypass
+    if (existingLeave.userId === userId) {
+      return NextResponse.json({ error: "Cannot approve your own leave request" }, { status: 403 })
+    }
+
+    // [W17] Validate status transitions: only PENDING → APPROVED or PENDING → REJECTED
     if (existingLeave.status !== "PENDING") {
       return NextResponse.json({ error: "This leave request has already been processed" }, { status: 400 })
     }

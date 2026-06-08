@@ -24,17 +24,22 @@ export async function middleware(request: NextRequest) {
     console.error("[middleware] getToken failed:", err instanceof Error ? err.message : err)
   }
 
-    // No valid token — redirect to login for pages only.
-  // API routes are NOT blocked here because every route handler already
-  // has its own getServerSession() + role check. Blocking API routes here
-  // causes a silent 401 when NEXTAUTH_SECRET is missing or JWT decryption fails.
+    // No valid token — handle unauthenticated requests.
+    // Public paths (publicPaths array) have already been filtered above.
   if (!token) {
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
       const loginUrl = new URL("/login", request.url)
       loginUrl.searchParams.set("callbackUrl", pathname)
       return addSecurityHeaders(request, NextResponse.redirect(loginUrl))
     }
-    // /api/* requests pass through — route handlers do their own auth
+    // Block non-public API routes — publicPaths already filtered above,
+    // so any /api/ route reaching here requires authentication.
+    if (pathname.startsWith("/api/")) {
+      return addSecurityHeaders(request, NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      ))
+    }
   }
 
   // Check for session errors set by the JWT callback
@@ -107,9 +112,20 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
   // Enforce HTTPS for all subdomains for 1 year
   response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
   // Restrict browser features that this app doesn't need
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
   // Referrer policy — send origin only on cross-origin
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
+  // Content Security Policy — REPORT-ONLY to start (won't break anything, just reports violations)
+  // Upgrade to enforce after reviewing violation reports in production.
+  response.headers.set("Content-Security-Policy-Report-Only",
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self' https://api.openai.com https://*.turso.tech; " +
+    "frame-ancestors 'none'"
+  )
   return response
 }
 
@@ -118,5 +134,7 @@ export const config = {
     "/dashboard/:path*",
     "/portal/:path*",
     "/api/:path*",
+    "/login",
+    "/reset-password",
   ],
 }
