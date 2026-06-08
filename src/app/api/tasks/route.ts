@@ -12,6 +12,15 @@ const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
 const VALID_TASK_CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]
 
+// ── Status transition map (non-admin users must follow these transitions) ──
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  "TODO": ["IN_PROGRESS"],
+  "IN_PROGRESS": ["REVIEW", "TODO"],
+  "REVIEW": ["AWAITING_APPROVAL", "IN_PROGRESS"],
+  "AWAITING_APPROVAL": ["DONE", "REVIEW", "IN_PROGRESS"],
+  "DONE": [], // terminal — only admin can reopen
+}
+
 // ── Helper: serialize Task dates for JSON response ──
 function serializeTask(t: any) {
   return {
@@ -134,39 +143,57 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Non-admin users: RBAC-filtered view ──
+  // C20: Visibility filter moved into Prisma where clause so total count is accurate
   const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
 
-  // Build where clause
-  const where: { projectId?: string | null | { in: string[] }; assignedTo?: string; createdBy?: string; category?: string } = {}
+  // Build filter conditions (separate from visibility)
+  const filterConditions: Prisma.TaskWhereInput[] = []
 
   // If a specific projectId is requested, verify access and restrict to it
   if (projectId) {
-    if (assignedProjectIds && !(assignedProjectIds as string[]).includes(projectId)) {
+    // I9: Removed unnecessary `as string[]` cast — TypeScript narrows after truthiness check
+    if (assignedProjectIds && !assignedProjectIds.includes(projectId)) {
       return NextResponse.json({ tasks: [], total: 0, page: 1, totalPages: 0 })
     }
-    where.projectId = projectId
+    filterConditions.push({ projectId })
   } else if (standaloneFilter === "true") {
     // Standalone tasks — no project filter, but RBAC still applies
-    where.projectId = null
-  } else if (assignedProjectIds) {
-    where.projectId = { in: assignedProjectIds }
+    filterConditions.push({ projectId: null })
   }
 
   // assignedTo filter — non-admin: only allow "current"
   if (assignedToFilter === "current") {
-    where.assignedTo = userId
+    filterConditions.push({ assignedTo: userId })
   }
   // else: ignore any other value for non-admin
 
   // createdBy filter — non-admin: only allow "current"
   if (createdByFilter === "current") {
-    where.createdBy = userId
+    filterConditions.push({ createdBy: userId })
   }
   // else: ignore any other value for non-admin
 
   // category filter
   if (categoryFilter) {
-    where.category = categoryFilter
+    filterConditions.push({ category: categoryFilter })
+  }
+
+  // C20: Visibility filter in Prisma where clause
+  // Non-admin can only see tasks assigned to them, created by them,
+  // or in projects they're a member of
+  const visibilityOr: Prisma.TaskWhereInput[] = [
+    { assignedTo: userId },
+    { createdBy: userId },
+  ]
+  if (assignedProjectIds && assignedProjectIds.length > 0) {
+    visibilityOr.push({ projectId: { in: assignedProjectIds } })
+  }
+
+  const where: Prisma.TaskWhereInput = {
+    AND: [
+      ...filterConditions,
+      { OR: visibilityOr },
+    ]
   }
 
   const [tasks, total] = await Promise.all([
@@ -179,23 +206,9 @@ export async function GET(req: NextRequest) {
     db.task.count({ where }),
   ])
 
-  // For non-admin: filter tasks they can see:
-  // assignedTo = userId OR createdBy = userId OR they are a ProjectMember of the task's project
-  const projectMemberProjectIds = assignedProjectIds || []
-
-  const visibleTasks = tasks.filter(t => {
-    // Always visible if assigned to the user
-    if (t.assignedTo === userId) return true
-    // Always visible if created by the user
-    if (t.createdBy === userId) return true
-    // Visible if user is a project member of the task's project
-    if (t.projectId && projectMemberProjectIds.includes(t.projectId)) return true
-    return false
-  })
-
   // Resolve userIds to names for assignee, approver, and creator
   const userIds = new Set<string>()
-  for (const t of visibleTasks) {
+  for (const t of tasks) {
     if (t.assignedTo) userIds.add(t.assignedTo)
     if (t.approvedBy) userIds.add(t.approvedBy)
     if (t.createdBy) userIds.add(t.createdBy)
@@ -209,7 +222,7 @@ export async function GET(req: NextRequest) {
     for (const u of users) userMap[u.id] = u.name
   }
 
-  const enriched = visibleTasks.map(t => ({
+  const enriched = tasks.map(t => ({
     ...serializeTask(t),
     assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
     approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
@@ -254,12 +267,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Task title is required" }, { status: 400 })
   }
 
-  // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can assign tasks to others
-  // If assignedTo is provided and is NOT the creator, verify role
-  if (body.assignedTo && String(body.assignedTo) !== userId) {
-    if (!isAdmin(userRole)) {
-      return NextResponse.json({ error: "Forbidden: Only admin and superadmin can assign tasks to others" }, { status: 403 })
+  // C21: Title length limit
+  if (String(body.title).length > 500) {
+    return NextResponse.json({ error: "Title must be 500 characters or less" }, { status: 400 })
+  }
+
+  // C21: Description length cap
+  if (body.description && String(body.description).length > 50000) {
+    return NextResponse.json({ error: "Description must be 50000 characters or less" }, { status: 400 })
+  }
+
+  // C21: Deadline validation
+  if (body.deadline) {
+    const d = new Date(String(body.deadline))
+    if (isNaN(d.getTime())) {
+      return NextResponse.json({ error: "Invalid deadline date" }, { status: 400 })
     }
+  }
+
+  // I5: Removed dead code — the isAdmin check above already returns 403 for non-admins
+  // If assignedTo is provided and is NOT the creator, verify the assignee exists
+  if (body.assignedTo && String(body.assignedTo) !== userId) {
     // Verify the assignee exists and is an active user
     const assigneeExists = await db.user.findFirst({
       where: { id: String(body.assignedTo), isActive: true }
@@ -342,7 +370,8 @@ export async function POST(req: NextRequest) {
   if (data.projectId) {
     syncTasksToGit().catch(() => {})
   }
-  return NextResponse.json(JSON.parse(JSON.stringify(task)), { status: 201 })
+  // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
+  return NextResponse.json(serializeTask(task), { status: 201 })
   } catch (error: any) {
     console.error("[tasks] POST error:", error?.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -398,8 +427,23 @@ export async function PATCH(req: NextRequest) {
 
   // SECURITY: Whitelist allowed fields only (prevent mass assignment)
   const data: Prisma.TaskUncheckedUpdateInput = {}
-  if (body.title !== undefined) data.title = String(body.title)
-  if (body.description !== undefined) data.description = body.description ? String(body.description) : null
+
+  // C21: Title validation with length limit
+  if (body.title !== undefined) {
+    if (String(body.title).length > 500) {
+      return NextResponse.json({ error: "Title must be 500 characters or less" }, { status: 400 })
+    }
+    data.title = String(body.title)
+  }
+
+  // C21: Description validation with length cap
+  if (body.description !== undefined) {
+    if (body.description && String(body.description).length > 50000) {
+      return NextResponse.json({ error: "Description must be 50000 characters or less" }, { status: 400 })
+    }
+    data.description = body.description ? String(body.description) : null
+  }
+
   if (body.priority !== undefined) {
     if (!VALID_TASK_PRIORITIES.includes(String(body.priority))) {
       return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
@@ -429,7 +473,18 @@ export async function PATCH(req: NextRequest) {
     }
     data.assigneeType = String(body.assigneeType)
   }
-  if (body.deadline !== undefined) data.deadline = body.deadline ? new Date(String(body.deadline)) : null
+
+  // C21: Deadline validation
+  if (body.deadline !== undefined) {
+    if (body.deadline) {
+      const d = new Date(String(body.deadline))
+      if (isNaN(d.getTime())) {
+        return NextResponse.json({ error: "Invalid deadline date" }, { status: 400 })
+      }
+    }
+    data.deadline = body.deadline ? new Date(String(body.deadline)) : null
+  }
+
   if (body.category !== undefined) {
     if (!VALID_TASK_CATEGORIES.includes(String(body.category))) {
       return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_TASK_CATEGORIES.join(", ")}` }, { status: 400 })
@@ -447,6 +502,14 @@ export async function PATCH(req: NextRequest) {
 
     const newStatus = body.status as string
     const currentStatus = existingTask.status
+
+    // W1: Status transition validation (non-admin only)
+    if (newStatus !== currentStatus && !isAdmin(userRole)) {
+      const allowed = VALID_TRANSITIONS[currentStatus] || []
+      if (!allowed.includes(newStatus)) {
+        return NextResponse.json({ error: `Invalid status transition: ${currentStatus} → ${newStatus}. Allowed: ${allowed.length > 0 ? allowed.join(", ") : "none (terminal state)"}` }, { status: 409 })
+      }
+    }
 
     // ── CASE 1: User is trying to mark task as DONE ──
     if (newStatus === "DONE") {
@@ -533,17 +596,30 @@ export async function PATCH(req: NextRequest) {
 
   const finalStatus = data.status as string | undefined
 
-  // Task sent for approval → notify all admin/superadmin (batch createMany)
+  // I8: Task sent for approval → notify all admin/superadmin (batch createMany)
+  // Fetch admins AND assignee in a single combined query to avoid separate DB lookup
   if (finalStatus === "AWAITING_APPROVAL") {
-    const admins = await db.user.findMany({
-      where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
-      select: { id: true }
+    const assigneeId = existingTask.assignedTo
+    // Batch fetch admins AND the assignee in one query
+    const allUsers = await db.user.findMany({
+      where: {
+        OR: [
+          { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+          ...(assigneeId ? [{ id: assigneeId }] : []),
+        ]
+      },
+      select: { id: true, name: true, role: true }
     })
-    const assigneeName = existingTask.assignedTo ? (await db.user.findUnique({ where: { id: existingTask.assignedTo }, select: { name: true } }))?.name || "Someone" : "Someone"
+    // Extract assignee name from the combined result
+    const assigneeName = assigneeId
+      ? (allUsers.find(u => u.id === assigneeId)?.name || "Someone")
+      : "Someone"
+    // Filter to just admins for notifications
+    const adminUsers = allUsers.filter(u => u.role === "SUPER_ADMIN" || u.role === "ADMIN")
 
-    if (admins.length > 0) {
+    if (adminUsers.length > 0) {
       await db.notification.createMany({
-        data: admins.map(admin => ({
+        data: adminUsers.map(admin => ({
           userId: admin.id,
           title: `Task approval needed: ${existingTask.title}`,
           message: `${assigneeName} submitted "${existingTask.title}" for review`,
@@ -608,6 +684,8 @@ export async function DELETE(req: NextRequest) {
   const userRole = session.user.role
   const userId = session.user.id
 
+  // I7: TODO: Move to /api/tasks/[id]/route.ts for proper REST
+  // Currently using query params for task ID instead of URL path
   const { searchParams } = new URL(req.url)
   const id = searchParams.get("id")
 

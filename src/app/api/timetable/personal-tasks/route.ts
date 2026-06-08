@@ -3,6 +3,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, ensureTimetableTables } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+
+// W7: Valid enum values for personal tasks (from schema comments)
+const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+const VALID_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const VALID_CATEGORIES = ["PERSONAL", "HEALTH", "FINANCE", "STUDY", "SOCIAL", "OTHER", "WORK_LOCAL"];
 
 // GET /api/timetable/personal-tasks — Fetch personal tasks for the logged-in user
 export async function GET(req: NextRequest) {
@@ -68,6 +74,12 @@ export async function POST(req: NextRequest) {
 
     await ensureTimetableTables();
 
+    // W32: Rate limiting for write operations
+    const rl = rateLimit(`personal-task-create-${session.user.id}`, 20, 60_000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const userId = session.user.id;
     let body: Record<string, unknown>;
     try {
@@ -85,16 +97,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // W8: Validate date fields
+    const parsedStartTime = new Date(startTime as string);
+    const parsedEndTime = new Date(endTime as string);
+    const parsedDate = new Date(date as string);
+
+    if (isNaN(parsedStartTime.getTime())) {
+      return NextResponse.json({ error: "Invalid startTime" }, { status: 400 });
+    }
+    if (isNaN(parsedEndTime.getTime())) {
+      return NextResponse.json({ error: "Invalid endTime" }, { status: 400 });
+    }
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+    }
+
+    // W7: Validate priority
+    const taskPriority = priority ? String(priority) : "MEDIUM";
+    if (!VALID_PRIORITIES.includes(taskPriority)) {
+      return NextResponse.json(
+        { error: `Invalid priority. Must be one of: ${VALID_PRIORITIES.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    // W7: Validate category
+    const taskCategory = category ? String(category) : "PERSONAL";
+    if (!VALID_CATEGORIES.includes(taskCategory)) {
+      return NextResponse.json(
+        { error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
     const task = await db.personalTimetableTask.create({
       data: {
         userId,
         title: title as string,
         description: (description as string) || null,
-        startTime: new Date(startTime as string),
-        endTime: new Date(endTime as string),
-        date: new Date(date as string),
-        priority: (priority as string) || "MEDIUM",
-        category: (category as string) || "PERSONAL",
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
+        date: parsedDate,
+        priority: taskPriority,
+        category: taskCategory,
       },
     });
 

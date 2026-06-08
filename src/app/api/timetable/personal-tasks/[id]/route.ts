@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db, ensureTimetableTables } from "@/lib/db";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+
+// W7: Valid enum values for personal tasks (from schema comments)
+const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+const VALID_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const VALID_CATEGORIES = ["PERSONAL", "HEALTH", "FINANCE", "STUDY", "SOCIAL", "OTHER", "WORK_LOCAL"];
 
 // PATCH /api/timetable/personal-tasks/[id] — Update a personal task
 export async function PATCH(
@@ -15,6 +21,12 @@ export async function PATCH(
     }
 
     await ensureTimetableTables();
+
+    // W32: Rate limiting for write operations
+    const rl = rateLimit(`personal-task-update-${session.user.id}`, 30, 60_000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
 
     const userId = session.user.id;
     const { id } = await params;
@@ -39,14 +51,58 @@ export async function PATCH(
 
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description || null;
-    if (startTime !== undefined) updateData.startTime = new Date(startTime as string);
-    if (endTime !== undefined) updateData.endTime = new Date(endTime as string);
-    if (priority !== undefined) updateData.priority = priority;
-    if (category !== undefined) updateData.category = category;
 
+    // W8: Validate date fields
+    if (startTime !== undefined) {
+      const parsed = new Date(startTime as string);
+      if (isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid startTime" }, { status: 400 });
+      }
+      updateData.startTime = parsed;
+    }
+    if (endTime !== undefined) {
+      const parsed = new Date(endTime as string);
+      if (isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid endTime" }, { status: 400 });
+      }
+      updateData.endTime = parsed;
+    }
+
+    // W7: Validate priority
+    if (priority !== undefined) {
+      const p = String(priority);
+      if (!VALID_PRIORITIES.includes(p)) {
+        return NextResponse.json(
+          { error: `Invalid priority. Must be one of: ${VALID_PRIORITIES.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      updateData.priority = p;
+    }
+
+    // W7: Validate category
+    if (category !== undefined) {
+      const c = String(category);
+      if (!VALID_CATEGORIES.includes(c)) {
+        return NextResponse.json(
+          { error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      updateData.category = c;
+    }
+
+    // W7: Validate status
     if (status !== undefined) {
-      updateData.status = status;
-      if (status === "COMPLETED") {
+      const s = String(status);
+      if (!VALID_STATUSES.includes(s)) {
+        return NextResponse.json(
+          { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      updateData.status = s;
+      if (s === "COMPLETED") {
         updateData.completedAt = new Date();
       } else {
         updateData.completedAt = null;
@@ -78,6 +134,12 @@ export async function DELETE(
     }
 
     await ensureTimetableTables();
+
+    // W32: Rate limiting for write operations
+    const rl = rateLimit(`personal-task-update-${session.user.id}`, 30, 60_000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
 
     const userId = session.user.id;
     const { id } = await params;
