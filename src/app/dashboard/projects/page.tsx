@@ -39,6 +39,19 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
+// TODO: Make configurable per project/client
+const CURRENCY_SYMBOL = "₹";
+
+// URL sanitizer: blocks javascript: and data: schemes to prevent XSS
+const safeUrl = (url: string) => {
+  if (!url) return '#';
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url;
+  } catch {}
+  return '#';
+};
+
 const statusColors: Record<string, string> = {
   PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
   IN_PROGRESS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -252,7 +265,7 @@ function KanbanProjectCard({
         >
           {pWebsites.length === 1 ? (
             <a
-              href={safeText(pWebsites[0].url, "")}
+              href={safeUrl(safeText(pWebsites[0].url, ""))}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
@@ -277,7 +290,7 @@ function KanbanProjectCard({
                   const wLabel = safeText(w.label, "");
                   return (
                     <DropdownMenuItem key={safeText(w.id, String(i))} asChild>
-                      <a href={wUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+                      <a href={safeUrl(wUrl)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
                         <ExternalLink className="h-3 w-3 text-emerald-500 shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
@@ -770,7 +783,7 @@ function CreateProjectForm({ onSubmit, clients }: {
       )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Budget (₹)</Label>
+          <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
           <Input name="budget" type="number" />
         </div>
         <div className="space-y-1">
@@ -795,16 +808,17 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
-  const [viewMode, setViewMode] = useState<"board" | "list">(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("projects-view-mode") as "board" | "list") || "board";
-    }
-    return "board";
-  });
+  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+
+  // Read saved view mode from localStorage after hydration
+  useEffect(() => {
+    const saved = localStorage.getItem("project-view-mode");
+    if (saved === "board" || saved === "list") setViewMode(saved);
+  }, []);
 
   const handleViewModeChange = useCallback((mode: "board" | "list") => {
     setViewMode(mode);
-    localStorage.setItem("projects-view-mode", mode);
+    localStorage.setItem("project-view-mode", mode);
   }, []);
 
   // ━━ React Query — cached fetch with stale-while-revalidate ━━
@@ -864,6 +878,8 @@ export default function ProjectsPage() {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [uploadingFile, setUploadingFile] = useState(false);
   const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
+  const [deleteAttachmentId, setDeleteAttachmentId] = useState<string | null>(null);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   // Feature 4: Project Methods management state
   const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
@@ -924,7 +940,7 @@ export default function ProjectsPage() {
         const data = await res.json().catch(() => ({})) as Record<string, string>;
         const errMsg = data.error || "Failed to add method";
         console.error("[project-methods] Create failed:", errMsg, data.debug || "");
-        toast.error(errMsg, { description: data.debug || undefined, duration: 6000 });
+        toast.error(errMsg, { duration: 6000 });
       }
     } catch (err) {
       console.error("[project-methods] Network error:", err);
@@ -948,7 +964,7 @@ export default function ProjectsPage() {
         toast.success("Method updated");
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to update method");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update method");
       }
     } catch { toast.error("Failed to update method"); } finally { setMethodSaving(false); }
   }, [methodSaving, fetchProjectMethods]);
@@ -966,7 +982,7 @@ export default function ProjectsPage() {
         fetchProjectMethods();
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to delete method");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to delete method");
       }
     } catch { toast.error("Failed to delete method"); } finally { setMethodSaving(false); setDeleteMethodTarget(null); }
   }, [deleteMethodTarget, fetchProjectMethods]);
@@ -997,7 +1013,7 @@ export default function ProjectsPage() {
         queryClient.invalidateQueries({ queryKey: ["projects"] });
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to update project methods");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update project methods");
       }
     } catch {
       toast.error("Failed to update project methods");
@@ -1110,7 +1126,7 @@ export default function ProjectsPage() {
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to create project");
+        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to create project");
       }
     } catch {
       toast.error("Failed to create project");
@@ -1188,7 +1204,7 @@ export default function ProjectsPage() {
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to update project");
+        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to update project");
       }
     } catch {
       toast.error("Failed to update project");
@@ -1210,7 +1226,7 @@ export default function ProjectsPage() {
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to delete project");
+        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to delete project");
       }
     } catch {
       toast.error("Failed to delete project");
@@ -1308,7 +1324,7 @@ export default function ProjectsPage() {
           fetchAttachments(safeText(editProject.id, ""));
         } else {
           const data = await res.json().catch(() => ({}));
-          toast.error(data.error || "Failed to upload");
+          toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to upload");
         }
         setUploadingFile(false);
       };
@@ -1372,7 +1388,7 @@ export default function ProjectsPage() {
         fetchCredentials(safeText(editProject.id, ""));
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to add credential");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to add credential");
       }
     } catch {
       toast.error("Failed to add credential");
@@ -1385,11 +1401,16 @@ export default function ProjectsPage() {
       return;
     }
     try {
+      // Only send password if the user explicitly changed it
+      const payload: Record<string, unknown> = { id: editingCredId, title: editingCred.title, username: editingCred.username };
+      if (passwordChanged && editingCred.password) {
+        payload.password = editingCred.password;
+      }
       const res = await fetch("/api/projects/credentials", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: editingCredId, ...editingCred }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         toast.success("Credential updated");
@@ -1397,7 +1418,7 @@ export default function ProjectsPage() {
         if (editProject) fetchCredentials(safeText(editProject.id, ""));
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to update credential");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update credential");
       }
     } catch {
       toast.error("Failed to update credential");
@@ -1469,7 +1490,7 @@ export default function ProjectsPage() {
       if (!res.ok) {
         queryClient.setQueryData(["projects"], prevProjects);
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to move project");
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to move project");
       } else {
         toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
       }
@@ -1850,7 +1871,7 @@ export default function ProjectsPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">Budget (₹)</Label>
+                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
                         <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
                       </div>
                       <div className="space-y-1">
@@ -1943,7 +1964,7 @@ export default function ProjectsPage() {
                         <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download" aria-label="Download attachment">
                           <Download className="h-3.5 w-3.5" />
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttachment(att.id)} title="Delete" aria-label="Delete attachment">
+                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteAttachmentId(att.id)} title="Delete" aria-label="Delete attachment">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -1987,7 +2008,7 @@ export default function ProjectsPage() {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               <Input value={editingCred.title} onChange={(e) => setEditingCred({ ...editingCred, title: e.target.value })} className="h-8 text-sm" />
                               <Input value={editingCred.username} onChange={(e) => setEditingCred({ ...editingCred, username: e.target.value })} className="h-8 text-sm" />
-                              <Input value={editingCred.password} onChange={(e) => setEditingCred({ ...editingCred, password: e.target.value })} className="h-8 text-sm" />
+                              <Input value={editingCred.password} onChange={(e) => { setEditingCred({ ...editingCred, password: e.target.value }); setPasswordChanged(true); }} className="h-8 text-sm" placeholder="Enter new password (leave blank to keep)" />
                             </div>
                             <div className="flex gap-2">
                               <Button type="button" size="sm" className="h-7" onClick={handleUpdateCredential}>Save</Button>
@@ -2002,7 +2023,7 @@ export default function ProjectsPage() {
                                 <span className="text-sm font-medium">{cred.title}</span>
                               </div>
                               <div className="flex gap-1">
-                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: cred.password }); }} title="Edit">
+                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: "" }); setPasswordChanged(false); }} title="Edit">
                                   <Pencil className="h-3 w-3" />
                                 </Button>
                                 <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteCredId(cred.id)} title="Delete">
@@ -2017,7 +2038,7 @@ export default function ProjectsPage() {
                               <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
                                 {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={() => { navigator.clipboard.writeText(cred.password); toast.success("Password copied"); }} title="Copy" aria-label="Copy password">
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={async () => { try { await navigator.clipboard.writeText(cred.password); toast.success("Copied"); } catch { toast.error("Failed to copy to clipboard"); } }} title="Copy" aria-label="Copy password">
                                 <Copy className="h-3 w-3" />
                               </Button>
                             </div>
@@ -2216,6 +2237,24 @@ export default function ProjectsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCredential} className="bg-red-600 hover:bg-red-700">
               Delete Credential
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ━━━━ Attachment Delete Confirmation ━━━━ */}
+      <AlertDialog open={!!deleteAttachmentId} onOpenChange={() => setDeleteAttachmentId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Attachment</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this attachment. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteAttachmentId) { handleDeleteAttachment(deleteAttachmentId); setDeleteAttachmentId(null); } }} className="bg-red-600 hover:bg-red-700">
+              Delete Attachment
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

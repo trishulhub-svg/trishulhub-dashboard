@@ -44,6 +44,7 @@ const taskStatusColors: Record<string, string> = {
   DONE: "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300",
 };
 
+// TODO: Extract to @/lib/utils.ts
 // ── Safe extractors ──
 function extractStr(obj: unknown, key: string, fallback = ""): string {
   if (!obj || typeof obj !== "object") return fallback;

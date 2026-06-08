@@ -1,6 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
 // L-PRJ-1 FIX: Replaced animate-pulse divs with shadcn/ui Skeleton component
+// I3 FIX: Updated skeleton to match kanban board layout (stats row, filter bar, columns)
 export default function PageLoading() {
   return (
     <div className="space-y-6">
@@ -12,16 +13,38 @@ export default function PageLoading() {
         </div>
         <Skeleton className="h-10 w-36" />
       </div>
-      {/* Stats skeleton */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-28 rounded-xl" />
+      {/* Stats row skeleton */}
+      <div className="flex flex-wrap gap-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} className="h-9 w-28 rounded-full" />
         ))}
       </div>
-      {/* Content skeleton */}
-      <div className="space-y-3">
-        {[1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} className="h-20 rounded-xl" />
+      {/* Filter bar skeleton */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 w-64" />
+        <div className="flex gap-1.5">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-8 w-20 rounded-lg" />
+          ))}
+        </div>
+      </div>
+      {/* 3 Kanban column placeholders */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="space-y-3 rounded-xl border p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-2.5 w-2.5 rounded-full" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <Skeleton className="h-5 w-6 rounded-full" />
+            </div>
+            <div className="space-y-2">
+              {[1, 2].map((j) => (
+                <Skeleton key={j} className="h-24 rounded-lg" />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </div>

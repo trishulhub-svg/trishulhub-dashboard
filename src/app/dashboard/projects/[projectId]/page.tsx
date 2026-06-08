@@ -83,6 +83,7 @@ const priorityBorderColors: Record<string, string> = {
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
+// TODO: Extract to @/lib/utils.ts
 // ── Safe extractors: guarantee primitive return type ──
 function extractStr(obj: unknown, key: string, fallback = ""): string {
   if (!obj || typeof obj !== "object") return fallback;
@@ -149,8 +150,11 @@ export default function ProjectDetailPage() {
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   // Audit fix: delete confirmation state for tasks
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  // Remove member confirmation state
+  const [removeMemberUserId, setRemoveMemberUserId] = useState<string | null>(null);
   // Website management dialog state
   const [websiteMgmtOpen, setWebsiteMgmtOpen] = useState(false);
+  const [deleteWebsiteId, setDeleteWebsiteId] = useState<string | null>(null);
   const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
   const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
   const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
@@ -681,11 +685,11 @@ export default function ProjectDetailPage() {
                   <AvatarFallback className={cn("text-[9px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
                 </Avatar>
                 <span className="text-[11px] font-medium text-foreground/80 max-w-[80px] truncate">{mUserName}</span>
-                {isAdminUser && (
+                {isAdminUser && mUserId !== userId && (
                   <button
                     type="button"
                     className="h-4 w-4 flex items-center justify-center rounded-full text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/member:opacity-100 transition-all ml-0.5"
-                    onClick={() => handleRemoveMember(mUserId)}
+                    onClick={() => setRemoveMemberUserId(mUserId)}
                     aria-label={`Remove ${mUserName}`}
                   >
                     <X className="h-2.5 w-2.5" />
@@ -903,7 +907,7 @@ export default function ProjectDetailPage() {
                           </a>
                           <button
                             type="button"
-                            onClick={() => handleDeleteWebsite(wId)}
+                            onClick={() => setDeleteWebsiteId(wId)}
                             className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
                             title="Delete website"
                           >
@@ -1277,6 +1281,58 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ═══════ Remove Member Confirmation ═══════ */}
+      {removeMemberUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
+            <div>
+              <h3 className="font-bold text-sm">Remove Team Member</h3>
+              <p className="text-xs text-muted-foreground mt-1">Are you sure you want to remove this member from the project? They will lose access to all project tasks and data.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setRemoveMemberUserId(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={async () => {
+                  await handleRemoveMember(removeMemberUserId);
+                  setRemoveMemberUserId(null);
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ Delete Website Confirmation ═══════ */}
+      {deleteWebsiteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
+            <div>
+              <h3 className="font-bold text-sm">Delete Website</h3>
+              <p className="text-xs text-muted-foreground mt-1">Are you sure you want to delete this website URL? This action cannot be undone.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDeleteWebsiteId(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={async () => {
+                  await handleDeleteWebsite(deleteWebsiteId);
+                  setDeleteWebsiteId(null);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

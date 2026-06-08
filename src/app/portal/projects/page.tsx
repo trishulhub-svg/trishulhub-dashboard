@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { safeText, safeNumber, safeDate } from "@/lib/utils";
+import { safeText, safeNumber, safeDate, deepSanitize } from "@/lib/utils";
 
 export default function PortalProjectsPage() {
   const router = useRouter();
@@ -22,7 +22,8 @@ export default function PortalProjectsPage() {
       if (res.ok) {
         const data = await res.json();
         // Handle both array and paginated { data: [...] } responses
-        setProjects(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []));
+        const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        setProjects(deepSanitize(raw) as unknown[]);
       } else {
         setError("Failed to load projects");
       }

@@ -75,6 +75,16 @@ export default function ProjectDetailError({
     if (!isAdminUser) return null;
     return (
       <>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Type</p>
+          <p className="text-sm font-mono text-red-700 dark:text-red-300">{errorName}</p>
+        </div>
+
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Message</p>
+          <p className="text-sm font-mono text-red-700 dark:text-red-300 break-all">{errorMessage}</p>
+        </div>
+
         {errorDetails && (
           <div>
             <p className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 font-semibold mb-1">Diagnostic Details</p>
@@ -91,6 +101,37 @@ export default function ProjectDetailError({
             </pre>
           </div>
         )}
+
+        {objectKeys ? (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-orange-500 dark:text-orange-400 font-semibold mb-1">
+              Object Keys Found (React #310)
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {objectKeys.split(",").map((key) => (
+                <span key={key.trim()} className="inline-block px-2 py-0.5 text-xs font-mono bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded">
+                  {key.trim()}
+                </span>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              One of these object keys contains a value being rendered as a React child.
+            </p>
+          </div>
+        ) : null}
+
+        {componentStack ? (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Component Stack</p>
+            <pre className="text-xs font-mono text-red-600 dark:text-red-400 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-32 whitespace-pre-wrap">
+              {componentStack}
+            </pre>
+          </div>
+        ) : null}
+
+        {errorDigest ? (
+          <p className="text-xs text-muted-foreground">Digest: {errorDigest}</p>
+        ) : null}
       </>
     );
   };
@@ -129,48 +170,13 @@ export default function ProjectDetailError({
 
           {expanded ? (
             <div className="space-y-2">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Type</p>
-                <p className="text-sm font-mono text-red-700 dark:text-red-300">{errorName}</p>
-              </div>
-
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Message</p>
-                <p className="text-sm font-mono text-red-700 dark:text-red-300 break-all">{errorMessage}</p>
-              </div>
-
-              {renderAdminOnlyDetails()}
-
-              {objectKeys ? (
+              {isAdminUser ? (
+                renderAdminOnlyDetails()
+              ) : (
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-orange-500 dark:text-orange-400 font-semibold mb-1">
-                    Object Keys Found (React #310)
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {objectKeys.split(",").map((key) => (
-                      <span key={key.trim()} className="inline-block px-2 py-0.5 text-xs font-mono bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded">
-                        {key.trim()}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    One of these object keys contains a value being rendered as a React child.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Something went wrong. Please try again.</p>
                 </div>
-              ) : null}
-
-              {componentStack ? (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-red-500 dark:text-red-400 font-semibold mb-1">Component Stack</p>
-                  <pre className="text-xs font-mono text-red-600 dark:text-red-400 bg-white dark:bg-black/20 p-2 rounded overflow-auto max-h-32 whitespace-pre-wrap">
-                    {componentStack}
-                  </pre>
-                </div>
-              ) : null}
-
-              {errorDigest ? (
-                <p className="text-xs text-muted-foreground">Digest: {errorDigest}</p>
-              ) : null}
+              )}
             </div>
           ) : null}
         </div>

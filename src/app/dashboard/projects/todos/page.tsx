@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 
+// TODO: Extract sub-components to separate files
 // ── Inline style injection for animations ──
 const animationStyles = `
 @keyframes slideUp {
@@ -91,6 +92,7 @@ const animationStyles = `
 }
 `;
 
+// TODO: Extract to @/lib/utils.ts
 // ── Safe extractors ──
 function extractStr(obj: unknown, key: string, fallback = ""): string {
   if (!obj || typeof obj !== "object") return fallback;
@@ -734,7 +736,11 @@ function CreateTaskFAB({ onClick }: { onClick: () => void }) {
 }
 
 /** The full "My Todos" personal view — shared between admin tab and non-admin fallback */
-function PersonalTodosView({ props }: { props: {
+function PersonalTodosView({
+  totalActive, overdueTasks, awaitingApproval, completedCount,
+  sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+  search, togglingId, handleToggleDone, projectNameMap, router,
+}: {
   totalActive: number; overdueTasks: number; awaitingApproval: number;
   completedCount: number;
   sortedTraining: unknown[]; tasksByProject: Map<string, unknown[]>; activeTasks: unknown[];
@@ -742,12 +748,7 @@ function PersonalTodosView({ props }: { props: {
   search: string; togglingId: string | null;
   handleToggleDone: (taskId: string) => Promise<void>;
   projectNameMap: Map<string, string>; router: ReturnType<typeof useRouter>;
-} }) {
-  const {
-    totalActive, overdueTasks, awaitingApproval, completedCount,
-    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
-    search, togglingId, handleToggleDone, projectNameMap, router,
-  } = props;
+}) {
 
   const [showCompleted, setShowCompleted] = useState(false);
   const [openProjects, setOpenProjects] = useState<Set<string>>(new Set());
@@ -1393,7 +1394,7 @@ export default function GlobalTodosPage() {
 
             {/* My Todos Tab */}
             <TabsContent value="my">
-              <PersonalTodosView props={personalViewProps} />
+              <PersonalTodosView {...personalViewProps} />
             </TabsContent>
 
             {/* Team Todos Tab */}
@@ -1424,7 +1425,7 @@ export default function GlobalTodosPage() {
 
         {/* Non-admin: Personal view directly (no tabs) */}
         {!isAdminUser && (
-          <PersonalTodosView props={personalViewProps} />
+          <PersonalTodosView {...personalViewProps} />
         )}
       </div>
 
