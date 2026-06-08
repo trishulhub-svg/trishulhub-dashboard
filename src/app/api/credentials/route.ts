@@ -13,7 +13,10 @@ const createCredentialSchema = z.object({
   label: z.string().min(1).max(100),
   username: z.string().min(1).max(200),
   password: z.string().min(1).max(500),
-  url: z.string().url().max(500).optional().nullable(),
+  url: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().url().max(500).optional().nullable()
+  ),
   notes: z.string().max(2000).optional().nullable(),
 });
 
@@ -22,7 +25,10 @@ const updateCredentialSchema = z.object({
   label: z.string().min(1).max(100).optional(),
   username: z.string().min(1).max(200).optional(),
   password: z.string().min(1).max(500).optional(),
-  url: z.string().url().max(500).optional().nullable(),
+  url: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().url().max(500).optional().nullable()
+  ),
   notes: z.string().max(2000).optional().nullable(),
 });
 

@@ -247,7 +247,7 @@ export default function TrishulWorkspacePage() {
     window.open("https://chat.z.ai", "_blank");
   }, []);
   const handleCredentials = useCallback(() => {
-    router.push("/dashboard/credentials");
+    router.push("/dashboard/access-hub");
   }, [router]);
 
   /* ── Time-based greeting ── */
@@ -637,7 +637,7 @@ export default function TrishulWorkspacePage() {
                     type="button"
                   >
                     <KeyRound size={15} />
-                    <span>Claim Credentials</span>
+                    <span>Access Hub</span>
                   </button>
                 </div>
               </div>
@@ -905,7 +905,7 @@ export default function TrishulWorkspacePage() {
                   </div>
                   <div>
                     <h3 className={`ws-cred-heading ws-cred-heading--${mode}`}>
-                      Claim Credentials
+                      Access Hub
                     </h3>
                     <p className={`ws-cred-sub ws-cred-sub--${mode}`}>
                       Get your workspace ID & password

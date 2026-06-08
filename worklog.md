@@ -2195,3 +2195,94 @@ Work Log:
 ### Verification
 - ESLint: Zero errors/warnings in all 11 modified files
 - TypeScript: `npx tsc --noEmit` OOMs (pre-existing, 126K lines of Prisma types — not caused by this change)
+
+---
+Task ID: cred-create-bugfix
+Agent: Main Agent
+Task: Fix "Create" button bug on /dashboard/credentials page
+
+Work Log:
+
+### Root Cause Analysis
+Three interconnected bugs prevented credential creation from working:
+
+1. **Zod validation failure (API)**: The `url` field in `createCredentialSchema` and `updateCredentialSchema` used `z.string().url().max(500).optional().nullable()`. The client sends `url: ""` (empty string) when the optional URL field is left blank. An empty string is NOT a valid URL, so `z.string().url()` rejects it. `.optional()` only accepts `undefined`, not empty strings. This caused the API to return 400 "Validation failed" — but the frontend never displayed this error.
+
+2. **Silent API failure (UI)**: In `handleSave()`, the POST/PUT fetch response handling only checked `if (res.ok)`. When the API returned a 400 error (from bug #1), the code simply did nothing — no error toast, no feedback, dialog stayed open. The user saw "nothing happens" when clicking Create.
+
+3. **Admin target user guard (UI)**: The admin-only guard `if (isAdmin && !formTargetUserId) return` silently returned without any user feedback if the target user select was empty. Additionally, the button's `disabled` prop didn't include this guard, so the button could appear clickable but still fail silently.
+
+### Fixes Applied
+
+#### File: `src/app/api/credentials/route.ts`
+- **Lines 16-19**: Changed `createCredentialSchema` url field from `z.string().url().max(500).optional().nullable()` to `z.preprocess((v) => (v === "" ? undefined : v), z.string().url().max(500).optional().nullable())` — empty strings are now coerced to undefined before validation.
+- **Lines 28-31**: Same fix applied to `updateCredentialSchema` url field.
+
+#### File: `src/app/dashboard/credentials/page.tsx`
+- **Line 208-211**: Admin target user guard now shows `toast.error("Please select a user to assign this credential to")` instead of silently returning.
+- **Lines 231-238**: POST success path now calls `toast.success("Credential created successfully")`. Failure path (else branch) parses the error JSON and shows `toast.error(errData.error || "Failed to create credential")`.
+- **Lines 248-254**: PUT success path now calls `toast.success("Credential updated successfully")`. Failure path shows `toast.error(errData.error || "Failed to update credential")`.
+- **Line 653**: Button `disabled` prop now includes `(isAdmin && !formTargetUserId)` to keep button disabled when admin hasn't selected a target user.
+
+### Verification
+- `NODE_OPTIONS="--max-old-space-size=4096" npx next build` — passed successfully (108 pages)
+- Lint: pre-existing errors only (in unrelated files)
+
+Stage Summary:
+- 2 files changed
+- Root cause: Zod `.url()` rejects empty string + missing error feedback in UI
+- All three bugs fixed with minimal changes, no existing functionality broken
+
+
+## Access Hub Page Merge — Protocol + Credentials
+
+**Date**: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+### Summary
+Merged the Protocol page (`/dashboard/protocol`) and Credentials page (`/dashboard/credentials`) into a single unified "Access Hub" page at `/dashboard/access-hub/`.
+
+### Changes
+
+#### New Files Created
+1. **`src/app/dashboard/access-hub/page.tsx`** — Unified merged page (~750 lines)
+   - Combines all state, handlers, and UI from both pages
+   - **Admin view** (SUPER_ADMIN/ADMIN): Tabbed interface with 3 tabs:
+     - **Credentials** tab: User credential cards with CRUD, user filter, search
+     - **Protocol & Resources** tab: Protocol PDF management, workspace token, user codes
+     - **System Config** tab (SUPER_ADMIN only): Git config, encryption key management
+   - **Non-admin view** (DEVELOPER/others): Simplified single panel showing:
+     - My Credentials (read-only cards)
+     - Protocol PDF download
+     - Workspace Token view
+     - Personal access code
+   - All API endpoints unchanged — only UI merged
+
+2. **`src/app/dashboard/access-hub/loading.tsx`** — Skeleton loading state
+
+3. **`src/app/dashboard/access-hub/error.tsx`** — Error boundary with retry button
+
+#### Modified Files
+4. **`src/app/dashboard/layout.tsx`** — Sidebar nav updated
+   - Replaced `{ title: "Protocol", href: "/dashboard/protocol", icon: FileText }` with `{ title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound }`
+   - Added `KeyRound` to lucide-react imports
+   - Removed unused `FileText` import
+
+5. **`src/app/dashboard/workspace/page.tsx`** — Workspace page updated
+   - Changed `router.push("/dashboard/credentials")` → `router.push("/dashboard/access-hub")`
+   - Changed hero button text "Claim Credentials" → "Access Hub"
+   - Changed credentials card heading "Claim Credentials" → "Access Hub"
+
+#### Redirect Pages (old routes preserved)
+6. **`src/app/dashboard/protocol/page.tsx`** — Now a server-side redirect to `/dashboard/access-hub`
+7. **`src/app/dashboard/credentials/page.tsx`** — Now a server-side redirect to `/dashboard/access-hub`
+8. **`src/app/dashboard/credentials/loading.tsx`** — Now a server-side redirect to `/dashboard/access-hub`
+
+### Access Rules
+- **SUPER_ADMIN**: Full admin controls across all tabs, including System Config
+- **ADMIN**: Credentials CRUD + Protocol management + Resource management (no System Config)
+- **DEVELOPER/others**: Read-only view with their credentials, protocol PDF, workspace token, personal code
+
+### Build Verification
+- `next build` passes successfully ✓
+- No new lint errors introduced
+- All routes properly registered in build output

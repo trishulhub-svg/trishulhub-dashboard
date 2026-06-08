@@ -37,9 +37,9 @@ import {
   GraduationCap,
   BookOpen,
   CalendarRange,
-  FileText,
   ClipboardCheck,
   HardDrive,
+  KeyRound,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -135,7 +135,7 @@ const navGroups: NavGroup[] = [
     label: "System",
     items: [
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
-      { title: "Protocol", href: "/dashboard/protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
