@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   KeyRound,
@@ -43,6 +44,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, safeText, safeArray } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Credential {
   id: string;
@@ -77,7 +88,9 @@ export default function CredentialsPage() {
   const router = useRouter();
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const initialFetchDone = useRef(false);
 
   // UI state
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
@@ -111,10 +124,12 @@ export default function CredentialsPage() {
         const data = await res.json();
         setCredentials(safeArray<Credential>(data));
       } else {
-        setError(true);
+        setError("Failed to load credentials");
+        toast.error("Failed to load credentials");
       }
     } catch {
-      setError(true);
+      setError("Failed to load credentials");
+      toast.error("Failed to load credentials");
     } finally {
       setLoading(false);
     }
@@ -142,16 +157,16 @@ export default function CredentialsPage() {
     }
     fetchCredentials();
     fetchUsers();
+    initialFetchDone.current = true;
   }, [session, status, router, fetchCredentials, fetchUsers]);
 
-  // Re-fetch when admin changes user filter
+  // Re-fetch when admin changes user filter (skip initial mount to prevent double fetch)
   useEffect(() => {
-    if (isAdmin && session) {
-      setLoading(true);
-      setError(false);
-      fetchCredentials();
-    }
-  }, [selectedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isAdmin || !session || !initialFetchDone.current) return;
+    setLoading(true);
+    setError("");
+    fetchCredentials();
+  }, [selectedUserId]);
 
   const copyToClipboard = async (text: string, fieldId: string) => {
     try {
@@ -240,24 +255,24 @@ export default function CredentialsPage() {
         }
       }
     } catch {
-      // silent
+      toast.error("Failed to save credential");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this credential?")) return;
     try {
       const res = await fetch(`/api/credentials?id=${id}`, {
         method: "DELETE",
         credentials: "include",
       });
       if (res.ok) {
+        setDeleteId(null);
         fetchCredentials();
       }
     } catch {
-      // silent
+      toast.error("Failed to delete credential");
     }
   };
 
@@ -271,6 +286,17 @@ export default function CredentialsPage() {
       safeText(c.notes, "").toLowerCase().includes(q)
     );
   });
+
+  function safeUrl(url: string | null | undefined): string {
+    if (!url) return "#";
+    try {
+      const parsed = new URL(url);
+      if (["http:", "https:"].includes(parsed.protocol)) return url;
+      return "#";
+    } catch {
+      return "#";
+    }
+  }
 
   const labelColor = (label: string) =>
     LABEL_COLORS[label] || LABEL_COLORS.Default;
@@ -366,6 +392,20 @@ export default function CredentialsPage() {
         />
       </div>
 
+      {/* Error State */}
+      {error && (
+        <Card className="border-destructive/50">
+          <CardContent className="pt-6 pb-6">
+            <div className="text-center">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => { setError(""); fetchCredentials(); }}>
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Credentials Grid */}
       {!hasCredentials && (
         <Card>
@@ -409,7 +449,7 @@ export default function CredentialsPage() {
                       </Badge>
                       {cred.url && (
                         <a
-                          href={cred.url}
+                          href={safeUrl(cred.url)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-muted-foreground hover:text-primary transition-colors"
@@ -432,7 +472,7 @@ export default function CredentialsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(cred.id)}
+                          onClick={() => setDeleteId(cred.id)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -585,7 +625,7 @@ export default function CredentialsPage() {
             <div className="space-y-2">
               <Label>Password</Label>
               <Input
-                type="text"
+                type="password"
                 placeholder="Enter the password"
                 value={formPassword}
                 onChange={(e) => setFormPassword(e.target.value)}
@@ -631,6 +671,27 @@ export default function CredentialsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Credential</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this credential? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteId && handleDelete(deleteId)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

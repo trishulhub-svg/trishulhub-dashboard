@@ -4,13 +4,14 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { safeNumber } from "@/lib/utils";
+import { formatCurrency } from "@/lib/format";
 
 interface OverviewChartsProps {
   revenueData: { month: string; revenue: number; expenses: number }[];
   expenseData: { name: string; value: number; color: string }[];
 }
 
-const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+// formatCurrency imported from @/lib/format
 
 const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expenseData }: OverviewChartsProps) {
   return (

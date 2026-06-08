@@ -178,4 +178,7 @@ export const RATE_LIMITS = {
   webhook: { limit: 100, windowMs: 60 * 1000 },     // 100 per minute
   crm: { limit: 30, windowMs: 60 * 1000 },          // 30 per minute for CRM endpoints
   crmWrite: { limit: 10, windowMs: 60 * 1000 },     // 10 per minute for CRM write operations
+  finance: { limit: 30, windowMs: 60 * 1000 },       // 30 per minute for finance endpoints
+  financeWrite: { limit: 10, windowMs: 60 * 1000 },  // 10 per minute for finance write operations
+  invoiceSend: { limit: 5, windowMs: 60 * 1000 },    // 5 per minute for invoice send operations
 } as const

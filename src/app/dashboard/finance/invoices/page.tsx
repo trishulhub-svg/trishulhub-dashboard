@@ -29,6 +29,21 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { useRef } from "react";
+
+// ━━ Configurable Constants ━━
+const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub";
+const COMPANY_TAGLINE = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "AI-Powered Web Development";
+const CURRENCY_SYMBOL = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || "₹";
+
+// TODO: Make default line item configurable via settings
+const PAYMENT_METHODS = [
+  { value: "", label: "None" },
+  { value: "UPI", label: "UPI" },
+  { value: "CREDIT_DEBIT_CARD", label: "Credit/Debit Card" },
+  { value: "BANK_TRANSFER", label: "Bank Transfer" },
+  { value: "OTHER", label: "Other" },
+] as const;
 
 // ━━ Constants ━━
 const invoiceStatusColors: Record<string, string> = {
@@ -61,7 +76,7 @@ const statusIconMap: Record<string, { icon: typeof FileText; color: string }> = 
 const ITEMS_PER_PAGE = 8;
 
 const formatCurrency = (n: number) =>
-  `₹${new Intl.NumberFormat("en-IN").format(n)}`;
+  `${CURRENCY_SYMBOL}${new Intl.NumberFormat("en-IN").format(n)}`;
 
 const formatDate = (d: string | null | undefined) => {
   if (!d) return "—";
@@ -142,7 +157,7 @@ function LineItemsEditor({
         <div className="grid grid-cols-12 gap-1 p-2 bg-muted/50 text-xs font-medium text-muted-foreground">
           <div className="col-span-5">Description</div>
           <div className="col-span-2 text-right">Qty</div>
-          <div className="col-span-2 text-right">Rate (₹)</div>
+          <div className="col-span-2 text-right">Rate ({CURRENCY_SYMBOL})</div>
           <div className="col-span-2 text-right">Amount</div>
           <div className="col-span-1" />
         </div>
@@ -269,6 +284,7 @@ export default function InvoicesPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: "Web Development", quantity: 1, rate: 50000, amount: 50000 },
   ]);
+  // TODO: Make GST percent configurable via system settings
   const [gstPercent, setGstPercent] = useState<number>(18);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [paymentStatus, setPaymentStatus] = useState<string>("UNPAID");
@@ -298,6 +314,45 @@ export default function InvoicesPage() {
   const [editProjectSearch, setEditProjectSearch] = useState<string>("");
   const [editProjectDropdownOpen, setEditProjectDropdownOpen] = useState(false);
 
+  // ━━ Click-outside & Escape key handlers for combobox dropdowns ━━
+  const createClientRef = useRef<HTMLDivElement>(null);
+  const createProjectRef = useRef<HTMLDivElement>(null);
+  const editClientRef = useRef<HTMLDivElement>(null);
+  const editProjectRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setClientDropdownOpen(false);
+        setProjectDropdownOpen(false);
+        setEditClientDropdownOpen(false);
+        setEditProjectDropdownOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (createClientRef.current && !createClientRef.current.contains(target)) {
+        setClientDropdownOpen(false);
+      }
+      if (createProjectRef.current && !createProjectRef.current.contains(target)) {
+        setProjectDropdownOpen(false);
+      }
+      if (editClientRef.current && !editClientRef.current.contains(target)) {
+        setEditClientDropdownOpen(false);
+      }
+      if (editProjectRef.current && !editProjectRef.current.contains(target)) {
+        setEditProjectDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // ━━ Fetch data ━━
   const fetchData = useCallback(
     async (signal?: AbortSignal) => {
@@ -325,9 +380,7 @@ export default function InvoicesPage() {
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error(err);
-        setError(
-          err instanceof Error ? err.message : "Failed to load invoices"
-        );
+        setError("Failed to load invoices. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -594,6 +647,7 @@ export default function InvoicesPage() {
     }
   };
 
+  // TODO: Implement server-side pagination for large invoice datasets
   // ━━ Filtering & Pagination ━━
   const filtered = useMemo(() => {
     let result = invoices;
@@ -741,7 +795,7 @@ export default function InvoicesPage() {
                 <div className="space-y-1">
                   <Label className="text-xs">Client *</Label>
                   <input type="hidden" name="clientId" value={createClientId} required />
-                  <div className="relative">
+                  <div className="relative" ref={createClientRef}>
                     <input
                       type="text"
                       className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
@@ -791,7 +845,7 @@ export default function InvoicesPage() {
                 <div className="space-y-1">
                   <Label className="text-xs">Project</Label>
                   <input type="hidden" name="projectId" value={createProjectId} />
-                  <div className="relative">
+                  <div className="relative" ref={createProjectRef}>
                     <input
                       type="text"
                       className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
@@ -874,11 +928,9 @@ export default function InvoicesPage() {
                     onChange={(e) => setPaymentMethod(e.target.value)}
                     className="border rounded px-3 py-2 text-sm bg-background w-full"
                   >
-                    <option value="">None</option>
-                    <option value="UPI">UPI</option>
-                    <option value="CREDIT_DEBIT_CARD">Credit/Debit Card</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                    <option value="OTHER">Other</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -1347,9 +1399,9 @@ export default function InvoicesPage() {
                 <div className="border rounded-xl p-6 space-y-4">
                   <div className="flex justify-between">
                     <div>
-                      <h3 className="font-bold text-lg">TrishulHub</h3>
+                      <h3 className="font-bold text-lg">{COMPANY_NAME}</h3>
                       <p className="text-xs text-muted-foreground">
-                        AI-Powered Web Development
+                        {COMPANY_TAGLINE}
                       </p>
                     </div>
                     <div className="text-right">
@@ -1414,10 +1466,10 @@ export default function InvoicesPage() {
                               {safeNumber(item.quantity)}
                             </td>
                             <td className="text-right py-2">
-                              ₹{safeNumber(item.rate).toLocaleString()}
+                              {CURRENCY_SYMBOL}{safeNumber(item.rate).toLocaleString()}
                             </td>
                             <td className="text-right py-2">
-                              ₹{safeNumber(item.amount).toLocaleString()}
+                              {CURRENCY_SYMBOL}{safeNumber(item.amount).toLocaleString()}
                             </td>
                           </tr>
                         ))}
@@ -1523,7 +1575,7 @@ export default function InvoicesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>
-                <div className="relative">
+                <div className="relative" ref={editClientRef}>
                   <input
                     type="text"
                     className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
@@ -1572,7 +1624,7 @@ export default function InvoicesPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Project</Label>
-                <div className="relative">
+                <div className="relative" ref={editProjectRef}>
                   <input
                     type="text"
                     className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
@@ -1655,11 +1707,9 @@ export default function InvoicesPage() {
                   onChange={(e) => setEditPaymentMethod(e.target.value)}
                   className="border rounded px-3 py-2 text-sm bg-background w-full"
                 >
-                  <option value="">None</option>
-                  <option value="UPI">UPI</option>
-                  <option value="CREDIT_DEBIT_CARD">Credit/Debit Card</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                  <option value="OTHER">Other</option>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1">

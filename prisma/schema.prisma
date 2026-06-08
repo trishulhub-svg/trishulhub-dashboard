@@ -479,12 +479,25 @@ model Task {
 }
 
 // ━━ Invoices ━━
+// TODO: Convert these String fields to Prisma enums for DB-level validation:
+// InvoiceStatus, PaymentStatus, PaymentMethod, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
+// DealStage, ContractStatus, Currency
+//
+// TODO: Create InvoiceItem model for proper line-item tracking instead of JSON blob
+// Proposed: model InvoiceItem { id String @id @default(cuid()) invoiceId String invoice Invoice @relation(...) description String quantity Int rate Float amount Float }
+// TODO: Create ExchangeRate model for proper currency tracking:
+// model ExchangeRate { id String @id @default(cuid()) fromCurrency String toCurrency String rate Float effectiveDate DateTime @@unique([fromCurrency, toCurrency, effectiveDate]) }
+// TODO: Create Payment model for invoice payment tracking:
+// model Payment { id String @id @default(cuid()) invoiceId String invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade) amount Float method String reference String? paidAt DateTime status String @@index([invoiceId]) }
 model Invoice {
   id            String   @id @default(cuid())
   invoiceNumber String   @unique
   clientId      String
   projectId     String?
-  items         String   @default("[]") // JSON array of line items
+  // TODO: Create InvoiceItem model for proper line-item tracking instead of JSON blob
+  items         String   @default("[]") // JSON array of line items — TODO: migrate to InvoiceItem model
+  // NOTE: Cross-validation (total === subtotal + tax + gst) is enforced at application level in Zod schemas
+  // TODO: Add DB trigger for financial field integrity
   subtotal      Float    @default(0)
   tax           Float    @default(0)
   total         Float    @default(0)
@@ -494,7 +507,7 @@ model Invoice {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  client        Client   @relation(fields: [clientId], references: [id])
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   project       Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   paymentMethod  String?   // UPI, CREDIT_DEBIT_CARD, BANK_TRANSFER, OTHER
   gst            Float?    // GST amount in INR
@@ -506,8 +519,10 @@ model Invoice {
   sentById      String?
 
   @@index([clientId])
+  @@index([clientId, status])
   @@index([status])
   @@index([paymentStatus])
+  @@map("Invoice")
 }
 
 // ━━ CRM / Leads ━━
@@ -576,6 +591,9 @@ model Deal {
   @@index([clientId])
   @@index([leadId])
   @@index([expectedCloseDate])
+  @@index([assignedToId])
+
+  @@map("Deal")
 }
 
 // ━━ CRM Contacts ━━
@@ -599,6 +617,8 @@ model Contact {
 
   @@index([clientId])
   @@index([leadId])
+
+  @@map("Contact")
 }
 
 // ━━ Agent Conversations (Legacy - kept for migration) ━━
@@ -697,8 +717,12 @@ model TimeEntry {
   project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, date])
+  @@index([userId, status])
   @@index([projectId])
   @@index([date])
+
+  @@map("TimeEntry")
 }
 
 model Attendance {
@@ -797,7 +821,8 @@ model Expense {
   id          String   @id @default(cuid())
   category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, SALARY, SOFTWARE, OTHER
   description String
-  amount      Float
+  // amount >= 0 enforced at application level
+  amount      Float    @default(0)
   date        DateTime
   receiptUrl  String?
   projectId   String?
@@ -813,13 +838,15 @@ model Expense {
   @@index([category])
   @@index([date])
   @@index([employeeId])
+
+  @@map("Expense")
 }
 
 // ━━ Subscriptions ━━
 model Subscription {
   id           String    @id @default(cuid())
   service      String    // Service name e.g., "ChatGPT Subscription"
-  amount       Float     // Actual cost in the selected currency
+  amount       Float     @default(0) // Actual cost in the selected currency
   currency     String    @default("INR") // INR, GBP, USD
   exchangeRate Float     @default(1) // Conversion rate to INR (1 for INR, ~105.5 for GBP, ~83.5 for USD)
   frequency    String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
@@ -836,6 +863,9 @@ model Subscription {
 
   @@index([projectId])
   @@index([status])
+  @@index([service])
+
+  @@map("Subscription")
 }
 
 // ━━ SMTP Configuration ━━
@@ -1276,6 +1306,8 @@ model Contract {
 
   @@index([clientId])
   @@index([status])
+
+  @@map("Contract")
 }
 
 // ━━ File Management (Google Drive Backend) ━━

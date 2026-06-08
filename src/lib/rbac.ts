@@ -121,6 +121,9 @@ export async function getDescendantFileIds(folderId: string): Promise<string[]> 
  * @returns Array of project IDs the user has access to, or null if admin (all access)
  */
 export async function getAssignedProjectIds(userId: string, role: string): Promise<string[] | null> {
+  // NOTE: VIEWER role gets project IDs here which may grant indirect access to financial data.
+  // Consider adding canViewFinancialData() check in finance API routes.
+
   // SUPER_ADMIN and ADMIN can see all projects
   if (isAdmin(role)) return null
 
@@ -167,4 +170,24 @@ export async function getAssignedClientIds(userId: string, role: string): Promis
   })
   
   return [...new Set(projects.map(p => p.clientId).filter((id): id is string => !!id))]
+}
+
+/** Check if user can manage finance (invoices, expenses, subscriptions) */
+export function canManageFinance(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN"].includes(role)
+}
+
+/** Check if user can manage contracts (restrict to admins) */
+export function canManageContracts(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN"].includes(role)
+}
+
+/** Check if user can manage deals (CRM pipeline) */
+export function canManageDeals(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role)
+}
+
+/** Check if user can view financial data (reports, analytics) */
+export function canViewFinancialData(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role)
 }

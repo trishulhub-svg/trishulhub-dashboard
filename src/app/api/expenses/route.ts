@@ -5,6 +5,10 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { isAdmin } from "@/lib/rbac"
+
+const VALID_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"] as const
+type ExpenseCategory = typeof VALID_CATEGORIES[number]
 
 // GET /api/expenses - List expenses with search, date, category, project filters
 export async function GET(req: NextRequest) {
@@ -20,8 +24,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -36,24 +39,38 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * limit
 
     const where: Prisma.ExpenseWhereInput = {}
+    const dateFilter: { gte?: Date; lte?: Date } = {}
 
-    // Date range filter
-    if (startDate || endDate) {
-      where.date = {}
-      if (startDate) where.date.gte = new Date(startDate)
-      if (endDate) where.date.lte = new Date(endDate)
+    // Date range filter with validation
+    if (startDate) {
+      const d = new Date(startDate)
+      if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid startDate" }, { status: 400 })
+      dateFilter.gte = d
+    }
+    if (endDate) {
+      const d = new Date(endDate)
+      if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid endDate" }, { status: 400 })
+      dateFilter.lte = d
+    }
+    if (Object.keys(dateFilter).length > 0) {
+      where.date = dateFilter
     }
 
     // Category filter
     if (category) where.category = category
 
-    // Project filter
-    if (projectId) where.projectId = projectId
+    // Project filter with format validation
+    if (projectId) {
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(projectId)) {
+        return NextResponse.json({ error: "Invalid projectId format" }, { status: 400 })
+      }
+      where.projectId = projectId
+    }
 
-    // NOTE: search is handled by multi-field in-memory filter below
-    // to support smart search across description, category, project, employee, ref, amount.
-    // We do NOT add a Prisma where clause here because it would pre-filter rows
-    // and miss matches in related fields (employee name, project name, etc.).
+    // NOTE: Search is applied in-memory after DB pagination. Total reflects DB count, not filtered count.
+    // For accurate pagination with search, consider SQLite FTS5 or moving search to WHERE clause.
+    // This is a known limitation — search runs across related fields (employee name, project name, etc.)
+    // which Prisma SQLite doesn't support in cross-relation OR queries.
 
     const [expenses, total] = await Promise.all([
       db.expense.findMany({
@@ -107,8 +124,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -135,9 +151,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Description must be at most 2000 characters" }, { status: 400 })
     }
 
-    const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
-    if (!validCategories.includes(category)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+    if (!VALID_CATEGORIES.includes(category as ExpenseCategory)) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
     }
 
     const parsed = typeof amount === "number" ? amount : parseFloat(String(amount ?? ""))
@@ -187,8 +202,7 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -210,9 +224,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
     }
 
-    const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
-
     const allowedFields = ["category", "description", "amount", "date", "receiptUrl", "projectId", "employeeId", "paymentRef"]
+    // Record<string, any> for dynamic field loop — intentional pattern
     const sanitizedData: Record<string, any> = {}
     for (const key of allowedFields) {
       if (data[key] !== undefined) {
@@ -231,8 +244,8 @@ export async function PATCH(req: NextRequest) {
         } else if (key === "paymentRef" && data[key] !== undefined) {
           sanitizedData[key] = typeof data[key] === "string" && data[key].trim() === "" ? null : data[key]
         } else if (key === "category") {
-          if (!validCategories.includes(data[key] as string)) {
-            return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+          if (!VALID_CATEGORIES.includes(data[key] as ExpenseCategory)) {
+            return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
           }
           sanitizedData[key] = data[key]
         } else if (key === "description") {
@@ -295,8 +308,7 @@ export async function PUT(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -318,9 +330,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
     }
 
-    const validCategories = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]
-    if (category && !validCategories.includes(category)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
     }
 
     if (description && description.length > 2000) {
@@ -389,8 +400,7 @@ export async function DELETE(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -413,12 +423,24 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
     }
 
-    const existing = await db.expense.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+    try {
+      await db.$transaction(async (tx) => {
+        const existing = await tx.expense.findUnique({ where: { id } })
+        if (!existing) {
+          throw new Error("NOT_FOUND")
+        }
+        await tx.expense.delete({ where: { id } })
+      })
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "NOT_FOUND") {
+        return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+      }
+      // Safety net for Prisma P2025 (record not found)
+      if (error && typeof error === "object" && "code" in error && (error as { code: string }).code === "P2025") {
+        return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+      }
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }
-
-    await db.expense.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

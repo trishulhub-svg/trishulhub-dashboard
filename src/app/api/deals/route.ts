@@ -10,7 +10,14 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 
 // Helper: serialize Date objects in deal data to ISO strings for JSON responses
-function serializeDealDates(d: any) {
+interface DealWithDates {
+  expectedCloseDate?: string | Date | null
+  actualCloseDate?: string | Date | null
+  createdAt?: string | Date | null
+  updatedAt?: string | Date | null
+  [key: string]: unknown
+}
+function serializeDealDates(d: DealWithDates) {
   if (!d) return d
   if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
   if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
@@ -26,14 +33,14 @@ const VALID_CURRENCIES = ["USD", "GBP", "INR"] as const
 // GET /api/deals - List deals with pagination, search, filter, sort
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    await ensureAllTables()
 
     // Rate limit
     const rl = rateLimit(`crm-deals-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
@@ -62,6 +69,19 @@ export async function GET(req: NextRequest) {
     }
     if (sortOrder && !validSortOrder.includes(sortOrder)) {
       return NextResponse.json({ error: "Invalid sortOrder. Must be asc or desc" }, { status: 400 })
+    }
+
+    // Validate stage filter
+    if (stage && !VALID_STAGES.includes(stage as typeof VALID_STAGES[number])) {
+      return NextResponse.json({ error: "Invalid stage filter" }, { status: 400 })
+    }
+
+    // Validate clientId and leadId format
+    if (clientId && !/^[a-zA-Z0-9_-]{1,100}$/.test(clientId)) {
+      return NextResponse.json({ error: "Invalid clientId format" }, { status: 400 })
+    }
+    if (leadId && !/^[a-zA-Z0-9_-]{1,100}$/.test(leadId)) {
+      return NextResponse.json({ error: "Invalid leadId format" }, { status: 400 })
     }
 
     // Build where clause
@@ -100,7 +120,7 @@ export async function GET(req: NextRequest) {
         db.deal.count({ where }),
       ])
 
-      const serialized = deals.map((d: any) => serializeDealDates(d))
+      const serialized = deals.map((d) => serializeDealDates(d as unknown as DealWithDates))
       return NextResponse.json(deepSanitize({
         data: serialized,
         total,
@@ -109,7 +129,7 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / limit),
       }))
     } catch (error: unknown) {
-      console.error("Error fetching deals:", error)
+      console.error("[deals] GET error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 })
     }
   } catch (error: unknown) {
@@ -121,14 +141,14 @@ export async function GET(req: NextRequest) {
 // POST /api/deals - Create deal (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    await ensureAllTables()
 
     // Rate limit
     const rl = rateLimit(`crm-deals-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -168,43 +188,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Verify clientId exists if provided
-    if (data.clientId) {
-      const client = await db.client.findUnique({ where: { id: data.clientId } })
-      if (!client) {
-        return NextResponse.json({ error: "Client not found" }, { status: 404 })
-      }
+    // Validate FK id formats
+    if (data.clientId && !/^[a-zA-Z0-9_-]{1,100}$/.test(data.clientId)) {
+      return NextResponse.json({ error: "Invalid clientId format" }, { status: 400 })
+    }
+    if (data.leadId && !/^[a-zA-Z0-9_-]{1,100}$/.test(data.leadId)) {
+      return NextResponse.json({ error: "Invalid leadId format" }, { status: 400 })
+    }
+    if (data.assignedToId && !/^[a-zA-Z0-9_-]{1,100}$/.test(data.assignedToId)) {
+      return NextResponse.json({ error: "Invalid assignedToId format" }, { status: 400 })
     }
 
-    // Verify leadId exists if provided
-    if (data.leadId) {
-      const lead = await db.lead.findUnique({ where: { id: data.leadId } })
-      if (!lead) {
-        return NextResponse.json({ error: "Lead not found" }, { status: 404 })
-      }
-    }
-
-    // Verify assignedToId exists if provided
-    if (data.assignedToId) {
-      const user = await db.user.findUnique({ where: { id: data.assignedToId } })
-      if (!user) {
-        return NextResponse.json({ error: "Assigned user not found" }, { status: 404 })
-      }
-    }
+    // Verify FK references in parallel
+    const [client, lead, user] = await Promise.all([
+      data.clientId ? db.client.findUnique({ where: { id: data.clientId }, select: { id: true } }).catch(() => null) : Promise.resolve(null),
+      data.leadId ? db.lead.findUnique({ where: { id: data.leadId }, select: { id: true } }).catch(() => null) : Promise.resolve(null),
+      data.assignedToId ? db.user.findUnique({ where: { id: data.assignedToId }, select: { id: true } }).catch(() => null) : Promise.resolve(null),
+    ])
+    if (data.clientId && !client) return NextResponse.json({ error: "Client not found" }, { status: 404 })
+    if (data.leadId && !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 })
+    if (data.assignedToId && !user) return NextResponse.json({ error: "Assigned user not found" }, { status: 404 })
 
     try {
       const deal = await db.deal.create({
         data: {
           title: data.title,
           value: data.value ?? 0,
-          currency: data.currency || "USD",
+          currency: data.currency || "INR",
           stage: data.stage || "LEAD",
           probability: data.probability ?? 0,
           expectedCloseDate: data.expectedCloseDate ? new Date(data.expectedCloseDate) : null,
           clientId: data.clientId || null,
           leadId: data.leadId || null,
           assignedToId: data.assignedToId || null,
-          notes: data.notes || null,
+          notes: (data.notes || "").slice(0, 5000) || null,
         },
         include: {
           client: { select: { id: true, name: true } },
@@ -212,9 +229,9 @@ export async function POST(req: NextRequest) {
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal)), { status: 201 })
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)), { status: 201 })
     } catch (error: unknown) {
-      console.error("Error creating deal:", error)
+      console.error("[deals] POST error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }
       if (prismaError?.code === "P2002") {
         return NextResponse.json({ error: "A deal with this title already exists" }, { status: 409 })

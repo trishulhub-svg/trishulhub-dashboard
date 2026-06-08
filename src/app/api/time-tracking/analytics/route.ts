@@ -5,7 +5,12 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-// GET /api/time-tracking/analytics - Analytics data
+/**
+ * GET /api/time-tracking/analytics
+ * Returns analytics data grouped by employee or project for a given date range.
+ * @param req - NextRequest with query params: type (employee|project), startDate, endDate, userId, projectId
+ * @returns Analytics data with grouped summaries and total hours
+ */
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -77,7 +82,9 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, name: true, email: true, role: true } },
         project: { select: { id: true, name: true } },
       },
+      take: 10000, // Safety limit for analytics
     })
+    // TODO: Use Prisma aggregate for production to avoid unbounded findMany
 
     if (type === "employee") {
       // Group by employee
@@ -169,10 +176,10 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // This should never be reached due to early validation above
+    // Exhaustiveness guard — should never be reached
     return NextResponse.json({ error: "Unhandled analytics type" }, { status: 400 })
   } catch (error: unknown) {
-    console.error("[time-tracking/analytics] GET error")
+    console.error("[time-tracking/analytics] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

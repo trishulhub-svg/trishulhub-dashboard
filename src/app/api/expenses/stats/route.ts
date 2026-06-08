@@ -43,22 +43,25 @@ export async function GET(req: NextRequest) {
       if (endDate) where.date.lte = new Date(endDate)
     }
 
+    // TODO: For production scale, consider using Prisma aggregate queries (groupBy, sum) instead of loading all rows.
     const expenses = await db.expense.findMany({
       where,
       include: {
         project: { select: { id: true, name: true, budget: true } },
         employee: { select: { id: true, name: true } },
       },
+      take: 5000, // Safety limit — use aggregate queries for production scale
+      orderBy: { date: "desc" },
     })
 
     // Group by category
     const byCategory: Record<string, { category: string; total: number; count: number }> = {}
     for (const exp of expenses) {
-      const cat = exp.category
+      const cat = exp.category || "OTHER"
       if (!byCategory[cat]) {
         byCategory[cat] = { category: cat, total: 0, count: 0 }
       }
-      byCategory[cat].total += exp.amount
+      byCategory[cat].total += (exp.amount ?? 0)
       byCategory[cat].count += 1
     }
 
@@ -75,11 +78,11 @@ export async function GET(req: NextRequest) {
           budget: exp.project?.budget || null,
         }
       }
-      byProject[key].total += exp.amount
+      byProject[key].total += (exp.amount ?? 0)
       byProject[key].count += 1
     }
 
-    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
+    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount ?? 0), 0)
 
     return NextResponse.json({
       byCategory: Object.values(byCategory).sort((a, b) => b.total - a.total),

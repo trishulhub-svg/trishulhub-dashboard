@@ -6,16 +6,17 @@ import { Prisma } from "@prisma/client"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
+// Note: deepSanitize is actually a deep clone, not XSS sanitization
 import { deepSanitize } from "@/lib/utils"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-get:${userId}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const userRole = session.user.role
     const { searchParams } = new URL(req.url)
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 100)
     const offset = (page - 1) * limit
     const status = searchParams.get("status") || ""
 
@@ -46,13 +47,13 @@ export async function GET(req: NextRequest) {
         }),
         db.invoice.count({ where }),
       ])
-      return NextResponse.json(JSON.parse(JSON.stringify({
+      return NextResponse.json({
         data: invoices,
         total,
         page,
         limit,
         totalPages: Math.ceil(total / limit),
-      })))
+      })
     }
 
     // DEVELOPER users only see invoices from their assigned projects' clients
@@ -73,13 +74,13 @@ export async function GET(req: NextRequest) {
       }),
       db.invoice.count({ where }),
     ])
-    return NextResponse.json(JSON.parse(JSON.stringify({
+    return NextResponse.json({
       data: invoices,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    })))
+    })
   } catch (error: unknown) {
     console.error("[invoices] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load invoices" }, { status: 500 })
@@ -130,37 +131,47 @@ export async function POST(req: NextRequest) {
     if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
     if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
 
-    // Generate invoice number if not provided
-    const autoInvoiceNumber = invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
+    // Generate invoice number if not provided (crypto-based for uniqueness)
+    const autoInvoiceNumber = invoiceNumber || `INV-${crypto.randomUUID().split("-")[0].toUpperCase()}`
 
-    // H-FIN-4: Uniqueness check on invoiceNumber
-    const existingInvoice = await db.invoice.findFirst({ where: { invoiceNumber: autoInvoiceNumber } })
-    if (existingInvoice) {
-      return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 })
+    // H-FIN-4: Uniqueness check on invoiceNumber — wrapped in transaction to prevent race conditions
+    let invoice
+    try {
+      invoice = await db.$transaction(async (tx) => {
+        const existingInvoice = await tx.invoice.findFirst({ where: { invoiceNumber: autoInvoiceNumber } })
+        if (existingInvoice) throw new Error("DUPLICATE_INVOICE_NUMBER")
+
+        const inv = await tx.invoice.create({
+          data: {
+            invoiceNumber: deepSanitize(autoInvoiceNumber),
+            clientId,
+            projectId: projectId || null,
+            items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : "[]",
+            subtotal: subtotal ?? 0,
+            tax: tax ?? 0,
+            total: total ?? 0,
+            // SECURITY: Always create as DRAFT — ignore client-provided status
+            status: "DRAFT",
+            dueDate: dueDate ? new Date(dueDate) : null,
+            paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : null,
+            gst: typeof gst === 'number' ? gst : null,
+            gstPercent: typeof gstPercent === 'number' ? gstPercent : null,
+            // INV-04: length-limit user-controlled string fields
+            notes: typeof notes === 'string' ? deepSanitize(notes.slice(0, 5000)) : null,
+            paymentStatus: typeof paymentStatus === 'string' ? paymentStatus : "UNPAID",
+            // SECURITY: Auto-set sentById from session — ignore client-provided value
+            sentById: session.user.id,
+          },
+        })
+        return inv
+      })
+    } catch (txError: unknown) {
+      if (txError instanceof Error && txError.message === "DUPLICATE_INVOICE_NUMBER") {
+        return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 })
+      }
+      throw txError
     }
-
-    const invoice = await db.invoice.create({
-      data: {
-        invoiceNumber: deepSanitize(autoInvoiceNumber),
-        clientId,
-        projectId: projectId || null,
-        items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : "[]",
-        subtotal: subtotal ?? 0,
-        tax: tax ?? 0,
-        total: total ?? 0,
-        // SECURITY: Always create as DRAFT — ignore client-provided status
-        status: "DRAFT",
-        dueDate: dueDate ? new Date(dueDate) : null,
-        paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : null,
-        gst: typeof gst === 'number' ? gst : null,
-        gstPercent: typeof gstPercent === 'number' ? gstPercent : null,
-        notes: typeof notes === 'string' ? deepSanitize(notes) : null,
-        paymentStatus: typeof paymentStatus === 'string' ? paymentStatus : "UNPAID",
-        // SECURITY: Auto-set sentById from session — ignore client-provided value
-        sentById: session.user.id,
-      },
-    })
-    return NextResponse.json(invoice, { status: 201 })
+    return NextResponse.json({ data: invoice, message: "Invoice created" }, { status: 201 })
   } catch (error: unknown) {
     console.error("[invoices] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create invoice" }, { status: 500 })
@@ -241,6 +252,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
+    // Record<string, any> used for dynamic field loop assignment — intentional
     const sanitizedData: Record<string, any> = {}
     const allowedFields = ["invoiceNumber", "clientId", "projectId", "items", "subtotal", "tax", "total", "status", "dueDate", "paidAt", "paymentMethod", "gst", "gstPercent", "notes", "paymentStatus"]
     for (const key of allowedFields) {
@@ -305,7 +317,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    // Accept ID from query params first (frontend sends ?id=...), then JSON body
+    // TODO: Migrate to DELETE /api/invoices/[id] for proper REST
+    // Prefer query param approach: check urlId first, then bodyId as fallback
     const urlId = new URL(req.url).searchParams.get("id")
     let bodyId: string | undefined
     try {

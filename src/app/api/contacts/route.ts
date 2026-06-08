@@ -12,8 +12,6 @@ import { deepSanitize } from "@/lib/utils"
 // GET /api/contacts - List contacts with pagination, search, filter, sort
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -21,11 +19,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Rate limit
+    // Rate limit (convention: crm-{resource}-get-{userId})
     const rl = rateLimit(`crm-contacts-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
     }
+
+    await ensureAllTables()
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get("search") || ""
@@ -101,8 +101,6 @@ export async function GET(req: NextRequest) {
 // POST /api/contacts - Create contact (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -115,6 +113,8 @@ export async function POST(req: NextRequest) {
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
     }
+
+    await ensureAllTables()
 
     let body: unknown
     try {

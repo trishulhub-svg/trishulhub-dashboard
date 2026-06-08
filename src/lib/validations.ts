@@ -141,13 +141,13 @@ export const createInvoiceSchema = z.object({
     z.string(),
     z.array(z.object({
       description: z.string(),
-      quantity: z.number().min(0),
+      quantity: z.number().min(1),
       rate: z.number().min(0),
     }))
   ]).optional(),
-  subtotal: z.number().min(0).optional(),
+  subtotal: z.number().min(0).optional().describe("Subtotal before tax"),
   tax: z.number().min(0).optional(),
-  total: z.number().min(0).optional(),
+  total: z.number().min(0).optional().describe("Total including tax"),
   status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE"]).optional(),
   dueDate: z.string().optional(),
   paymentMethod: z.enum(["UPI", "CREDIT_DEBIT_CARD", "BANK_TRANSFER", "OTHER"]).nullable().optional(),
@@ -156,17 +156,24 @@ export const createInvoiceSchema = z.object({
   notes: z.string().max(5000).nullable().optional(),
   paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
   invoiceNumber: z.string().max(50).optional(),
+  // Note: If not provided, backend auto-generates one. Optional is correct here.
 })
+.refine((data) => {
+  if (data.subtotal !== undefined && data.tax !== undefined && data.total !== undefined) {
+    return Math.abs(data.total - data.subtotal - data.tax - (data.gst ?? 0)) < 0.01
+  }
+  return true
+}, { message: "total must equal subtotal + tax + gst" })
 
 export const updateInvoiceSchema = z.object({
   id: z.string().min(1),
   invoiceNumber: z.string().max(50).optional(),
   clientId: z.string().optional(),
   projectId: z.string().nullable().optional(),
-  items: z.union([z.string(), z.array(z.object({ description: z.string(), quantity: z.number().min(0), rate: z.number().min(0) }))]).optional(),
-  subtotal: z.number().min(0).optional(),
+  items: z.union([z.string(), z.array(z.object({ description: z.string(), quantity: z.number().min(1), rate: z.number().min(0) }))]).optional(),
+  subtotal: z.number().min(0).optional().describe("Subtotal before tax"),
   tax: z.number().min(0).optional(),
-  total: z.number().min(0).optional(),
+  total: z.number().min(0).optional().describe("Total including tax"),
   status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE"]).optional(),
   dueDate: z.string().nullable().optional(),
   paidAt: z.string().nullable().optional(),
@@ -175,7 +182,27 @@ export const updateInvoiceSchema = z.object({
   gstPercent: z.number().min(0).max(100).optional(),
   notes: z.string().max(5000).nullable().optional(),
   paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
-}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+  sentById: z.string().max(100).nullable().optional(),
+})
+.refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+.refine((data) => {
+  if (data.subtotal !== undefined && data.tax !== undefined && data.total !== undefined) {
+    return Math.abs(data.total - data.subtotal - data.tax - (data.gst ?? 0)) < 0.01
+  }
+  return true
+}, { message: "total must equal subtotal + tax + gst" })
+
+export const createExpenseSchema = z.object({
+  category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]),
+  description: z.string().min(1).max(2000),
+  amount: z.number().min(0).describe("Amount in selected currency"),
+  date: z.string().min(1), // ISO date string — validated as Date at API level
+  receiptUrl: z.string().max(500).optional().nullable(),
+  projectId: z.string().max(100).optional().nullable(),
+  employeeId: z.string().max(100).optional().nullable(),
+  paymentRef: z.string().max(200).optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+})
 
 export const updateExpenseSchema = z.object({
   id: z.string().min(1),
@@ -185,6 +212,8 @@ export const updateExpenseSchema = z.object({
   date: z.string().optional(),
   receiptUrl: z.string().url().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  employeeId: z.string().max(100).nullable().optional(),
+  paymentRef: z.string().max(200).nullable().optional(),
 })
 
 // ━━ Leads ━━
@@ -330,7 +359,7 @@ export const createSubscriptionSchema = z.object({
 export const updateSubscriptionSchema = z.object({
   id: z.string().min(1),
   service: z.string().min(1).max(200).optional(),
-  amount: z.number().min(0).optional(),
+  amount: z.number().min(0).optional().describe("Amount in selected currency"),
   currency: z.enum(["INR", "GBP", "USD"]).optional(),
   exchangeRate: z.number().min(0).optional(),
   frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
@@ -339,7 +368,7 @@ export const updateSubscriptionSchema = z.object({
   projectId: z.string().optional(),
   endDate: z.string().optional(),
   notes: z.string().max(2000).optional(),
-})
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 /**
  * Validates data against a schema and returns either the validated data or an error response
@@ -429,6 +458,7 @@ export const createContractSchema = z.object({
   templateText: z.string().max(50000).optional(),
   templateFileName: z.string().max(500).optional(),
   useAI: z.boolean().optional(),
+  // Backend auto-generates if not provided
   contractNumber: z.string().optional(),
 })
 

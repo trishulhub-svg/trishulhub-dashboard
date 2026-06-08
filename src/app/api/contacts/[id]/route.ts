@@ -17,14 +17,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    await ensureAllTables()
 
     const { id } = await params
 
@@ -53,8 +53,6 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -67,6 +65,8 @@ export async function PATCH(
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
+
+    await ensureAllTables()
 
     const { id } = await params
 
@@ -84,16 +84,6 @@ export async function PATCH(
 
     const data = validation.data
 
-    // If email is being updated, check for duplicates (excluding current contact)
-    if (data.email) {
-      const existing = await db.contact.findFirst({
-        where: { email: data.email, NOT: { id } },
-      })
-      if (existing) {
-        return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
-      }
-    }
-
     // Remove id from update data and sanitize
     const { id: _id, ...updateData } = data
 
@@ -104,44 +94,58 @@ export async function PATCH(
       }
     }
 
-    // Wrap isPrimary unset + contact update in a single transaction to prevent race conditions
-    const contact = await db.$transaction(async (tx) => {
-      if (sanitizedData.isPrimary === true) {
-        const current = await tx.contact.findUnique({ where: { id } })
-        if (current) {
-          const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
-          const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
-          if (targetClientId) {
-            await tx.contact.updateMany({
-              where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
-              data: { isPrimary: false },
-            })
-          }
-          if (targetLeadId) {
-            await tx.contact.updateMany({
-              where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
-              data: { isPrimary: false },
-            })
+    // Wrap email duplicate check + isPrimary unset + contact update in a single transaction (E20 fix)
+    try {
+      const contact = await db.$transaction(async (tx) => {
+        // Email duplicate check inside transaction (prevents TOCTOU race)
+        if (sanitizedData.email) {
+          const existing = await tx.contact.findFirst({ where: { email: sanitizedData.email, NOT: { id } } })
+          if (existing) throw new Error("DUPLICATE_EMAIL")
+        }
+
+        if (sanitizedData.isPrimary === true) {
+          const current = await tx.contact.findUnique({ where: { id } })
+          if (current) {
+            const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
+            const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
+            if (targetClientId) {
+              await tx.contact.updateMany({
+                where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
+                data: { isPrimary: false },
+              })
+            }
+            if (targetLeadId) {
+              await tx.contact.updateMany({
+                where: { leadId: targetLeadId, isPrimary: true, NOT: { id } },
+                data: { isPrimary: false },
+              })
+            }
           }
         }
-      }
-      return tx.contact.update({
-        where: { id },
-        data: sanitizedData,
-        include: {
-          client: { select: { id: true, name: true } },
-          lead: { select: { id: true, name: true } },
-        },
+        return tx.contact.update({
+          where: { id },
+          data: sanitizedData,
+          include: {
+            client: { select: { id: true, name: true } },
+            lead: { select: { id: true, name: true } },
+          },
+        })
       })
-    })
-    return NextResponse.json(contact)
-  } catch (error: unknown) {
-    console.error("Error updating contact:", error)
-    const prismaError = error as { code?: string }
-    if (prismaError?.code === "P2025") {
-      return NextResponse.json({ error: "Contact not found" }, { status: 404 })
+      return NextResponse.json(contact)
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "DUPLICATE_EMAIL") {
+        return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+      }
+      console.error("[contacts/[id]] PATCH error:", error instanceof Error ? error.message : error)
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2025") {
+        return NextResponse.json({ error: "Contact not found" }, { status: 404 })
+      }
+      return NextResponse.json({ error: "Failed to update contact" }, { status: 500 })
     }
-    return NextResponse.json({ error: "Failed to update contact" }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[contacts/[id]] PATCH unexpected error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
@@ -151,8 +155,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -166,6 +168,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
+    await ensureAllTables()
+
     const { id } = await params
 
     // Check if contact exists first
@@ -177,7 +181,7 @@ export async function DELETE(
     await db.contact.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("Error deleting contact:", error)
+    console.error("[contacts/[id]] DELETE error:", error instanceof Error ? error.message : error)
     const prismaError = error as { code?: string }
     if (prismaError?.code === "P2025") {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 })

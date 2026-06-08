@@ -42,6 +42,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Invoice", column: "gstPercent", sql: "ALTER TABLE Invoice ADD COLUMN gstPercent REAL" },
   { table: "Invoice", column: "notes", sql: "ALTER TABLE Invoice ADD COLUMN notes TEXT" },
   { table: "Invoice", column: "paymentStatus", sql: "ALTER TABLE Invoice ADD COLUMN paymentStatus TEXT NOT NULL DEFAULT 'UNPAID'" },
+  { table: "Invoice", column: "sentById", sql: `ALTER TABLE "Invoice" ADD COLUMN "sentById" TEXT` },
   // Standalone task support
   { table: "Task", column: "createdBy", sql: "ALTER TABLE Task ADD COLUMN createdBy TEXT" },
   { table: "Task", column: "category", sql: "ALTER TABLE Task ADD COLUMN category TEXT NOT NULL DEFAULT 'GENERAL'" },
@@ -292,7 +293,16 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
-    // 1d. Rename Subscription.rate → Subscription.amount (column rename)
+    // 1d. Create index for Invoice.sentById (finance queries)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Invoice_sentById_idx" ON "Invoice"("sentById")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] Invoice_sentById_idx: ${err?.message}`)
+      }
+    }
+
+    // 1e. Rename Subscription.rate → Subscription.amount (column rename)
     // Use columnExists helper instead of PRAGMA table_info to avoid BigInt errors
     try {
       const hasAmount = await columnExists("Subscription", "amount")

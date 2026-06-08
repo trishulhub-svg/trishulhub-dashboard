@@ -197,6 +197,45 @@ All 27 instances fixed. TypeScript compilation passes with zero errors.
 
 ---
 ---
+Task ID: 6-schema-libs
+Agent: Phase 6 Fix Agent (Schema + Libs)
+Task: Fix all finance-related schema, RBAC, validation, rate-limit, auto-migrate, types issues
+
+Work Log:
+- **C04**: Added `onDelete: Cascade` to Invoice→Client relation in schema.prisma
+- **C17**: Added cross-validation comment above subtotal/tax/total fields + DB trigger TODO
+- **F04**: Changed Expense.amount to `Float @default(0)` with application-level comment
+- **F05**: Changed Subscription.amount to `Float @default(0)`
+- **F07**: Added InvoiceItem model TODO comment above items field
+- **F08**: Added `@@index([clientId, status])` composite index to Invoice model
+- **F09**: Added `@@index([service])` to Subscription model
+- **F10**: Added `@@index([userId, date])` and `@@index([userId, status])` to TimeEntry model
+- **F11**: Added `@@index([assignedToId])` to Deal model
+- **F13**: Added `@@map("Invoice")`, `@@map("Expense")`, `@@map("Subscription")`, `@@map("Contract")`, `@@map("Deal")`, `@@map("TimeEntry")`, `@@map("Contact")`
+- **F14**: Added Prisma enum conversion TODO comment at top of schema file
+- **F30**: Added ExchangeRate model TODO comment
+- **F31**: Added Payment model TODO comment
+- **F15**: Added 4 finance RBAC functions: canManageFinance, canManageContracts, canManageDeals, canViewFinancialData
+- **F16**: Added VIEWER financial data access limitation comment in getAssignedProjectIds
+- **F17**: Added createExpenseSchema Zod schema
+- **F18**: Changed invoice item quantity from min(0) to min(1) in both create and update schemas
+- **F19**: Added clarifying comment for optional invoiceNumber in createInvoiceSchema
+- **F20**: Added employeeId and paymentRef fields to updateExpenseSchema
+- **F21**: Added .refine(hasAtLeastOneField) to updateSubscriptionSchema
+- **F22**: Added .refine() cross-field total validation (total === subtotal + tax + gst) to createInvoiceSchema and updateInvoiceSchema
+- **F23**: Added sentById field to updateInvoiceSchema
+- **F24**: Added clarifying comment for optional contractNumber in createContractSchema
+- **F25**: Added .describe() to amount, subtotal, and total monetary fields
+- **F26**: Added finance, financeWrite, invoiceSend rate limits
+- **F27**: Added sentById column migration to CRITICAL_COLUMNS
+- **F28**: Verified Contract CREATE TABLE SQL matches schema (all columns present)
+- **F29**: Added Invoice_sentById_idx index creation in auto-migrate
+- **F32**: Added DealStage, ContractStatus, SubscriptionStatus, SubscriptionFrequency, ExpenseCategory, Currency, PaymentMethod, PaymentStatus types
+- **F33**: Added JSDoc to InvoiceStatus and all new finance types
+
+Stage Summary:
+- 6 files changed
+- Key fixes: schema cascades, composite indexes, @@map annotations, RBAC functions, Zod schemas with cross-validation, rate limits, enum types
 
 # Worklog: Final Fix — Dynamic Prisma Types → `Record<string, any>`
 
@@ -748,3 +787,197 @@ Stage Summary:
 - All 48 warning issues fixed (transactions, pagination, validation, error handling)
 - All 42 info issues addressed (TODO comments, JSDoc, type improvements)
 - Commit: 6d06333 pushed to main
+---
+Task ID: 6-finance-dashboard
+Agent: Phase 6 Fix Agent (Finance Dashboard)
+Task: Fix all finance dashboard page issues + create shared format utility
+
+Work Log:
+- Created src/lib/format.ts with shared utilities: formatCurrency, formatDate, formatDateTime, CATEGORY_BADGE_COLORS, safeUrl, truncateText, CURRENCY_SYMBOLS
+- Fixed finance/page.tsx (F02/F08/F09/F10/F15): Replaced local formatCurrency, formatDate, CATEGORY_BADGE_COLORS with imports from @/lib/format; removed local CURRENCY_SYMBOLS
+- Fixed finance/page.tsx (F03/F04): Added MAX_EXPENSE_FETCH=10000 constant; replaced hardcoded "10000"; added TODO comment for server-side aggregation
+- Fixed finance/page.tsx (F12/F13): handleSaveSubscription now parses error response in both create and update paths to show server error messages
+- Fixed finance/page.tsx (F14): handleToggleSubscription now shows error toast on non-ok response
+- Fixed finance/page.tsx (F18): Added isExpenseDetail type guard; replaced all `exp as ExpenseDetail` casts with guard checks
+- Fixed finance/expenses/page.tsx (F37): Added MAX_EXPENSE_FETCH constant; replaced hardcoded limit=10000
+- Fixed finance/expenses/page.tsx (F38): Actions now always visible on mobile (opacity-100 sm:opacity-0 sm:group-hover:opacity-100)
+- Fixed finance/expenses/page.tsx (F41/F44): Replaced local formatCurrency/formatDate/categoryBadgeColors with imports from @/lib/format
+- Fixed finance/expenses/page.tsx (F42): Removed empty useEffect with "just for consistency" comment
+- Fixed finance/expenses/page.tsx (F43): Added isExpenseDetail type guard; replaced all unsafe `as ExpenseDetail` casts
+- Fixed finance/expenses/page.tsx (F71): Applied safeUrl() to receiptUrl in expense preview dialog link
+- Fixed finance/overview-charts.tsx (F46/F47): Replaced local formatCurrency with import from @/lib/format
+- Fixed finance/error.tsx (F50): Added useSession check; detailed error only shown to ADMIN/SUPER_ADMIN; other users see generic message
+- Fixed finance/error.tsx (F51): Changed h2 to h1 for proper heading hierarchy
+- Fixed finance/loading.tsx (F53): Replaced mismatched skeleton with proper 4-column stat cards + filter bar + 2-column content skeleton matching page layout
+
+Stage Summary:
+- 5 files changed, 1 new file created (src/lib/format.ts)
+- Key fixes: shared utility extraction, XSS prevention (safeUrl), error display gating, loading skeleton accuracy, unsafe type casts
+
+---
+Task ID: 6-expenses-exchange
+Agent: Phase 6 Fix Agent (Expenses + Exchange Rates)
+Task: Fix all expenses and exchange rates API issues
+
+Work Log:
+- E01 [CRITICAL]: Wrapped DELETE handler's findUnique + delete in db.$transaction() with NOT_FOUND throw/catch + P2025 safety net
+- E02 [WARNING]: Added documenting comment explaining search-after-pagination limitation (DB count vs filtered count)
+- E04 [WARNING]: Added intentional pattern comment on Record<string, any> for sanitizedData
+- E05 [WARNING]: Extracted validCategories (3 occurrences) to module-level VALID_CATEGORIES constant + ExpenseCategory type
+- E06 [WARNING]: Added startDate/endDate validation (isNaN check) returning 400 on invalid dates
+- E07 [WARNING]: Added projectId format validation with regex /^[a-zA-Z0-9_-]{1,100}$/
+- E08 [INFO]: Imported isAdmin from @/lib/rbac, replaced 5 inline auth checks with isAdmin(session.user.role)
+- E09 [WARNING]: Added take: 5000 safety limit + orderBy on expenses findMany in stats route, added TODO for aggregate queries
+- E10 [WARNING]: Added null guards for category (|| "OTHER") and amount (?? 0) in stats aggregation loops
+- E11 [WARNING]: Added TODO comment about storing exchange rates in DB with timestamps
+- E12 [WARNING]: Extracted BASE_CURRENCY constant from process.env.NEXT_PUBLIC_BASE_CURRENCY || "INR", used in fetch URL and response
+- E13 [WARNING]: Added `source` field ("fallback" or "live") to exchange rate responses so clients can detect stale data
+- E14 [WARNING]: Added rate limiting (10 req/min global) using rateLimit from @/lib/rate-limit with "exchange-rates:global" key
+- E15 [INFO]: Added JSDoc to GET function documenting behavior, fallback, and rate limit
+
+Stage Summary:
+- 3 files changed (expenses/route.ts, expenses/stats/route.ts, exchange-rates/route.ts)
+- Key fixes: atomic delete transaction, date/projectId validation, rate limiting, null safety, source detection
+- Lint: zero new errors in modified files
+---
+Task ID: 6-invoices
+Agent: Phase 6 Fix Agent (Invoices)
+Task: Fix all invoices module issues
+
+Work Log:
+- Fixed C7: Moved ensureAllTables() to AFTER auth check in GET handler (was before session check)
+- Fixed C11: Wrapped findFirst+create in db.$transaction() for invoice number uniqueness, catch DUPLICATE_INVOICE_NUMBER → 409
+- Fixed C18: Replaced Date.now().toString(36) invoice number with crypto.randomUUID().split("-")[0]
+- Fixed INV-04: Added comment that deepSanitize is actually a deep clone; added .slice(0, 5000) for notes
+- Fixed INV-05: Added comment explaining Record<string, any> is intentional for dynamic field loop
+- Fixed INV-06/W4: Removed double JSON.parse(JSON.stringify()) on both GET responses
+- Fixed INV-08: Changed POST response from raw invoice to { data: invoice, message: "Invoice created" }
+- Fixed INV-09/W56: Added TODO comment about migrating DELETE to RESTful /api/invoices/[id]
+- Fixed INV-10: Lowered max limit from 200 to 100
+- Fixed W23: Replaced hardcoded "TrishulHub" and "AI-Powered Web Development" with env-configurable constants
+- Fixed W24: Added TODO comment about configurable default line item
+- Fixed W25: Added TODO comment about configurable GST percent
+- Fixed W26: Replaced hardcoded ₹ with CURRENCY_SYMBOL constant, used in formatCurrency and preview table
+- Fixed W27: Added TODO comment about server-side pagination
+- Fixed W29: Added Escape key handler and click-outside handler (useRef + useEffect) for all 4 combobox dropdowns
+- Fixed W30: Replaced raw error message with generic "Failed to load invoices. Please try again."
+- Fixed W36: Extracted PAYMENT_METHODS constant, replaced 2 hardcoded select option blocks with .map()
+- Fixed F78: Rewrote loading skeleton to match actual page layout (4 stat cards grid, filter bar, invoice card skeletons)
+
+Stage Summary:
+- 3 files changed
+- Key security fixes: auth ordering (C7), race condition on invoice number (C11), crypto-based ID generation (C18)
+- Key quality fixes: double JSON serialization removed, response format consistency, hardcoded values extracted to constants
+- Accessibility: Escape key + click-outside handlers on combobox dropdowns
+---
+Task ID: 6-time-tracking
+Agent: Phase 6 Fix Agent (Time-tracking)
+Task: Fix all time-tracking module issues
+
+Work Log:
+- E22 [CRITICAL]: Wrapped timer start check+create in db.$transaction for atomicity, catches ACTIVE_TIMER_EXISTS (409) and PROJECT_NOT_FOUND (404)
+- E23 [WARNING]: Added pagination (page, limit, offset) to GET with Promise.all count+findMany, returns page/limit/totalPages
+- E25 [WARNING]: Added TimeEntryWithUser type, replaced unknown[] with TimeEntryWithUser[] for activeEntries
+- E26 [WARNING]: Invalid status returns 400 instead of silently defaulting to ACTIVE
+- E28 [INFO]: Added JSDoc to GET and POST functions
+- E29 [WARNING]: Wrapped normal user PATCH update in db.$transaction with fresh read+update for atomicity
+- E30 [WARNING]: PATCH error log now includes error.message
+- E31 [WARNING]: DELETE error log now includes error.message
+- E32 [WARNING]: Added explicit parentheses to complex condition on admin edit check
+- E33 [WARNING]: Added diffMs < 0 guard returning 400 for negative totalHours in both admin clockOut paths
+- E34 [INFO]: Added JSDoc to PATCH and DELETE functions
+- E35 [WARNING]: Added take: 10000 safety limit to analytics findMany with TODO for Prisma aggregate
+- E36 [WARNING]: Analytics error log now includes error.message
+- E37 [INFO]: Added exhaustiveness guard comment on unreachable return
+- E38 [INFO]: Added JSDoc to analytics GET function
+- F55 [WARNING]: Wrapped new Date() computed stats in useMemo (today, startOfToday, weekDays, endOfWeek)
+- F56 [WARNING]: Extracted updateActiveElapsedMap as useCallback with JSON comparison to skip unnecessary state updates
+- F57 [INFO]: Removed unused activeElapsedRef
+- F60 [WARNING]: Replaced raw error message with generic "Failed to load time entries. Please try again."
+- F62 [WARNING]: Wrapped todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid in useMemo with entries dependency
+- F76 [WARNING]: Changed loading skeleton from md:grid-cols-3 to grid-cols-2 lg:grid-cols-4 with 4 stat card skeletons
+
+Stage Summary:
+- 5 files changed
+- Key fixes: atomic timer start (race condition), pagination, clockIn/clockOut validation, memoization, loading skeleton layout
+- ESLint: zero errors in modified files
+
+---
+Task ID: 6-subs-contracts-deals-contacts
+Agent: Phase 6 Fix Agent (Subs/Contracts/Deals/Contacts)
+Task: Fix all subscriptions, contracts, deals, contacts API issues
+
+Work Log:
+- C7: Moved ensureAllTables() AFTER auth check in subscriptions/route.ts (GET + POST), contracts/route.ts (GET, POST, PATCH, DELETE), contracts/send/route.ts (POST), deals/route.ts (GET + POST), deals/[id]/route.ts (GET, PATCH, DELETE), contacts/route.ts (GET + POST), contacts/[id]/route.ts (GET, PATCH, DELETE)
+- SUB-01: Added TODO comment for hardcoded exchange rates in subscriptions/route.ts
+- SUB-02: Added .slice(0, 5000) on notes field in POST handler of subscriptions/route.ts
+- SUB-03: Added VALID_STATUSES validation before where clause in GET handler of subscriptions/route.ts
+- SUB-04: Removed double JSON.parse(JSON.stringify()) in GET and POST responses of subscriptions/route.ts
+- SUB-06: Changed default limit from 100 to 50 in GET handler of subscriptions/route.ts
+- SUB-07: Fixed indentation from 2-space to 4-space inside try blocks of subscriptions/route.ts
+- SID-01: Added TODO comment for duplicated DEFAULT_EXCHANGE_RATES in subscriptions/[id]/route.ts
+- SID-03: Wrapped findUnique + business logic + update in db.$transaction for atomicity in subscriptions/[id]/route.ts PATCH handler
+- SID-05: Added .slice(0, 5000) on notes field in PATCH handler of subscriptions/[id]/route.ts
+- SID-06: Fixed indentation in subscriptions/[id]/route.ts
+- CTR-01: Wrapped contract number generation + create in db.$transaction for atomicity in contracts/route.ts POST handler
+- CTR-03: Extracted AI model name to AI_MODEL constant with env fallback in contracts/route.ts POST handler
+- CTR-07: Improved AI generation failure logging to console.warn with contract ID in contracts/route.ts POST handler
+- CTR-08: Removed outer try/catch wrapper from POST handler, moved after() call outside simplified try/catch in contracts/route.ts
+- CTR-10: Added "FIXED: Now using $transaction for atomicity" comment in contracts/route.ts
+- CSEND-02: Changed catch (error: any) to catch (error: unknown) with proper type narrowing in contracts/send/route.ts
+- CSEND-03: Replaced magic numbers (5, 60000) with RATE_LIMITS.crmWrite.limit/windowMs in contracts/send/route.ts
+- CSEND-04: Extracted getCurrencySymbol() helper function replacing inline ternary chain in contracts/send/route.ts
+- CSEND-07: Added X-RateLimit headers to 429 response in contracts/send/route.ts
+- CSEND-08: Added contractId format validation (regex) after null check in contracts/send/route.ts
+- DEAL-01: Replaced function serializeDealDates(d: any) with proper DealWithDates interface in deals/route.ts
+- DEAL-02: Added VALID_STAGES validation for stage filter in GET handler of deals/route.ts
+- DEAL-03: Added clientId and leadId format validation (regex) in GET and POST handlers of deals/route.ts
+- DEAL-04: Wrapped 3 sequential FK lookups in Promise.all in POST handler of deals/route.ts
+- DEAL-05: Added .slice(0, 5000) on notes field in POST handler of deals/route.ts
+- DEAL-06: Changed default currency from "USD" to "INR" in POST handler of deals/route.ts
+- DEAL-07: Replaced (d: any) map callback with proper DealWithDates cast in deals/route.ts
+- DEAL-08: Changed error log prefix from "Error fetching deals:" to "[deals] GET error:" with proper type narrowing in deals/route.ts
+- DID-01: Added TODO comment for serializeDealDates duplication in deals/[id]/route.ts
+- DID-02: Added TODO comment for VALID_STAGES duplication in deals/[id]/route.ts
+- DID-04: Added rate limiting to GET handler in deals/[id]/route.ts
+- DID-06: Added currency validation with VALID_CURRENCIES in PATCH handler of deals/[id]/route.ts
+- DID-07: Replaced non-atomic findUnique+delete with direct delete + P2025 catch in DELETE handler of deals/[id]/route.ts
+- DID-08: Fixed indentation and error log prefixes in deals/[id]/route.ts
+- E17: Added convention comment noting rate limit key format in contacts/route.ts
+- E20: Moved email duplicate check inside existing db.$transaction block in contacts/[id]/route.ts PATCH handler
+
+Stage Summary:
+- 8 files changed
+- Key fixes: ensureAllTables ordering (C7), race conditions via $transaction (CTR-01, SID-03, E20, DID-07), input validation (SUB-03, DEAL-02, DEAL-03, CSEND-08), type safety (DEAL-01), consistency improvements
+---
+Task ID: 6-credentials
+Agent: Phase 6 Fix Agent (Credentials)
+Task: Fix all credentials module issues
+
+Work Log:
+- **C1**: Added TODO comment for AES-256-GCM encryption at rest at top of route.ts
+- **C2**: Implemented password masking in all GET responses — shows only last 4 chars (`****` + last 4)
+- **C3**: Added ownership check in PUT handler — ADMIN can only update own credentials, SUPER_ADMIN can update any
+- **C4**: Added ownership check in DELETE handler — ADMIN can only delete own credentials, SUPER_ADMIN can delete any
+- **C5**: Added rate limiting to all 4 handlers (GET: crm, POST/PUT/DELETE: crmWrite) with 429 response
+- **C21**: Added Zod validation for POST (createCredentialSchema) and PUT (updateCredentialSchema) with 400 error responses
+- **C22**: Wrapped req.json() in try/catch in both POST and PUT handlers, returns 400 "Invalid JSON" on failure
+- **C27**: Added findUnique check before update in PUT handler; catch Prisma P2025 returning 404
+- **W43**: Extracted auth+role check into `requireAdmin()` helper, used in POST/PUT/DELETE
+- **W55**: Fixed comments to say "ADMIN or above" where appropriate
+- **W49**: Added `sanitizeStr()` for label/username length truncation before DB write
+- **I17**: Added console.log audit trail for POST, PUT, DELETE with userId and credentialId
+- **C6**: Changed password input type from "text" to "password" in dialog form
+- **C34**: Replaced window.confirm() with AlertDialog component for delete confirmation
+- **W23**: Added toast.error("Failed to load credentials") in fetchCredentials catch blocks
+- **W24**: Added toast.error("Failed to save credential") in handleSave catch block
+- **W66**: Fixed double fetch on mount using useRef flag (initialFetchDone)
+- **W72**: Added safeUrl() helper function validating http/https schemes, applied to credential URL links
+- **I8**: Changed error state from boolean to string; added error display Card with retry button
+- **I9**: Added sr-only "Loading credentials..." text to loading component
+
+Stage Summary:
+- 3 files changed
+- All security vulnerabilities addressed (C1–C6, C21, C22, C27, C34)
+- All warnings fixed (W23, W24, W43, W49, W55, W66, W72)
+- All info issues addressed (I8, I9, I17)

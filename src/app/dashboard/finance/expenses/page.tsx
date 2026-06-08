@@ -30,8 +30,12 @@ import {
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, safeUrl } from "@/lib/format";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
+
+// Safety limit for client-side expense aggregation
+const MAX_EXPENSE_FETCH = 10000;
 
 // ━━ Types ━━
 interface Expense {
@@ -53,16 +57,7 @@ const EXPENSE_CATEGORIES = [
   "SALARY", "SOFTWARE", "OTHER",
 ];
 
-const categoryBadgeColors: Record<string, string> = {
-  HOSTING: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  DOMAINS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  API_COSTS: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  TOOLS: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-  MARKETING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  SALARY: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-  SOFTWARE: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-  OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-};
+// categoryBadgeColors imported from @/lib/format as CATEGORY_BADGE_COLORS
 
 const categoryBorderColors: Record<string, string> = {
   HOSTING: "border-l-purple-500",
@@ -76,19 +71,9 @@ const categoryBorderColors: Record<string, string> = {
 };
 
 // ━━ Helpers ━━
-const formatCurrency = (n: number) =>
-  `₹${new Intl.NumberFormat("en-IN").format(n)}`;
-
-const formatDate = (d: string | null | undefined) => {
-  if (!d) return "—";
-  try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "2-digit", month: "short", year: "numeric",
-    });
-  } catch {
-    return "—";
-  }
-};
+function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
+  return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
+}
 
 // ━━ Main Page ━━
 export default function ExpensesPage() {
@@ -125,7 +110,7 @@ export default function ExpensesPage() {
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [expRes, projRes, empRes] = await Promise.all([
-        fetch("/api/expenses?limit=10000", { credentials: "include", signal }),
+        fetch("/api/expenses?limit=" + MAX_EXPENSE_FETCH, { credentials: "include", signal }),
         fetch("/api/projects", { credentials: "include", signal }),
         fetch("/api/team", { credentials: "include", signal }),
       ]);
@@ -251,10 +236,7 @@ export default function ExpensesPage() {
     return result;
   }, [expenses, categoryFilter, searchQuery]);
 
-  // Reset page on filter change
-  useEffect(() => {
-    // just for consistency
-  }, [categoryFilter, searchQuery]);
+  // REMOVED: Empty useEffect that did nothing
 
   // ━━ Summary Stats ━━
   const summaryStats = useMemo(() => {
@@ -603,7 +585,7 @@ export default function ExpensesPage() {
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Badge className={cn("text-[10px] px-2 py-0.5", categoryBadgeColors[exp.category] || "")}>
+                      <Badge className={cn("text-[10px] px-2 py-0.5", CATEGORY_BADGE_COLORS[exp.category] || "")}>
                         {safeText(exp.category, "").replace(/_/g, " ")}
                       </Badge>
                       {exp.employee && (
@@ -641,13 +623,13 @@ export default function ExpensesPage() {
                     <p className="text-xl font-bold">{formatCurrency(safeNumber(exp.amount))}</p>
                   </div>
                   <div
-                    className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPreviewExpense(exp)} aria-label="View expense" title="View">
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingExpense(exp as ExpenseDetail); setEditExpenseOpen(true); }} aria-label="Edit expense" title="Edit">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { if (isExpenseDetail(exp)) { setEditingExpense(exp); setEditExpenseOpen(true); } }} aria-label="Edit expense" title="Edit">
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => setPendingDelete(exp.id)} aria-label="Delete expense" title="Delete">
@@ -672,7 +654,7 @@ export default function ExpensesPage() {
             <div className="space-y-4">
               {/* Category & Amount */}
               <div className="flex items-center justify-between">
-                <Badge className={cn("text-xs px-3 py-1", categoryBadgeColors[previewExpense.category] || "")}>
+                <Badge className={cn("text-xs px-3 py-1", CATEGORY_BADGE_COLORS[previewExpense.category] || "")}>
                   {safeText(previewExpense.category, "").replace(/_/g, " ")}
                 </Badge>
                 <p className="text-3xl font-bold">{formatCurrency(safeNumber(previewExpense.amount))}</p>
@@ -739,7 +721,7 @@ export default function ExpensesPage() {
                     </div>
                     <div>
                       <p className="text-[11px] text-muted-foreground font-medium">Receipt</p>
-                      <a href={previewExpense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:text-primary/80">
+                      <a href={safeUrl(previewExpense.receiptUrl)} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:text-primary/80">
                         View Receipt
                       </a>
                     </div>
@@ -751,7 +733,7 @@ export default function ExpensesPage() {
 
               {/* Actions */}
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={() => { setPreviewExpense(null); setEditingExpense(previewExpense as ExpenseDetail); setEditExpenseOpen(true); }}>
+                <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={() => { setPreviewExpense(null); if (isExpenseDetail(previewExpense)) { setEditingExpense(previewExpense); setEditExpenseOpen(true); } }}>
                   <Pencil className="h-3.5 w-3.5" /> Edit
                 </Button>
                 <Button variant="outline" size="sm" className="rounded-xl gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-900/40" onClick={() => { setPreviewExpense(null); setPendingDelete(previewExpense.id); }}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { AlertCircle, RotateCcw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +13,9 @@ export default function FinanceError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+
   useEffect(() => {
     console.error("[Finance Page Error]", error);
   }, [error]);
@@ -25,18 +29,21 @@ export default function FinanceError({
               <AlertCircle className="h-6 w-6 text-red-600" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">Something went wrong</h2>
+              <h1 className="text-lg font-semibold">Something went wrong</h1>
               <p className="text-sm text-muted-foreground">
                 The finance page encountered an unexpected error.
               </p>
             </div>
           </div>
-          {error.message && (
+          {isAdmin && error.message && (
             <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-xs font-mono text-muted-foreground break-all">
                 {error.message}
               </p>
             </div>
+          )}
+          {!isAdmin && (
+            <p className="text-sm text-muted-foreground">An error occurred. Please try again or contact support.</p>
           )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={reset} className="flex-1">

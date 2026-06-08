@@ -8,8 +8,16 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 
+// TODO: Extract to @/lib/serializers.ts (shared with deals/route.ts)
 // Helper: serialize Date objects in deal data to ISO strings for JSON responses
-function serializeDealDates(d: any) {
+interface DealWithDates {
+  expectedCloseDate?: string | Date | null
+  actualCloseDate?: string | Date | null
+  createdAt?: string | Date | null
+  updatedAt?: string | Date | null
+  [key: string]: unknown
+}
+function serializeDealDates(d: DealWithDates) {
   if (!d) return d
   if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
   if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
@@ -18,9 +26,11 @@ function serializeDealDates(d: any) {
   return d
 }
 
+// TODO: Extract VALID_STAGES to @/lib/constants.ts (shared with deals/route.ts)
 // ━━ Shared constants ━━
 const VALID_STAGES = ["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"] as const
 const ALLOWED_FIELDS = ["title", "value", "currency", "stage", "probability", "expectedCloseDate", "actualCloseDate", "clientId", "leadId", "assignedToId", "notes"] as const
+const VALID_CURRENCIES = ["INR", "USD", "GBP", "EUR"] as const
 
 // GET /api/deals/[id] - Single deal detail with relations
 export async function GET(
@@ -28,14 +38,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    // Rate limit (DID-04)
+    const rl = rateLimit(`deals-get:${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
+    }
+
+    await ensureAllTables()
 
     const { id } = await params
 
@@ -53,7 +69,7 @@ export async function GET(
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
       }
 
-      return NextResponse.json(deepSanitize(serializeDealDates(deal)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
     } catch (error: unknown) {
       console.error("[deals/[id]] GET error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to load deal details" }, { status: 500 })
@@ -70,8 +86,6 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -84,6 +98,8 @@ export async function PATCH(
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
+
+    await ensureAllTables()
 
     const { id } = await params
 
@@ -141,6 +157,11 @@ export async function PATCH(
       }
     }
 
+    // DID-06: Validate currency
+    if (sanitizedData.currency !== undefined && !VALID_CURRENCIES.includes(sanitizedData.currency)) {
+      return NextResponse.json({ error: "Invalid currency" }, { status: 400 })
+    }
+
     // Auto-set actualCloseDate when stage changes to CLOSED_WON or CLOSED_LOST
     if (sanitizedData.stage === "CLOSED_WON" || sanitizedData.stage === "CLOSED_LOST") {
       if (!sanitizedData.actualCloseDate) {
@@ -158,9 +179,9 @@ export async function PATCH(
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
     } catch (error: unknown) {
-      console.error("Error updating deal:", error)
+      console.error("[deals/[id]] PATCH error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }
       if (prismaError?.code === "P2025") {
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
@@ -179,8 +200,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -194,23 +213,20 @@ export async function DELETE(
       return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } })
     }
 
+    await ensureAllTables()
+
     const { id } = await params
 
+    // DID-07: Attempt delete directly and catch P2025 for 404 (non-atomic check-then-delete fix)
     try {
-      // Check if deal exists first
-      const existing = await db.deal.findUnique({ where: { id }, select: { id: true } })
-      if (!existing) {
-        return NextResponse.json({ error: "Deal not found" }, { status: 404 })
-      }
-
       await db.deal.delete({ where: { id } })
       return NextResponse.json({ success: true })
     } catch (error: unknown) {
-      console.error("Error deleting deal:", error)
       const prismaError = error as { code?: string }
       if (prismaError?.code === "P2025") {
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
       }
+      console.error("[deals/[id]] DELETE error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to delete deal" }, { status: 500 })
     }
   } catch (error: unknown) {

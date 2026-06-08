@@ -32,6 +32,7 @@ export type LeadStatus =
   | "LOST";
 
 export type ClientStatus = "ACTIVE" | "INACTIVE" | "ONBOARDING" | "PAUSED" | "COMPLETED" | "CHURNED";
+/** Invoice lifecycle status: DRAFT→SENT→PAID/OVERDUE */
 export type InvoiceStatus = "DRAFT" | "SENT" | "PAID" | "OVERDUE";
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
 export type ApiKeyStatus = "ACTIVE" | "EXHAUSTED" | "ERROR";
@@ -44,6 +45,30 @@ export type CrossAgentType = "INFO" | "REQUEST" | "RESULT" | "ALERT";
 export type NotificationType = "INFO" | "WARNING" | "ERROR" | "SUCCESS" | "TASK" | "APPROVAL" | "AGENT";
 
 export type ChatStatus = "ACTIVE" | "ARCHIVED";
+
+/** Deal pipeline stages from lead to close */
+export type DealStage = "LEAD" | "QUALIFIED" | "PROPOSAL" | "NEGOTIATION" | "CLOSED_WON" | "CLOSED_LOST";
+
+/** Contract lifecycle status */
+export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "EXPIRED" | "CANCELLED";
+
+/** Subscription lifecycle status */
+export type SubscriptionStatus = "ACTIVE" | "STOPPED" | "COMPLETED" | "EXPIRED";
+
+/** Subscription billing frequency */
+export type SubscriptionFrequency = "MONTHLY" | "YEARLY" | "ONE_TIME";
+
+/** Expense category for financial tracking */
+export type ExpenseCategory = "HOSTING" | "DOMAINS" | "API_COSTS" | "TOOLS" | "MARKETING" | "SALARY" | "SOFTWARE" | "OTHER";
+
+/** Supported currency codes */
+export type Currency = "INR" | "USD" | "GBP" | "EUR";
+
+/** Payment method types */
+export type PaymentMethod = "UPI" | "CREDIT_DEBIT_CARD" | "BANK_TRANSFER" | "OTHER";
+
+/** Payment status for invoices */
+export type PaymentStatus = "PAID" | "UNPAID" | "DUE";
 
 export interface NavItem {
   title: string;

@@ -6,7 +6,13 @@ import { Prisma } from "@prisma/client"
 import { updateTimeEntrySchema, adminUpdateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-// PATCH /api/time-tracking/[id] - Stop timer (clock out) or update entry
+/**
+ * PATCH /api/time-tracking/[id]
+ * Stops a timer (clock out) or updates a time entry. Admins can modify clockIn, clockOut, description, projectId.
+ * @param req - NextRequest with JSON body containing fields to update
+ * @param params - Route params containing the time entry ID
+ * @returns Updated time entry, or error with appropriate status code
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,7 +49,7 @@ export async function PATCH(
     }
 
     // ── Admin edit path (can modify clockIn, clockOut, description, projectId) ──
-    if (isAdmin && (body.clockIn !== undefined || body.clockOut !== undefined || body.projectId !== undefined && body.status === undefined)) {
+    if (isAdmin && (body.clockIn !== undefined || body.clockOut !== undefined || (body.projectId !== undefined && body.status === undefined))) {
       // Check if this is an admin edit request (has clockIn or clockOut fields)
       const isAdminEdit = body.clockIn !== undefined || body.clockOut !== undefined
       if (isAdminEdit) {
@@ -75,11 +81,17 @@ export async function PATCH(
             updateData.status = "COMPLETED"
             const effectiveClockIn = clockIn ? new Date(clockIn) : new Date(existing.clockIn)
             const diffMs = new Date(clockOut).getTime() - effectiveClockIn.getTime()
+            if (diffMs < 0) {
+              return NextResponse.json({ error: "clockOut cannot be before clockIn" }, { status: 400 })
+            }
             updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
           }
         } else if (clockIn && existing.clockOut) {
           // clockIn changed but clockOut unchanged: recalculate totalHours
           const diffMs = new Date(existing.clockOut).getTime() - new Date(clockIn).getTime()
+          if (diffMs < 0) {
+            return NextResponse.json({ error: "clockOut cannot be before clockIn" }, { status: 400 })
+          }
           updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
         }
 
@@ -96,7 +108,7 @@ export async function PATCH(
       }
     }
 
-    // ── Normal update path ──
+    // ── Normal update path (wrapped in transaction for atomicity) ──
     const validation = validateRequest(updateTimeEntrySchema, { ...body, id })
     if (!validation.success) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
@@ -125,23 +137,37 @@ export async function PATCH(
       return NextResponse.json({ error: "Cannot restart a completed time entry. Please start a new timer." }, { status: 400 })
     }
 
-    const entry = await db.timeEntry.update({
-      where: { id },
-      data: updateData,
-      include: {
-        user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-        project: { select: { id: true, name: true } },
-      },
+    const entry = await db.$transaction(async (tx) => {
+      const fresh = await tx.timeEntry.findUnique({ where: { id } })
+      if (!fresh) throw new Error("NOT_FOUND")
+      if (!isAdmin && fresh.userId !== userId) throw new Error("FORBIDDEN")
+      return tx.timeEntry.update({
+        where: { id },
+        data: updateData,
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+          project: { select: { id: true, name: true } },
+        },
+      })
     })
 
     return NextResponse.json(entry)
   } catch (error: unknown) {
-    console.error("[time-tracking] PATCH error")
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Time entry not found" }, { status: 404 })
+    }
+    console.error("[time-tracking] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
-// DELETE /api/time-tracking/[id] - Delete a time entry
+/**
+ * DELETE /api/time-tracking/[id]
+ * Deletes a time entry. Admins can delete any entry; normal users can only delete their own.
+ * @param req - NextRequest
+ * @param params - Route params containing the time entry ID
+ * @returns Success indicator or error with appropriate status code
+ */
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -174,7 +200,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[time-tracking] DELETE error")
+    console.error("[time-tracking] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

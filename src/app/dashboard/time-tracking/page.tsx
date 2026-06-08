@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
@@ -222,7 +222,6 @@ export default function TimeTrackingPage() {
   // Active entries (who's online - admin only)
   const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
   const [activeElapsedMap, setActiveElapsedMap] = useState<Record<string, number>>({});
-  const activeElapsedRef = useRef<Record<string, number>>({});
 
   // Admin: Add entry dialog
   const [addEntryOpen, setAddEntryOpen] = useState(false);
@@ -267,7 +266,7 @@ export default function TimeTrackingPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Failed to load time entries");
+      setError("Failed to load time entries. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -340,23 +339,29 @@ export default function TimeTrackingPage() {
   }, [activeEntry]);
 
   // ── Active entries elapsed timer (admin - who's online) ──
+  const updateActiveElapsedMap = useCallback(() => {
+    const map: Record<string, number> = {};
+    for (const entry of activeEntries) {
+      if (entry.status === "ACTIVE" && entry.clockIn) {
+        map[entry.id] = Math.floor((Date.now() - new Date(entry.clockIn).getTime()) / 1000);
+      }
+    }
+    setActiveElapsedMap(prev => {
+      // Only update if values actually changed
+      if (JSON.stringify(prev) === JSON.stringify(map)) return prev;
+      return { ...map };
+    });
+  }, [activeEntries]);
+
   useEffect(() => {
     if (!isAdminUser || activeEntries.length === 0) {
       setActiveElapsedMap({});
       return;
     }
-    const updateAll = () => {
-      const map: Record<string, number> = {};
-      for (const entry of activeEntries) {
-        map[entry.id] = Date.now() - new Date(entry.clockIn).getTime();
-      }
-      activeElapsedRef.current = map;
-      setActiveElapsedMap({ ...map });
-    };
-    updateAll();
-    const interval = setInterval(updateAll, 1000);
+    updateActiveElapsedMap();
+    const interval = setInterval(updateActiveElapsedMap, 1000);
     return () => clearInterval(interval);
-  }, [isAdminUser, activeEntries]);
+  }, [isAdminUser, activeEntries, updateActiveElapsedMap]);
 
   // ── Start timer ── [FIX M5: wrap in useCallback]
   const handleStart = useCallback(async () => {
@@ -652,59 +657,65 @@ export default function TimeTrackingPage() {
     URL.revokeObjectURL(url);
   }, [teamEntries]);
 
-  // ── Computed stats ──
-  const today = new Date();
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const weekDays = getWeekDays();
-  const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
+  // ── Computed stats (memoized) ──
+  const { today, startOfToday, weekDays, endOfWeek } = useMemo(() => {
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const weekDays = getWeekDays();
+    const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
+    return { today, startOfToday, weekDays, endOfWeek };
+  }, []);
 
-  const todayHours = entries
-    .filter((e) => {
+  const { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries } = useMemo(() => {
+    const todayHours = entries
+      .filter((e) => {
+        const d = new Date(e.date);
+        return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
+      })
+      .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+
+    const weekHours = entries
+      .filter((e) => {
+        const d = new Date(e.date);
+        return d >= weekDays[0] && d < endOfWeek;
+      })
+      .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+
+    const activeProjectIds = new Set(
+      entries
+        .filter((e) => {
+          const d = new Date(e.date);
+          return d >= weekDays[0] && d < endOfWeek && e.projectId;
+        })
+        .map((e) => e.projectId)
+    );
+
+    const completedEntries = entries.filter((e) => e.status === "COMPLETED");
+
+    const weeklyGrid = weekDays.map((day) => {
+      const dayStart = day.getTime();
+      const dayEnd = dayStart + 86400000;
+      const dayEntries = completedEntries.filter((e) => {
+        const d = new Date(e.date).getTime();
+        return d >= dayStart && d < dayEnd;
+      });
+      const total = dayEntries.reduce((sum, e) => sum + (e.totalHours || 0), 0);
+      const isToday = day.toDateString() === today.toDateString();
+      return { day, total, entries: dayEntries, isToday };
+    });
+
+    const myTodayEntries = completedEntries.filter((e) => {
       const d = new Date(e.date);
       return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
-    })
-    .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+    });
 
-  const weekHours = entries
-    .filter((e) => {
-      const d = new Date(e.date);
-      return d >= weekDays[0] && d < endOfWeek;
-    })
-    .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+    return { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries };
+  }, [entries, startOfToday, weekDays, endOfWeek, today]);
 
   // Add active timer hours to today and week
   const activeTimerHours = activeEntry ? elapsed / (1000 * 60 * 60) : 0;
   const todayTotal = todayHours + activeTimerHours;
   const weekTotal = weekHours + activeTimerHours;
-
-  // [FIX M4: Add end bound to activeProjectIds filter]
-  const activeProjectIds = new Set(
-    entries
-      .filter((e) => {
-        const d = new Date(e.date);
-        return d >= weekDays[0] && d < endOfWeek && e.projectId;
-      })
-      .map((e) => e.projectId)
-  );
-
-  const completedEntries = entries.filter((e) => e.status === "COMPLETED");
-  const myTodayEntries = completedEntries.filter((e) => {
-    const d = new Date(e.date);
-    return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
-  });
-
-  // Weekly grid data
-  const weeklyGrid = weekDays.map((day) => {
-    const dayStart = day.getTime();
-    const dayEnd = dayStart + 86400000;
-    const dayEntries = completedEntries.filter((e) => {
-      const d = new Date(e.date).getTime();
-      return d >= dayStart && d < dayEnd;
-    });
-    const total = dayEntries.reduce((sum, e) => sum + (e.totalHours || 0), 0);
-    const isToday = day.toDateString() === today.toDateString();
-    return { day, total, entries: dayEntries, isToday };
-  });
 
   // [FIX C2: Show loading skeleton during session loading]
   if (sessionStatus === "loading") {

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { rateLimit } from "@/lib/rate-limit"
 
-// Fallback rates if live fetch fails
+const BASE_CURRENCY = process.env.NEXT_PUBLIC_BASE_CURRENCY || "INR"
+
+// TODO: Store exchange rates in DB with timestamps. These hardcoded fallbacks become stale.
 const FALLBACK_RATES: Record<string, number> = {
   INR: 1,
   USD: 83.5,
@@ -22,7 +25,7 @@ async function fetchLiveRates(): Promise<Record<string, number>> {
 
   try {
     // Use free exchange rate API (rates relative to INR)
-    const res = await fetch("https://api.exchangerate-api.com/v4/latest/INR", {
+    const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${BASE_CURRENCY}`, {
       next: { revalidate: 3600 },
     })
     if (!res.ok) throw new Error(`Exchange rate API returned ${res.status}`)
@@ -47,7 +50,12 @@ async function fetchLiveRates(): Promise<Record<string, number>> {
   }
 }
 
-// GET /api/exchange-rates - Fetch live exchange rates to INR
+/**
+ * GET /api/exchange-rates
+ * Returns current exchange rates with base currency (default INR).
+ * Falls back to hardcoded rates if external API fails.
+ * Rate limited: 10 requests per minute (global).
+ */
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
@@ -55,16 +63,29 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Global rate limit — exchange rates aren't user-specific
+    const { success } = rateLimit("exchange-rates:global", 10, 60 * 1000)
+    if (!success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const rates = await fetchLiveRates()
 
     return NextResponse.json({
       rates,
-      base: "INR",
+      base: BASE_CURRENCY,
       timestamp: new Date().toISOString(),
       cached: cachedRates !== null && Date.now() - cacheTimestamp < CACHE_TTL,
+      source: rates === FALLBACK_RATES ? "fallback" : "live",
     })
   } catch (error) {
     console.error("[exchange-rates] GET error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ rates: FALLBACK_RATES, base: "INR", timestamp: new Date().toISOString(), cached: false })
+    return NextResponse.json({
+      rates: FALLBACK_RATES,
+      base: BASE_CURRENCY,
+      timestamp: new Date().toISOString(),
+      cached: false,
+      source: "fallback",
+    })
   }
 }

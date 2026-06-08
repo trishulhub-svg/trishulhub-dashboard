@@ -10,6 +10,7 @@ const OverviewCharts = dynamic(() => import("./overview-charts"), { ssr: false }
 
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, CURRENCY_SYMBOLS } from "@/lib/format";
 import {
   DollarSign, TrendingUp, TrendingDown, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
@@ -111,7 +112,8 @@ interface EmployeeOption {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
-const CURRENCY_SYMBOLS: Record<string, string> = { INR: "₹", USD: "$", GBP: "£" };
+// Safety limit for client-side expense aggregation
+const MAX_EXPENSE_FETCH = 10000;
 
 // Fallback exchange rates to INR (used when live rates unavailable)
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
@@ -127,16 +129,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   OTHER: "border-l-gray-500 bg-gray-50 dark:bg-gray-950/20",
 };
 
-const CATEGORY_BADGE_COLORS: Record<string, string> = {
-  HOSTING: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  DOMAINS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  API_COSTS: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  TOOLS: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-  MARKETING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  SALARY: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-  SOFTWARE: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-  OTHER: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
-};
+// CATEGORY_BADGE_COLORS imported from @/lib/format
 
 const SUB_STATUS_COLORS: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
@@ -152,19 +145,9 @@ const SUB_FREQUENCY_COLORS: Record<string, string> = {
 
 const EXPENSE_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"];
 
-const formatCurrency = (n: number, currency = "INR") => {
-  if (currency === "INR") return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-  if (currency === "USD") return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-  if (currency === "GBP") return `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
-  return `${currency} ${n.toLocaleString()}`;
-};
-
-const formatDate = (d: string) => {
-  if (!d) return "—";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-};
+function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
+  return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
+}
 
 // ─── Main Component ──────────────────────────────────────────────────
 export default function FinancePage() {
@@ -305,7 +288,8 @@ export default function FinancePage() {
       const params = new URLSearchParams();
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
-      params.set("limit", "10000");
+      // TODO: Implement server-side aggregation for expense stats to avoid fetching all records
+      params.set("limit", String(MAX_EXPENSE_FETCH));
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -536,7 +520,8 @@ export default function FinancePage() {
         if (res.ok) {
           toast.success("Subscription updated");
         } else {
-          toast.error("Failed to update subscription");
+          const errData = await res.json().catch(() => ({}));
+          toast.error(errData.error || "Failed to update subscription");
           return;
         }
       } else {
@@ -549,7 +534,8 @@ export default function FinancePage() {
         if (res.ok) {
           toast.success("Subscription added");
         } else {
-          toast.error("Failed to add subscription");
+          const errData = await res.json().catch(() => ({}));
+          toast.error(errData.error || "Failed to add subscription");
           return;
         }
       }
@@ -615,6 +601,8 @@ export default function FinancePage() {
       if (res.ok) {
         toast.success(`Subscription ${newStatus === "ACTIVE" ? "resumed" : "paused"}`);
         fetchSubscriptions();
+      } else {
+        toast.error("Failed to update subscription status");
       }
     } catch {
       toast.error("Failed to update subscription");
@@ -1229,7 +1217,7 @@ export default function FinancePage() {
                     </TableHeader>
                     <TableBody>
                       {expenses.map((exp, idx) => (
-                        <TableRow key={exp.id} className={`${idx % 2 === 1 ? "bg-muted/30" : ""} transition-colors hover:bg-muted/50 cursor-pointer`} onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
+                        <TableRow key={exp.id} className={`${idx % 2 === 1 ? "bg-muted/30" : ""} transition-colors hover:bg-muted/50 cursor-pointer`} onClick={() => { if (isExpenseDetail(exp)) { setSelectedExpense(exp); setExpenseDetailOpen(true); } }}>
                           <TableCell className="text-xs">{formatDate(safeText(exp.date, ""))}</TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] ${CATEGORY_BADGE_COLORS[exp.category] || ""}`}>
@@ -1261,7 +1249,7 @@ export default function FinancePage() {
                           <TableCell className="text-right font-medium">{formatCurrency(safeNumber(exp.amount))}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingExpense(exp as ExpenseDetail); setEditExpenseOpen(true); }} aria-label="Edit expense">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); if (isExpenseDetail(exp)) { setEditingExpense(exp); setEditExpenseOpen(true); } }} aria-label="Edit expense">
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={(e) => { e.stopPropagation(); handleDeleteExpense(exp.id); }} aria-label="Delete expense">
@@ -1344,7 +1332,7 @@ export default function FinancePage() {
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {catExpenses.map((exp) => (
-                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { if (isExpenseDetail(exp)) { setSelectedExpense(exp); setExpenseDetailOpen(true); } }}>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-medium truncate">{safeText(exp.description, "")}</p>
                                   <p className="text-muted-foreground">{formatDate(safeText(exp.date, ""))}{exp.project ? ` • ${safeText(exp.project.name, "")}` : ""}</p>
@@ -1445,7 +1433,7 @@ export default function FinancePage() {
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {projExpenses.map((exp) => (
-                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { setSelectedExpense(exp as ExpenseDetail); setExpenseDetailOpen(true); }}>
+                              <div key={exp.id} className="flex items-center justify-between p-1.5 rounded text-xs hover:bg-muted/50 cursor-pointer" onClick={() => { if (isExpenseDetail(exp)) { setSelectedExpense(exp); setExpenseDetailOpen(true); } }}>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-medium truncate">{safeText(exp.description, "")}</p>
                                   <p className="text-muted-foreground">

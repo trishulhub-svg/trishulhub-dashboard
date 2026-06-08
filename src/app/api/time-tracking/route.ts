@@ -6,7 +6,20 @@ import { Prisma } from "@prisma/client"
 import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-// GET /api/time-tracking - List time entries with filters
+type TimeEntryWithUser = {
+  id: string; userId: string; status: string; clockIn: Date; clockOut: Date | null;
+  totalHours: number | null; projectId: string | null;
+  project?: { id: string; name: string } | null;
+  user?: { id: string; name: string; email: string } | null;
+  [key: string]: unknown;
+}
+
+/**
+ * GET /api/time-tracking
+ * Lists time entries with optional filters. Supports pagination.
+ * @param req - NextRequest with query params: userId, projectId, date, startDate, endDate, status, page, limit
+ * @returns JSON with entries[], activeEntries[], page, limit, totalPages
+ */
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -44,7 +57,10 @@ export async function GET(req: NextRequest) {
 
     if (status) {
       const validStatuses = ["ACTIVE", "COMPLETED", "PAUSED"]
-      where.status = validStatuses.includes(status.toUpperCase()) ? status.toUpperCase() : "ACTIVE"
+      if (!validStatuses.includes(status.toUpperCase())) {
+        return NextResponse.json({ error: "Invalid status. Must be ACTIVE, COMPLETED, or PAUSED" }, { status: 400 })
+      }
+      where.status = status.toUpperCase()
     }
 
     if (date) {
@@ -90,7 +106,7 @@ export async function GET(req: NextRequest) {
       })
 
       // For admin users, fetch all currently active entries across all users
-      let activeEntries: unknown[] = []
+      let activeEntries: TimeEntryWithUser[] = []
       if (isAdminUser) {
         const allActive = await db.timeEntry.findMany({
           where: { status: "ACTIVE" },
@@ -100,24 +116,34 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { clockIn: "desc" },
         })
-        activeEntries = structuredClone(allActive)
+        activeEntries = structuredClone(allActive) as TimeEntryWithUser[]
       }
 
-      return NextResponse.json({ entries: structuredClone(entries), activeEntries })
+      return NextResponse.json({ entries: structuredClone(entries), activeEntries, page: 1, limit: 100, totalPages: 1 })
     }
 
-    const entries = await db.timeEntry.findMany({
-      where,
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        project: { select: { id: true, name: true } },
-      },
-      orderBy: { clockIn: "desc" },
-      take: 200,
-    })
+    // Pagination support
+    const page = Math.max(Number(searchParams.get("page")) || 1, 1)
+    const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 100, 1), 200)
+    const offset = (page - 1) * limit
+
+    const [entries, total] = await Promise.all([
+      db.timeEntry.findMany({
+        where,
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { clockIn: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      db.timeEntry.count({ where }),
+    ])
+    const totalPages = Math.ceil(total / limit)
 
     // For admin users on filtered queries, also fetch active entries
-    let activeEntries: unknown[] = []
+    let activeEntries: TimeEntryWithUser[] = []
     if (isAdminUser) {
       const allActive = await db.timeEntry.findMany({
         where: { status: "ACTIVE" },
@@ -127,17 +153,24 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { clockIn: "desc" },
       })
-      activeEntries = structuredClone(allActive)
+      activeEntries = structuredClone(allActive) as TimeEntryWithUser[]
     }
 
-    return NextResponse.json({ entries: structuredClone(entries), activeEntries })
+    return NextResponse.json({ entries: structuredClone(entries), activeEntries, page, limit, totalPages })
   } catch (error: unknown) {
     console.error("[time-tracking] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
 
-// POST /api/time-tracking - Start a new timer (clock in) OR admin manual entry creation
+/**
+ * POST /api/time-tracking
+ * Starts a new timer (clock in) for the authenticated user, or creates a manual time entry for admins.
+ * Normal users: validates projectId, checks for existing active timer atomically.
+ * Admin users: can create entries with userId, clockIn, clockOut for any user.
+ * @param req - NextRequest with JSON body containing optional projectId, description (normal) or userId, clockIn, clockOut, projectId, description (admin)
+ * @returns Created time entry (201), 400 on validation error, 404 if project not found, 409 if active timer exists
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -219,53 +252,51 @@ export async function POST(req: NextRequest) {
 
     const { projectId, description } = validation.data
 
-    // Check: user can only have ONE active timer at a time
-    const activeEntry = await db.timeEntry.findFirst({
-      where: { userId, status: "ACTIVE" },
-    })
-
-    if (activeEntry) {
-      return NextResponse.json(
-        { error: "You already have an active timer. Please stop it before starting a new one.", activeEntry },
-        { status: 400 }
-      )
-    }
-
-    // Validate project exists if provided
-    if (projectId) {
-      const project = await db.project.findUnique({ where: { id: projectId } })
-      if (!project) {
-        return NextResponse.json({ error: "Project not found" }, { status: 404 })
-      }
-    }
-
     const now = new Date()
 
-    // Second check: catch race condition between concurrent POST requests
-    const raceCheck = await db.timeEntry.findFirst({
-      where: { userId, status: "ACTIVE" },
-    })
-    if (raceCheck) {
-      return NextResponse.json(
-        { error: "You already have an active timer. Please stop it before starting a new one.", raceCheck },
-        { status: 409 }
-      )
+    // Atomic check+create to prevent race condition on concurrent timer starts
+    let entry
+    try {
+      entry = await db.$transaction(async (tx) => {
+        // Single atomic check inside transaction
+        const activeEntry = await tx.timeEntry.findFirst({
+          where: { userId, status: "ACTIVE" },
+        })
+        if (activeEntry) {
+          throw new Error("ACTIVE_TIMER_EXISTS")
+        }
+        // Project validation inside transaction too
+        if (projectId) {
+          const project = await tx.project.findUnique({ where: { id: projectId }, select: { id: true } })
+          if (!project) throw new Error("PROJECT_NOT_FOUND")
+        }
+        return tx.timeEntry.create({
+          data: {
+            userId,
+            projectId: projectId || null,
+            description: description || null,
+            status: "ACTIVE",
+            clockIn: now,
+            date: now,
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+            project: { select: { id: true, name: true } },
+          },
+        })
+      })
+    } catch (txError: unknown) {
+      if (txError instanceof Error && txError.message === "ACTIVE_TIMER_EXISTS") {
+        return NextResponse.json(
+          { error: "You already have an active timer. Please stop it before starting a new one." },
+          { status: 409 }
+        )
+      }
+      if (txError instanceof Error && txError.message === "PROJECT_NOT_FOUND") {
+        return NextResponse.json({ error: "Project not found" }, { status: 404 })
+      }
+      throw txError
     }
-
-    const entry = await db.timeEntry.create({
-      data: {
-        userId,
-        projectId: projectId || null,
-        description: description || null,
-        status: "ACTIVE",
-        clockIn: now,
-        date: now,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-        project: { select: { id: true, name: true } },
-      },
-    })
 
     return NextResponse.json(entry, { status: 201 })
   } catch (error: unknown) {

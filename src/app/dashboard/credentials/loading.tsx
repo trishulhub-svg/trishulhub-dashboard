@@ -1,6 +1,7 @@
 export default function CredentialsLoading() {
   return (
     <div className="space-y-6">
+      <span className="sr-only">Loading credentials...</span>
       <div className="flex items-center justify-between">
         <div className="h-6 w-44 animate-pulse rounded bg-muted/50" />
         <div className="h-9 w-32 animate-pulse rounded bg-muted/50" />

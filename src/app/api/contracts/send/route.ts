@@ -3,19 +3,28 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
-import { rateLimit } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { sendEmailWithFailover } from "@/lib/email"
 
+function getCurrencySymbol(currency: string): string {
+  const symbols: Record<string, string> = { USD: "$", GBP: "£", EUR: "€", INR: "₹" }
+  return symbols[currency] || currency
+}
+
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    const { success: rateOk } = rateLimit(`contracts-send:${session.user.id}`, 5, 60000)
-    if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    const rl = rateLimit(`contracts-send:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(rl.resetAt) } }
+    )
+
+    await ensureAllTables()
 
     // Issue #19: req.json() try/catch
     let body: unknown
@@ -24,6 +33,10 @@ export async function POST(req: NextRequest) {
     }
     const { contractId } = body as Record<string, unknown>
     if (!contractId || typeof contractId !== 'string') return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
+
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(contractId)) {
+      return NextResponse.json({ error: "Invalid contract ID format" }, { status: 400 })
+    }
 
     const contract = await db.contract.findUnique({ where: { id: contractId } })
     if (!contract) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
@@ -36,8 +49,7 @@ export async function POST(req: NextRequest) {
     // HTML-escape helper to prevent XSS in email
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-    // Issue #20: Dynamic currency symbol instead of hardcoded ₹
-    const currencySymbol = contract.currency === "USD" ? "$" : contract.currency === "GBP" ? "£" : "₹"
+    const currencySymbol = getCurrencySymbol(contract.currency || "INR")
 
     // Convert markdown-like terms to safe HTML
     const termsHtml = contract.termsAndConditions
@@ -103,8 +115,8 @@ export async function POST(req: NextRequest) {
     } else {
       return NextResponse.json({ error: result.error || "Failed to send contract" }, { status: 500 })
     }
-  } catch (error: any) {
-    console.error("[contracts/send] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[contracts/send] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to send contract" }, { status: 500 })
   }
 }
