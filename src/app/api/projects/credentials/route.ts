@@ -71,43 +71,49 @@ export async function GET(req: NextRequest) {
 
 // POST /api/projects/credentials — Create a new credential
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-
-  const rl = rateLimit(`credentials-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  let body: { projectId?: string; title?: string; username?: string; password?: string }
   try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
 
-  const { projectId, title, username, password } = body
-  if (!projectId || !title || !username || !password) {
-    return NextResponse.json({ error: "projectId, title, username, and password are required" }, { status: 400 })
-  }
+    const rl = rateLimit(`credentials-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  // Verify project exists
-  const project = await db.project.findUnique({ where: { id: projectId } })
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 400 })
+    let body: { projectId?: string; title?: string; username?: string; password?: string }
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
-  try {
-    const encrypted = encrypt(password)
+    const { projectId, title, username, password } = body
+    if (!projectId || !title || !username || !password) {
+      return NextResponse.json({ error: "projectId, title, username, and password are required" }, { status: 400 })
+    }
+
+    // W10: Enforce maxLength on credential fields
+    const sanitizedTitle = title.trim().slice(0, 200)
+    const sanitizedUsername = username.trim().slice(0, 500)
+    const sanitizedPassword = password.trim().slice(0, 1000)
+
+    // Verify project exists
+    const project = await db.project.findUnique({ where: { id: projectId } })
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
+    const encrypted = encrypt(sanitizedPassword)
     const credential = await db.projectCredential.create({
       data: {
         projectId,
-        title: title.trim(),
-        username: username.trim(),
+        title: sanitizedTitle,
+        username: sanitizedUsername,
         password: encrypted.encrypted,
         iv: encrypted.iv,
         tag: encrypted.tag,
       },
     })
     return NextResponse.json({ id: credential.id, title: credential.title, username: credential.username }, { status: 201 })
-  } catch {
+  } catch (error: unknown) {
+    console.error("[credentials] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create credential" }, { status: 500 })
   }
 }
@@ -118,6 +124,9 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // C3 FIX: Only admins may PATCH credentials
+  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
 
   const rl = rateLimit(`credentials-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
   if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -134,7 +143,7 @@ export async function PATCH(req: NextRequest) {
   const existing = await db.projectCredential.findUnique({ where: { id: body.id } })
   if (!existing) return NextResponse.json({ error: "Credential not found" }, { status: 404 })
 
-  // P-C2: Verify project-level authorization
+  // Verify project-level authorization
   const hasAccess = await verifyProjectAccess(session.user.id, session.user.role, existing.projectId)
   if (!hasAccess) {
     return NextResponse.json({ error: "Forbidden: No access to this credential's project" }, { status: 403 })
@@ -147,10 +156,10 @@ export async function PATCH(req: NextRequest) {
   try {
     // P-H3: Use proper Prisma data type instead of Record<string, unknown>
     const data: Prisma.ProjectCredentialUncheckedUpdateInput = {}
-    if (body.title) data.title = body.title.trim()
-    if (body.username) data.username = body.username.trim()
+    if (body.title) data.title = body.title.trim().slice(0, 200)
+    if (body.username) data.username = body.username.trim().slice(0, 500)
     if (body.password) {
-      const encrypted = encrypt(body.password)
+      const encrypted = encrypt(body.password.trim().slice(0, 1000))
       data.password = encrypted.encrypted
       data.iv = encrypted.iv
       data.tag = encrypted.tag
@@ -171,6 +180,9 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // C3 FIX: Only admins may DELETE credentials
+  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
 
   const rl = rateLimit(`credentials-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
   if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })

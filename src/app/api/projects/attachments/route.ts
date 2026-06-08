@@ -7,39 +7,44 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/projects/attachments — List attachments for a project
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const rl = rateLimit(`attachments-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
-  if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    const rl = rateLimit(`attachments-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  const { searchParams } = new URL(req.url)
-  const projectId = searchParams.get("projectId")
-  if (!projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 })
+    const { searchParams } = new URL(req.url)
+    const projectId = searchParams.get("projectId")
+    if (!projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 })
 
-  // Verify project exists
-  const project = await db.project.findUnique({ where: { id: projectId } })
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    // Verify project exists
+    const project = await db.project.findUnique({ where: { id: projectId } })
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
-  // For non-admin users, check project access
-  if (!isAdmin(session.user.role)) {
-    if (session.user.role === "CLIENT") {
-      const client = await db.client.findFirst({ where: { userId: session.user.id } })
-      if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    } else {
-      // C-PRJ-2 FIX: Check project membership for DEVELOPER/VIEWER too
-      const member = await db.projectMember.findFirst({ where: { projectId, userId: session.user.id } })
-      if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    // For non-admin users, check project access
+    if (!isAdmin(session.user.role)) {
+      if (session.user.role === "CLIENT") {
+        const client = await db.client.findFirst({ where: { userId: session.user.id } })
+        if (!client || client.id !== project.clientId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      } else {
+        // C-PRJ-2 FIX: Check project membership for DEVELOPER/VIEWER too
+        const member = await db.projectMember.findFirst({ where: { projectId, userId: session.user.id } })
+        if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
     }
-  }
 
-  // Return attachments WITHOUT fileData to keep payload small
-  const attachments = await db.projectAttachment.findMany({
-    where: { projectId },
-    select: { id: true, fileName: true, fileSize: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
-  })
-  return NextResponse.json(attachments)
+    // Return attachments WITHOUT fileData to keep payload small
+    const attachments = await db.projectAttachment.findMany({
+      where: { projectId },
+      select: { id: true, fileName: true, fileSize: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    })
+    return NextResponse.json(attachments)
+  } catch (error: unknown) {
+    console.error("[attachments] GET error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to load attachments" }, { status: 500 })
+  }
 }
 
 // POST /api/projects/attachments — Upload a PDF attachment
@@ -68,11 +73,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Only PDF files are allowed" }, { status: 400 })
   }
 
-  // M-PRJ-10 FIX: Validate file content starts with PDF magic bytes (%PDF-)
+  // C25 FIX: Validate file content starts with PDF magic bytes (%PDF-) AND ends with %%EOF
   try {
-    const decodedStart = Buffer.from(fileData.slice(0, 40), 'base64').toString('utf8')
+    const decodedBuffer = Buffer.from(fileData, 'base64')
+    const decodedStart = decodedBuffer.subarray(0, 40).toString('utf8')
     if (!decodedStart.startsWith('%PDF-')) {
       return NextResponse.json({ error: "Invalid PDF content — file does not appear to be a valid PDF" }, { status: 400 })
+    }
+    // Also check for %%EOF marker in the last 1024 bytes
+    const tailSize = Math.min(1024, decodedBuffer.length)
+    const decodedEnd = decodedBuffer.subarray(decodedBuffer.length - tailSize).toString('utf8')
+    if (!decodedEnd.includes('%%EOF')) {
+      return NextResponse.json({ error: "Invalid PDF content — file does not end with %%EOF" }, { status: 400 })
     }
   } catch {
     return NextResponse.json({ error: "Invalid file data" }, { status: 400 })
@@ -84,9 +96,11 @@ export async function POST(req: NextRequest) {
 
   // Calculate actual file size from base64 (server-side, can't be spoofed)
   const actualSize = Buffer.byteLength(fileData, 'base64')
-  const maxSize = 10 * 1024 * 1024 // 10MB
+  // C24 FIX: Reduced from 10MB to 5MB
+  // TODO: Move to object storage (S3/Vercel Blob) — base64 in SQLite causes DB bloat
+  const maxSize = 5 * 1024 * 1024 // 5MB
   if (actualSize > maxSize) {
-    return NextResponse.json({ error: "File size exceeds 10MB limit" }, { status: 400 })
+    return NextResponse.json({ error: "File size exceeds 5MB limit" }, { status: 400 })
   }
 
   try {
