@@ -5,6 +5,15 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
+function sanitizeForJson(obj: any): any {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return obj.toISOString();
+  if (Array.isArray(obj)) return obj.map(sanitizeForJson);
+  const result: Record<string, any> = {};
+  for (const key in obj) { result[key] = sanitizeForJson(obj[key]); }
+  return result;
+}
+
 export async function GET() {
   try {
     // PERF: Run auth + rbac + auto-migrate in parallel
@@ -60,6 +69,8 @@ export async function GET() {
       pendingAmount,
       overdueAmount,
       totalExpenses,
+      totalLeadsCount,
+      totalClientCount,
     ] = await Promise.all([
       db.agent.findMany({
         where: agentWhere,
@@ -73,8 +84,12 @@ export async function GET() {
       db.client.findMany({ where: clientWhere, take: 50 }),
       db.invoice.findMany({ where: invoiceWhere, take: 20, orderBy: { createdAt: "desc" } }),
       db.expense.findMany({ where: expenseWhere, take: 20, orderBy: { createdAt: "desc" } }),
-      // API keys are SUPER_ADMIN only in the dashboard view
-      admin ? db.apiKey.findMany() : Promise.resolve([] as unknown[]),
+      // API keys — exclude keyValue for non-SUPER_ADMIN to avoid exposing secrets in memory
+      role === "SUPER_ADMIN"
+        ? db.apiKey.findMany()
+        : admin
+          ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true } })
+          : Promise.resolve([] as unknown[]),
       db.apiUsageLog.findMany({
         where: !admin ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
         include: { agent: { select: { id: true, name: true, type: true } } },
@@ -91,11 +106,15 @@ export async function GET() {
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
         db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
         db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
+        db.lead.count(),
+        db.client.count({ where: clientWhere }),
       ] : [
         Promise.resolve(0), // leads not shown to developers
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
         db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
         db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
+        Promise.resolve(0),
+        Promise.resolve(0),
       ]),
       // PERF: Aggregate queries moved into Promise.all (were sequential before)
       ...(admin ? [
@@ -108,11 +127,11 @@ export async function GET() {
       ]),
     ])
 
-    // SECURITY: API keys visible only to SUPER_ADMIN
+    // SECURITY: API keys — SUPER_ADMIN sees masked values; other admins don't receive keyValue at all
     const safeApiKeys = role === "SUPER_ADMIN"
-      ? apiKeys
+      ? (apiKeys as Array<{ id: string; keyName: string; keyValue?: string; currentSpend: number; monthlyBudget: number; provider: string; status: string }>).map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
       : admin
-        ? (apiKeys as Array<{ id: string; keyName: string; keyValue?: string; currentSpend: number; monthlyBudget: number }>).map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
+        ? apiKeys
         : []
 
     // Usage logs — same shape for all roles (agent details are already limited by include)
@@ -128,10 +147,9 @@ export async function GET() {
 
     const totalApiSpend = admin ? (apiKeys as Array<{ currentSpend: number }>).reduce((sum, k) => sum + k.currentSpend, 0) : 0
     const monthlyBudget = admin ? (apiKeys as Array<{ monthlyBudget: number }>).reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
-    const totalLeads = admin ? (newLeadsCount + leads.length) : 0
+    const totalLeads = totalLeadsCount
 
-    // ZAI FIX #310: JSON round-trip to strip ALL non-serializable values
-    const safeResponse = JSON.parse(JSON.stringify({
+    const safeResponse = sanitizeForJson({
       agents,
       projects,
       clients: admin ? clients : (clients as Array<{ id: string; name: string; company: string }>).map(c => ({ id: c.id, name: c.name, company: c.company })),
@@ -153,10 +171,10 @@ export async function GET() {
         activeProjects,
         openTickets,
         pendingTasks,
-        totalClients: admin ? (clients as unknown[]).length : 0,
+        totalClients: admin ? totalClientCount : 0,
         totalLeads,
       },
-    }))
+    });
 
     return NextResponse.json(safeResponse)
   } catch (error: unknown) {

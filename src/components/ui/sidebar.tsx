@@ -83,7 +83,11 @@ function SidebarProvider({
       }
 
       // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // TODO(W43): The `setOpen` callback captures `open` via closure, which can
+      //   become stale if multiple rapid toggles occur. A ref-based approach
+      //   would be more robust but risks breaking the standard shadcn pattern.
+      const secureFlag = window.location.protocol === 'https:' ? '; Secure' : ''
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax${secureFlag}`
     },
     [setOpenProp, open]
   )

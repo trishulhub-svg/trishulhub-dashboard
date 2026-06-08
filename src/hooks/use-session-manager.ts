@@ -78,7 +78,8 @@ export function useSessionManager() {
       const inactiveTime = Date.now() - lastActivityRef.current
       if (inactiveTime > INACTIVITY_TIMEOUT) {
         hasSignedOutRef.current = true
-        signOut({ callbackUrl: "/login?reason=timeout" }).catch(() => {
+        signOut({ callbackUrl: "/login?reason=timeout" }).catch((err) => {
+          console.warn("[session-manager] signOut failed:", err)
           window.location.href = "/login?reason=timeout"
         })
       }
@@ -100,11 +101,13 @@ export function useSessionManager() {
       hasSignedOutRef.current = true
 
       if (error === "SessionKicked") {
-        signOut({ callbackUrl: "/login?reason=kicked" }).catch(() => {
+        signOut({ callbackUrl: "/login?reason=kicked" }).catch((err) => {
+          console.warn("[session-manager] signOut failed:", err)
           window.location.href = "/login?reason=kicked"
         })
       } else {
-        signOut({ callbackUrl: "/login?reason=error" }).catch(() => {
+        signOut({ callbackUrl: "/login?reason=error" }).catch((err) => {
+          console.warn("[session-manager] signOut failed:", err)
           window.location.href = "/login?reason=error"
         })
       }

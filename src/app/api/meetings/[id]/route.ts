@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateMeetingSchema, validateRequest } from "@/lib/validations"
+import { rateLimit } from "@/lib/rate-limit"
 
 // GET /api/meetings/[id] - Get single meeting detail
 export async function GET(
@@ -67,6 +68,12 @@ export async function PATCH(
     const userRole = session.user.role
     const { id } = await params
 
+    // C10: Rate limit
+    const rl = rateLimit(`meetings-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const existingMeeting = await db.meeting.findUnique({
       where: { id },
       include: { attendees: true },
@@ -129,19 +136,25 @@ export async function PATCH(
         })
       }
 
-      // Notify new attendees
-      for (const newAttendeeId of toAdd) {
-        await db.notification.create({
-          data: {
-            userId: newAttendeeId,
-            title: "Meeting Invitation",
-            message: `You've been added to a meeting: "${title || existingMeeting.title}" on ${(date ? new Date(date) : existingMeeting.date).toLocaleDateString()}`,
-            type: "TASK",
-            link: "/dashboard/meetings",
-            metadata: JSON.stringify({ meetingId: id }),
-          },
+      // W39: Notify new attendees in parallel using Promise.allSettled
+      await Promise.allSettled(
+        toAdd.map(async (newAttendeeId: string) => {
+          try {
+            await db.notification.create({
+              data: {
+                userId: newAttendeeId,
+                title: "Meeting Invitation",
+                message: `You've been added to a meeting: "${title || existingMeeting.title}" on ${(date ? new Date(date) : existingMeeting.date).toLocaleDateString()}`,
+                type: "TASK",
+                link: "/dashboard/meetings",
+                metadata: JSON.stringify({ meetingId: id }),
+              },
+            })
+          } catch (err) {
+            console.warn("[meetings/id] Failed to create notification:", err)
+          }
         })
-      }
+      )
     }
 
     const meeting = await db.meeting.update({
@@ -180,6 +193,12 @@ export async function DELETE(
     const userRole = session.user.role
     const { id } = await params
 
+    // C10: Rate limit
+    const rl = rateLimit(`meetings-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const existingMeeting = await db.meeting.findUnique({
       where: { id },
       include: { attendees: { include: { user: true } } },
@@ -192,6 +211,11 @@ export async function DELETE(
     // Only organizer or admin can cancel
     if (existingMeeting.organizerId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Only the organizer or admin can cancel this meeting" }, { status: 403 })
+    }
+
+    // W40: Prevent cancelling already-cancelled meetings
+    if (existingMeeting.status === "CANCELLED") {
+      return NextResponse.json({ error: "Meeting already cancelled" }, { status: 400 })
     }
 
     const meeting = await db.meeting.update({
@@ -208,19 +232,25 @@ export async function DELETE(
       },
     })
 
-    // Notify attendees about cancellation
-    for (const attendee of existingMeeting.attendees) {
-      await db.notification.create({
-        data: {
-          userId: attendee.userId,
-          title: "Meeting Cancelled",
-          message: `"${existingMeeting.title}" on ${new Date(existingMeeting.date).toLocaleDateString()} has been cancelled`,
-          type: "WARNING",
-          link: "/dashboard/meetings",
-          metadata: JSON.stringify({ meetingId: id }),
-        },
+    // W39: Notify attendees about cancellation in parallel using Promise.allSettled
+    await Promise.allSettled(
+      existingMeeting.attendees.map(async (attendee: any) => {
+        try {
+          await db.notification.create({
+            data: {
+              userId: attendee.userId,
+              title: "Meeting Cancelled",
+              message: `"${existingMeeting.title}" on ${new Date(existingMeeting.date).toLocaleDateString()} has been cancelled`,
+              type: "WARNING",
+              link: "/dashboard/meetings",
+              metadata: JSON.stringify({ meetingId: id }),
+            },
+          })
+        } catch (err) {
+          console.warn("[meetings/id] Failed to create cancellation notification:", err)
+        }
       })
-    }
+    )
 
     return NextResponse.json(meeting)
   } catch (error: any) {

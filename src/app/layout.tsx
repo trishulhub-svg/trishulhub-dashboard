@@ -80,10 +80,10 @@ export default function RootLayout({
           <QueryProvider>
             <AuthProvider>
               {children}
+              <Toaster position="top-right" richColors />
             </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
-        <Toaster position="top-right" richColors />
       </body>
     </html>
   );

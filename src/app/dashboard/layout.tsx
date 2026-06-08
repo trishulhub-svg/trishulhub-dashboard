@@ -328,6 +328,8 @@ const SidebarContent = React.memo(function SidebarContent({
                         <button
                           key={item.href}
                           onClick={() => onNavigate(item.href)}
+                          role="link"
+                          aria-label={item.title}
                           className={cn(
                             "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
                             isActive
@@ -366,7 +368,7 @@ const SidebarContent = React.memo(function SidebarContent({
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
           <Avatar className="h-10 w-10">
             <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
-              {userName.split(" ").map((n) => n[0]).join("")}
+              {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
             </AvatarFallback>
           </Avatar>
           {!collapsed && (
@@ -393,7 +395,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, tasksAwaitingApproval: 0, total: 0 });
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
 
-  const userRole = session?.user?.role as UserRole || "DEVELOPER";
+  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
+  const userRole = VALID_ROLES.includes(session?.user?.role as any)
+    ? (session?.user?.role as typeof VALID_ROLES[number])
+    : "DEVELOPER";
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";
   const userId = session?.user?.id || "";
@@ -401,7 +406,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
 
   // Badge count mapping: use API response directly (role-aware for all users)
-  const navBadgeCounts = useMemo(() => navBadgeData, [navBadgeData]);
+  // W10: Removed no-op useMemo — pass navBadgeData directly
+  const navBadgeCounts = navBadgeData;
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -520,6 +526,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
+  // I7: Extracted notification click handler from inline async in JSX
+  const handleNotificationClick = async (notif: NotificationItem) => {
+    try {
+      if (!notif.isRead) await markAsRead(notif.id);
+    } catch {}
+    if (notif.link && notif.link.startsWith("/")) {
+      router.push(notif.link);
+      setNotifOpen(false);
+    }
+  };
+
   const handleNavigate = (href: string) => {
     router.push(href);
     setMobileOpen(false);
@@ -554,6 +571,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!session) return null;
+  // W3: Prevent CLIENT users from seeing any dashboard content before redirect
+  if (userRole === "CLIENT") return null;
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -613,13 +632,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Header - taller and more prominent */}
         <header className="h-14 sm:h-16 border-b border-border bg-card flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
           <div className="flex items-center gap-3">
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-            </Sheet>
+            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
               {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
@@ -709,13 +724,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               "flex items-start gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors border-b last:border-0",
                               !notif.isRead && "bg-primary/5"
                             )}
-                            onClick={async () => {
-                              if (!notif.isRead) await markAsRead(notif.id);
-                              if (notif.link && notif.link.startsWith("/")) {
-                                router.push(notif.link);
-                                setNotifOpen(false);
-                              }
-                            }}
+                            onClick={() => handleNotificationClick(notif)}
                           >
                             <div className={cn(
                               "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
@@ -755,6 +764,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           </div>
                         );
                       })}
+                      {/* W8: Show indicator when notifications are capped at 50 */}
+                      {notifications.length > 50 && (
+                        <span className="text-xs text-center text-muted-foreground block py-2">
+                          View all {notifications.length} notifications
+                        </span>
+                      )}
                     </div>
                   )}
                 </ScrollArea>
@@ -766,7 +781,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9">
                   <Avatar className="h-8 w-8">
                     <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
-                      {userName.split(" ").map((n) => n[0]).join("")}
+                      {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
                     </AvatarFallback>
                   </Avatar>
                   <span className="hidden sm:block text-sm font-medium">{userName}</span>

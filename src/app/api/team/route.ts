@@ -8,6 +8,11 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 
+// [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 // [T4/T6] Valid role values
 const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
 
@@ -164,7 +169,7 @@ export async function GET(req: NextRequest) {
         const start = new Date(lr.startDate)
         const end = new Date(lr.endDate)
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          set.add(d.toISOString().split("T")[0])
+          set.add(toLocalDateStr(d))
         }
         leaveDaysByUser.set(key, set)
       }
@@ -174,7 +179,7 @@ export async function GET(req: NextRequest) {
         const start = new Date(l.startDate)
         const end = new Date(l.endDate)
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          set.add(d.toISOString().split("T")[0])
+          set.add(toLocalDateStr(d))
         }
         leaveDaysByUser.set(key, set)
       }
@@ -182,7 +187,7 @@ export async function GET(req: NextRequest) {
       // Group time entries by userId + date string
       const timeByUserDay = new Map<string, { totalHours: number; clockIn: Date | null; clockOut: Date | null; entryCount: number }>()
       for (const te of timeEntries) {
-        const dayStr = new Date(te.date).toISOString().split("T")[0]
+        const dayStr = toLocalDateStr(new Date(te.date))
         const key = `${te.userId}-${dayStr}`
         const existing = timeByUserDay.get(key) || { totalHours: 0, clockIn: null as Date | null, clockOut: null as Date | null, entryCount: 0 }
         existing.totalHours += te.totalHours || 0
@@ -196,7 +201,7 @@ export async function GET(req: NextRequest) {
       // Manual attendance override map: "userId-dateStr" -> Attendance record
       const manualByUserDay = new Map<string, typeof manualAttendance[0]>()
       for (const ma of manualAttendance) {
-        const dayStr = new Date(ma.date).toISOString().split("T")[0]
+        const dayStr = toLocalDateStr(new Date(ma.date))
         manualByUserDay.set(`${ma.userId}-${dayStr}`, ma)
       }
 
@@ -220,7 +225,7 @@ export async function GET(req: NextRequest) {
       const dayMs = 86400000
 
       for (let d = new Date(dateFrom); d <= dateTo; d.setDate(d.getDate() + 1)) {
-        const dayStr = d.toISOString().split("T")[0]
+        const dayStr = toLocalDateStr(d)
         const dow = d.getDay()
 
         for (const user of activeUsers) {
@@ -445,13 +450,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid leave type. Must be CASUAL, SICK, or PAID" }, { status: 400 })
       }
 
+      // [W11] Audit log when admin creates leave on behalf of another user
+      if (leaveUserId !== sessionUserId) {
+        console.log(`[team] Admin ${sessionUserId} creating leave for user ${leaveUserId}`);
+      }
+
       const leave = await db.leaveRequest.create({
         data: {
           userId: leaveUserId as string,
           type: leaveType,
           startDate: parsedStart,
           endDate: parsedEnd,
-          reason: (data.reason as string) || null,
+          reason: (data.reason as string)?.slice(0, 1000) || null,
           status: "PENDING",
         },
       })
@@ -497,6 +507,10 @@ export async function POST(req: NextRequest) {
       if (!date) {
         return NextResponse.json({ error: "Date is required" }, { status: 400 })
       }
+      // [W14] Validate date format
+      if (isNaN(new Date(date as string).getTime())) {
+        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+      }
 
       // [T10] Validate userId exists before creating attendance record
       if (attUserId) {
@@ -513,7 +527,7 @@ export async function POST(req: NextRequest) {
           ...(attStatus ? { status: attStatus as string } : {}),
           ...(checkIn ? { checkIn: checkIn as string } : {}),
           ...(checkOut ? { checkOut: checkOut as string } : {}),
-          ...(notes ? { notes: notes as string } : {}),
+          ...(notes ? { notes: (notes as string)?.slice(0, 1000) || null } : {}),
         },
       })
       return NextResponse.json(attendance, { status: 201 })
@@ -536,10 +550,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Agent not found. Please select a valid agent." }, { status: 400 })
       }
 
-      // Verify user exists
-      const userExists = await db.user.findUnique({ where: { id: userId as string } })
-      if (!userExists) {
-        return NextResponse.json({ error: "User not found. Please select a valid team member." }, { status: 400 })
+      // [W16] Verify user exists and is active
+      const userExists = await db.user.findUnique({ where: { id: userId as string }, select: { id: true, isActive: true } })
+      if (!userExists?.isActive) {
+        return NextResponse.json({ error: "Cannot grant access to inactive user" }, { status: 400 })
       }
 
       const access = await db.userAgentAccess.upsert({
@@ -619,6 +633,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
   } catch (error: unknown) {
+    // [C5] Handle race condition on email uniqueness
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: "Email already in use" }, { status: 409 })
+    }
     // [T2] Fixed error: any → error: unknown
     console.error("[team] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

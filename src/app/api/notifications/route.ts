@@ -2,10 +2,36 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
+import { ensureAllTables } from "@/lib/auto-migrate"
+import { rateLimit } from "@/lib/rate-limit"
+
+// Cleanup old notifications (fire-and-forget)
+async function cleanupOldNotifications() {
+  try {
+    await db.notification.deleteMany({
+      where: {
+        AND: [
+          { isRead: true },
+          { createdAt: { lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }, // 30 days
+        ],
+      },
+    })
+    await db.notification.deleteMany({
+      where: {
+        createdAt: { lt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }, // 90 days
+      },
+    })
+  } catch (err) {
+    console.warn("[notifications] Cleanup failed:", err)
+  }
+}
 
 // GET /api/notifications - List notifications for user
 export async function GET(req: NextRequest) {
   try {
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -14,17 +40,35 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id
     const { searchParams } = new URL(req.url)
     const unreadOnly = searchParams.get("unread") === "true"
+    const page = parseInt(searchParams.get("page") || "1")
+    const limit = 50
 
-    const where: any = { userId }
+    // Fire-and-forget cleanup (C15)
+    cleanupOldNotifications()
+
+    // W23: Type-safe where clause
+    const where: Prisma.NotificationWhereInput = { userId }
     if (unreadOnly) where.isRead = false
 
-    const notifications = await db.notification.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    })
+    const [notifications, total, unreadCount] = await Promise.all([
+      db.notification.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: (page - 1) * limit, // W22: pagination
+      }),
+      db.notification.count({ where }),
+      db.notification.count({ where: { userId, isRead: false } }), // I18: unread count
+    ])
 
-    return NextResponse.json(JSON.parse(JSON.stringify(notifications)))
+    // I16: JSON.parse(JSON.stringify()) handles Prisma Date serialization for downstream consumers
+    return NextResponse.json({
+      notifications: JSON.parse(JSON.stringify(notifications)),
+      total,
+      page,
+      hasMore: page * limit < total,
+      unreadCount,
+    })
   } catch (error: any) {
     console.error("[notifications] error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -34,9 +78,22 @@ export async function GET(req: NextRequest) {
 // POST /api/notifications - Create a notification
 export async function POST(req: NextRequest) {
   try {
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // C14: Rate limiting
+    const rl = rateLimit(`notifications-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // C13: Only SUPER_ADMIN/ADMIN can create notifications manually
+    if (!["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     let body: unknown
@@ -60,9 +117,20 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate type is one of the allowed values
+    // W25: Explicitly reject invalid notification types
     const allowedTypes = ["INFO", "WARNING", "ERROR", "SUCCESS", "TASK", "APPROVAL", "AGENT"]
-    const notificationType = allowedTypes.includes(type || "INFO") ? (type || "INFO") : "INFO"
+    const notificationType = type || "INFO"
+    if (!allowedTypes.includes(notificationType)) {
+      return NextResponse.json(
+        { error: `Invalid notification type. Valid types: ${allowedTypes.join(", ")}` },
+        { status: 400 }
+      )
+    }
+
+    // C13/W26: Validate link field for safe URLs (prevent XSS)
+    if (link && !link.startsWith("/") && !link.startsWith("https://") && !link.startsWith("http://")) {
+      return NextResponse.json({ error: "Invalid link URL" }, { status: 400 })
+    }
 
     const notification = await db.notification.create({
       data: {
@@ -74,6 +142,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // I16: JSON.parse(JSON.stringify()) handles Prisma Date serialization
     return NextResponse.json(JSON.parse(JSON.stringify(notification)))
   } catch (error: any) {
     console.error("[notifications] POST error:", error.message)
@@ -84,12 +153,27 @@ export async function POST(req: NextRequest) {
 // PATCH /api/notifications - Mark as read (single or batch)
 export async function PATCH(req: NextRequest) {
   try {
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await req.json()
+    // C14: Rate limiting
+    const rl = rateLimit(`notifications-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // W21: Wrap body parsing in try/catch
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
     const { id, isRead, markAllRead } = body
 
     // Batch: mark all as read in one DB query instead of N requests
@@ -125,9 +209,17 @@ export async function PATCH(req: NextRequest) {
 // DELETE /api/notifications - Delete a notification
 export async function DELETE(req: NextRequest) {
   try {
+    await ensureAllTables()
+
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // C14: Rate limiting
+    const rl = rateLimit(`notifications-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
     const { searchParams } = new URL(req.url)

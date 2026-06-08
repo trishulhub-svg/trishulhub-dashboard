@@ -127,12 +127,12 @@ export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "AWA
 // Single source of truth — imported by API routes and UI components
 export const DEPARTMENTS = [
   { value: "MANAGEMENT", label: "Management" },
-  { value: "Engineering", label: "Engineering" },
-  { value: "Design", label: "Design" },
-  { value: "Marketing", label: "Marketing" },
-  { value: "Sales", label: "Sales" },
-  { value: "Finance", label: "Finance" },
-  { value: "Operations", label: "Operations" },
+  { value: "ENGINEERING", label: "Engineering" },
+  { value: "DESIGN", label: "Design" },
+  { value: "MARKETING", label: "Marketing" },
+  { value: "SALES", label: "Sales" },
+  { value: "FINANCE", label: "Finance" },
+  { value: "OPERATIONS", label: "Operations" },
   { value: "DEV", label: "Development" },
   { value: "HR", label: "Human Resources" },
   { value: "CONTENT", label: "Content" },

@@ -4,6 +4,35 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPrivateHost } from "@/lib/ssrf"
 import { isValidEmail } from "@/lib/email"
+import { createCipheriv, createDecipheriv, randomBytes } from "crypto"
+
+// ── AES-256-GCM encryption helpers ──
+const ALGO = "aes-256-gcm"
+
+function encrypt(text: string): string {
+  const key = Buffer.from(process.env.ENCRYPTION_KEY || "default-dev-key-must-be-32!", "utf8").slice(0, 32)
+  const iv = randomBytes(16)
+  const cipher = createCipheriv(ALGO, key, iv)
+  let encrypted = cipher.update(text, "utf8", "hex")
+  encrypted += cipher.final("hex")
+  const authTag = cipher.getAuthTag().toString("hex")
+  return `${iv.toString("hex")}:${authTag}:${encrypted}`
+}
+
+function decrypt(encrypted: string): string {
+  const key = Buffer.from(process.env.ENCRYPTION_KEY || "default-dev-key-must-be-32!", "utf8").slice(0, 32)
+  const [ivHex, authTagHex, encryptedData] = encrypted.split(":")
+  const iv = Buffer.from(ivHex, "hex")
+  const authTag = Buffer.from(authTagHex, "hex")
+  const decipher = createDecipheriv(ALGO, key, iv)
+  decipher.setAuthTag(authTag)
+  let decrypted = decipher.update(encryptedData, "hex", "utf8")
+  decrypted += decipher.final("utf8")
+  return decrypted
+}
+
+// I22: Note — error response formats across endpoints are inconsistent (some use `error`+`detail`+`code`, others just `error`).
+// Future: standardize to a single error envelope shape across all API routes.
 
 // GET /api/smtp - List SMTP configurations (SUPER_ADMIN only)
 export async function GET() {
@@ -19,7 +48,7 @@ export async function GET() {
     // Auto-migrate: ensure SmtpConfig table exists
     const migrateResult = await ensureTablesExist()
     if (!migrateResult.success) {
-      return NextResponse.json({ error: `Database migration needed: ${migrateResult.error}. Visit /api/migrate to create tables.` }, { status: 500 })
+      return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
     }
 
     const configs = await db.smtpConfig.findMany({
@@ -48,8 +77,8 @@ export async function GET() {
 
     return NextResponse.json(masked)
   } catch (error: any) {
-    console.error("[smtp] GET error:", error)
-    return NextResponse.json({ error: "An error occurred", detail: error.message }, { status: 500 })
+    console.error("[smtp] Error:", error.message)
+    return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
 }
 
@@ -69,10 +98,16 @@ export async function POST(req: NextRequest) {
     // Auto-migrate: ensure SmtpConfig and EmailVerification tables exist
     const migrateResult = await ensureTablesExist()
     if (!migrateResult.success) {
-      return NextResponse.json({ error: `Database migration needed: ${migrateResult.error}. Visit /api/migrate to create tables.` }, { status: 500 })
+      return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
     }
 
-    const body = await req.json()
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
     const { host, port, username, password, fromEmail, fromName, secure, isPrimary } = body
 
     // Validate required fields
@@ -96,12 +131,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Port must be between 1 and 65535" }, { status: 400 })
     }
 
-    // Limit to 2 SMTP configurations max
-    const existingCount = await db.smtpConfig.count()
-    if (existingCount >= 2) {
-      return NextResponse.json({ error: "Maximum 2 SMTP configurations allowed. Delete one first." }, { status: 400 })
-    }
-
     // NOTE: SMTP connection test is NOT performed here anymore.
     // The user must test the connection via the /api/smtp/test endpoint first.
     // This prevents Vercel Hobby 10-second function timeouts caused by
@@ -120,7 +149,7 @@ export async function POST(req: NextRequest) {
         host,
         port: port || 587,
         username,
-        password, // Stored in DB - protected by Turso auth token
+        password: encrypt(password), // C7: Encrypt password before storage
         fromEmail,
         fromName: fromName || "TrishulHub",
         secure: secure || false,
@@ -145,19 +174,13 @@ export async function POST(req: NextRequest) {
     console.log("[smtp] POST: SMTP config created successfully:", config.id)
     return NextResponse.json(config, { status: 201 })
   } catch (error: any) {
-    console.error("[smtp] POST error:", error.code, error.message)
-    // Return specific error with detail for debugging
-    let errorMsg = "Failed to save SMTP configuration. Please try again."
-    if (error.code === "P2021" || error.code === "P2022") {
-      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
-    } else if (error.code === "P2002") {
-      errorMsg = "An SMTP config with these details already exists."
+    console.error("[smtp] Error:", error.message)
+    // C8: Generic error message — don't leak internal details
+    let errorMsg = "Failed to process SMTP configuration"
+    if (error.code === "P2002") {
+      errorMsg = "An SMTP config with these details already exists"
     }
-    return NextResponse.json({
-      error: errorMsg,
-      detail: error.message,
-      code: error.code || null,
-    }, { status: 500 })
+    return NextResponse.json({ error: errorMsg }, { status: 500 })
   }
 }
 
@@ -174,7 +197,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
 
-    const body = await req.json()
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
     const { id, host, port, username, password, fromEmail, fromName, secure, isPrimary, isActive } = body
 
     if (!id) return NextResponse.json({ error: "SMTP config ID is required" }, { status: 400 })
@@ -202,19 +231,38 @@ export async function PATCH(req: NextRequest) {
     if (host !== undefined) data.host = host
     if (port !== undefined) data.port = port
     if (username !== undefined) data.username = username
-    if (password) data.password = password // Only update password if a new one is provided (non-empty)
+    if (password) data.password = encrypt(password) // C7: Encrypt password before storage
     if (fromEmail !== undefined) data.fromEmail = fromEmail
     if (fromName !== undefined) data.fromName = fromName
     if (secure !== undefined) data.secure = secure
     if (isActive !== undefined) data.isActive = isActive
 
-    // If setting this as primary, unset any existing primary
+    // C12: If setting this as primary, wrap in transaction to prevent race condition
     if (isPrimary) {
-      await db.smtpConfig.updateMany({
-        where: { isPrimary: true, id: { not: id } },
-        data: { isPrimary: false },
+      await db.$transaction([
+        db.smtpConfig.updateMany({
+          where: { isPrimary: true, id: { not: id } },
+          data: { isPrimary: false },
+        }),
+        db.smtpConfig.update({
+          where: { id },
+          data: { ...data, isPrimary: true },
+          select: {
+            id: true, host: true, port: true, username: true, fromEmail: true, fromName: true,
+            secure: true, isPrimary: true, isActive: true, createdAt: true, updatedAt: true,
+          },
+        }),
+      ])
+
+      // Fetch the updated config for the response
+      const config = await db.smtpConfig.findUnique({
+        where: { id },
+        select: {
+          id: true, host: true, port: true, username: true, fromEmail: true, fromName: true,
+          secure: true, isPrimary: true, isActive: true, createdAt: true, updatedAt: true,
+        },
       })
-      data.isPrimary = true
+      return NextResponse.json(config)
     }
 
     // NOTE: SMTP connection test is NOT performed here anymore to avoid timeouts.
@@ -240,12 +288,9 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(config)
   } catch (error: any) {
-    console.error("[smtp] PATCH error:", error.code, error.message)
-    let errorMsg = "Failed to update SMTP configuration. Please try again."
-    if (error.code === "P2021" || error.code === "P2022") {
-      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
-    }
-    return NextResponse.json({ error: errorMsg, detail: error.message }, { status: 500 })
+    console.error("[smtp] Error:", error.message)
+    // C8: Generic error message — don't leak internal details
+    return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
 }
 
@@ -260,6 +305,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
 
+    // W36: NOTE — Currently uses query param for ID. In a future refactor, the frontend
+    // should send the ID in the request body or use a path parameter (e.g., DELETE /api/smtp/:id).
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
 
@@ -280,12 +327,8 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error("[smtp] DELETE error:", error.code, error.message)
-    let errorMsg = "Failed to delete SMTP configuration. Please try again."
-    if (error.code === "P2021" || error.code === "P2022") {
-      errorMsg = "Database table not found. Please visit /api/migrate to create the required tables."
-    }
-    return NextResponse.json({ error: errorMsg, detail: error.message }, { status: 500 })
+    console.error("[smtp] Error:", error.message)
+    return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
 }
 

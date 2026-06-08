@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createMeetingSchema, validateRequest } from "@/lib/validations"
+import { rateLimit } from "@/lib/rate-limit"
 
 // GET /api/meetings - List meetings with filters
 export async function GET(req: NextRequest) {
@@ -22,6 +23,8 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status")
     const organizerId = searchParams.get("organizerId")
     const projectId = searchParams.get("projectId")
+    const page = parseInt(searchParams.get("page") || "1", 10)
+    const pageSize = 50
 
     // Build where clause
     const where: any = {}
@@ -60,21 +63,34 @@ export async function GET(req: NextRequest) {
       ]
     }
 
-    const meetings = await db.meeting.findMany({
-      where,
-      include: {
-        organizer: { select: { id: true, name: true, email: true, avatar: true } },
-        project: { select: { id: true, name: true } },
-        attendees: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
+    const [meetings, total] = await Promise.all([
+      db.meeting.findMany({
+        where,
+        include: {
+          organizer: { select: { id: true, name: true, email: true, avatar: true } },
+          project: { select: { id: true, name: true } },
+          attendees: {
+            include: {
+              user: { select: { id: true, name: true, email: true, avatar: true } },
+            },
           },
         },
-      },
-      orderBy: [{ date: "asc" }, { startTime: "asc" }],
-    })
+        orderBy: [{ date: "asc" }, { startTime: "asc" }],
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+      }),
+      db.meeting.count({ where }),
+    ])
 
-    return NextResponse.json(JSON.parse(JSON.stringify(meetings)))
+    return NextResponse.json({
+      data: JSON.parse(JSON.stringify(meetings)),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    })
   } catch (error: any) {
     console.error("[meetings] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -95,6 +111,12 @@ export async function POST(req: NextRequest) {
     // Only SUPER_ADMIN and ADMIN can create meetings
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Only admins can schedule meetings" }, { status: 403 })
+    }
+
+    // C10: Rate limit
+    const rl = rateLimit(`meetings-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
     let body
@@ -139,23 +161,25 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Notify attendees (fire-and-forget)
-    try {
-      for (const attendeeId of attendeeIds || []) {
-        await db.notification.create({
-          data: {
-            userId: attendeeId,
-            title: "New Meeting Invitation",
-            message: `${session.user.name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
-            type: "TASK",
-            link: "/dashboard/meetings",
-            metadata: JSON.stringify({ meetingId: meeting.id }),
-          },
-        })
-      }
-    } catch (notifyErr: any) {
-      console.error("[meetings] POST notification error (non-blocking):", notifyErr.message)
-    }
+    // W39: Notify attendees in parallel using Promise.allSettled
+    await Promise.allSettled(
+      (attendeeIds || []).map(async (attendeeId: string) => {
+        try {
+          await db.notification.create({
+            data: {
+              userId: attendeeId,
+              title: "New Meeting Invitation",
+              message: `${session.user.name || "Admin"} scheduled a meeting: "${title}" on ${new Date(date).toLocaleDateString()} at ${startTime}`,
+              type: "TASK",
+              link: "/dashboard/meetings",
+              metadata: JSON.stringify({ meetingId: meeting.id }),
+            },
+          })
+        } catch (err) {
+          console.warn("[meetings] Failed to create notification:", err)
+        }
+      })
+    )
 
     return NextResponse.json(meeting, { status: 201 })
   } catch (error: any) {

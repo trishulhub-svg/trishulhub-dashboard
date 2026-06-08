@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
+import { rateLimit } from "@/lib/rate-limit"
 
 // GET /api/availability - List availability entries
 export async function GET(req: NextRequest) {
@@ -26,15 +27,31 @@ export async function GET(req: NextRequest) {
     const dayOfWeek = searchParams.get("dayOfWeek")
     if (dayOfWeek !== null) where.dayOfWeek = parseInt(dayOfWeek)
 
-    const availabilities = await db.availability.findMany({
-      where,
-      include: {
-        user: { select: { id: true, name: true, email: true, role: true, avatar: true } },
-      },
-      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
-    })
+    const page = parseInt(searchParams.get("page") || "1", 10)
+    const pageSize = 100
 
-    return NextResponse.json(availabilities)
+    const [availabilities, total] = await Promise.all([
+      db.availability.findMany({
+        where,
+        include: {
+          user: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+        },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+      }),
+      db.availability.count({ where }),
+    ])
+
+    return NextResponse.json({
+      data: availabilities,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    })
   } catch (error: any) {
     console.error("[availability] GET error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -53,6 +70,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
+    // C10: Rate limit
+    const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     let body
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const { userId, dayOfWeek, startTime, endTime, isAvailable } = body
@@ -63,6 +86,15 @@ export async function POST(req: NextRequest) {
 
     if (typeof dayOfWeek !== "number" || isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
       return NextResponse.json({ error: "Day of week must be a valid number 0-6 (Sunday=0)" }, { status: 400 })
+    }
+
+    // C11: Check for overlapping time ranges for the same user/dayOfWeek
+    const existing = await db.availability.findMany({ where: { userId, dayOfWeek } })
+    const hasOverlap = existing.some(e =>
+      startTime < e.endTime && endTime > e.startTime
+    )
+    if (hasOverlap) {
+      return NextResponse.json({ error: "Time range overlaps with existing availability" }, { status: 409 })
     }
 
     const availability = await db.availability.create({

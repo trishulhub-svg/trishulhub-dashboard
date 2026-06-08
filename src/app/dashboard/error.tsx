@@ -34,7 +34,7 @@ export default function DashboardError({
                 Error details
               </summary>
               <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
-                {error.message}
+                {process.env.NODE_ENV === "development" ? error.message : "An unexpected error occurred. Please try refreshing the page."}
               </pre>
             </details>
           )}

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Shield, Plus, Trash2, AlertCircle, RefreshCw, MessageSquare, Pencil, Search, Eye,
+  User, Clock, Calendar, CheckCircle2, XCircle, Plus, Trash2, AlertCircle, RefreshCw, Pencil,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -115,18 +114,34 @@ function formatDate(isoStr?: string | null): string {
   }
 }
 
+// [C4] Helper: format ISO time string to HH:MM for time input fields
+function formatTimeHHMM(isoStr?: string | null): string {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  } catch {
+    return "";
+  }
+}
+
+// [C3] Helper: get local date string (YYYY-MM-DD)
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 export default function TeamPage() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
 
   const userRole = session?.user?.role || "DEVELOPER";
   const currentUserId = session?.user?.id || "";
-  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // [I11] useMemo to prevent unnecessary fetchData recomputation
+  const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
 
   // Default tab based on role — non-admins default to "leaves"
   const [tab, setTab] = useState<"team" | "leaves" | "attendance">(isAdminUser ? "team" : "leaves");
@@ -346,6 +361,11 @@ export default function TeamPage() {
       toast.error("Password must be at least 8 characters");
       return;
     }
+    // [W18] Client-side password complexity validation
+    if (!/[a-zA-Z]/.test(memberForm.password) || !/[0-9]/.test(memberForm.password)) {
+      toast.error("Password must contain at least one letter and one number");
+      return;
+    }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(memberForm.email)) {
       toast.error("Please enter a valid email address");
@@ -427,14 +447,25 @@ export default function TeamPage() {
     if (!editAttForm.id) return;
     setAttEditLoading(true);
     try {
+      // Find the original record to get its date for ISO reconstruction
+      const originalRecord = attendance.find(a => a.id === editAttForm.id);
+      const recordDateStr = originalRecord?.date ? toLocalDateStr(new Date(originalRecord.date)) : "";
+
       const payload: Record<string, unknown> = {
         type: "attendance",
         status: editAttForm.status,
       };
-      if (editAttForm.checkIn) payload.checkIn = editAttForm.checkIn;
-      else payload.checkIn = null;
-      if (editAttForm.checkOut) payload.checkOut = editAttForm.checkOut;
-      else payload.checkOut = null;
+      // [C4] Reconstruct full ISO strings from HH:MM + date
+      if (editAttForm.checkIn && recordDateStr) {
+        payload.checkIn = new Date(`${recordDateStr}T${editAttForm.checkIn}:00`).toISOString();
+      } else {
+        payload.checkIn = null;
+      }
+      if (editAttForm.checkOut && recordDateStr) {
+        payload.checkOut = new Date(`${recordDateStr}T${editAttForm.checkOut}:00`).toISOString();
+      } else {
+        payload.checkOut = null;
+      }
       if (editAttForm.notes.trim()) payload.notes = editAttForm.notes.trim();
       else payload.notes = null;
 
@@ -458,7 +489,7 @@ export default function TeamPage() {
     } finally {
       setAttEditLoading(false);
     }
-  }, [editAttForm, fetchAttendance]);
+  }, [editAttForm, fetchAttendance, attendance]);
 
   const handleDeleteAttendance = useCallback(async (id: string) => {
     if (!confirm("Are you sure you want to delete this attendance record?")) return;
@@ -483,24 +514,16 @@ export default function TeamPage() {
     setEditAttForm({
       id: record.id,
       status: record.status,
-      checkIn: record.checkIn ? formatTime(record.checkIn) : "",
-      checkOut: record.checkOut ? formatTime(record.checkOut) : "",
+      // [C4] Use HH:MM format for time inputs instead of locale string
+      checkIn: formatTimeHHMM(record.checkIn),
+      checkOut: formatTimeHHMM(record.checkOut),
       notes: record.notes || "",
     });
     setEditAttDialogOpen(true);
   }, []);
 
-  // Show loading skeleton while session is loading
-  if (sessionStatus === "loading") {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48" />
-        {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
-      </div>
-    );
-  }
-
-  if (loading) {
+  // [I10] Consolidated loading skeleton
+  if (sessionStatus === "loading" || loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -530,14 +553,14 @@ export default function TeamPage() {
     ? attendance
     : attendance.filter(a => a.userId === attUserFilter);
 
-  // Attendance summary stats
-  const attStats = {
+  // [I12] useMemo to prevent recomputation every render
+  const attStats = useMemo(() => ({
     total: filteredAttendance.length,
     present: filteredAttendance.filter(a => a.status === "PRESENT").length,
     absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
     halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
     leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
-  };
+  }), [filteredAttendance]);
 
   return (
     <div className="space-y-4">
@@ -555,7 +578,7 @@ export default function TeamPage() {
               )}
               {tab === "attendance" && (
                 <Button size="sm" onClick={() => {
-                  setAttForm({ userId: "", date: new Date().toISOString().split("T")[0], status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+                  setAttForm({ userId: "", date: toLocalDateStr(new Date()), status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
                   setAttDialogOpen(true);
                 }} className="bg-primary hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1" /> Add Record
@@ -941,8 +964,13 @@ export default function TeamPage() {
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
                   <SelectItem value="VIEWER">Viewer</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN or SUPER_ADMIN roles */}
+                  {session?.user?.role === "SUPER_ADMIN" && (
+                    <>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -999,8 +1027,13 @@ export default function TeamPage() {
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
                   <SelectItem value="VIEWER">Viewer</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN or SUPER_ADMIN roles */}
+                  {session?.user?.role === "SUPER_ADMIN" && (
+                    <>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>

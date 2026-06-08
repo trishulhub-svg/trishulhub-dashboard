@@ -5,6 +5,15 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
+function sanitizeForJson(obj: any): any {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return obj.toISOString();
+  if (Array.isArray(obj)) return obj.map(sanitizeForJson);
+  const result: Record<string, any> = {};
+  for (const key in obj) { result[key] = sanitizeForJson(obj[key]); }
+  return result;
+}
+
 // Lightweight stats endpoint for the finance Overview tab.
 // Only runs 7 queries instead of the full dashboard's 19 — significantly faster.
 export async function GET() {
@@ -46,6 +55,8 @@ export async function GET() {
       admin
         ? db.invoice.aggregate({ where: { ...invoiceWhere, status: "OVERDUE" }, _sum: { total: true } }).then(r => r._sum.total || 0)
         : Promise.resolve(0),
+      // INTENTIONAL: Global aggregate with no where clause — this is the finance overview
+      // endpoint, which shows total expenses across all projects for admin reporting.
       admin
         ? db.expense.aggregate({ _sum: { amount: true } }).then(r => r._sum.amount || 0)
         : Promise.resolve(0),
@@ -73,7 +84,7 @@ export async function GET() {
 
     const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses, totalApiSpend }
 
-    return NextResponse.json(JSON.parse(JSON.stringify({ stats, invoices, expenses: recentExpenses })))
+    return NextResponse.json(sanitizeForJson({ stats, invoices, expenses: recentExpenses }))
   } catch (error: unknown) {
     console.error("[dashboard/stats] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load finance stats" }, { status: 500 })

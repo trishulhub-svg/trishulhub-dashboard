@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import nodemailer from "nodemailer"
 import { isPrivateHost } from "@/lib/ssrf"
+import { rateLimit } from "@/lib/rate-limit"
 
 // POST /api/smtp/test - Test SMTP connection (SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
@@ -15,7 +16,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can test SMTP" }, { status: 403 })
     }
 
-    const body = await req.json()
+    // C9: Rate limit — 10 attempts per 5 minutes
+    const rl = rateLimit(`smtp-test-${session.user.id}`, 10, 300000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many test attempts. Try again in 5 minutes." }, { status: 429 })
+    }
+
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
     const { host, port, username, password, secure } = body
 
     if (!host || !username || !password) {
@@ -45,10 +58,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: "SMTP connection successful!" })
     } catch (error: any) {
       try { await transporter.close() } catch {}
-      return NextResponse.json({ success: false, error: `Connection failed: ${error.message}` }, { status: 400 })
+      // C9: Sanitize error — don't expose server banners or internal details
+      console.error("[smtp-test] Connection failed:", error.message)
+      return NextResponse.json({ success: false, error: "Connection failed. Check host and port settings." })
     }
   } catch (error: any) {
-    console.error("[smtp-test] error:", error.message)
+    console.error("[smtp-test] Error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

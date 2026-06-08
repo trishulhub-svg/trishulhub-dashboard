@@ -4,6 +4,9 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
+import { rateLimit } from "@/lib/rate-limit"
+
+const timeRegex = /^\d{2}:\d{2}$/
 
 // GET /api/availability/overrides - List overrides
 export async function GET(req: NextRequest) {
@@ -59,12 +62,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
+    // C10: Rate limit
+    const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     let body
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
     const { userId, date, startTime, endTime, isAvailable, reason } = body
 
     if (!userId || !date) {
       return NextResponse.json({ error: "User ID and date are required" }, { status: 400 })
+    }
+
+    // W37: Validate time format and startTime < endTime
+    if (startTime && !timeRegex.test(startTime)) {
+      return NextResponse.json({ error: "Start time must be in HH:MM format" }, { status: 400 })
+    }
+    if (endTime && !timeRegex.test(endTime)) {
+      return NextResponse.json({ error: "End time must be in HH:MM format" }, { status: 400 })
+    }
+    if (startTime && endTime && startTime >= endTime) {
+      return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
     }
 
     const override = await db.availabilityOverride.create({
@@ -94,14 +114,25 @@ export async function DELETE(req: NextRequest) {
     await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    
+
+    const userRole = session.user.role
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    // C10: Rate limit
+    const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
-    
+
     const existing = await db.availabilityOverride.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 })
-    
+
     await db.availabilityOverride.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: any) {

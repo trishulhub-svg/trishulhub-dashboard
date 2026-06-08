@@ -6,9 +6,12 @@ import { Toaster as Sonner, ToasterProps } from "sonner"
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
 
+  // Map custom themes (e.g. "bluelight") to valid Sonner theme values
+  const sonnerTheme = theme === "bluelight" ? "light" : (theme as "light" | "dark" | "system")
+
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={sonnerTheme}
       className="toaster group"
       style={
         {

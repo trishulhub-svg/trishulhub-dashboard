@@ -58,9 +58,14 @@ export async function PATCH(req: NextRequest) {
     // HH:mm time format regex for quiet hours
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
 
-    const updateData: Record<string, any> = { updatedAt: new Date() }
+    // W29: removed updatedAt — Prisma @updatedAt handles it
+    const updateData: Record<string, any> = {}
     for (const key of allowedFields) {
       if (key in body) {
+        // W27: Explicit type validation — reject non-boolean/non-string values
+        if (typeof body[key] !== "boolean" && typeof body[key] !== "string") {
+          return NextResponse.json({ error: `"${key}" must be a boolean or string` }, { status: 400 })
+        }
         if (typeof body[key] === "boolean") {
           updateData[key] = body[key]
         } else if (typeof body[key] === "string") {
@@ -72,6 +77,13 @@ export async function PATCH(req: NextRequest) {
           }
           updateData[key] = body[key]
         }
+      }
+    }
+
+    // W28: Validate quiet hours consistency when enabled
+    if (updateData.quietHoursEnabled === true) {
+      if (!updateData.quietHoursStart || !updateData.quietHoursEnd) {
+        return NextResponse.json({ error: "Both start and end times required when quiet hours enabled" }, { status: 400 })
       }
     }
 

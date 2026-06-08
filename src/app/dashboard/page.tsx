@@ -129,6 +129,20 @@ export default function DashboardPage() {
   // DASH-005: Extract tasks data for developer "My Tasks" section
   const tasks = safeArray<{ id: string; title: string; status: string; priority: string; project: { name: string } }>(data.tasks);
 
+  // W9: Extract frequently-used stats to local variables to avoid redundant safeNumber() calls
+  const budget = stats.monthlyBudget;
+  const apiSpend = stats.totalApiSpend;
+  const totalRevenue = stats.totalRevenue;
+  const pendingAmount = stats.pendingAmount;
+  const overdueAmount = stats.overdueAmount;
+  const totalExpenses = stats.totalExpenses;
+  const activeProjects = stats.activeProjects;
+  const totalClients = stats.totalClients;
+  const newLeadsCount = stats.newLeadsCount;
+  const totalLeads = stats.totalLeads;
+  const openTickets = stats.openTickets;
+  const pendingTasks = stats.pendingTasks;
+
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
   return (
@@ -171,13 +185,13 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Active Projects</p>
                 {/* DASH-003: All stats values wrapped in safeNumber() */}
-                <p className="text-2xl font-bold">{safeNumber(stats.activeProjects)}</p>
+                <p className="text-2xl font-bold">{activeProjects}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                 <FolderKanban className="h-5 w-5 text-blue-600" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">{safeNumber(stats.totalClients)} clients total</p>
+            <p className="text-xs text-muted-foreground mt-2">{totalClients} clients total</p>
           </CardContent>
         </Card>
 
@@ -191,13 +205,13 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">New Leads</p>
-                    <p className="text-2xl font-bold">{safeNumber(stats.newLeadsCount)}</p>
+                    <p className="text-2xl font-bold">{newLeadsCount}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                     <TrendingUp className="h-5 w-5 text-green-600" />
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">{safeNumber(stats.totalLeads)} total leads</p>
+                <p className="text-xs text-muted-foreground mt-2">{totalLeads} total leads</p>
               </CardContent>
             </Card>
 
@@ -209,15 +223,15 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Revenue</p>
-                    <p className="text-2xl font-bold">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
                     <DollarSign className="h-5 w-5 text-emerald-600" />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
-                  <span>Pending: {formatCurrency(safeNumber(stats.pendingAmount))}</span>
-                  {safeNumber(stats.overdueAmount) > 0 && <span className="text-red-500">Overdue: {formatCurrency(safeNumber(stats.overdueAmount))}</span>}
+                  <span>Pending: {formatCurrency(pendingAmount)}</span>
+                  {overdueAmount > 0 && <span className="text-red-500">Overdue: {formatCurrency(overdueAmount)}</span>}
                 </div>
               </CardContent>
             </Card>
@@ -232,7 +246,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">My Tasks</p>
-                    <p className="text-2xl font-bold">{safeNumber(stats.pendingTasks)}</p>
+                    <p className="text-2xl font-bold">{pendingTasks}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
                     <ClipboardList className="h-5 w-5 text-yellow-600" />
@@ -250,7 +264,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Open Tickets</p>
-                    <p className="text-2xl font-bold">{safeNumber(stats.openTickets)}</p>
+                    <p className="text-2xl font-bold">{openTickets}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
                     <AlertCircle className="h-5 w-5 text-orange-600" />
@@ -270,13 +284,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{isAdminUser ? "Pending Tasks" : "Team Tasks"}</p>
-                <p className="text-2xl font-bold">{safeNumber(stats.pendingTasks)}</p>
+                <p className="text-2xl font-bold">{pendingTasks}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
                 <Shield className="h-5 w-5 text-yellow-600" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">{safeNumber(stats.openTickets)} open tickets</p>
+            <p className="text-xs text-muted-foreground mt-2">{openTickets} open tickets</p>
           </CardContent>
         </Card>
       </div>
@@ -349,17 +363,17 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 <div>
                   <div className="flex flex-wrap justify-between gap-1 text-xs sm:text-sm mb-1">
-                    <span>Total Budget: ${safeNumber(stats.monthlyBudget).toFixed(2)}</span>
-                    <span>Spent: ${safeNumber(stats.totalApiSpend).toFixed(2)} ({safeNumber(stats.monthlyBudget) > 0 ? ((safeNumber(stats.totalApiSpend) / safeNumber(stats.monthlyBudget)) * 100).toFixed(1) : 0}%)</span>
+                    <span>Total Budget: ${budget.toFixed(2)}</span>
+                    <span>Spent: ${apiSpend.toFixed(2)} ({budget > 0 ? ((apiSpend / budget) * 100).toFixed(1) : 0}%)</span>
                   </div>
                   <Progress
-                    value={safeNumber(stats.monthlyBudget) > 0 ? (safeNumber(stats.totalApiSpend) / safeNumber(stats.monthlyBudget)) * 100 : 0}
+                    value={budget > 0 ? (apiSpend / budget) * 100 : 0}
                     className="h-3"
                   />
                 </div>
                 <div className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground">
-                  <span>Remaining: ${(safeNumber(stats.monthlyBudget) - safeNumber(stats.totalApiSpend)).toFixed(2)}</span>
-                  <span>Expenses: {formatCurrency(safeNumber(stats.totalExpenses))}</span>
+                  <span>Remaining: ${(budget - apiSpend).toFixed(2)}</span>
+                  <span>Expenses: {formatCurrency(totalExpenses)}</span>
                 </div>
               </div>
             </CardContent>

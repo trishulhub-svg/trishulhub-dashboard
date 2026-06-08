@@ -8,11 +8,13 @@ import { ensureTable } from "@/lib/auto-migrate"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
+// I25: Handle overnight time ranges (e.g., 22:00–06:00)
 function calculateHours(startTime: string | null, endTime: string | null): number {
   if (!startTime || !endTime) return 0
   const [sh, sm] = startTime.split(":").map(Number)
   const [eh, em] = endTime.split(":").map(Number)
-  const diff = (eh * 60 + em) - (sh * 60 + sm)
+  let diff = (eh * 60 + em) - (sh * 60 + sm)
+  if (diff < 0) diff += 24 * 60 // overnight
   return Math.max(0, Math.round((diff / 60) * 100) / 100)
 }
 
@@ -39,7 +41,7 @@ function getWeekRange(dateStr: string): { weekStart: Date; weekEnd: Date } {
 // GET /api/availability/schedule
 export async function GET(req: NextRequest) {
   try {
-    // ── Ensure tables exist ──
+    // W35: Consolidate all ensureTable calls into a single batch
     await Promise.all([
       ensureTable("Availability"),
       ensureTable("AvailabilityOverride"),
@@ -446,121 +448,144 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
     }),
   ])
 
-  // ── Build per-user day map ──
-  const usersSchedule = await Promise.all(
-    users.map(async (user) => {
-      const days: Record<string, Record<string, unknown>> = {}
-
-      for (let i = 0; i < 7; i++) {
-        const dayDate = weekDays[i]
-        const dayStr = weekDayStrings[i]
-        const dow = dayOfWeeks[i]
-
-        const dayStart = new Date(dayDate)
-        dayStart.setHours(0, 0, 0, 0)
-        const dayEnd = new Date(dayDate)
-        dayEnd.setHours(23, 59, 59, 999)
-
-        // Availabilities for this user and day of week
-        const userAvailabilities = allAvailabilities.filter(
-          a => a.userId === user.id && a.dayOfWeek === dow
-        )
-
-        // Override for this user on this specific date
-        const userOverride = allOverrides.find(o => {
-          const overrideDate = o.date instanceof Date ? o.date : new Date(o.date)
-          return o.userId === user.id && formatDateOnly(overrideDate) === dayStr
-        })
-
-        // Check leave
-        const onLeave = allLeaves.some(l => {
-          const lStart = l.startDate instanceof Date ? l.startDate : new Date(l.startDate)
-          const lEnd = l.endDate instanceof Date ? l.endDate : new Date(l.endDate)
-          return l.userId === user.id && lStart <= dayEnd && lEnd >= dayStart
-        })
-
-        // Tasks due on this day
-        const dayTasks = allTasks.filter(t => {
-          if (!t.deadline) return false
-          const tDeadline = t.deadline instanceof Date ? t.deadline : new Date(t.deadline)
-          return t.assignedTo === user.id && formatDateOnly(tDeadline) === dayStr
-        })
-
-        // Meetings on this day
-        const dayMeetings = allMeetingAttendees.filter(ma => {
-          const mDate = ma.meeting.date instanceof Date ? ma.meeting.date : new Date(ma.meeting.date)
-          return ma.userId === user.id && formatDateOnly(mDate) === dayStr
-        })
-
-        // Determine effective availability
-        let effectiveAvailabilities: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[] = userAvailabilities.map(a => ({
-          id: a.id, startTime: a.startTime, endTime: a.endTime, isAvailable: true, hours: calculateHours(a.startTime, a.endTime),
-        }))
-        let isUnavailable = false
-        if (userOverride) {
-          if (!userOverride.isAvailable) {
-            effectiveAvailabilities = []
-            isUnavailable = true
-          } else if (userOverride.startTime && userOverride.endTime) {
-            effectiveAvailabilities = [
-              {
-                id: userOverride.id,
-                startTime: userOverride.startTime,
-                endTime: userOverride.endTime,
-                isAvailable: true,
-                hours: calculateHours(userOverride.startTime, userOverride.endTime),
-              },
-            ]
-          }
-        }
-
-        // Calculate total hours
-        const totalHours = effectiveAvailabilities.reduce(
-          (sum, a) => sum + a.hours,
-          0
-        )
-
-        days[dayStr] = {
-          dayOfWeek: dow,
-          dayName: DAY_NAMES[dow],
-          availability: effectiveAvailabilities.map(a => ({
-            id: a.id,
-            startTime: a.startTime,
-            endTime: a.endTime,
-            isAvailable: true,
-            hours: calculateHours(a.startTime, a.endTime),
-          })),
-          override: userOverride
-            ? {
-                id: userOverride.id,
-                date: dayStr,
-                startTime: userOverride.startTime,
-                endTime: userOverride.endTime,
-                isAvailable: userOverride.isAvailable,
-                reason: userOverride.reason,
-              }
-            : null,
-          isOnLeave: onLeave || isUnavailable,
-          taskCount: dayTasks.length,
-          doneTaskCount: dayTasks.filter(t => t.status === "DONE").length,
-          meetingCount: dayMeetings.length,
-          totalHours: Math.round(totalHours * 100) / 100,
-        }
-      }
-
-      return {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          department: user.department,
-          avatar: user.avatar,
-        },
-        days,
-      }
+  // W34: Pre-build Maps for O(1) lookups instead of .filter() in inner loops
+  // Key format: "userId:dayOfWeek" for availabilities, "userId:dateStr" for overrides, etc.
+  const availByKey = new Map(
+    allAvailabilities.map(a => [`${a.userId}:${a.dayOfWeek}`, a])
+  )
+  const overrideByKey = new Map(
+    allOverrides.map(o => {
+      const overrideDate = o.date instanceof Date ? o.date : new Date(o.date)
+      return [`${o.userId}:${formatDateOnly(overrideDate)}`, o]
     })
   )
+  const tasksByUserAndDay = new Map<string, typeof allTasks>()
+  for (const t of allTasks) {
+    if (!t.deadline) continue
+    const tDeadline = t.deadline instanceof Date ? t.deadline : new Date(t.deadline)
+    const key = `${t.assignedTo}:${formatDateOnly(tDeadline)}`
+    const arr = tasksByUserAndDay.get(key) || []
+    arr.push(t)
+    tasksByUserAndDay.set(key, arr)
+  }
+  const meetingsByUserAndDay = new Map<string, typeof allMeetingAttendees>()
+  for (const ma of allMeetingAttendees) {
+    const mDate = ma.meeting.date instanceof Date ? ma.meeting.date : new Date(ma.meeting.date)
+    const key = `${ma.userId}:${formatDateOnly(mDate)}`
+    const arr = meetingsByUserAndDay.get(key) || []
+    arr.push(ma)
+    meetingsByUserAndDay.set(key, arr)
+  }
+  const leavesByUser = new Map<string, typeof allLeaves>()
+  for (const l of allLeaves) {
+    const arr = leavesByUser.get(l.userId) || []
+    arr.push(l)
+    leavesByUser.set(l.userId, arr)
+  }
+
+  // ── Build per-user day map ──
+  const usersSchedule = users.map((user) => {
+    const days: Record<string, Record<string, unknown>> = {}
+
+    for (let i = 0; i < 7; i++) {
+      const dayDate = weekDays[i]
+      const dayStr = weekDayStrings[i]
+      const dow = dayOfWeeks[i]
+
+      const dayStart = new Date(dayDate)
+      dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(dayDate)
+      dayEnd.setHours(23, 59, 59, 999)
+
+      // W34: O(1) lookup instead of .filter()
+      const userAvailabilities = availByKey.has(`${user.id}:${dow}`)
+        ? [availByKey.get(`${user.id}:${dow}`)!]
+        : []
+
+      const userOverride = overrideByKey.get(`${user.id}:${dayStr}`) || null
+
+      // Check leave using pre-built map
+      const userLeaves = leavesByUser.get(user.id) || []
+      const onLeave = userLeaves.some(l => {
+        const lStart = l.startDate instanceof Date ? l.startDate : new Date(l.startDate)
+        const lEnd = l.endDate instanceof Date ? l.endDate : new Date(l.endDate)
+        return lStart <= dayEnd && lEnd >= dayStart
+      })
+
+      // Tasks due on this day using pre-built map
+      const dayTasks = (tasksByUserAndDay.get(`${user.id}:${dayStr}`) || []).filter(Boolean)
+
+      // Meetings on this day using pre-built map
+      const dayMeetings = (meetingsByUserAndDay.get(`${user.id}:${dayStr}`) || []).filter(Boolean)
+
+      // Determine effective availability
+      let effectiveAvailabilities: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[] = userAvailabilities.map(a => ({
+        id: a.id, startTime: a.startTime, endTime: a.endTime, isAvailable: true, hours: calculateHours(a.startTime, a.endTime),
+      }))
+      let isUnavailable = false
+      if (userOverride) {
+        if (!userOverride.isAvailable) {
+          effectiveAvailabilities = []
+          isUnavailable = true
+        } else if (userOverride.startTime && userOverride.endTime) {
+          effectiveAvailabilities = [
+            {
+              id: userOverride.id,
+              startTime: userOverride.startTime,
+              endTime: userOverride.endTime,
+              isAvailable: true,
+              hours: calculateHours(userOverride.startTime, userOverride.endTime),
+            },
+          ]
+        }
+      }
+
+      // Calculate total hours
+      const totalHours = effectiveAvailabilities.reduce(
+        (sum, a) => sum + a.hours,
+        0
+      )
+
+      days[dayStr] = {
+        dayOfWeek: dow,
+        dayName: DAY_NAMES[dow],
+        availability: effectiveAvailabilities.map(a => ({
+          id: a.id,
+          startTime: a.startTime,
+          endTime: a.endTime,
+          isAvailable: true,
+          hours: calculateHours(a.startTime, a.endTime),
+        })),
+        override: userOverride
+          ? {
+              id: userOverride.id,
+              date: dayStr,
+              startTime: userOverride.startTime,
+              endTime: userOverride.endTime,
+              isAvailable: userOverride.isAvailable,
+              reason: userOverride.reason,
+            }
+          : null,
+        isOnLeave: onLeave || isUnavailable,
+        taskCount: dayTasks.length,
+        doneTaskCount: dayTasks.filter(t => t.status === "DONE").length,
+        meetingCount: dayMeetings.length,
+        totalHours: Math.round(totalHours * 100) / 100,
+      }
+    }
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+        avatar: user.avatar,
+      },
+      days,
+    }
+  })
 
   const response = {
     weekStart: formatDateOnly(weekStart),

@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 // POST /api/meetings/[id]/rsvp - RSVP to a meeting
+// I23: Note — Manual validation is used here. Future: migrate to Zod schema for consistency
+// with other endpoints that use validateRequest + Zod.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
