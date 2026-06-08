@@ -34,6 +34,8 @@ import {
   ChevronRight,
   X,
   Check,
+  CheckSquare,
+  Square,
   Eye,
   Shield,
   AlertTriangle,
@@ -85,6 +87,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -278,6 +281,11 @@ export default function FilesPage() {
   // Drive configuration status
   const [driveConfigured, setDriveConfigured] = useState<boolean | null>(null)
   const [credentialHint, setCredentialHint] = useState<string>("")
+
+  // Multi-select state (bulk trash)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [bulkTrashing, setBulkTrashing] = useState(false)
 
   // ── Fetch files (instant from DB, background sync from Drive) ──
   const fetchFiles = useCallback(async (forceSync = false) => {
@@ -888,6 +896,78 @@ export default function FilesPage() {
     }
   }, [uploadFiles])
 
+  // ── Multi-select handlers (bulk trash) ──
+  const toggleSelection = useCallback((fileId: string) => {
+    setSelectedFiles(prev => {
+      const next = new Set(prev)
+      if (next.has(fileId)) {
+        next.delete(fileId)
+      } else {
+        next.add(fileId)
+      }
+      return next
+    })
+  }, [])
+
+  const selectAllVisible = useCallback(() => {
+    setSelectedFiles(new Set(sortedFiles.map(f => f.id)))
+  }, [sortedFiles])
+
+  const clearSelection = useCallback(() => {
+    setSelectionMode(false)
+    setSelectedFiles(new Set())
+  }, [])
+
+  // ── Bulk trash handler ──
+  const handleBulkTrash = useCallback(async () => {
+    if (selectedFiles.size === 0 || bulkTrashing) return
+
+    const confirmed = window.confirm(
+      `Move ${selectedFiles.size} item${selectedFiles.size !== 1 ? "s" : ""} to trash?`
+    )
+    if (!confirmed) return
+
+    setBulkTrashing(true)
+    try {
+      const permanent = filter === "trashed"
+      const results = await Promise.allSettled(
+        Array.from(selectedFiles).map(fileId =>
+          fetch(`/api/files/${fileId}?permanent=${permanent}`, { method: "DELETE" })
+        )
+      )
+      const succeeded = results.filter(r => r.status === "fulfilled").length
+      const failed = results.filter(r => r.status === "rejected").length
+
+      if (failed > 0) {
+        toast.warning(`Trashed ${succeeded} items, ${failed} failed`)
+      } else {
+        toast.success(`${succeeded} item${succeeded !== 1 ? "s" : ""} moved to trash`)
+      }
+      setSelectedFiles(new Set())
+      setSelectionMode(false)
+      fetchFiles()
+    } catch {
+      toast.error("Failed to trash selected items")
+    } finally {
+      setBulkTrashing(false)
+    }
+  }, [selectedFiles, bulkTrashing, filter, fetchFiles])
+
+  // ── Keyboard shortcuts for selection mode ──
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectionMode) {
+        clearSelection()
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "a" && selectionMode) {
+        e.preventDefault()
+        selectAllVisible()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [selectionMode, clearSelection, selectAllVisible])
+
   // ── Storage bar ──
   const storageUsed = storage.usedBytes || 0
   const storageTotal = Math.max(storage.totalBytes || 2 * 1024 * 1024 * 1024 * 1024, storageUsed)
@@ -973,6 +1053,39 @@ export default function FilesPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {isAdminUser && (
+              <>
+                <Button
+                  variant={selectionMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    if (selectionMode) {
+                      clearSelection()
+                    } else {
+                      setSelectionMode(true)
+                    }
+                  }}
+                >
+                  {selectionMode ? (
+                    <>
+                      <X className="h-4 w-4 mr-1" />
+                      Cancel
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4 mr-1" />
+                      Select
+                    </>
+                  )}
+                </Button>
+                {selectionMode && sortedFiles.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={selectAllVisible}>
+                    <Square className="h-3 w-3 mr-1" />
+                    Select All
+                  </Button>
+                )}
+              </>
+            )}
             {isAdminUser && (
               <Button
                 variant="outline"
@@ -1255,6 +1368,44 @@ export default function FilesPage() {
       ) : (
         renderFileGrid()
       )}
+
+      {/* ── Floating Bulk Action Bar (Selection Mode) ── */}
+      <AnimatePresence>
+        {selectionMode && selectedFiles.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-3 rounded-xl border bg-card/95 backdrop-blur-md shadow-lg"
+          >
+            <span className="text-sm font-medium text-foreground">
+              {selectedFiles.size} selected
+            </span>
+            <Separator orientation="vertical" className="h-6" />
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkTrashing}
+              onClick={handleBulkTrash}
+            >
+              {bulkTrashing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                  Trashing...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Trash {selectedFiles.size > 1 ? `(${selectedFiles.size})` : ""}
+                </>
+              )}
+            </Button>
+            <Button variant="outline" size="sm" onClick={clearSelection}>
+              Cancel
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Rename Dialog ── */}
       <Dialog open={!!renameDialog} onOpenChange={() => setRenameDialog(null)}>
@@ -1764,6 +1915,8 @@ export default function FilesPage() {
               const iconColor = getFileIconColor(file.mimeType)
               const isImageFile = file.mimeType.startsWith("image/") && file.thumbnailLink
 
+              const isSelected = selectedFiles.has(file.id)
+
               return (
                 <ContextMenu key={file.id}>
                   <ContextMenuTrigger>
@@ -1772,16 +1925,35 @@ export default function FilesPage() {
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.95 }}
-                      whileHover={{ y: -2 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleFileClick(file)}
+                      whileHover={!selectionMode ? { y: -2 } : undefined}
+                      whileTap={!selectionMode ? { scale: 0.98 } : undefined}
+                      onClick={() => selectionMode ? toggleSelection(file.id) : handleFileClick(file)}
                       className={cn(
                         "group relative p-4 rounded-xl border bg-card/80 backdrop-blur-sm cursor-pointer transition-all hover:shadow-md hover:border-primary/20",
-                        file.trashed && "opacity-60"
+                        file.trashed && "opacity-60",
+                        selectionMode && isSelected && "ring-2 ring-primary border-primary",
+                        selectionMode && !isSelected && "hover:border-primary/30"
                       )}
                     >
+                      {/* Selection checkbox (visible in selection mode) */}
+                      {selectionMode && (
+                        <div className="absolute top-2 left-2 z-10">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelection(file.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className={cn(
+                              "h-5 w-5 rounded border-2",
+                              isSelected && "bg-primary border-primary"
+                            )}
+                          />
+                        </div>
+                      )}
                       {file.starred && (
-                        <Star className="absolute top-2 right-2 h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                        <Star className={cn(
+                          "absolute top-2 h-3.5 w-3.5 text-amber-500 fill-amber-500",
+                          selectionMode ? "right-2" : "right-2"
+                        )} />
                       )}
                       {/* Shared badge — only shown when file has explicit sharing permissions */}
                       {file.createdBy !== userId && file.permissions && file.permissions.length > 0 && (
@@ -1909,7 +2081,11 @@ export default function FilesPage() {
     /* List View */
     return (
       <div className="rounded-xl border bg-card/80 backdrop-blur-sm overflow-hidden">
-        <div className="hidden md:grid grid-cols-[1fr,100px,100px,140px,60px] px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b bg-muted/30">
+        <div className={cn(
+          "hidden md:grid px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b bg-muted/30",
+          selectionMode ? "grid-cols-[40px,1fr,100px,100px,140px,60px]" : "grid-cols-[1fr,100px,100px,140px,60px]"
+        )}>
+          {selectionMode && <span></span>}
           <span>Name</span>
           <span>Size</span>
           <span>Type</span>
@@ -1921,6 +2097,7 @@ export default function FilesPage() {
             {sortedFiles.map((file) => {
               const Icon = getFileIcon(file.mimeType)
               const iconColor = getFileIconColor(file.mimeType)
+              const isSelected = selectedFiles.has(file.id)
               return (
                 <ContextMenu key={file.id}>
                   <ContextMenuTrigger>
@@ -1929,12 +2106,25 @@ export default function FilesPage() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      onClick={() => handleFileClick(file)}
+                      onClick={() => selectionMode ? toggleSelection(file.id) : handleFileClick(file)}
                       className={cn(
                         "grid grid-cols-1 md:grid-cols-[1fr,100px,100px,140px,60px] items-center px-4 py-3 border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors group",
-                        file.trashed && "opacity-60"
+                        file.trashed && "opacity-60",
+                        selectionMode && "md:grid-cols-[40px,1fr,100px,100px,140px,60px]",
+                        selectionMode && isSelected && "bg-primary/5"
                       )}
                     >
+                      {/* Selection checkbox (list view) */}
+                      {selectionMode && (
+                        <div className="hidden md:flex items-center justify-center">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelection(file.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4"
+                          />
+                        </div>
+                      )}
                       {/* Name */}
                       <div className="flex items-center gap-3 min-w-0">
                         <Icon className={cn("h-5 w-5 shrink-0", iconColor)} />

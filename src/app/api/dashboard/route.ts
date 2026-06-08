@@ -65,12 +65,12 @@ export async function GET() {
       activeProjects,
       openTickets,
       pendingTasks,
+      totalLeadsCount,
+      totalClientCount,
       totalRevenue,
       pendingAmount,
       overdueAmount,
       totalExpenses,
-      totalLeadsCount,
-      totalClientCount,
     ] = await Promise.all([
       db.agent.findMany({
         where: agentWhere,

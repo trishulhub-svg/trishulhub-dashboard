@@ -84,14 +84,22 @@ export async function GET(req: NextRequest) {
       end.setDate(end.getDate() + 1)
       where.date = { gte: start, lt: end }
     } else if (startDate && endDate) {
-      const s = new Date(startDate)
-      const e = new Date(endDate)
+      // [FIX: Parse date-only strings as local midnight, not UTC midnight.
+      //  new Date("2024-01-15") parses as UTC midnight per ES2015, but the
+      //  default query path (line 104-109) computes local midnight. This mismatch
+      //  caused entries near day boundaries to be missed in filtered queries.]
+      const [sy, sm, sd] = startDate.split("-").map(Number)
+      const [ey, em, ed] = endDate.split("-").map(Number)
+      const s = new Date(sy, sm - 1, sd)
+      const e = new Date(ey, em - 1, ed)
       e.setDate(e.getDate() + 1)
       where.date = { gte: s, lt: e }
     } else if (startDate) {
-      where.date = { gte: new Date(startDate) }
+      const [y, m, d] = startDate.split("-").map(Number)
+      where.date = { gte: new Date(y, m - 1, d) }
     } else if (endDate) {
-      const e = new Date(endDate)
+      const [y, m, d] = endDate.split("-").map(Number)
+      const e = new Date(y, m - 1, d)
       e.setDate(e.getDate() + 1)
       where.date = { lt: e }
     }

@@ -48,6 +48,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Task", column: "category", sql: "ALTER TABLE Task ADD COLUMN category TEXT NOT NULL DEFAULT 'GENERAL'" },
   // Project start date (moved from Client to Project)
   { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
+  // Attendance — updatedAt column (added in schema but missing from older DBs)
+  { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */

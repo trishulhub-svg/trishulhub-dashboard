@@ -276,13 +276,22 @@ export default function TimeTrackingPage() {
         setActiveEntry(active || null);
       } else {
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load time entries");
+        const msg = errData?.error || "Failed to load time entries";
+        toast.error(msg);
+        // Only set error state for non-429 errors so the page shows something useful
+        if (res.status !== 429) {
+          setError(msg);
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError("Failed to load time entries. Please try again.");
     } finally {
-      setLoading(false);
+      // [FIX: Don't set loading false on abort — prevents race condition
+      //  where the page briefly renders empty data between abort and replacement fetch]
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -672,13 +681,18 @@ export default function TimeTrackingPage() {
   }, [teamEntries]);
 
   // ── Computed stats (memoized) ──
-  // Computed dates — recalculated on every render (lightweight, ensures freshness)
-  const today = new Date();
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const weekDays = getWeekDays();
-  const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
+  // [FIX: Move date computations inside useMemo to avoid stale closure over
+  //  external variables that are NOT in the dependency array. Previously,
+  // today/startOfToday/weekDays/endOfWeek were computed outside useMemo but
+  //  referenced inside it with only [entries] as the dependency — meaning
+  //  date changes wouldn't trigger recomputation.]
+  const { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries,
+          today, startOfToday, weekDays, endOfWeek } = useMemo(() => {
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const weekDays = getWeekDays();
+    const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
 
-  const { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries } = useMemo(() => {
     const todayHours = entries
       .filter((e) => {
         const d = new Date(e.date);
@@ -721,7 +735,8 @@ export default function TimeTrackingPage() {
       return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
     });
 
-    return { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries };
+    return { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries,
+             today, startOfToday, weekDays, endOfWeek };
   }, [entries]);
 
   // Add active timer hours to today and week

@@ -42,9 +42,13 @@ export async function GET(req: NextRequest) {
     let endDate: Date
 
     if (startDateParam && endDateParam) {
-      startDate = new Date(startDateParam)
-      endDate = new Date(endDateParam)
-      // [FIX M9: Validate date parameters]
+      // [FIX: Parse date-only strings as local midnight, not UTC midnight.
+      //  Consistent with the main time-tracking route's default query path.]
+      const [sy, sm, sd] = startDateParam.split("-").map(Number)
+      const [ey, em, ed] = endDateParam.split("-").map(Number)
+      startDate = new Date(sy, sm - 1, sd)
+      endDate = new Date(ey, em - 1, ed)
+      // Validate date parameters
       if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
         return NextResponse.json({ error: "Invalid date format for startDate or endDate" }, { status: 400 })
       }
