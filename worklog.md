@@ -2370,3 +2370,41 @@ Stage Summary:
 
 ### Push
 - Commit 877eb8c pushed to origin/main
+
+---
+Task ID: 10-continued
+Agent: Main Agent (coordinator) + 3 parallel fix agents
+Task: Fix login redirect bug + remaining Phase 10 audit issues
+
+Work Log:
+- Investigated login redirect bug — traced full auth chain (login page → signIn → JWT callback → session-manager → useSession → router)
+- Found root cause: router.replace() called DURING React render (line 109 of login/page.tsx) is a known anti-pattern that silently fails
+- Also found secondary issue: router.refresh() → useEffect chain was fragile and unreliable
+- Fixed login: window.location.href for reliable full-page navigation, removed render-time router.replace()
+- Launched 3 parallel fix agents for remaining Phase 10 issues
+- TypeScript check: 0 errors after all fixes
+- Committed as c3fcd4e, pushed to GitHub
+
+Stage Summary:
+- Login redirect bug FIXED (root cause: React anti-pattern)
+- 29 additional audit issues fixed across 21 files
+- Total Phase 10 fixes: 65 issues (10 Critical + 55 Warning)
+
+### Login Redirect Bug — Root Cause
+The login page had TWO competing redirect mechanisms:
+1. **Render-time** (line 109): `router.replace()` called during React render — this is an anti-pattern that silently fails in Next.js 16
+2. **useEffect** (lines 74-79): Proper but relied on fragile `router.refresh()` chain
+
+The fix: Use `window.location.href` for reliable full-page navigation after successful login. The middleware handles role-based routing (CLIENT → /portal, others → /dashboard).
+
+### Remaining Phase 10 Items (deferred — architectural/large-scope)
+- SEC-002: Login brute-force migration to DB-based rate limiter (needs load testing)
+- SEC-004: CSP upgrade to enforce mode (needs violation report review)
+- F-007/F-008: File type whitelist and virus scanning (needs infrastructure)
+- P10-001/P10-003: Files IDOR and upload RBAC (needs permission system design)
+- P10-011: Workspace token encryption at rest (needs migration strategy)
+- P10-003: process.env.ENCRYPTION_KEY mutation refactor (needs parameter threading through entire sync chain)
+- Monolithic component decomposition (settings 1600+ lines, availability 1600+ lines)
+
+### Push
+- Commit c3fcd4e pushed to origin/main
