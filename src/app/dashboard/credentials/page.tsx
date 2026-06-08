@@ -336,7 +336,7 @@ export default function CredentialsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            onClick={() => router.push("/dashboard/agents")}
+            onClick={() => router.push("/dashboard/workspace")}
             aria-label="Back to workspace"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -414,7 +414,7 @@ export default function CredentialsPage() {
                   variant="outline"
                   size="sm"
                   className="mt-3"
-                  onClick={() => router.push("/dashboard/agents")}
+                  onClick={() => router.push("/dashboard/workspace")}
                 >
                   Back to Workspace
                 </Button>

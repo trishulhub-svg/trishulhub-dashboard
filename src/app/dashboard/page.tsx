@@ -162,7 +162,7 @@ export default function DashboardPage() {
               <Plus className="h-4 w-4 mr-1" /> New Project
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/agents")}>
+          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
             <Rocket className="h-4 w-4 mr-1" /> Open Workspace
           </Button>
           {isAdminUser && (
@@ -488,7 +488,7 @@ export default function DashboardPage() {
                 </div>
               </button>
               <button 
-                onClick={() => router.push("/dashboard/agents")}
+                onClick={() => router.push("/dashboard/workspace")}
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
                 type="button"
               >

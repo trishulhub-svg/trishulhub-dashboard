@@ -92,7 +92,7 @@ const navGroups: NavGroup[] = [
     label: "Overview",
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Workspace", href: "/dashboard/agents", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Files", href: "/dashboard/files", icon: HardDrive, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
 
     ],
@@ -456,7 +456,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Auto-collapse sidebar when navigating to workspace landing page
   useEffect(() => {
-    if (pathname === "/dashboard/agents") {
+    if (pathname === "/dashboard/workspace") {
       setCollapsed(true);
     }
   }, [pathname]);
