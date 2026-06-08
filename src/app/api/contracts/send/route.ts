@@ -17,9 +17,13 @@ export async function POST(req: NextRequest) {
     const { success: rateOk } = rateLimit(`contracts-send:${session.user.id}`, 5, 60000)
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { contractId } = body
-    if (!contractId) return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
+    // Issue #19: req.json() try/catch
+    let body: unknown
+    try { body = await req.json() } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { contractId } = body as Record<string, unknown>
+    if (!contractId || typeof contractId !== 'string') return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
 
     const contract = await db.contract.findUnique({ where: { id: contractId } })
     if (!contract) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
@@ -31,6 +35,9 @@ export async function POST(req: NextRequest) {
 
     // HTML-escape helper to prevent XSS in email
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+    // Issue #20: Dynamic currency symbol instead of hardcoded ₹
+    const currencySymbol = contract.currency === "USD" ? "$" : contract.currency === "GBP" ? "£" : "₹"
 
     // Convert markdown-like terms to safe HTML
     const termsHtml = contract.termsAndConditions
@@ -63,7 +70,7 @@ export async function POST(req: NextRequest) {
           <p><strong>Contract Number:</strong> ${esc(contract.contractNumber)}</p>
           <p><strong>Client:</strong> ${esc(contract.clientName)}</p>
           <p><strong>Project:</strong> ${esc(contract.projectName || "N/A")}</p>
-          ${contract.totalValue ? `<p><strong>Contract Value:</strong> &#8377;${Number(contract.totalValue).toLocaleString()}</p>` : ""}
+          ${contract.totalValue ? `<p><strong>Contract Value:</strong> ${esc(currencySymbol)}${Number(contract.totalValue).toLocaleString()}</p>` : ""}
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
           <div style="line-height: 1.6; color: #444;">
             ${termsHtml}
@@ -89,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     if (result.success) {
       await db.contract.update({
-        where: { id: contractId },
+        where: { id: contractId }, // contractId is validated as string above
         data: { status: "SENT", sentAt: new Date(), sentVia: "email" },
       })
       return NextResponse.json({ success: true, message: "Contract sent successfully" })

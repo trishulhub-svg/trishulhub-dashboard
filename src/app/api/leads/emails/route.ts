@@ -6,6 +6,7 @@ import { z } from "zod"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
 
 // ━━ Zod schema for creating a lead email ━━
 const createLeadEmailSchema = z.object({
@@ -39,11 +40,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "leadId query parameter is required" }, { status: 400 })
     }
 
-    const emails = await db.leadEmail.findMany({
-      where: { leadId },
-      orderBy: { createdAt: "desc" },
+    // Pagination params
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const offset = (page - 1) * limit
+
+    const [emails, total] = await Promise.all([
+      db.leadEmail.findMany({
+        where: { leadId },
+        orderBy: { createdAt: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      db.leadEmail.count({ where: { leadId } }),
+    ])
+
+    return NextResponse.json({
+      data: deepSanitize(emails),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     })
-    return NextResponse.json(JSON.parse(JSON.stringify(emails)))
   } catch (error: unknown) {
     console.error("[leads/emails] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to fetch lead emails" }, { status: 500 })
@@ -92,6 +110,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 })
     }
 
+    // Note: emailBody stored as-is for AI processing; sanitize on display
+
     const leadEmail = await db.leadEmail.create({
       data: {
         leadId,
@@ -102,7 +122,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return NextResponse.json(JSON.parse(JSON.stringify(leadEmail)), { status: 201 })
+    return NextResponse.json(deepSanitize(leadEmail), { status: 201 })
   } catch (error: unknown) {
     console.error("[leads/emails] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create lead email" }, { status: 500 })

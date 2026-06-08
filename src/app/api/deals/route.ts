@@ -7,6 +7,17 @@ import { createDealSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
+
+// Helper: serialize Date objects in deal data to ISO strings for JSON responses
+function serializeDealDates(d: any) {
+  if (!d) return d
+  if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
+  if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
+  if (d.createdAt instanceof Date) d.createdAt = d.createdAt.toISOString()
+  if (d.updatedAt instanceof Date) d.updatedAt = d.updatedAt.toISOString()
+  return d
+}
 
 // ━━ Shared constants ━━
 const VALID_STAGES = ["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"] as const
@@ -89,13 +100,14 @@ export async function GET(req: NextRequest) {
         db.deal.count({ where }),
       ])
 
-      return NextResponse.json(JSON.parse(JSON.stringify({
-        data: deals,
+      const serialized = deals.map((d: any) => serializeDealDates(d))
+      return NextResponse.json(deepSanitize({
+        data: serialized,
         total,
         page,
         limit,
         totalPages: Math.ceil(total / limit),
-      })))
+      }))
     } catch (error: unknown) {
       console.error("Error fetching deals:", error)
       return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 })
@@ -200,9 +212,13 @@ export async function POST(req: NextRequest) {
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deal, { status: 201 })
+      return NextResponse.json(deepSanitize(serializeDealDates(deal)), { status: 201 })
     } catch (error: unknown) {
       console.error("Error creating deal:", error)
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2002") {
+        return NextResponse.json({ error: "A deal with this title already exists" }, { status: 409 })
+      }
       return NextResponse.json({ error: "Failed to create deal" }, { status: 500 })
     }
   } catch (error: unknown) {

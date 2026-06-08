@@ -6,6 +6,17 @@ import { updateDealSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
+
+// Helper: serialize Date objects in deal data to ISO strings for JSON responses
+function serializeDealDates(d: any) {
+  if (!d) return d
+  if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
+  if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
+  if (d.createdAt instanceof Date) d.createdAt = d.createdAt.toISOString()
+  if (d.updatedAt instanceof Date) d.updatedAt = d.updatedAt.toISOString()
+  return d
+}
 
 // ━━ Shared constants ━━
 const VALID_STAGES = ["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"] as const
@@ -42,7 +53,7 @@ export async function GET(
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
       }
 
-      return NextResponse.json(deal)
+      return NextResponse.json(deepSanitize(serializeDealDates(deal)))
     } catch (error: unknown) {
       console.error("[deals/[id]] GET error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to load deal details" }, { status: 500 })
@@ -106,6 +117,16 @@ export async function PATCH(
     // Remove id from update data and sanitize
     const { id: _id, ...updateData } = data
 
+    // Defense-in-depth: date validation (NaN check)
+    if (updateData.expectedCloseDate && typeof updateData.expectedCloseDate === 'string') {
+      const d = new Date(updateData.expectedCloseDate)
+      if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid expectedCloseDate" }, { status: 400 })
+    }
+    if (updateData.actualCloseDate && typeof updateData.actualCloseDate === 'string') {
+      const d = new Date(updateData.actualCloseDate)
+      if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid actualCloseDate" }, { status: 400 })
+    }
+
     const sanitizedData: Record<string, any> = {}
     for (const key of ALLOWED_FIELDS) {
       if (updateData[key] !== undefined) {
@@ -137,7 +158,7 @@ export async function PATCH(
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deal)
+      return NextResponse.json(deepSanitize(serializeDealDates(deal)))
     } catch (error: unknown) {
       console.error("Error updating deal:", error)
       const prismaError = error as { code?: string }

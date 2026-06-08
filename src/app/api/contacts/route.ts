@@ -7,6 +7,7 @@ import { createContactSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
 
 // GET /api/contacts - List contacts with pagination, search, filter, sort
 export async function GET(req: NextRequest) {
@@ -84,13 +85,13 @@ export async function GET(req: NextRequest) {
       db.contact.count({ where }),
     ])
 
-    return NextResponse.json(JSON.parse(JSON.stringify({
-      data: contacts,
+    return NextResponse.json({
+      data: deepSanitize(contacts),
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    })))
+    })
   } catch (error: unknown) {
     console.error("Error fetching contacts:", error)
     return NextResponse.json({ error: "Failed to fetch contacts" }, { status: 500 })
@@ -145,14 +146,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Pre-check for duplicate email (M-05)
-    const existing = await db.contact.findFirst({ where: { email: data.email } })
-    if (existing) {
-      return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
-    }
-
-    // Merge isPrimary unset + create into a single transaction to fix TOCTOU race (M-06)
+    // Merge duplicate email check + isPrimary unset + create into a single transaction to fix TOCTOU race
     const contact = await db.$transaction(async (tx) => {
+      // Transactional duplicate email check (prevents TOCTOU race)
+      const dup = await tx.contact.findFirst({ where: { email: data.email } })
+      if (dup) throw { code: "DUPLICATE_EMAIL", status: 409 }
+
       if (data.isPrimary) {
         if (data.clientId) {
           await tx.contact.updateMany({
@@ -187,7 +186,11 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json(contact, { status: 201 })
   } catch (error: unknown) {
-    // Handle Prisma unique constraint violation as fallback for the pre-check (M-06)
+    // Handle transactional duplicate email check error
+    if (error && typeof error === "object" && "code" in error && (error as any).code === "DUPLICATE_EMAIL") {
+      return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
+    }
+    // Handle Prisma unique constraint violation as fallback
     if (error instanceof Error && "code" in error && (error as any).code === "P2002") {
       return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
     }

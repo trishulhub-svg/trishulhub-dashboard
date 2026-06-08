@@ -67,6 +67,7 @@ export const updateProjectSchema = z.object({
   budget: z.number().min(0).optional(),
 })
 
+// ━━ Clients ━━
 export const createClientSchema = z.object({
   name: z.string().min(1, "Client name is required").max(200),
   email: z.string().email("Valid email is required"),
@@ -81,7 +82,7 @@ export const createClientSchema = z.object({
   projectStartDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date" }),
   deliveryDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date" }),
   websites: z.array(z.object({
-    url: z.string().min(1, "URL is required").max(500),
+    url: z.string().min(1, "URL is required").max(500).refine(val => /^https?:\/\/.+\..+/.test(val), { message: "URL must start with http:// or https://" }),
     label: z.string().max(100).nullable().optional(),
     isPrimary: z.boolean().optional(),
   })).optional(),
@@ -105,6 +106,9 @@ export const createClientSchema = z.object({
     }, { message: "createdAt must be after 2020-01-01" }),
 })
 
+// Named helper for update schema "at least one field" validation
+const hasAtLeastOneField = (data: Record<string, any>) => Object.values(data).some(v => v !== undefined)
+
 export const updateClientSchema = z.object({
   id: z.string().min(1, "Client ID is required"),
   name: z.string().min(1).max(200).optional(),
@@ -117,18 +121,19 @@ export const updateClientSchema = z.object({
   notes: z.string().nullable().optional(),
   projectType: z.string().max(100).nullable().optional(),
   projectMethodId: z.string().max(100).nullable().optional(),
-  projectStartDate: z.string().nullable().optional(),
-  deliveryDate: z.string().nullable().optional(),
+  projectStartDate: z.string().nullable().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date string" }),
+  deliveryDate: z.string().nullable().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date string" }),
   websites: z.array(z.object({
-    url: z.string().min(1, "URL is required").max(500),
+    url: z.string().min(1, "URL is required").max(500).refine(val => /^https?:\/\/.+\..+/.test(val), { message: "URL must start with http:// or https://" }),
     label: z.string().max(100).nullable().optional(),
     isPrimary: z.boolean().optional(),
   })).nullable().optional(),
   mediatorName: z.string().max(200).nullable().optional(),
   mediatorPhone: z.string().max(50).nullable().optional(),
   mediatorEmail: z.string().email("Valid mediator email is required").max(200).nullable().optional(),
-})
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
+// ━━ Invoices ━━
 export const createInvoiceSchema = z.object({
   clientId: z.string().min(1),
   projectId: z.string().optional(),
@@ -152,9 +157,6 @@ export const createInvoiceSchema = z.object({
   paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
   invoiceNumber: z.string().max(50).optional(),
 })
-
-// Named helper for update schema "at least one field" validation
-const hasAtLeastOneField = (data: Record<string, any>) => Object.values(data).some(v => v !== undefined)
 
 export const updateInvoiceSchema = z.object({
   id: z.string().min(1),
@@ -185,6 +187,7 @@ export const updateExpenseSchema = z.object({
   projectId: z.string().nullable().optional(),
 })
 
+// ━━ Leads ━━
 export const createLeadSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name must be at most 200 characters"),
   email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
@@ -210,16 +213,30 @@ export const updateLeadSchema = z.object({
   status: z.enum(["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]).optional(),
   notes: z.string().max(5000).optional(),
   clientId: z.string().optional(),
-})
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
-export const supportTicketSchema = z.object({
+// ━━ Support Tickets ━━
+export const createSupportTicketSchema = z.object({
   clientId: z.string().optional(),
-  subject: z.string().min(1, "Subject is required"),
-  description: z.string().min(1, "Description is required"),
-  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+  subject: z.string().min(1, "Subject is required").max(300),
+  description: z.string().min(1, "Description is required").max(10000),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
 })
 
+export const updateSupportTicketSchema = z.object({
+  id: z.string().min(1, "Ticket ID is required"),
+  subject: z.string().max(300).optional(),
+  description: z.string().max(10000).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+  assignedTo: z.string().nullable().optional(),
+  resolution: z.string().max(5000).optional(),
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+
+// Backward compatibility alias
+export const supportTicketSchema = createSupportTicketSchema
+
+// ━━ Time Tracking ━━
 export const startTimeEntrySchema = z.object({
   projectId: z.string().optional(),
   description: z.string().max(500).optional(),
@@ -326,6 +343,9 @@ export const updateSubscriptionSchema = z.object({
 
 /**
  * Validates data against a schema and returns either the validated data or an error response
+ * @param schema - The Zod schema to validate against
+ * @param data - The unknown data to validate
+ * @returns An object with either success=true and validated data, or success=false and an error message
  */
 export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): { success: true; data: T } | { success: false; error: string } {
   const result = schema.safeParse(data)
@@ -360,13 +380,13 @@ export const updateDealSchema = z.object({
   currency: z.enum(["USD", "GBP", "INR"]).optional(),
   stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
   probability: z.number().int().min(0).max(100).optional(),
-  expectedCloseDate: z.string().optional(),
-  actualCloseDate: z.string().optional(),
+  expectedCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "expectedCloseDate must be a valid date string" }),
+  actualCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "actualCloseDate must be a valid date string" }),
   clientId: z.string().nullable().optional(),
   leadId: z.string().nullable().optional(),
   assignedToId: z.string().nullable().optional(),
   notes: z.string().max(5000).optional(),
-})
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 // ━━ Contacts ━━
 export const createContactSchema = z.object({
@@ -392,8 +412,52 @@ export const updateContactSchema = z.object({
   leadId: z.string().nullable().optional(),
   notes: z.string().max(5000).optional(),
   isPrimary: z.boolean().optional(),
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+
+// ━━ Contracts ━━
+export const createContractSchema = z.object({
+  clientId: z.string().min(1, "Client ID is required"),
+  title: z.string().max(500).optional(),
+  scopeOfWork: z.string().max(50000).optional(),
+  paymentTerms: z.string().max(10000).optional(),
+  totalValue: z.number().min(0).optional(),
+  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+  paymentSchedule: z.string().max(10000).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  termsAndConditions: z.string().max(50000).optional(),
+  templateText: z.string().max(50000).optional(),
+  templateFileName: z.string().max(500).optional(),
+  useAI: z.boolean().optional(),
+  contractNumber: z.string().optional(),
 })
 
+export const updateContractSchema = z.object({
+  id: z.string().min(1, "Contract ID is required"),
+  title: z.string().max(500).optional(),
+  scopeOfWork: z.string().max(50000).optional(),
+  paymentTerms: z.string().max(10000).optional(),
+  totalValue: z.number().min(0).optional(),
+  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+  paymentSchedule: z.string().max(10000).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  termsAndConditions: z.string().max(50000).optional(),
+  amendments: z.string().max(10000).optional(),
+  specialClauses: z.string().max(10000).optional(),
+  clientName: z.string().max(200).optional(),
+  clientEmail: z.string().max(200).optional(),
+  clientCompany: z.string().max(200).optional(),
+  clientPhone: z.string().max(50).optional(),
+  clientAddress: z.string().max(500).optional(),
+  projectName: z.string().max(200).optional(),
+  projectDescription: z.string().max(5000).optional(),
+  projectType: z.string().max(100).optional(),
+  projectMethod: z.string().max(100).optional(),
+  status: z.enum(["DRAFT", "SENT", "SIGNED", "EXPIRED", "CANCELLED"]).optional(),
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+
+// ━━ Admin Time Entry ━━
 // Admin manual entry creation (can specify userId, clockIn, clockOut)
 export const adminCreateTimeEntrySchema = z.object({
   userId: z.string().min(1, "User ID is required"),

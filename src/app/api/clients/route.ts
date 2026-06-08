@@ -7,6 +7,17 @@ import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
+
+function serializeClientDates(c: any) {
+  if (!c) return c
+  const { createdAt, updatedAt, ...rest } = c
+  return {
+    ...rest,
+    createdAt: createdAt instanceof Date ? createdAt.toISOString() : createdAt,
+    updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+  }
+}
 
 // GET /api/clients - List all clients with pagination and aggregated data
 export async function GET(req: NextRequest) {
@@ -38,6 +49,13 @@ export async function GET(req: NextRequest) {
   // CLI-032: Date range filter params
   const dateFromParam = searchParams.get("dateFrom")
   const dateToParam = searchParams.get("dateTo")
+
+  if (dateFromParam && isNaN(new Date(dateFromParam).getTime())) {
+    return NextResponse.json({ error: "Invalid dateFrom format" }, { status: 400 })
+  }
+  if (dateToParam && isNaN(new Date(dateToParam).getTime())) {
+    return NextResponse.json({ error: "Invalid dateTo format" }, { status: 400 })
+  }
 
   // Pagination params
   const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
@@ -152,6 +170,7 @@ export async function GET(req: NextRequest) {
     }
   })
 
+  // TODO: Consider DB-level revenue sort via aggregate + join for large datasets
   // API-008: Revenue sort support — when sorting by revenue, we must sort across ALL
   // matching clients, not just the current page. Fetch all (up to safety cap), sort, then paginate.
   if (sortBy === "revenue") {
@@ -204,8 +223,8 @@ export async function GET(req: NextRequest) {
     totalRevenue = revenueResult._sum?.total ?? 0
   }
 
-    return NextResponse.json(JSON.parse(JSON.stringify({
-      data: enriched,
+    return NextResponse.json(deepSanitize({
+      data: enriched.map(serializeClientDates),
       total,
       page,
       limit,
@@ -216,7 +235,7 @@ export async function GET(req: NextRequest) {
         revenue: totalRevenue,
         invoices: invoiceCount,
       },
-    })))
+    }))
   } catch (error: any) {
     console.error("[clients] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load clients" }, { status: 500 })
@@ -263,6 +282,12 @@ export async function POST(req: NextRequest) {
 
     // Build create data
     const websitesData = data.websites || []
+    const urlRegex = /^https?:\/\/(?:[\w-]+\.)+[\w]{2,}(?::\d{1,5})?(?:\/\S*)?$/
+    for (const w of websitesData) {
+      if (w.url && !urlRegex.test(w.url)) {
+        return NextResponse.json({ error: "Invalid website URL format" }, { status: 400 })
+      }
+    }
     const primaryWebsite = websitesData.find((w) => w.isPrimary) || websitesData[0]
 
     const createData = {
@@ -302,7 +327,7 @@ export async function POST(req: NextRequest) {
         include: { websites: true },
       })
     })
-    return NextResponse.json(client, { status: 201 })
+    return NextResponse.json(deepSanitize(client), { status: 201 })
   } catch (error: any) {
     console.error("[clients] POST error:", error?.message)
     // Safety net for Prisma unique constraint error

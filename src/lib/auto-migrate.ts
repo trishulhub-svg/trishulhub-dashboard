@@ -98,7 +98,37 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "Contract",
-    sql: `CREATE TABLE IF NOT EXISTS "Contract" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "contractNumber" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'DRAFT', "clientName" TEXT NOT NULL, "clientEmail" TEXT NOT NULL, "clientCompany" TEXT, "clientPhone" TEXT, "clientAddress" TEXT, "projectName" TEXT, "projectDescription" TEXT, "projectType" TEXT, "projectMethod" TEXT, "projectStartDate" TEXT, "deliveryDate" TEXT, "scopeOfWork" TEXT NOT NULL DEFAULT '', "paymentTerms" TEXT NOT NULL DEFAULT '', "totalValue" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "paymentSchedule" TEXT NOT NULL DEFAULT '', "startDate" TEXT, "endDate" TEXT, "termsAndConditions" TEXT NOT NULL DEFAULT '', "amendments" TEXT NOT NULL DEFAULT '', "specialClauses" TEXT NOT NULL DEFAULT '', "generatedBy" TEXT, "sentAt" DATETIME, "sentVia" TEXT, "signedAt" DATETIME, "templateText" TEXT, "templateFileName" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+    sql: `CREATE TABLE IF NOT EXISTS "Contract" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "contractNumber" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'DRAFT', "clientName" TEXT NOT NULL, "clientEmail" TEXT NOT NULL, "clientCompany" TEXT, "clientPhone" TEXT, "clientAddress" TEXT, "projectName" TEXT, "projectDescription" TEXT, "projectType" TEXT, "projectMethod" TEXT, "projectStartDate" TEXT, "deliveryDate" TEXT, "scopeOfWork" TEXT NOT NULL DEFAULT '', "paymentTerms" TEXT NOT NULL DEFAULT '', "totalValue" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "paymentSchedule" TEXT NOT NULL DEFAULT '', "startDate" TEXT, "endDate" TEXT, "termsAndConditions" TEXT NOT NULL DEFAULT '', "amendments" TEXT NOT NULL DEFAULT '', "specialClauses" TEXT NOT NULL DEFAULT '', "generatedBy" TEXT, "sentAt" DATETIME, "sentVia" TEXT, "signedAt" DATETIME, "templateText" TEXT, "templateFileName" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
+  },
+  // CRM — Lead
+  {
+    name: "Lead",
+    sql: `CREATE TABLE IF NOT EXISTS "Lead" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "email" TEXT NOT NULL UNIQUE, "company" TEXT, "website" TEXT, "phone" TEXT, "source" TEXT NOT NULL DEFAULT 'MANUAL', "score" INTEGER NOT NULL DEFAULT 0, "status" TEXT NOT NULL DEFAULT 'NEW', "notes" TEXT, "clientId" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"))`
+  },
+  // CRM — LeadEmail
+  {
+    name: "LeadEmail",
+    sql: `CREATE TABLE IF NOT EXISTS "LeadEmail" ("id" TEXT NOT NULL PRIMARY KEY, "leadId" TEXT NOT NULL, "subject" TEXT NOT NULL, "body" TEXT NOT NULL, "direction" TEXT NOT NULL DEFAULT 'OUTBOUND', "status" TEXT NOT NULL DEFAULT 'DRAFT', "sentAt" DATETIME, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE)`
+  },
+  // CRM — Contact
+  {
+    name: "Contact",
+    sql: `CREATE TABLE IF NOT EXISTS "Contact" ("id" TEXT NOT NULL PRIMARY KEY, "firstName" TEXT NOT NULL, "lastName" TEXT, "email" TEXT NOT NULL UNIQUE, "phone" TEXT, "jobTitle" TEXT, "clientId" TEXT, "leadId" TEXT, "notes" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"))`
+  },
+  // CRM — Deal
+  {
+    name: "Deal",
+    sql: `CREATE TABLE IF NOT EXISTS "Deal" ("id" TEXT NOT NULL PRIMARY KEY, "title" TEXT NOT NULL, "value" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'USD', "stage" TEXT NOT NULL DEFAULT 'LEAD', "probability" INTEGER NOT NULL DEFAULT 0, "expectedCloseDate" DATETIME, "actualCloseDate" DATETIME, "clientId" TEXT, "leadId" TEXT, "assignedToId" TEXT, "notes" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"), FOREIGN KEY ("assignedToId") REFERENCES "User"("id"))`
+  },
+  // CRM — SupportTicket
+  {
+    name: "SupportTicket",
+    sql: `CREATE TABLE IF NOT EXISTS "SupportTicket" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "subject" TEXT NOT NULL, "description" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OPEN', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "assignedTo" TEXT, "resolution" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("assignedTo") REFERENCES "User"("id"))`
+  },
+  // CRM — TicketMessage
+  {
+    name: "TicketMessage",
+    sql: `CREATE TABLE IF NOT EXISTS "TicketMessage" ("id" TEXT NOT NULL PRIMARY KEY, "ticketId" TEXT NOT NULL, "senderId" TEXT, "senderType" TEXT NOT NULL DEFAULT 'HUMAN', "message" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("ticketId") REFERENCES "SupportTicket"("id"))`
   },
   {
     name: "NotificationPreference",
@@ -464,6 +494,104 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: any) {
       if (!err?.message?.includes('already exists')) {
         console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${err?.message}`)
+      }
+    }
+    // CRM — ClientWebsite indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_clientwebsite_clientId" ON "ClientWebsite"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_clientwebsite_clientId: ${err?.message}`)
+      }
+    }
+    // CRM — Lead indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_status" ON "Lead"("status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_lead_status: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_clientId" ON "Lead"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_lead_clientId: ${err?.message}`)
+      }
+    }
+    // CRM — LeadEmail indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_leademail_leadId" ON "LeadEmail"("leadId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_leademail_leadId: ${err?.message}`)
+      }
+    }
+    // CRM — Contact indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_clientId" ON "Contact"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_contact_clientId: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_leadId" ON "Contact"("leadId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_contact_leadId: ${err?.message}`)
+      }
+    }
+    // CRM — Deal indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_clientId" ON "Deal"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_clientId: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_stage" ON "Deal"("stage")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_stage: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_leadId" ON "Deal"("leadId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_leadId: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_expectedCloseDate" ON "Deal"("expectedCloseDate")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_expectedCloseDate: ${err?.message}`)
+      }
+    }
+    // CRM — SupportTicket indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId" ON "SupportTicket"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_clientId: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_status" ON "SupportTicket"("status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_status: ${err?.message}`)
+      }
+    }
+    // CRM — TicketMessage indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_ticketmessage_ticketId" ON "TicketMessage"("ticketId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_ticketmessage_ticketId: ${err?.message}`)
       }
     }
     // ProtocolOtp indexes

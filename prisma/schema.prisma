@@ -518,8 +518,10 @@ model Lead {
   company     String?
   website     String?
   phone       String?
+  // TODO: Convert source to Prisma enum when feasible
   source      String   @default("MANUAL") // MANUAL, AI_FOUND, REFERRAL, SOCIAL_MEDIA
   score       Int      @default(0)
+  // TODO: Convert status to Prisma enum when feasible
   status      String   @default("NEW") // NEW, CONTACTED, INTERESTED, PROPOSAL, NEGOTIATING, WON, LOST
   notes       String?
   clientId    String?  // converted to client
@@ -565,8 +567,9 @@ model Deal {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  client     Client?  @relation(fields: [clientId], references: [id])
-  lead       Lead?    @relation(fields: [leadId], references: [id])
+  // TODO: Convert stage, currency to Prisma enums when feasible
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lead       Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
   assignedTo User?    @relation(fields: [assignedToId], references: [id])
 
   @@index([stage])
@@ -590,8 +593,9 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  client    Client?  @relation(fields: [clientId], references: [id])
-  lead      Lead?    @relation(fields: [leadId], references: [id])
+  // TODO: Convert jobTitle to Prisma enum when feasible
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([leadId])
@@ -640,7 +644,8 @@ model SupportTicket {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client      Client   @relation(fields: [clientId], references: [id])
+  // TODO: Convert status, priority to Prisma enums when feasible
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   messages    TicketMessage[]
 }
 
@@ -648,11 +653,12 @@ model TicketMessage {
   id        String   @id @default(cuid())
   ticketId  String
   senderId  String?  // userId or null for AI
+  // TODO: Convert senderType to Prisma enum when feasible
   senderType String  @default("HUMAN") // HUMAN, AI
   message   String
   createdAt DateTime @default(now())
 
-  ticket    SupportTicket @relation(fields: [ticketId], references: [id])
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 // ━━ HR ━━
@@ -1222,6 +1228,7 @@ model Contract {
   // Contract details
   contractNumber  String   @unique
   title           String
+  // TODO: Convert status to Prisma enum when feasible
   status          String   @default("DRAFT")  // DRAFT, SENT, SIGNED, EXPIRED, CANCELLED
 
   // Parties
@@ -1243,6 +1250,7 @@ model Contract {
   scopeOfWork     String   @default("")
   paymentTerms    String   @default("")
   totalValue      Float    @default(0)
+  // TODO: Convert currency to Prisma enum when feasible
   currency        String   @default("INR")
   paymentSchedule String   @default("")
   startDate       String?

@@ -8,10 +8,11 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { after } from "next/server"
 import { deepSanitize } from "@/lib/utils"
+import { createContractSchema, updateContractSchema, validateRequest } from "@/lib/validations"
 
 export const maxDuration = 300
 
-// GET /api/contracts - List contracts for a client
+// GET /api/contracts - List contracts for a client with pagination
 export async function GET(req: NextRequest) {
   try {
     await ensureAllTables()
@@ -26,13 +27,30 @@ export async function GET(req: NextRequest) {
     const { success: rateOk } = rateLimit(`contracts-get:${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const contracts = await db.contract.findMany({
-      where: { clientId },
-      orderBy: { createdAt: "desc" },
-    })
-    return NextResponse.json(contracts)
-  } catch (error: any) {
-    console.error("[contracts] GET error:", error.message)
+    // Pagination params
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
+    const offset = (page - 1) * limit
+
+    const [contracts, total] = await Promise.all([
+      db.contract.findMany({
+        where: { clientId },
+        orderBy: { createdAt: "desc" },
+        skip: offset,
+        take: limit,
+      }),
+      db.contract.count({ where: { clientId } }),
+    ])
+
+    return NextResponse.json(deepSanitize({
+      data: contracts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    }))
+  } catch (error: unknown) {
+    console.error("[contracts] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load contracts" }, { status: 500 })
   }
 }
@@ -48,13 +66,25 @@ export async function POST(req: NextRequest) {
     const { success: rateOk } = rateLimit(`contracts-post:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { clientId, useAI, templateText, ...contractData } = body
+    // Issue #8: req.json() try/catch
+    let body: unknown
+    try { body = await req.json() } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    const { clientId, useAI, templateText, ...contractData } = body as Record<string, unknown>
 
     if (!clientId || typeof clientId !== "string") return NextResponse.json({ error: "clientId is required" }, { status: 400 })
 
+    // Issue #15: Zod validation on contractData (fields going to DB)
+    const validation = validateRequest(createContractSchema, contractData)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+    const validatedData = validation.data
+
     // Sanitize all string fields on create
-    const sanitizedData = deepSanitize(contractData) as Record<string, unknown>
+    const sanitizedData = deepSanitize(validatedData) as Record<string, unknown>
 
     // Fetch client data for auto-fill
     const client = await db.client.findUnique({
@@ -68,6 +98,7 @@ export async function POST(req: NextRequest) {
 
     const latestProject = client.projects[0] || null
 
+    // Issue #18: TODO - Use atomic counter or DB sequence for contract numbers to prevent race conditions
     // Generate contract number using max existing number to avoid collisions after deletes
     const lastContract = await db.contract.findFirst({ orderBy: { createdAt: "desc" }, select: { contractNumber: true } })
     const lastNum = lastContract?.contractNumber ? parseInt(lastContract.contractNumber.replace("CTR-", ""), 10) : 0
@@ -87,52 +118,62 @@ export async function POST(req: NextRequest) {
       generatedBy: session.user.id,
     }
 
-    const contract = await db.contract.create({
-      data: {
-        clientId,
-        contractNumber,
-        title: sanitizedData.title ? String(sanitizedData.title) : `Service Agreement - ${client.name}`,
-        status: "DRAFT",
-        ...autoData,
-        ...(sanitizedData.scopeOfWork ? { scopeOfWork: String(sanitizedData.scopeOfWork) } : {}),
-        ...(sanitizedData.paymentTerms ? { paymentTerms: String(sanitizedData.paymentTerms) } : {}),
-        ...(sanitizedData.totalValue !== undefined ? {
-          totalValue: (() => { const v = Number(sanitizedData.totalValue); if (isNaN(v) || !isFinite(v)) return 0; return v })()
-        } : {}),
-        ...(sanitizedData.currency ? { currency: String(sanitizedData.currency) } : {}),
-        ...(sanitizedData.paymentSchedule ? { paymentSchedule: String(sanitizedData.paymentSchedule) } : {}),
-        ...(sanitizedData.startDate ? { startDate: String(sanitizedData.startDate) } : {}),
-        ...(sanitizedData.endDate ? { endDate: String(sanitizedData.endDate) } : {}),
-        ...(sanitizedData.termsAndConditions ? { termsAndConditions: String(sanitizedData.termsAndConditions) } : {}),
-        ...(templateText ? { templateText: String(templateText), templateFileName: sanitizedData.templateFileName ? String(sanitizedData.templateFileName) : "template" } : {}),
-      },
-    })
+    try {
+      const contract = await db.contract.create({
+        data: {
+          clientId,
+          contractNumber,
+          title: sanitizedData.title ? String(sanitizedData.title) : `Service Agreement - ${client.name}`,
+          status: "DRAFT",
+          ...autoData,
+          ...(sanitizedData.scopeOfWork ? { scopeOfWork: String(sanitizedData.scopeOfWork) } : {}),
+          ...(sanitizedData.paymentTerms ? { paymentTerms: String(sanitizedData.paymentTerms) } : {}),
+          ...(sanitizedData.totalValue !== undefined ? {
+            totalValue: (() => { const v = Number(sanitizedData.totalValue); if (isNaN(v) || !isFinite(v)) return 0; return v })()
+          } : {}),
+          ...(sanitizedData.currency ? { currency: String(sanitizedData.currency) } : {}),
+          ...(sanitizedData.paymentSchedule ? { paymentSchedule: String(sanitizedData.paymentSchedule) } : {}),
+          ...(sanitizedData.startDate ? { startDate: String(sanitizedData.startDate) } : {}),
+          ...(sanitizedData.endDate ? { endDate: String(sanitizedData.endDate) } : {}),
+          ...(sanitizedData.termsAndConditions ? { termsAndConditions: String(sanitizedData.termsAndConditions) } : {}),
+          ...(templateText ? { templateText: String(templateText), templateFileName: sanitizedData.templateFileName ? String(sanitizedData.templateFileName) : "template" } : {}),
+        },
+      })
 
-    // If useAI, generate contract content in background
-    if (useAI) {
-      after(async () => {
-        try {
-          const apiKeys = await db.apiKey.findMany({
-            where: { status: { in: ["ACTIVE"] } },
-            orderBy: { priority: "asc" },
-          })
+      // Issue #14: deepSanitize on POST response
+      // If useAI, generate contract content in background
+      if (useAI) {
+        after(async () => {
+          try {
+            const apiKeys = await db.apiKey.findMany({
+              where: { status: { in: ["ACTIVE"] } },
+              orderBy: { priority: "asc" },
+            })
 
-          if (!apiKeys?.length) {
-            console.error("[contracts] No active API keys for AI generation")
-            return
-          }
+            if (!apiKeys?.length) {
+              console.error("[contracts] No active API keys for AI generation")
+              return
+            }
 
-          const projectDesc = latestProject?.description || `Web development project for ${client.name}`
+            const projectDesc = latestProject?.description || `Web development project for ${client.name}`
 
-          const result = await callAIWithFailover(
-            [
-              {
-                role: "system",
-                content: "You are a legal contract drafting expert. Generate professional, comprehensive service agreements. Use formal legal language. Output must be valid markdown.",
-              },
-              {
-                role: "user",
-                content: `Generate a professional service agreement contract with the following details:
+            // Issue #9: AI prompt injection mitigation — sanitize user content before injecting into prompt
+            const sanitizedTemplate = templateText
+              ? String(templateText).replace(/[<{}]/g, ' ').slice(0, 10000)
+              : null
+            const sanitizedDesc = projectDesc
+              ? String(projectDesc).replace(/[<>{}]/g, ' ').slice(0, 5000)
+              : null
+
+            const result = await callAIWithFailover(
+              [
+                {
+                  role: "system",
+                  content: "You are a legal contract drafting expert. Generate professional, comprehensive service agreements. Use formal legal language. Output must be valid markdown.",
+                },
+                {
+                  role: "user",
+                  content: `Generate a professional service agreement contract with the following details:
 
 **Client:** ${client.name} (${client.email})
 ${client.company ? `**Company:** ${client.company}` : ""}
@@ -144,9 +185,9 @@ ${client.projectMethod ? `**Technology:** ${client.projectMethod.name}` : ""}
 ${client.projectStartDate ? `**Start Date:** ${new Date(client.projectStartDate).toLocaleDateString()}` : ""}
 ${client.deliveryDate ? `**Delivery Date:** ${new Date(client.deliveryDate).toLocaleDateString()}` : ""}
 
-**Project Description:** ${projectDesc}
+**Project Description:** ${sanitizedDesc}
 
-${templateText ? `**Reference Template (base the contract on this):**\n---\n${templateText.slice(0, 10000)}\n---\n\n` : ""}
+${sanitizedTemplate ? `**Reference Template (base the contract on this):**\n---\n${sanitizedTemplate}\n---\n\n` : ""}
 Generate the following sections:
 1. **Parties** - Identification of both parties (TrishulHub as service provider)
 2. **Scope of Work** - Detailed description of services to be provided
@@ -161,48 +202,57 @@ Generate the following sections:
 11. **Signatures** - Signature blocks for both parties
 
 Use markdown formatting with ## for section headers. Make it professional and legally sound.
-${templateText ? "IMPORTANT: Base the structure and clauses on the provided template, but customize all details for this specific client and project." : ""}`,
-              },
-            ],
-            "glm-4.7-flash",
-            apiKeys,
-            { maxTokens: 8000, temperature: 0.5 }
-          )
+${sanitizedTemplate ? "IMPORTANT: Base the structure and clauses on the provided template, but customize all details for this specific client and project." : ""}`,
+                },
+              ],
+              "glm-4.7-flash",
+              apiKeys,
+              { maxTokens: 8000, temperature: 0.5 }
+            )
 
-          if (result.content) {
-            await db.contract.update({
-              where: { id: contract.id },
-              data: {
-                termsAndConditions: result.content,
-                scopeOfWork: "See Terms & Conditions below",
-              },
-            })
-            // Track API usage
-            if (result.apiKeyId && result.cost > 0) {
-              await db.apiKey.update({
-                where: { id: result.apiKeyId },
-                data: { currentSpend: { increment: result.cost } },
-              })
-              await db.apiUsageLog.create({
+            if (result.content) {
+              await db.contract.update({
+                where: { id: contract.id },
                 data: {
-                  apiKeyId: result.apiKeyId,
-                  model: result.model,
-                  inputTokens: result.inputTokens,
-                  outputTokens: result.outputTokens,
-                  cost: result.cost,
+                  termsAndConditions: result.content,
+                  scopeOfWork: "See Terms & Conditions below",
                 },
               })
+              // Track API usage
+              if (result.apiKeyId && result.cost > 0) {
+                await db.apiKey.update({
+                  where: { id: result.apiKeyId },
+                  data: { currentSpend: { increment: result.cost } },
+                })
+                await db.apiUsageLog.create({
+                  data: {
+                    apiKeyId: result.apiKeyId,
+                    model: result.model,
+                    inputTokens: result.inputTokens,
+                    outputTokens: result.outputTokens,
+                    cost: result.cost,
+                  },
+                })
+              }
             }
+          } catch (err: unknown) {
+            console.error("[contracts] AI generation error:", err instanceof Error ? err.message : err)
           }
-        } catch (err: any) {
-          console.error("[contracts] AI generation error:", err.message)
-        }
-      })
-    }
+        })
+      }
 
-    return NextResponse.json(contract, { status: 201 })
-  } catch (error: any) {
-    console.error("[contracts] POST error:", error.message)
+      return NextResponse.json(deepSanitize(contract), { status: 201 })
+    } catch (error: unknown) {
+      console.error("[contracts] POST DB error:", error instanceof Error ? error.message : error)
+      // Issue #10: P2002 error handling
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2002") {
+        return NextResponse.json({ error: "A contract with this number already exists" }, { status: 409 })
+      }
+      return NextResponse.json({ error: "Failed to create contract" }, { status: 500 })
+    }
+  } catch (error: unknown) {
+    console.error("[contracts] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create contract" }, { status: 500 })
   }
 }
@@ -218,17 +268,28 @@ export async function PATCH(req: NextRequest) {
     const { success: rateOk } = rateLimit(`contracts-patch:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { id, ...data } = body
+    // Issue #7: req.json() try/catch
+    let body: unknown
+    try { body = await req.json() } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    const { id, ...data } = body as Record<string, unknown>
     if (!id) return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
+
+    // Issue #16: Zod validation on PATCH
+    const validation = validateRequest(updateContractSchema, { id, ...data })
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
 
     const VALID_STATUSES = ["DRAFT", "SENT", "SIGNED", "EXPIRED", "CANCELLED"]
 
-    const existing = await db.contract.findUnique({ where: { id } })
+    const existing = await db.contract.findUnique({ where: { id: String(id) } })
     if (!existing) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
 
     // Validate status if provided
-    if (data.status !== undefined && !VALID_STATUSES.includes(data.status)) {
+    if (data.status !== undefined && !VALID_STATUSES.includes(String(data.status))) {
       return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` }, { status: 400 })
     }
 
@@ -243,17 +304,29 @@ export async function PATCH(req: NextRequest) {
       sanitized.totalValue = (isNaN(val) || !isFinite(val)) ? 0 : val
     }
 
-    const contract = await db.contract.update({
-      where: { id },
-      data: sanitized,
-    })
-    return NextResponse.json(contract)
-  } catch (error: any) {
-    console.error("[contracts] PATCH error:", error.message)
+    try {
+      const contract = await db.contract.update({
+        where: { id: String(id) },
+        data: sanitized,
+      })
+      // Issue #14: deepSanitize on PATCH response
+      return NextResponse.json(deepSanitize(contract))
+    } catch (error: unknown) {
+      console.error("[contracts] PATCH DB error:", error instanceof Error ? error.message : error)
+      // Issue #11: P2025 error handling
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2025") {
+        return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+      }
+      return NextResponse.json({ error: "Failed to update contract" }, { status: 500 })
+    }
+  } catch (error: unknown) {
+    console.error("[contracts] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to update contract" }, { status: 500 })
   }
 }
 
+// TODO: Migrate to DELETE /api/contracts/[id] for proper REST (Issue #12)
 // DELETE /api/contracts - Delete contract
 export async function DELETE(req: NextRequest) {
   try {
@@ -265,14 +338,32 @@ export async function DELETE(req: NextRequest) {
     const { success: rateOk } = rateLimit(`contracts-delete:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { id } = body
+    // Issue #7 (also for DELETE): req.json() try/catch
+    let body: unknown
+    try { body = await req.json() } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { id } = body as Record<string, unknown>
     if (!id) return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
 
-    await db.contract.delete({ where: { id } })
-    return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[contracts] DELETE error:", error.message)
+    // Issue #13: Contract DELETE missing existence check
+    const existing = await db.contract.findUnique({ where: { id: String(id) } })
+    if (!existing) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+
+    try {
+      await db.contract.delete({ where: { id: String(id) } })
+      return NextResponse.json({ success: true })
+    } catch (error: unknown) {
+      console.error("[contracts] DELETE DB error:", error instanceof Error ? error.message : error)
+      // Issue #11: P2025 error handling
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2025") {
+        return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+      }
+      return NextResponse.json({ error: "Failed to delete contract" }, { status: 500 })
+    }
+  } catch (error: unknown) {
+    console.error("[contracts] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to delete contract" }, { status: 500 })
   }
 }

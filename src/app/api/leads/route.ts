@@ -7,6 +7,7 @@ import { createLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
 
 // ━━ Shared constants ━━
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
@@ -15,6 +16,7 @@ const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATI
 const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"] as const
 
 // ━━ Shared update logic for PATCH & PUT ━━
+    // TODO: Consolidate lead update logic with leads/[id]/route.ts to reduce duplication
 async function _updateLead(id: string, data: Record<string, unknown>) {
   try {
     // Validate status if provided
@@ -92,6 +94,9 @@ export async function GET(req: NextRequest) {
     const sortBy = searchParams.get("sortBy") || "createdAt"
     const sortOrder = searchParams.get("sortOrder") || "desc"
 
+    const clientId = searchParams.get("clientId") || ""
+    // Note: Filtering by non-existent clientId just returns empty results, which is acceptable behavior.
+
     // Pagination params
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
@@ -109,6 +114,7 @@ export async function GET(req: NextRequest) {
 
     // Build where clause
     const where: Prisma.LeadWhereInput = {}
+    if (clientId) where.clientId = clientId
     if (status) where.status = status
     if (source) where.source = source
     if (search) {
@@ -137,13 +143,13 @@ export async function GET(req: NextRequest) {
       db.lead.count({ where }),
     ])
 
-    return NextResponse.json(JSON.parse(JSON.stringify({
-      data: leads,
+    return NextResponse.json({
+      data: deepSanitize(leads),
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    })))
+    })
   } catch (error: unknown) {
     console.error("Error fetching leads:", error)
     return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 })
@@ -185,28 +191,33 @@ export async function POST(req: NextRequest) {
 
     const data = validation.data
 
-    // API-006: Duplicate email check before creating
-    const existing = await db.lead.findFirst({ where: { email: data.email } })
-    if (existing) {
-      return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
-    }
+    // Wrap duplicate email check + lead creation in a single transaction to prevent TOCTOU race
+    const lead = await db.$transaction(async (tx) => {
+      // Transactional duplicate email check (prevents TOCTOU race)
+      const dup = await tx.lead.findFirst({ where: { email: data.email } })
+      if (dup) throw { code: "DUPLICATE_EMAIL", status: 409 }
 
-    const lead = await db.lead.create({
-      data: {
-        name: data.name,
-        email: data.email,
-        company: data.company || null,
-        website: data.website || null,
-        phone: data.phone || null,
-        source: data.source || "MANUAL",
-        score: data.score ?? 0,
-        status: data.status || "NEW",
-        notes: data.notes || null,
-        clientId: data.clientId || null,
-      },
+      return tx.lead.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          company: data.company || null,
+          website: data.website || null,
+          phone: data.phone || null,
+          source: data.source || "MANUAL",
+          score: data.score ?? 0,
+          status: data.status || "NEW",
+          notes: data.notes || null,
+          clientId: data.clientId || null,
+        },
+      })
     })
     return NextResponse.json(lead)
   } catch (error: unknown) {
+    // Handle transactional duplicate email check error
+    if (error && typeof error === "object" && "code" in error && (error as any).code === "DUPLICATE_EMAIL") {
+      return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
+    }
     console.error("[leads] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create lead" }, { status: 500 })
   }

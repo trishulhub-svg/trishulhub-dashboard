@@ -6,6 +6,7 @@ import { updateContactSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
 
 // ━━ Shared constants ━━
 const ALLOWED_FIELDS = ["firstName", "lastName", "email", "phone", "jobTitle", "clientId", "leadId", "notes", "isPrimary"] as const
@@ -39,7 +40,7 @@ export async function GET(
       return NextResponse.json({ error: "Contact not found" }, { status: 404 })
     }
 
-    return NextResponse.json(contact)
+    return NextResponse.json(deepSanitize(contact))
   } catch (error: unknown) {
     console.error("[contacts/[id]] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load contact details" }, { status: 500 })
@@ -103,15 +104,13 @@ export async function PATCH(
       }
     }
 
-    // If isPrimary is being set to true, unset other primary contacts for same client/lead (transactional)
-    if (sanitizedData.isPrimary === true) {
-      // Get current contact to find client/lead
-      const current = await db.contact.findUnique({ where: { id } })
-      if (current) {
-        const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
-        const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
-
-        await db.$transaction(async (tx) => {
+    // Wrap isPrimary unset + contact update in a single transaction to prevent race conditions
+    const contact = await db.$transaction(async (tx) => {
+      if (sanitizedData.isPrimary === true) {
+        const current = await tx.contact.findUnique({ where: { id } })
+        if (current) {
+          const targetClientId = (sanitizedData.clientId as string) ?? current.clientId
+          const targetLeadId = (sanitizedData.leadId as string) ?? current.leadId
           if (targetClientId) {
             await tx.contact.updateMany({
               where: { clientId: targetClientId, isPrimary: true, NOT: { id } },
@@ -124,17 +123,16 @@ export async function PATCH(
               data: { isPrimary: false },
             })
           }
-        })
+        }
       }
-    }
-
-    const contact = await db.contact.update({
-      where: { id },
-      data: sanitizedData,
-      include: {
-        client: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true } },
-      },
+      return tx.contact.update({
+        where: { id },
+        data: sanitizedData,
+        include: {
+          client: { select: { id: true, name: true } },
+          lead: { select: { id: true, name: true } },
+        },
+      })
     })
     return NextResponse.json(contact)
   } catch (error: unknown) {

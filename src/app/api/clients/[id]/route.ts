@@ -7,6 +7,19 @@ import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
+
+function serializeClientDetail(c: any) {
+  if (!c) return c
+  const result: any = {}
+  for (const [k, v] of Object.entries(c)) {
+    if (v instanceof Date) result[k] = v.toISOString()
+    else if (Array.isArray(v)) result[k] = v.map((item: any) => serializeClientDetail(item))
+    else if (typeof v === 'object' && v !== null) result[k] = serializeClientDetail(v)
+    else result[k] = v
+  }
+  return result
+}
 
 // GET /api/clients/[id] - Single client detail with full relations
 export async function GET(
@@ -150,7 +163,7 @@ export async function GET(
       revenue = paidInvoiceSum._sum.total ?? 0
     }
 
-    return NextResponse.json(JSON.parse(JSON.stringify({ ...client, portalUser, revenue })))
+    return NextResponse.json(deepSanitize(serializeClientDetail({ ...client, portalUser, revenue })))
   } catch (error: any) {
     console.error("[clients/[id]] GET error:", error?.message)
     return NextResponse.json({ error: "Failed to load client details" }, { status: 500 })
@@ -227,9 +240,15 @@ export async function PATCH(
     sanitizedData.deliveryDate = new Date(sanitizedData.deliveryDate)
   }
 
-  // Handle website updates: replace-all strategy
+  // Handle website updates: replace-all strategy (non-transactional-safe)
   if (websitesData !== undefined && Array.isArray(websitesData)) {
     const ws = websitesData as Array<{ url: string; label?: string; isPrimary?: boolean }>
+    const urlRegex = /^https?:\/\/(?:[\w-]+\.)+[\w]{2,}(?::\d{1,5})?(?:\/\S*)?$/
+    for (const w of ws) {
+      if (w.url && !urlRegex.test(w.url)) {
+        return NextResponse.json({ error: "Invalid website URL format" }, { status: 400 })
+      }
+    }
     sanitizedData.websites = {
       deleteMany: {},
       create: ws.map((w, idx) => ({
@@ -244,12 +263,14 @@ export async function PATCH(
   }
 
   try {
-    const client = await db.client.update({
-      where: { id },
-      data: sanitizedData,
-      include: { websites: true },
+    const client = await db.$transaction(async (tx) => {
+      return tx.client.update({
+        where: { id },
+        data: sanitizedData,
+        include: { websites: true },
+      })
     })
-    return NextResponse.json(JSON.parse(JSON.stringify(client)))
+    return NextResponse.json(deepSanitize(serializeClientDetail(client)))
   } catch (updateErr: any) {
     console.error("[clients/[id]] PATCH update error:", updateErr?.message)
     // Check for Prisma unique constraint error (duplicate email)
@@ -286,7 +307,7 @@ export async function DELETE(
 
     const { id } = await params
 
-    const existing = await db.client.findUnique({ where: { id }, select: { status: true } })
+    const existing = await db.client.findUnique({ where: { id }, select: { id: true, name: true, status: true } })
     if (!existing) {
       return NextResponse.json({ error: "Client not found" }, { status: 404 })
     }
@@ -298,7 +319,7 @@ export async function DELETE(
       where: { id },
       data: { status: "CHURNED" },
     })
-    return NextResponse.json({ success: true, client })
+    return NextResponse.json({ success: true, client: deepSanitize(serializeClientDetail(client)) })
   } catch (error: any) {
     console.error("[clients/[id]] DELETE error:", error?.message)
     return NextResponse.json({ error: "Failed to deactivate client" }, { status: 500 })

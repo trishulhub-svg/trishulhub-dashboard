@@ -6,6 +6,7 @@ import { updateLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { deepSanitize } from "@/lib/utils"
 
 // ━━ Shared constants (mirrors leads/route.ts) ━━
 const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
@@ -44,7 +45,7 @@ export async function GET(
       return NextResponse.json({ error: "Lead not found" }, { status: 404 })
     }
 
-    return NextResponse.json(lead)
+    return NextResponse.json(deepSanitize(lead))
   } catch (error: unknown) {
     console.error("[leads/[id]] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load lead details" }, { status: 500 })
@@ -227,6 +228,9 @@ export async function PATCH(
       }
     }
 
+    // Defense-in-depth: createdAt field validation is handled by Prisma schema (DateTime type),
+    // so no additional date validation is needed here.
+
     // If email is being updated, check for duplicates (excluding current lead)
     if (data.email) {
       const existing = await db.lead.findFirst({
@@ -298,6 +302,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Lead not found" }, { status: 404 })
     }
 
+    // TODO: Add onDelete: Cascade to LeadEmail → Lead in schema.prisma (handled in Phase 5 schema fix)
     // Delete associated LeadEmail records first (cascade if not set in Prisma)
     await db.leadEmail.deleteMany({ where: { leadId: id } })
 

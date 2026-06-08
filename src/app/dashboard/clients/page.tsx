@@ -1,4 +1,6 @@
 "use client";
+// TODO: Extract sub-components (NotesEditor, ContractPanel, ClientForm) to separate files for maintainability
+// TODO: Add keyboard shortcuts for common actions (e.g., Ctrl+N to add client, Escape to close dialogs)
 
 import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
 import { useSession } from "next-auth/react";
@@ -42,8 +44,20 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
-import { safeText, safeNumber } from "@/lib/utils";
+import { safeText, safeNumber, deepSanitize } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+
+// ━━ Helpers ━━
+// HTML escape helper to prevent XSS when writing untrusted data into HTML strings (e.g., PDF generation)
+const escHtml = (s: string | null | undefined): string => {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+};
 
 // ━━ Types ━━
 interface ClientWebsite {
@@ -258,6 +272,7 @@ const dealStageLabels: Record<string, string> = {
   CLOSED_LOST: "Closed Lost",
 };
 
+// TODO: Replace hardcoded "₹" with user/session locale currency setting
 // CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
 function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
@@ -427,6 +442,18 @@ export default function ClientsPage() {
   // CLI-002: AbortController ref for fetchDetail
   const detailAbortRef = useRef<AbortController | null>(null);
 
+  // Refs for contract polling cleanup on unmount
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup contract polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    };
+  }, []);
+
   // Form state
   const [formData, setFormData] = useState({
     name: "",
@@ -461,6 +488,8 @@ export default function ClientsPage() {
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [editingContract, setEditingContract] = useState<Record<string, unknown> | null>(null);
   const [contractForm, setContractForm] = useState<Record<string, unknown>>({});
+  // Contract delete confirmation
+  const [deleteContractId, setDeleteContractId] = useState<string | null>(null);
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -509,7 +538,7 @@ export default function ClientsPage() {
         setClients(data);
       } else {
         const errData = await res.json().catch(() => ({}));
-        toast.error(errData.error || "Failed to load clients");
+        toast.error((errData.error || "Failed to load clients").slice(0, 100));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -660,7 +689,7 @@ export default function ClientsPage() {
         } else {
           // CLI-020: try/catch around res.json() in error branch
           const data = await res.json().catch(() => ({}));
-          toast.error(data.error || "Failed to update client");
+          toast.error((data.error || "Failed to update client").slice(0, 100));
         }
       } else {
         // Create
@@ -701,7 +730,7 @@ export default function ClientsPage() {
         } else {
           // CLI-020: try/catch around res.json() in error branch
           const data = await res.json().catch(() => ({}));
-          toast.error(data.error || "Failed to create client");
+          toast.error((data.error || "Failed to create client").slice(0, 100));
         }
       }
     } catch {
@@ -729,7 +758,7 @@ export default function ClientsPage() {
       } else {
         // CLI-020: try/catch around res.json() in error branch
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to deactivate client");
+        toast.error((data.error || "Failed to deactivate client").slice(0, 100));
       }
     } catch {
       toast.error("Something went wrong");
@@ -751,13 +780,13 @@ export default function ClientsPage() {
       const res = await fetch(`/api/clients/${id}`, { credentials: "include", signal: controller.signal });
       if (handleFetchError(res)) return;
       if (res.ok) {
-        const data = await res.json();
+        const data = deepSanitize<ClientDetail>(await res.json());
         setDetailClient(data);
       } else {
         // CLI-003: clear detailClient on non-ok response
         setDetailClient(null);
         const errData = await res.json().catch(() => ({}));
-        toast.error(errData.error || "Failed to load client details");
+        toast.error((errData.error || "Failed to load client details").slice(0, 100));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -786,14 +815,14 @@ export default function ClientsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ notes }),
+        body: JSON.stringify({ notes: safeText(notes) }),
       });
       if (res.ok) {
         toast.success("Notes saved");
         fetchDetail(detailClient.id);
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to save notes");
+        toast.error((data.error || "Failed to save notes").slice(0, 100));
       }
     } catch {
       toast.error("Failed to save notes");
@@ -857,8 +886,8 @@ export default function ClientsPage() {
           setContracts(Array.isArray(data) ? data : []);
         }
         setContractForm({});
-        // Poll for AI-generated content
-        const pollInterval = setInterval(async () => {
+        // Poll for AI-generated content (tracked via refs for cleanup on unmount)
+        pollRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
             if (pollRes.ok) {
@@ -866,15 +895,15 @@ export default function ClientsPage() {
               const latest = Array.isArray(pollData) ? pollData[0] : null;
               if (latest && (latest.termsAndConditions as string)?.length > 50) {
                 setContracts(Array.isArray(pollData) ? pollData : []);
-                clearInterval(pollInterval);
+                if (pollRef.current) clearInterval(pollRef.current);
               }
             }
-          } catch { clearInterval(pollInterval); }
+          } catch { if (pollRef.current) clearInterval(pollRef.current); }
         }, 5000);
-        setTimeout(() => clearInterval(pollInterval), 60000);
+        pollTimeoutRef.current = setTimeout(() => { if (pollRef.current) clearInterval(pollRef.current); }, 60000);
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to generate contract");
+        toast.error(((data as Record<string, string>).error || "Failed to generate contract").slice(0, 100));
       }
     } catch {
       toast.error("Failed to generate contract");
@@ -900,7 +929,7 @@ export default function ClientsPage() {
         }
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to send contract");
+        toast.error(((data as Record<string, string>).error || "Failed to send contract").slice(0, 100));
       }
     } catch {
       toast.error("Failed to send contract");
@@ -917,6 +946,11 @@ export default function ClientsPage() {
         credentials: "include",
         body: JSON.stringify({ id: contractId }),
       });
+      if (res.status === 404) {
+        toast.error("Contract not found (may have been deleted)");
+        setContracts(prev => prev.filter(c => c.id !== contractId));
+        return;
+      }
       if (res.ok) {
         toast.success("Contract deleted");
         setContracts(prev => prev.filter(c => c.id !== contractId));
@@ -930,6 +964,10 @@ export default function ClientsPage() {
 
   const handleSaveContract = async () => {
     if (!editingContract) return;
+    if (Object.keys(contractForm).length === 0) {
+      toast.error("No changes to save");
+      return;
+    }
     try {
       const res = await fetch("/api/contracts", {
         method: "PATCH",
@@ -945,7 +983,7 @@ export default function ClientsPage() {
         setContractForm({});
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to update contract");
+        toast.error(((data as Record<string, string>).error || "Failed to update contract").slice(0, 100));
       }
     } catch {
       toast.error("Failed to update contract");
@@ -961,6 +999,7 @@ export default function ClientsPage() {
     try {
       const formD = new FormData();
       formD.append("file", file);
+      // TODO: Create /api/contracts/upload endpoint for template file processing
       const res = await fetch("/api/contracts/upload", { method: "POST", credentials: "include", body: formD });
       if (res.ok) {
         const data = await res.json();
@@ -969,7 +1008,7 @@ export default function ClientsPage() {
         toast.success(`Template loaded: ${data.fileName}`);
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error || "Failed to process template");
+        toast.error(((data as Record<string, string>).error || "Failed to process template").slice(0, 100));
       }
     } catch {
       toast.error("Failed to upload template");
@@ -981,7 +1020,20 @@ export default function ClientsPage() {
   const handleDownloadContractPdf = (contract: Record<string, unknown>) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) { toast.error("Popup blocked \u2014 please allow popups"); return; }
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>${contract.title}</title>
+
+    // Safely render termsAndConditions: escape HTML first, then convert markdown patterns to safe HTML tags
+    const safeTerms = contract.termsAndConditions
+      ? String(contract.termsAndConditions)
+          .split('\n').map(line => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('## ')) return `</p><h2 style="color:#E85D04;margin-top:25px;">${escHtml(trimmed.slice(3))}</h2><p>`;
+            if (trimmed.startsWith('# ')) return `</p><h2 style="color:#E85D04;margin-top:25px;">${escHtml(trimmed.slice(2))}</h2><p>`;
+            const escaped = escHtml(trimmed);
+            return escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          }).join('<br/>')
+      : '<p>Terms and conditions to be determined.</p>';
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>${escHtml(contract.title as string)}</title>
       <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; color: #333; line-height: 1.6; }
         .header { background: #E85D04; color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; }
@@ -1008,27 +1060,20 @@ export default function ClientsPage() {
       <div class="meta">
         <h2>Contract Details</h2>
         <div class="meta-grid">
-          <div class="meta-item"><label>Contract Number</label><span>${contract.contractNumber}</span></div>
-          <div class="meta-item"><label>Status</label><span>${contract.status}</span></div>
-          <div class="meta-item"><label>Client</label><span>${contract.clientName}</span></div>
-          <div class="meta-item"><label>Email</label><span>${contract.clientEmail}</span></div>
-          ${contract.clientCompany ? `<div class="meta-item"><label>Company</label><span>${contract.clientCompany}</span></div>` : ""}
-          ${contract.projectName ? `<div class="meta-item"><label>Project</label><span>${contract.projectName}</span></div>` : ""}
-          ${contract.totalValue ? `<div class="meta-item"><label>Contract Value</label><span>\u20B9${Number(contract.totalValue).toLocaleString("en-IN")}</span></div>` : ""}
-          ${contract.startDate ? `<div class="meta-item"><label>Start Date</label><span>${contract.startDate}</span></div>` : ""}
-          ${contract.endDate ? `<div class="meta-item"><label>End Date</label><span>${contract.endDate}</span></div>` : ""}
+          <div class="meta-item"><label>Contract Number</label><span>${escHtml(contract.contractNumber as string)}</span></div>
+          <div class="meta-item"><label>Status</label><span>${escHtml(contract.status as string)}</span></div>
+          <div class="meta-item"><label>Client</label><span>${escHtml(contract.clientName as string)}</span></div>
+          <div class="meta-item"><label>Email</label><span>${escHtml(contract.clientEmail as string)}</span></div>
+          ${contract.clientCompany ? `<div class="meta-item"><label>Company</label><span>${escHtml(contract.clientCompany as string)}</span></div>` : ""}
+          ${contract.projectName ? `<div class="meta-item"><label>Project</label><span>${escHtml(contract.projectName as string)}</span></div>` : ""}
+          ${contract.totalValue ? `<div class="meta-item"><label>Contract Value</label><span>${escHtml(String(contract.totalValue))}</span></div>` : ""}
+          ${contract.startDate ? `<div class="meta-item"><label>Start Date</label><span>${escHtml(contract.startDate as string)}</span></div>` : ""}
+          ${contract.endDate ? `<div class="meta-item"><label>End Date</label><span>${escHtml(contract.endDate as string)}</span></div>` : ""}
         </div>
       </div>
       <div class="content">
         <h2>Terms & Conditions</h2>
-        ${(contract.termsAndConditions as string || "")
-          ? (contract.termsAndConditions as string)
-              .replace(/## (.*?)(\n|$)/g, "<h2>$1</h2>")
-              .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-              .replace(/\n\n/g, "</p><p>")
-              .replace(/^/, "<p>").replace(/$/, "</p>")
-          : "<p>Terms and conditions to be determined.</p>"
-        }
+        ${safeTerms}
       </div>
       <div class="sig-block">
         <div class="sig-box">
@@ -1037,7 +1082,7 @@ export default function ClientsPage() {
           <span style="font-size: 12px; color: #666;">Authorized Signatory</span>
         </div>
         <div class="sig-box">
-          <div class="sig-label">For ${contract.clientName}</div>
+          <div class="sig-label">For ${escHtml(contract.clientName as string)}</div>
           <div class="sig-line"></div>
           <span style="font-size: 12px; color: #666;">Authorized Signatory</span>
         </div>
@@ -1619,6 +1664,24 @@ export default function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* ━━ Contract Delete Confirmation ━━ */}
+      <AlertDialog open={!!deleteContractId} onOpenChange={(open) => !open && setDeleteContractId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Contract</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this contract? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteContractId) { handleDeleteContract(deleteContractId); setDeleteContractId(null); } }} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Unsaved Notes Warning (H-CLI-5 + L-CLI-8) */}
       <AlertDialog open={!!unsavedNotesClient} onOpenChange={(open) => {
         if (!open) setUnsavedNotesClient(null);
@@ -2083,7 +2146,7 @@ export default function ClientsPage() {
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" onClick={() => handleSendContract(c.id as string)} disabled={contractSending} title="Send via Email">
                             <Send className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => handleDeleteContract(c.id as string)} title="Delete">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setDeleteContractId(c.id as string)} title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
