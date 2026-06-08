@@ -38,7 +38,12 @@ export async function GET(
     if (!test) return NextResponse.json({ error: "Test not found" }, { status: 404 })
 
     // Parse questions
-    const questions = JSON.parse(test.questions)
+    let questions: { question: string; options: string[]; correctAnswer?: number; explanation?: string }[]
+    try {
+      questions = JSON.parse(test.questions)
+    } catch {
+      return NextResponse.json({ error: "Failed to parse test questions" }, { status: 500 })
+    }
 
     // Check if this is an employee taking the test (via assignment check)
     const assignmentId = new URL(req.url).searchParams.get("assignmentId")
@@ -61,7 +66,7 @@ export async function GET(
     const responseData = {
       ...test,
       questions: hideAnswers
-        ? questions.map((q: any) => ({
+        ? questions.map((q) => ({
             question: q.question,
             options: q.options,
           }))
@@ -69,8 +74,8 @@ export async function GET(
     }
 
     return NextResponse.json(responseData)
-  } catch (error: any) {
-    console.error("[training/tests/[id]] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/tests/[id]] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -101,12 +106,14 @@ export async function DELETE(
     if (!test) return NextResponse.json({ error: "Test not found" }, { status: 404 })
 
     // Null out testId on assignments before deleting test (FK constraint)
-    await db.trainingAssignment.updateMany({ where: { testId: id }, data: { testId: null } })
-    await db.trainingTest.delete({ where: { id } })
+    await db.$transaction(async (tx) => {
+      await tx.trainingAssignment.updateMany({ where: { testId: id }, data: { testId: null } })
+      await tx.trainingTest.delete({ where: { id } })
+    })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[training/tests/[id]] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/tests/[id]] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

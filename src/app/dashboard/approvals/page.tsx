@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw,
   AlertTriangle, Trash2, User, AlertCircle, Calendar, ClipboardList,
-  ShieldCheck, HourglassIcon, ListChecks, Send, RotateCcw,
+  ShieldCheck, HourglassIcon, ListChecks, RotateCcw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { safeArray, safeText, safeJsonParse } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
@@ -185,6 +195,31 @@ interface UnifiedPendingItem {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// History Entry Interface (module scope)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+interface HistoryEntry {
+  id: string;
+  source: "AI" | "TASK" | "LEAVE";
+  title: string;
+  status: string;
+  statusLabel: string;
+  updatedAt: string;
+  feedback: string | null;
+  approvedByName: string | null;
+  type?: string;
+  agent?: { id: string; name: string; type: string } | null;
+  requesterType?: string;
+  description?: string | null;
+  priority?: string;
+  assigneeName?: string | null;
+  userName?: string | null;
+  leaveType?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main Component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -212,11 +247,13 @@ export default function ApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [rejectItemId, setRejectItemId] = useState<{id: string, type: string} | null>(null);
+  const [needsWorkItemId, setNeedsWorkItemId] = useState<string | null>(null);
 
-  // Computed counts
-  const pendingAiApprovals = aiApprovals.filter((a) => a.status === "PENDING");
-  const pendingLeaves = leaveRequests.filter((l) => l.status === "PENDING");
-  const pendingTasks = tasks.filter((t) => t.status === "AWAITING_APPROVAL");
+  // Computed counts (memoized)
+  const pendingAiApprovals = useMemo(() => aiApprovals.filter((a) => a.status === "PENDING"), [aiApprovals]);
+  const pendingLeaves = useMemo(() => leaveRequests.filter((l) => l.status === "PENDING"), [leaveRequests]);
+  const pendingTasks = useMemo(() => tasks.filter((t) => t.status === "AWAITING_APPROVAL"), [tasks]);
 
   // Role-based filtering: admins see all, developers see only their own
   const myLeaves = isAdminUser ? leaveRequests : leaveRequests.filter((l) => l.userId === userId);
@@ -224,7 +261,6 @@ export default function ApprovalsPage() {
   const myPendingLeaves = myLeaves.filter((l) => l.status === "PENDING");
   const myPendingTasks = myTasks.filter((t) => t.status === "AWAITING_APPROVAL");
   const myActiveTasks = myTasks.filter((t) => ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"].includes(t.status));
-  const myApprovals = isAdminUser ? aiApprovals : aiApprovals.filter((a) => a.requesterId === userId);
 
   const counts: PendingCounts = isAdminUser ? {
     approvals: pendingAiApprovals.length,
@@ -238,8 +274,8 @@ export default function ApprovalsPage() {
     total: myPendingLeaves.length + myPendingTasks.length + myActiveTasks.filter((t) => t.status !== "AWAITING_APPROVAL").length,
   };
 
-  // Unified pending queue
-  const unifiedPending: UnifiedPendingItem[] = [
+  // Unified pending queue (memoized)
+  const unifiedPending: UnifiedPendingItem[] = useMemo(() => [
     ...(isAdminUser ? pendingLeaves : myPendingLeaves).map((l) => ({
       id: l.id,
       source: "LEAVE" as const,
@@ -270,7 +306,7 @@ export default function ApprovalsPage() {
       createdAt: a.createdAt,
       raw: a,
     })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [isAdminUser, pendingLeaves, myPendingLeaves, pendingTasks, myPendingTasks, pendingAiApprovals]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Data Fetching
@@ -334,10 +370,9 @@ export default function ApprovalsPage() {
       // Handle tasks — use for both pending list and history
       let rawTasks: TaskItem[] = [];
       if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
-        const raw = await tasksRes.value.json();
-        rawTasks = safeArray<TaskItem>(
-          Array.isArray((raw as any)?.tasks) ? (raw as any).tasks : Array.isArray(raw) ? raw : (Array.isArray((raw as any)?.data) ? (raw as any).data : [])
-        );
+        const raw: Record<string, unknown> = await tasksRes.value.json();
+        const tasksArr = Array.isArray(raw.tasks) ? raw.tasks : Array.isArray(raw) ? raw : (Array.isArray(raw.data) ? raw.data : []);
+        rawTasks = safeArray<TaskItem>(tasksArr);
         setTasks(rawTasks);
       }
 
@@ -348,8 +383,8 @@ export default function ApprovalsPage() {
           .sort((a: TaskItem, b: TaskItem) => new Date(b.approvedAt!).getTime() - new Date(a.approvedAt!).getTime())
       );
     } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      console.error("[approvals] fetchAllData Error:", err);
+      setError("Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -923,29 +958,8 @@ export default function ApprovalsPage() {
     </div>
   );
 
-  // Combined history items with unified sorting
-  interface HistoryEntry {
-    id: string;
-    source: "AI" | "TASK" | "LEAVE";
-    title: string;
-    status: string;
-    statusLabel: string;
-    updatedAt: string;
-    feedback: string | null;
-    approvedByName: string | null;
-    type?: string;
-    agent?: { id: string; name: string; type: string } | null;
-    requesterType?: string;
-    description?: string | null;
-    priority?: string;
-    assigneeName?: string | null;
-    userName?: string | null;
-    leaveType?: string;
-    startDate?: string;
-    endDate?: string;
-  }
-
-  const allHistory: HistoryEntry[] = [
+  // Combined history items with unified sorting (memoized)
+  const allHistory: HistoryEntry[] = useMemo(() => [
     ...historyItems.map((a) => ({
       id: a.id,
       source: "AI" as const,
@@ -987,7 +1001,8 @@ export default function ApprovalsPage() {
       startDate: l.startDate,
       endDate: l.endDate,
     })),
-  ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+    [historyItems, taskHistory, leaveHistory]);
 
   // History card (unified for all types, no actions)
   const renderHistoryCard = (item: HistoryEntry) => {

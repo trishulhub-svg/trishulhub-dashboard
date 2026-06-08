@@ -78,7 +78,7 @@ export default function TrainingLibraryPage() {
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       const res = await fetch(`/api/training/documents?${params.toString()}`, { credentials: "include" })
       if (res.ok) setDocuments(safeArray<TrainingDocument>(await res.json()))
-    } catch (err) { console.error("Failed to fetch documents:", err) } finally { setLoading(false) }
+    } catch (err) { console.error("[training] Error:", err) } finally { setLoading(false) }
   }, [search, statusFilter])
 
   useEffect(() => {
@@ -87,12 +87,15 @@ export default function TrainingLibraryPage() {
     fetchDocuments()
   }, [session, status, router, fetchDocuments])
 
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+
   useEffect(() => {
-    const hasPending = documents.some(d => d.status === "GENERATING" || d.status === "DRAFT")
-    if (!hasPending) return
-    const interval = setInterval(() => { fetchDocuments() }, 5000)
-    return () => clearInterval(interval)
-  }, [documents, fetchDocuments])
+    const hasPending = documentsRef.current.some(d => d.status === "GENERATING" || d.status === "PENDING");
+    if (!hasPending) return;
+    const interval = setInterval(() => { fetchDocuments() }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchDocuments]);
 
   const handleCreate = async () => {
     if (!newTopic.trim()) return

@@ -82,9 +82,8 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, name: true, email: true, role: true } },
         project: { select: { id: true, name: true } },
       },
-      take: 10000, // Safety limit for analytics
+      take: 5000, // TODO: Phase 7 — Use Prisma groupBy/aggregate for DB-side grouping instead of in-memory. Currently limited to 5000 records.
     })
-    // TODO: Use Prisma aggregate for production to avoid unbounded findMany
 
     if (type === "employee") {
       // Group by employee

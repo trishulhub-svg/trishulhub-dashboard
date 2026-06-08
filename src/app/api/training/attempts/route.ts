@@ -14,15 +14,21 @@ export async function POST(req: NextRequest) {
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/attempts] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
     const rl = rateLimit(userId, 5, 60000)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { assignmentId, answers, timeTaken } = body
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { assignmentId, answers, timeTaken } = body as { assignmentId?: string; answers?: number[]; timeTaken?: number }
 
     if (!assignmentId) return NextResponse.json({ error: "Assignment ID is required" }, { status: 400 })
     if (!answers || !Array.isArray(answers)) return NextResponse.json({ error: "Answers must be an array" }, { status: 400 })
@@ -44,7 +50,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse questions and validate
-    const questions: any[] = JSON.parse(assignment.test.questions)
+    let questions: { question: string; options: string[]; correctAnswer: number; explanation?: string }[]
+    try {
+      questions = JSON.parse(assignment.test.questions)
+    } catch {
+      return NextResponse.json({ error: "Failed to parse test questions" }, { status: 500 })
+    }
 
     // Validate answers length matches questions count
     if (answers.length !== questions.length) {
@@ -56,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     let score = 0
 
-    const results = questions.map((q: any, idx: number) => {
+    const results = questions.map((q, idx: number) => {
       const selectedAnswer = answers[idx]
       const correctAnswer = q.correctAnswer
       const isCorrect = selectedAnswer === correctAnswer
@@ -73,27 +84,29 @@ export async function POST(req: NextRequest) {
 
     const passed = questions.length > 0 ? (score / questions.length) >= 0.7 : score >= 7
 
-    // Create attempt
-    const attempt = await db.testAttempt.create({
-      data: {
-        assignmentId,
-        answers: JSON.stringify(answers),
-        score,
-        total: questions.length,
-        timeTaken: timeTaken || null,
-        passed,
-      },
-    })
-
-    // Update assignment status
-    await db.trainingAssignment.update({
-      where: { id: assignmentId },
-      data: {
-        status: passed ? "PASSED" : "FAILED",
-      },
+    // Create attempt and update assignment status in a transaction
+    const [attempt, updatedAssignment] = await db.$transaction(async (tx) => {
+      const newAttempt = await tx.testAttempt.create({
+        data: {
+          assignmentId,
+          answers: JSON.stringify(answers),
+          score,
+          total: questions.length,
+          timeTaken: timeTaken || null,
+          passed,
+        },
+      })
+      const updated = await tx.trainingAssignment.update({
+        where: { id: assignmentId },
+        data: {
+          status: passed ? "PASSED" : "FAILED",
+        },
+      })
+      return [newAttempt, updated]
     })
 
     // Notify admins about completion
+    // TODO: Phase 7 — Use db.notification.createMany for batch notification creation
     try {
       const admins = await db.user.findMany({
         where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
@@ -110,8 +123,8 @@ export async function POST(req: NextRequest) {
           },
         })
       }
-    } catch (notifyErr: any) {
-      console.error("[training/attempts] Notification error (non-blocking):", notifyErr.message)
+    } catch (notifyErr: unknown) {
+      console.error("[training/attempts] Notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : notifyErr)
     }
 
     return NextResponse.json({
@@ -122,8 +135,8 @@ export async function POST(req: NextRequest) {
       results,
       percentage: Math.round((score / questions.length) * 100),
     })
-  } catch (error: any) {
-    console.error("[training/attempts] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/attempts] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

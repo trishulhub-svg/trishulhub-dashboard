@@ -4,6 +4,26 @@ import React from "react"
 import ReactMarkdown from "react-markdown"
 import { FileText, Calendar, Globe } from "lucide-react"
 
+// Sanitize URLs to prevent XSS
+function SafeLink(props: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: React.ReactNode }) {
+  const { href, children, ...rest } = props
+  if (!href) return <span>{children}</span>
+  const safeHref = href.toLowerCase().startsWith('http://') || href.toLowerCase().startsWith('https://') || href.toLowerCase().startsWith('mailto:')
+    ? href
+    : '#'
+  return <a href={safeHref} target="_blank" rel="noopener noreferrer" {...rest}>{children}</a>
+}
+
+// Only allow https:// for image URLs to prevent XSS
+const safeUrl = (url: string) => {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' ? url : ''
+  } catch {
+    return ''
+  }
+}
+
 interface BrandedDocumentViewProps {
   topic: string
   content: string
@@ -79,15 +99,19 @@ export function BrandedDocumentView({
         {imageUrls.length > 0 && (
           <div className="px-4 sm:px-8 pt-6">
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {imageUrls.map((url, idx) => (
+              {imageUrls.map((url, idx) => {
+                const validatedUrl = safeUrl(url)
+                if (!validatedUrl) return null
+                return (
                 <div key={idx} className="rounded-xl overflow-hidden border border-gray-200 dark:border-zinc-700 shadow-sm">
                   <img
-                    src={url}
+                    src={validatedUrl}
                     alt={`Illustration ${idx + 1}`}
                     className="w-full h-auto object-cover"
                   />
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -114,7 +138,7 @@ export function BrandedDocumentView({
             prose-a:text-[#E85D04] prose-a:no-underline hover:prose-a:underline
             prose-ul:bg-orange-50/50 dark:prose-ul:bg-orange-950/10 prose-ul:rounded-lg prose-ul:p-4
           ">
-            <ReactMarkdown>{content}</ReactMarkdown>
+            <ReactMarkdown components={{ a: SafeLink }}>{content}</ReactMarkdown>
           </div>
         </div>
 

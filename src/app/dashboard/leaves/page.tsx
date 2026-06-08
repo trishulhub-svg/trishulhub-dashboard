@@ -22,6 +22,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -106,6 +116,10 @@ const calendarBgColors: Record<string, string> = {
   OTHER: "bg-gray-500",
 };
 
+const monthNames = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 export default function LeaveManagementPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -115,6 +129,8 @@ export default function LeaveManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteLeaveId, setDeleteLeaveId] = useState<string | null>(null);
+  const [rejectLeaveId, setRejectLeaveId] = useState<string | null>(null);
 
   // Calendar state
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
@@ -149,8 +165,8 @@ export default function LeaveManagementPage() {
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        console.error("Failed to fetch data:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
+        console.error("[leaves] loadData Error:", err);
+        setError("Failed to load data");
       } finally {
         setLoading(false);
       }
@@ -225,22 +241,22 @@ export default function LeaveManagementPage() {
       }
     } catch (err) {
       console.error("[leaves] handleSubmit error:", err);
-      toast.error(err instanceof Error ? err.message : "Failed to submit leave request");
+      toast.error("Failed to submit leave request");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleStatusChange = async (leaveId: string, status: "APPROVED" | "REJECTED" | "CANCELLED") => {
+  const handleStatusChange = async (leaveId: string, newStatus: "APPROVED" | "CANCELLED") => {
     try {
       const res = await fetch(`/api/leaves/${leaveId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: newStatus }),
       });
       if (res.ok) {
-        toast.success(`Leave ${status.toLowerCase()}`);
+        toast.success(`Leave ${newStatus.toLowerCase()}`);
         fetchData();
       } else {
         const err = await res.json();
@@ -248,7 +264,29 @@ export default function LeaveManagementPage() {
       }
     } catch (err) {
       console.error("[leaves] handleStatusChange error:", err);
-      toast.error(err instanceof Error ? err.message : "Failed to update leave");
+      toast.error("Failed to update leave");
+    }
+  };
+
+  const handleRejectLeave = async (leaveId: string) => {
+    try {
+      const res = await fetch(`/api/leaves/${leaveId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status: "REJECTED" }),
+      });
+      if (res.ok) {
+        toast.success("Leave rejected");
+        setRejectLeaveId(null);
+        fetchData();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to update leave");
+      }
+    } catch (err) {
+      console.error("[leaves] handleStatusChange error:", err);
+      toast.error("Failed to update leave");
     }
   };
 
@@ -260,6 +298,7 @@ export default function LeaveManagementPage() {
       });
       if (res.ok) {
         toast.success("Leave deleted");
+        setDeleteLeaveId(null);
         fetchData();
       } else {
         const err = await res.json();
@@ -267,8 +306,18 @@ export default function LeaveManagementPage() {
       }
     } catch (err) {
       console.error("[leaves] handleDelete error:", err);
-      toast.error(err instanceof Error ? err.message : "Failed to delete leave");
+      toast.error("Failed to delete leave");
     }
+  };
+
+  const confirmDeleteLeave = async () => {
+    if (!deleteLeaveId) return;
+    await handleDelete(deleteLeaveId);
+  };
+
+  const confirmRejectLeave = async () => {
+    if (!rejectLeaveId) return;
+    await handleRejectLeave(rejectLeaveId);
   };
 
   // Calendar helpers
@@ -324,9 +373,10 @@ export default function LeaveManagementPage() {
     [leaves],
   );
 
-  const monthNames = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const teamOnLeaveToday = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return leaves.filter(l => l.status === "APPROVED" && l.startDate <= today && l.endDate >= today).length;
+  }, [leaves]);
 
   // Session loading guard
   if (status === "loading") {
@@ -421,13 +471,7 @@ export default function LeaveManagementPage() {
             <div className="flex items-center gap-3">
               <AlertTriangle className="h-8 w-8 text-orange-500" />
               <span className="text-3xl font-bold">
-                {leaves.filter((l) => {
-                  if (l.status !== "APPROVED") return false;
-                  const now = new Date();
-                  const start = safeParseDate(l.startDate);
-                  const end = safeParseDate(l.endDate);
-                  return now >= start && now <= end;
-                }).length}
+                {teamOnLeaveToday}
               </span>
             </div>
           </CardContent>
@@ -536,7 +580,7 @@ export default function LeaveManagementPage() {
                   <Button size="sm" variant="outline" className="text-green-600" onClick={() => handleStatusChange(leave.id, "APPROVED")}>
                     <CheckCircle2 className="h-3 w-3 mr-1" /> Approve
                   </Button>
-                  <Button size="sm" variant="outline" className="text-red-600" onClick={() => handleStatusChange(leave.id, "REJECTED")}>
+                  <Button size="sm" variant="outline" className="text-red-600" onClick={() => setRejectLeaveId(leave.id)}>
                     <XCircle className="h-3 w-3 mr-1" /> Reject
                   </Button>
                 </div>
@@ -624,26 +668,26 @@ export default function LeaveManagementPage() {
                         <div className="flex items-center gap-1">
                           {isUserAdmin && leave.status === "PENDING" && (
                             <>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-green-600" onClick={() => handleStatusChange(leave.id, "APPROVED")}>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-green-600" title="Approve" aria-label="Approve leave" onClick={() => handleStatusChange(leave.id, "APPROVED")}>
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                               </Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-600" onClick={() => handleStatusChange(leave.id, "REJECTED")}>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-600" title="Reject" aria-label="Reject leave" onClick={() => setRejectLeaveId(leave.id)}>
                                 <XCircle className="h-3.5 w-3.5" />
                               </Button>
                             </>
                           )}
                           {leave.status === "PENDING" && (leave.userId === session?.user?.id || isUserAdmin) && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-500" onClick={() => handleStatusChange(leave.id, "CANCELLED")}>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-500" title="Cancel" aria-label="Cancel leave" onClick={() => handleStatusChange(leave.id, "CANCELLED")}>
                               <Ban className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           {isUserAdmin && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)} title="Delete leave">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => setDeleteLeaveId(leave.id)} title="Delete" aria-label="Delete leave">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           {!isUserAdmin && leave.userId === session?.user?.id && leave.status === "PENDING" && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => handleDelete(leave.id)} title="Cancel leave">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => setDeleteLeaveId(leave.id)} title="Cancel" aria-label="Cancel leave">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
@@ -657,6 +701,38 @@ export default function LeaveManagementPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Leave Confirmation */}
+      <AlertDialog open={!!deleteLeaveId} onOpenChange={(open) => { if (!open) setDeleteLeaveId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Leave</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this leave record? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteLeave} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reject Leave Confirmation */}
+      <AlertDialog open={!!rejectLeaveId} onOpenChange={(open) => { if (!open) setRejectLeaveId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Leave</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to reject this leave request? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRejectLeave} className="bg-destructive hover:bg-destructive/90">Reject</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Add Leave Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

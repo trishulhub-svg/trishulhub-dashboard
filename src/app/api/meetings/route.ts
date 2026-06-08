@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createMeetingSchema, validateRequest } from "@/lib/validations"
-import { rateLimit } from "@/lib/rate-limit"
+import { meetingRateLimit } from "@/lib/rate-limit"
 
 // GET /api/meetings - List meetings with filters
 export async function GET(req: NextRequest) {
@@ -16,6 +16,12 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id
     const userRole = session.user.role
 
+    // Rate limit GET requests
+    const rl = meetingRateLimit(`meetings-get-${userId}`)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const { searchParams } = new URL(req.url)
     const date = searchParams.get("date")
     const startDate = searchParams.get("startDate")
@@ -27,7 +33,7 @@ export async function GET(req: NextRequest) {
     const pageSize = 50
 
     // Build where clause
-    const where: any = {}
+    const where: Record<string, unknown> = {}
 
     if (status) {
       where.status = status
@@ -43,11 +49,19 @@ export async function GET(req: NextRequest) {
 
     if (date) {
       const targetDate = new Date(date)
+      if (isNaN(targetDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date parameter" }, { status: 400 })
+      }
       const nextDay = new Date(targetDate)
       nextDay.setDate(nextDay.getDate() + 1)
       where.date = { gte: targetDate, lt: nextDay }
     } else if (startDate && endDate) {
-      where.date = { gte: new Date(startDate), lte: new Date(endDate) }
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return NextResponse.json({ error: "Invalid date range parameters" }, { status: 400 })
+      }
+      where.date = { gte: start, lte: end }
     } else if (!status || status === "SCHEDULED") {
       // Default: upcoming meetings
       const today = new Date()
@@ -83,7 +97,7 @@ export async function GET(req: NextRequest) {
     ])
 
     return NextResponse.json({
-      data: JSON.parse(JSON.stringify(meetings)),
+      data: meetings,
       pagination: {
         page,
         pageSize,
@@ -91,8 +105,8 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / pageSize),
       },
     })
-  } catch (error: any) {
-    console.error("[meetings] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -114,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
 
     // C10: Rate limit
-    const rl = rateLimit(`meetings-${session.user.id}`, 30, 60000)
+    const rl = meetingRateLimit(`meetings-${session.user.id}`)
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
@@ -128,6 +142,19 @@ export async function POST(req: NextRequest) {
     }
 
     const { title, description, date, startTime, endTime, meetingType, meetingLink, projectId, attendeeIds, notes } = validation.data
+
+    // Validate attendee IDs exist
+    if (attendeeIds && attendeeIds.length > 0) {
+      const existingUsers = await db.user.findMany({
+        where: { id: { in: attendeeIds } },
+        select: { id: true }
+      })
+      const validIds = existingUsers.map(u => u.id)
+      const invalidIds = attendeeIds.filter(id => !validIds.includes(id))
+      if (invalidIds.length > 0) {
+        return NextResponse.json({ error: `Users not found: ${invalidIds.join(", ")}` }, { status: 400 })
+      }
+    }
 
     // Create the meeting with attendees
     const meeting = await db.meeting.create({
@@ -182,8 +209,8 @@ export async function POST(req: NextRequest) {
     )
 
     return NextResponse.json(meeting, { status: 201 })
-  } catch (error: any) {
-    console.error("[meetings] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

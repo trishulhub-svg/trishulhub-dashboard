@@ -70,50 +70,54 @@ export async function GET(req: NextRequest) {
     // DEVELOPER / VIEWER badges
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Active tasks assigned to this user (not DONE, not CANCELLED)
-    const activeTaskCount = await db.task.count({
-      where: {
-        assignedTo: userId,
-        assigneeType: "HUMAN",
-        status: { in: ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"] },
-      },
-    })
-
-    // Tasks with upcoming deadline (within 3 days) or overdue
-    const urgentTaskCount = await db.task.count({
-      where: {
-        assignedTo: userId,
-        assigneeType: "HUMAN",
-        status: { in: ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"] },
-        deadline: {
-          lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+    const [
+      activeTaskCount,
+      urgentTaskCount,
+      mySubmittedCount,
+      myPendingLeaves,
+      myResolvedApprovals,
+    ] = await Promise.all([
+      db.task.count({
+        where: {
+          assignedTo: userId,
+          assigneeType: "HUMAN",
+          status: { in: ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"] },
         },
-      },
-    })
-
-    // Tasks submitted for approval (waiting on admin)
-    const mySubmittedCount = await db.task.count({
-      where: {
-        assignedTo: userId,
-        assigneeType: "HUMAN",
-        status: "AWAITING_APPROVAL",
-      },
-    })
-
-    // My pending leave requests
-    const myPendingLeaves = await db.leaveRequest.count({
-      where: {
-        userId,
-        status: "PENDING",
-      },
-    })
-
-    // My approvals that got resolved (for notification on Approvals page)
-    const myResolvedApprovals = await db.approval.count({
-      where: {
-        requesterId: userId,
-        status: { in: ["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"] },
-      },
-    })
+      }),
+      // Tasks with upcoming deadline (within 3 days) or overdue
+      db.task.count({
+        where: {
+          assignedTo: userId,
+          assigneeType: "HUMAN",
+          status: { in: ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"] },
+          deadline: {
+            lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+          },
+        },
+      }),
+      // Tasks submitted for approval (waiting on admin)
+      db.task.count({
+        where: {
+          assignedTo: userId,
+          assigneeType: "HUMAN",
+          status: "AWAITING_APPROVAL",
+        },
+      }),
+      // My pending leave requests
+      db.leaveRequest.count({
+        where: {
+          userId,
+          status: "PENDING",
+        },
+      }),
+      // My approvals that got resolved (for notification on Approvals page)
+      db.approval.count({
+        where: {
+          requesterId: userId,
+          status: { in: ["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"] },
+        },
+      }),
+    ])
 
     // ── Map to nav badges ──
 

@@ -4,18 +4,26 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/availability/check - Check who is available on a given date/time
 export async function GET(req: NextRequest) {
   try {
-    await ensureTable("Availability")
-    await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    await ensureTable("Availability")
+    await ensureTable("AvailabilityOverride")
+
+    // Rate limit
+    const rl = rateLimit(`availability-check-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
     const { searchParams } = new URL(req.url)
@@ -26,45 +34,56 @@ export async function GET(req: NextRequest) {
     }
 
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+      return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+    }
     const dayOfWeek = date.getDay() // 0=Sunday, 6=Saturday
     const startTime = searchParams.get("startTime")
     const endTime = searchParams.get("endTime")
 
-    // Get all non-client, active users
+    // Get all non-client, active users (with take limit)
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" }, isActive: true },
       select: { id: true, name: true, email: true, role: true, department: true, avatar: true },
       orderBy: { name: "asc" },
+      take: 200,
     })
 
-    // Get approved leaves overlapping with the date
+    // Get start/end of day
     const startOfDay = new Date(dateStr)
     startOfDay.setHours(0, 0, 0, 0)
     const endOfDay = new Date(dateStr)
     endOfDay.setHours(23, 59, 59, 999)
 
-    const approvedLeaves = await db.leave.findMany({
-      where: {
-        status: "APPROVED",
-        startDate: { lte: endOfDay },
-        endDate: { gte: startOfDay },
-      },
-      include: {
-        user: { select: { id: true, name: true } },
-      },
-    })
+    // Wrap 3 DB queries in Promise.all
+    const [approvedLeaves, availabilities, overrides] = await Promise.all([
+      // Get approved leaves overlapping with the date
+      db.leave.findMany({
+        where: {
+          status: "APPROVED",
+          startDate: { lte: endOfDay },
+          endDate: { gte: startOfDay },
+        },
+        include: {
+          user: { select: { id: true, name: true } },
+        },
+        take: 500,
+      }),
 
-    // Get availability schedules for the day of week
-    const availabilities = await db.availability.findMany({
-      where: { dayOfWeek },
-    })
+      // Get availability schedules for the day of week
+      db.availability.findMany({
+        where: { dayOfWeek },
+        take: 500,
+      }),
 
-    // Get overrides for the specific date
-    const overrides = await db.availabilityOverride.findMany({
-      where: {
-        date: { gte: startOfDay, lte: endOfDay },
-      },
-    })
+      // Get overrides for the specific date
+      db.availabilityOverride.findMany({
+        where: {
+          date: { gte: startOfDay, lte: endOfDay },
+        },
+        take: 500,
+      }),
+    ])
 
     // Build response for each user
     const results = users.map((user) => {
@@ -136,8 +155,8 @@ export async function GET(req: NextRequest) {
     })
 
     return NextResponse.json(results)
-  } catch (error: any) {
-    console.error("[availability/check] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[availability/check] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

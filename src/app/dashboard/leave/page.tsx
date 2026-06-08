@@ -2,16 +2,18 @@
 
 import Link from "next/link"
 import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { AlertTriangle } from "lucide-react"
 
 export default function LegacyLeavePage() {
+  const router = useRouter()
   useEffect(() => {
     // Auto-redirect to the enhanced leaves page after a brief delay
     const timer = setTimeout(() => {
-      window.location.href = "/dashboard/leaves"
+      router.push("/dashboard/leaves")
     }, 3000)
     return () => clearTimeout(timer)
-  }, [])
+  }, [router])
 
   return (
     <div className="flex items-center justify-center min-h-[50vh] p-8">

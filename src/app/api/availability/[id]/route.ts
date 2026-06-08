@@ -11,7 +11,6 @@ const timeRegex = /^\d{2}:\d{2}$/
 // PATCH /api/availability/[id] - Update availability
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await ensureTable("Availability")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -19,6 +18,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
+
+    await ensureTable("Availability")
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
@@ -30,12 +31,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     let body
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
 
-    const existing = await db.availability.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: "Availability not found" }, { status: 404 })
-    }
-
-    const data: any = {}
+    const data: Record<string, unknown> = {}
 
     // W38: Validate fields
     if (body.dayOfWeek !== undefined) {
@@ -64,17 +60,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.isAvailable = body.isAvailable
     }
 
-    const availability = await db.availability.update({
-      where: { id },
-      data,
-      include: {
-        user: { select: { id: true, name: true, email: true, avatar: true } },
-      },
+    const availability = await db.$transaction(async (tx) => {
+      const existing = await tx.availability.findUnique({ where: { id } })
+      if (!existing) {
+        throw new Error("NOT_FOUND")
+      }
+      return tx.availability.update({
+        where: { id },
+        data,
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      })
     })
 
     return NextResponse.json(availability)
-  } catch (error: any) {
-    console.error("[availability] PATCH error:", error.message)
+  } catch (error: unknown) {
+    console.error("[availability] PATCH error:", error instanceof Error ? error.message : String(error))
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Availability not found" }, { status: 404 })
+    }
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -82,7 +87,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 // DELETE /api/availability/[id] - Delete availability
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await ensureTable("Availability")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -90,6 +94,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
+
+    await ensureTable("Availability")
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
@@ -99,15 +105,20 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const { id } = await params
 
-    const existing = await db.availability.findUnique({ where: { id } })
-    if (!existing) {
+    await db.$transaction(async (tx) => {
+      const existing = await tx.availability.findUnique({ where: { id } })
+      if (!existing) {
+        throw new Error("NOT_FOUND")
+      }
+      await tx.availability.delete({ where: { id } })
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error: unknown) {
+    console.error("[availability] DELETE error:", error instanceof Error ? error.message : String(error))
+    if (error instanceof Error && error.message === "NOT_FOUND") {
       return NextResponse.json({ error: "Availability not found" }, { status: 404 })
     }
-
-    await db.availability.delete({ where: { id } })
-    return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[availability] DELETE error:", error.message)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

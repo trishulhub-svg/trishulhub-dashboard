@@ -191,3 +191,36 @@ export function canManageDeals(role: string): boolean {
 export function canViewFinancialData(role: string): boolean {
   return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role)
 }
+
+// === HR RBAC Functions ===
+
+export function canManageLeave(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
+}
+
+export function canApproveLeave(role: string, isOwnLeave: boolean): boolean {
+  // Users can cancel their own leaves. Admins/Managers can approve/reject.
+  if (isOwnLeave) return true;
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
+}
+
+export function canManageAttendance(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
+}
+
+export function canManageTraining(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
+}
+
+export function canManageEmployees(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN"].includes(role);
+}
+
+export function canViewHRData(role: string, isOwnData: boolean): boolean {
+  if (isOwnData) return true;
+  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
+}
+
+// TODO: Phase 7 — Add own-data vs team-data separation function:
+// canViewTeamHRData(role, userId, targetUserId, teamMemberIds) 
+// that checks if targetUserId is in the user's managed team

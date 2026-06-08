@@ -1,25 +1,40 @@
+// DEPRECATED: Use /api/leaves/[id] instead. This endpoint reads ID from body which is less secure.
+
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isAdmin } from "@/lib/rbac"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
 
 // GET /api/leave - List leave requests (DEPRECATED: use /api/leaves instead)
 export async function GET(req: NextRequest) {
   try {
-    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`leave-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    await ensureTable("Leave")
+
     const userId = session.user.id
     const userRole = session.user.role
+    const { searchParams } = new URL(req.url)
 
     // Admins see all, others see their own
-    const where = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
+    const where: Record<string, unknown> = isAdmin(userRole)
       ? {}
       : { userId }
+
+    // Pagination
+    const page = Math.max(Number(searchParams.get("page")) || 1, 1)
+    const take = Math.max(Number(searchParams.get("limit")) || 50, 1)
+    const skip = (page - 1) * take
 
     const leaves = await db.leave.findMany({
       where,
@@ -27,29 +42,36 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },
+      take,
+      skip,
     })
 
     const response = NextResponse.json(leaves)
     response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
     return response
-  } catch (error: any) {
-    console.error("[leave] GET error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[leave] GET Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // POST /api/leave - Create a leave request
 export async function POST(req: NextRequest) {
   try {
-    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`leave-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    await ensureTable("Leave")
+
     const userId = session.user.id
     let body
-    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
     const { leaveType, startDate, endDate, reason } = body
 
     // [W16] Validate leave type against whitelist
@@ -60,6 +82,11 @@ export async function POST(req: NextRequest) {
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
+    }
+
+    // Validate startDate <= endDate
+    if (new Date(startDate) > new Date(endDate)) {
+      return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
     }
 
     const leave = await db.leave.create({
@@ -97,69 +124,79 @@ export async function POST(req: NextRequest) {
           },
         })
       }
-    } catch (notifyErr: any) {
-      console.error("[leave] POST notification error (non-blocking):", notifyErr.message)
+    } catch (notifyErr: unknown) {
+      console.error("[leave] POST notification error (non-blocking):", notifyErr)
     }
 
     const response = NextResponse.json(leave, { status: 201 })
     response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
     return response
-  } catch (error: any) {
-    console.error("[leave] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[leave] POST Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // PATCH /api/leave - Approve or reject a leave request
 export async function PATCH(req: NextRequest) {
   try {
-    await ensureTable("Leave")
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`leave-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    await ensureTable("Leave")
+
     const userId = session.user.id
     const userRole = session.user.role
 
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Only admins can approve/reject leave requests" }, { status: 403 })
     }
 
     let body
-    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
     const { id, status, reason: feedback } = body
 
     if (!id || !["APPROVED", "REJECTED"].includes(status)) {
       return NextResponse.json({ error: "Valid ID and status (APPROVED/REJECTED) required" }, { status: 400 })
     }
 
-    const existingLeave = await db.leave.findUnique({ where: { id: id as string } })
-    if (!existingLeave) {
+    // Wrap leave approve/reject in transaction to prevent TOCTOU
+    const leave = await db.$transaction(async (tx) => {
+      const existingLeave = await tx.leave.findUnique({ where: { id: id as string } })
+      if (!existingLeave) return null
+
+      // [C7] Prevent self-approval bypass
+      if (existingLeave.userId === userId) {
+        throw new Error("Cannot approve your own leave request")
+      }
+
+      // [W17] Validate status transitions: only PENDING → APPROVED or PENDING → REJECTED
+      if (existingLeave.status !== "PENDING") {
+        throw new Error("This leave request has already been processed")
+      }
+
+      return await tx.leave.update({
+        where: { id },
+        data: {
+          status,
+          approvedBy: userId,
+          approvedAt: new Date(),
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      })
+    })
+
+    if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 })
     }
-
-    // [C7] Prevent self-approval bypass
-    if (existingLeave.userId === userId) {
-      return NextResponse.json({ error: "Cannot approve your own leave request" }, { status: 403 })
-    }
-
-    // [W17] Validate status transitions: only PENDING → APPROVED or PENDING → REJECTED
-    if (existingLeave.status !== "PENDING") {
-      return NextResponse.json({ error: "This leave request has already been processed" }, { status: 400 })
-    }
-
-    const leave = await db.leave.update({
-      where: { id },
-      data: {
-        status,
-        approvedBy: userId,
-        approvedAt: new Date(),
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-      },
-    })
 
     // Notify the employee (fire-and-forget)
     try {
@@ -173,8 +210,8 @@ export async function PATCH(req: NextRequest) {
           metadata: JSON.stringify({ leaveRequestId: leave.id }),
         },
       })
-    } catch (notifyErr: any) {
-      console.error("[leave] PATCH notification error (non-blocking):", notifyErr.message)
+    } catch (notifyErr: unknown) {
+      console.error("[leave] PATCH notification error (non-blocking):", notifyErr)
     }
 
     // Notify HR agent about leave approval for workload tracking (fire-and-forget)
@@ -191,15 +228,19 @@ export async function PATCH(req: NextRequest) {
           },
         })
       }
-    } catch (hrErr: any) {
-      console.error("[leave] PATCH HR agent notification error (non-blocking):", hrErr.message)
+    } catch (hrErr: unknown) {
+      console.error("[leave] PATCH HR agent notification error (non-blocking):", hrErr)
     }
 
     const response = NextResponse.json(leave)
     response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
     return response
-  } catch (error: any) {
-    console.error("[leave] PATCH error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  } catch (error: unknown) {
+    if (error instanceof Error && (error.message.includes("Cannot approve your own") || error.message.includes("already been processed"))) {
+      const status = error.message.includes("Cannot approve") ? 403 : 400
+      return NextResponse.json({ error: error.message }, { status })
+    }
+    console.error("[leave] PATCH Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

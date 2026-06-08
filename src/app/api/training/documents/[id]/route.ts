@@ -19,7 +19,8 @@ export async function GET(
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/documents/[id]] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -55,8 +56,8 @@ export async function GET(
     if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
     return NextResponse.json(document)
-  } catch (error: any) {
-    console.error("[training/documents/[id]] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/documents/[id]] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -74,7 +75,8 @@ export async function DELETE(
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/documents/[id]] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -86,22 +88,20 @@ export async function DELETE(
     const document = await db.trainingDocument.findUnique({ where: { id } })
     if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
-    // Delete in correct order to respect FK constraints:
-    // 1. Delete test attempts (via assignments)
-    // 2. Delete assignments
-    // 3. Delete tests (cascade already handled by schema, but be explicit)
-    // 4. Delete document
-    const assignments = await db.trainingAssignment.findMany({ where: { documentId: id }, select: { id: true } })
-    for (const a of assignments) {
-      await db.testAttempt.deleteMany({ where: { assignmentId: a.id } })
-    }
-    await db.trainingAssignment.deleteMany({ where: { documentId: id } })
-    await db.trainingTest.deleteMany({ where: { documentId: id } })
-    await db.trainingDocument.delete({ where: { id } })
+    // Cascading delete wrapped in transaction for atomicity
+    await db.$transaction(async (tx) => {
+      const assignments = await tx.trainingAssignment.findMany({ where: { documentId: id } })
+      for (const assignment of assignments) {
+        await tx.testAttempt.deleteMany({ where: { assignmentId: assignment.id } })
+      }
+      await tx.trainingAssignment.deleteMany({ where: { documentId: id } })
+      await tx.trainingTest.deleteMany({ where: { documentId: id } })
+      await tx.trainingDocument.delete({ where: { id } })
+    })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[training/documents/[id]] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/documents/[id]] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

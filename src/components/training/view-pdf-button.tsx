@@ -51,7 +51,7 @@ export function ViewPdfButton({
 
       setPdfUrl(URL.createObjectURL(blob))
       onPdfOpened?.()
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("PDF generation failed:", err)
       toast.error("Failed to generate PDF. Please try again.")
     } finally {

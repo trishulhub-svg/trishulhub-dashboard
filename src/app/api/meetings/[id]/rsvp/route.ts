@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rsvpRateLimit } from "@/lib/rate-limit"
 
 // POST /api/meetings/[id]/rsvp - RSVP to a meeting
 // I23: Note — Manual validation is used here. Future: migrate to Zod schema for consistency
@@ -18,6 +19,17 @@ export async function POST(
 
     const userId = session.user.id
     const { id } = await params
+
+    // Rate limit RSVP requests
+    const rl = rsvpRateLimit(`rsvp-${userId}`)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
+    // Check that meeting exists and is not CANCELLED
+    const meeting = await db.meeting.findUnique({ where: { id } })
+    if (!meeting) return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
+    if (meeting.status === "CANCELLED") return NextResponse.json({ error: "Meeting is cancelled" }, { status: 400 })
 
     let body
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
@@ -62,13 +74,13 @@ export async function POST(
           metadata: JSON.stringify({ meetingId: id }),
         },
       })
-    } catch (notifyErr: any) {
-      console.error("[meetings/rsvp] notification error (non-blocking):", notifyErr.message)
+    } catch (notifyErr: unknown) {
+      console.error("[meetings/rsvp] notification error (non-blocking):", notifyErr)
     }
 
     return NextResponse.json(updated)
-  } catch (error: any) {
-    console.error("[meetings/id/rsvp] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings/id/rsvp] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

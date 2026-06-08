@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button"
 import { FileText, Loader2, X, Download, ZoomIn, ZoomOut, CheckCircle2 } from "lucide-react"
 
 // Set up PDF.js worker from CDN
+// TODO: Phase 7 — Security: pdf.js worker loaded from CDN without Subresource Integrity.
+// Bundle locally via: import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+// Then: pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 interface PdfViewerInnerProps {
@@ -58,6 +61,7 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose, onMarkAsRead }:
   }, [onClose])
 
   // Lock body scroll
+  // TODO: Phase 7 — Add focus trap for accessibility when modal is open
   useEffect(() => {
     document.body.style.overflow = "hidden"
     return () => { document.body.style.overflow = "" }
@@ -77,7 +81,12 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose, onMarkAsRead }:
   const displayPercent = Math.round(scale * displayMultiplier)
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-[#E5E7EB] dark:bg-zinc-800">
+    <div 
+      className="fixed inset-0 z-[100] flex flex-col bg-[#E5E7EB] dark:bg-zinc-800"
+      role="dialog"
+      aria-modal="true"
+      aria-label="PDF Document Viewer"
+    >
       {/* ── Toolbar ── */}
       <div className="flex items-center justify-between px-3 py-2 sm:px-4 sm:py-3 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 shrink-0 z-10 shadow-sm">
         {/* Left: Logo + Title */}
@@ -95,22 +104,22 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose, onMarkAsRead }:
 
         {/* Right: Controls */}
         <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={zoomOut} disabled={scale <= 0.5} title="Zoom out">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={zoomOut} disabled={scale <= 0.5} aria-label="Zoom out">
             <ZoomOut className="h-4 w-4" />
           </Button>
           <span className="text-[10px] sm:text-xs font-medium text-muted-foreground min-w-[36px] sm:min-w-[42px] text-center tabular-nums">
             {displayPercent}%
           </span>
-          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={zoomIn} disabled={scale >= 3} title="Zoom in">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={zoomIn} disabled={scale >= 3} aria-label="Zoom in">
             <ZoomIn className="h-4 w-4" />
           </Button>
 
           <div className="w-px h-4 bg-gray-200 dark:bg-zinc-700 mx-0.5 sm:mx-1" />
 
-          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={handleDownload} title="Download PDF">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={handleDownload} aria-label="Download PDF">
             <Download className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={onClose} title="Close">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={onClose} aria-label="Close">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -153,8 +162,9 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose, onMarkAsRead }:
                   <Page
                     pageNumber={i + 1}
                     scale={scale}
-                    renderTextLayer={false}
+                    renderTextLayer={true}
                     renderAnnotationLayer={false}
+                    // TODO: Consider performance impact of text layer for very long documents
                     loading={
                       <div className="flex items-center justify-center bg-white" style={{ minHeight: "400px" }}>
                         <div className="flex flex-col items-center gap-3">

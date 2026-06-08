@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/assignments] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const status = searchParams.get("status") || ""
 
-    const where: any = {}
+    const where: Record<string, unknown> = {}
 
     // Non-admin users see only their own assignments
     if (!isAdmin(userRole)) {
@@ -48,11 +49,12 @@ export async function GET(req: NextRequest) {
         attempts: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: { createdAt: "desc" },
+      take: 50,
     })
 
     return NextResponse.json(assignments)
-  } catch (error: any) {
-    console.error("[training/assignments] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/assignments] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -67,15 +69,21 @@ export async function POST(req: NextRequest) {
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/assignments] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
     const rl = rateLimit(userId, 10, 60000)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { documentId, employeeIds, testLevel, dueDate, timeLimit } = body
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { documentId, employeeIds, testLevel, dueDate, timeLimit } = body as { documentId?: string; employeeIds?: string[]; testLevel?: string; dueDate?: string; timeLimit?: number }
 
     if (!documentId) return NextResponse.json({ error: "Document ID is required" }, { status: 400 })
     if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
@@ -84,7 +92,7 @@ export async function POST(req: NextRequest) {
     if (!testLevel || !["LOW", "MEDIUM", "HIGH"].includes(testLevel)) {
       return NextResponse.json({ error: "Test level must be LOW, MEDIUM, or HIGH" }, { status: 400 })
     }
-    const parsedTimeLimit = timeLimit ? Math.max(5, Math.min(120, parseInt(timeLimit) || 20)) : null
+    const parsedTimeLimit = timeLimit ? Math.max(5, Math.min(120, parseInt(String(timeLimit)) || 20)) : null
 
     // Permission check: ADMIN cannot assign training to SUPER_ADMIN users
     if (session.user.role === "ADMIN") {
@@ -118,7 +126,8 @@ export async function POST(req: NextRequest) {
     if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
     // Create assignments for each employee
-    const assignments: any[] = []
+    // TODO: Phase 7 — Use db.$transaction with createMany for batch assignment creation
+    const assignments: { id: string; assignedTo: string; documentId: string }[] = []
     for (const empId of employeeIds) {
       // Check if assignment already exists
       const existing = await db.trainingAssignment.findFirst({
@@ -160,14 +169,14 @@ export async function POST(req: NextRequest) {
             metadata: JSON.stringify({ assignmentId: assignment.id, documentId }),
           },
         })
-      } catch (notifyErr: any) {
-        console.error("[training/assignments] Notification error (non-blocking):", notifyErr.message)
+      } catch (notifyErr: unknown) {
+        console.error("[training/assignments] Notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : notifyErr)
       }
     }
 
     return NextResponse.json(assignments, { status: 201 })
-  } catch (error: any) {
-    console.error("[training/assignments] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/assignments] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

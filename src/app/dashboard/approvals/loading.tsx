@@ -10,9 +10,15 @@ export default function PageLoading() {
         <div className="h-10 w-36 bg-muted/50 animate-pulse rounded-lg" />
       </div>
       {/* Stats skeleton */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {[1, 2, 3].map((i) => (
+      <div className="grid gap-4 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
           <div key={i} className="h-28 rounded-xl bg-muted/50 animate-pulse" />
+        ))}
+      </div>
+      {/* Tab bar skeleton */}
+      <div className="flex gap-2">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-9 w-28 bg-muted/50 animate-pulse rounded-lg" />
         ))}
       </div>
       {/* Content skeleton */}

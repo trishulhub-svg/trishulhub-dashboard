@@ -41,7 +41,17 @@ function getWeekRange(dateStr: string): { weekStart: Date; weekEnd: Date } {
 // GET /api/availability/schedule
 export async function GET(req: NextRequest) {
   try {
-    // W35: Consolidate all ensureTable calls into a single batch
+    // ── Auth ──
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    // W35: Consolidate all ensureTable calls into a single batch (AFTER auth)
     await Promise.all([
       ensureTable("Availability"),
       ensureTable("AvailabilityOverride"),
@@ -52,16 +62,6 @@ export async function GET(req: NextRequest) {
       ensureTable("Leave"),
       ensureTable("LeaveRequest"),
     ])
-
-    // ── Auth ──
-    const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (!isAdmin(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-    }
 
     // ── Rate limit ──
     const rl = rateLimit(
@@ -95,6 +95,11 @@ export async function GET(req: NextRequest) {
     // ── Single-user daily view ──
     if (!userId) {
       return NextResponse.json({ error: "userId parameter is required for daily view" }, { status: 400 })
+    }
+
+    // Validate userId format
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId)) {
+      return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
     }
 
     return handleDailyView(dateStr, dateObj, userId)
@@ -247,9 +252,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
   }
 
   // If override specifies new times, use those instead
-  if (unavailableOverride && unavailableOverride.startTime && unavailableOverride.endTime && unavailableOverride.isAvailable) {
-    // This won't trigger since we already filtered for !isAvailable, but kept for completeness
-  }
   if (overrides.length > 0 && overrides.some(o => o.isAvailable && o.startTime && o.endTime)) {
     const availableOverrides = overrides.filter(o => o.isAvailable && o.startTime && o.endTime)
     totalScheduledHours = 0
@@ -332,7 +334,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     taskSummary,
   }
 
-  return NextResponse.json(JSON.parse(JSON.stringify(response)))
+  return NextResponse.json(response)
 }
 
 // ────────────────────────────────────────────
@@ -353,7 +355,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
   const weekDayStrings = weekDays.map(formatDateOnly)
   const dayOfWeeks = weekDays.map(d => d.getDay())
 
-  // Fetch all active non-CLIENT users
+  // Fetch all active non-CLIENT users (limit to 200)
   const users = await db.user.findMany({
     where: {
       isActive: true,
@@ -368,6 +370,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
       avatar: true,
     },
     orderBy: { name: "asc" },
+    take: 200,
   })
 
   if (users.length === 0) {
@@ -593,5 +596,5 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
     users: usersSchedule,
   }
 
-  return NextResponse.json(JSON.parse(JSON.stringify(response)))
+  return NextResponse.json(response)
 }

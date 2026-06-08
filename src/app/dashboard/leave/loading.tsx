@@ -1,14 +1,9 @@
 export default function LeaveLoading() {
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="h-6 w-32 animate-pulse rounded bg-muted/50" />
-        <div className="h-9 w-36 animate-pulse rounded bg-muted/50" />
-      </div>
-      <div className="space-y-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/50" />
-        ))}
+    <div className="flex items-center justify-center min-h-[50vh] p-8">
+      <div className="max-w-md w-full rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-6 text-center">
+        <div className="h-6 w-48 mx-auto mb-4 animate-pulse rounded bg-yellow-500/30" />
+        <div className="h-4 w-72 mx-auto animate-pulse rounded bg-yellow-500/20" />
       </div>
     </div>
   );

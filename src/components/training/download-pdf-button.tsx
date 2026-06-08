@@ -2,7 +2,7 @@
 
 import React, { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Download, Loader2, FileText } from "lucide-react"
+import { Loader2, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 interface DownloadPdfButtonProps {
@@ -53,7 +53,7 @@ export function DownloadPdfButton({
       URL.revokeObjectURL(url)
 
       toast.success("PDF downloaded successfully!")
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("PDF generation failed:", err)
       toast.error("Failed to generate PDF. Please try again.")
     } finally {

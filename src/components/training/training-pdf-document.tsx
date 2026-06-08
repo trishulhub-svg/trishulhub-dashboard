@@ -7,7 +7,6 @@ import {
   Text,
   View,
   StyleSheet,
-  Image,
 } from "@react-pdf/renderer"
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -24,9 +23,6 @@ const WHITE = "#FFFFFF"
 const BORDER = "#E5E7EB"
 const CODE_BG = "#F9FAFB"
 const TABLE_ALT = "#F9FAFB"
-
-// Embed logo as base64 — no network dependency, no redirect issues, no CORS
-const LOGO_BASE64 = `data:image/png;base64,${process.env.NEXT_PUBLIC_LOGO_BASE64 || ""}`
 
 const styles = StyleSheet.create({
   // ── Page: padding accounts for fixed header (~55px) and footer (~30px) ──

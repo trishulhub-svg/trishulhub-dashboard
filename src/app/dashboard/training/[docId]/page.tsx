@@ -131,7 +131,7 @@ export default function DocumentDetailPage() {
   const { data: session, status: authStatus } = useSession()
   const router = useRouter()
   const params = useParams()
-  const docId = params.docId as string
+  const docId = params.docId;
 
   const [document, setDocument] = useState<DocumentData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -154,7 +154,9 @@ export default function DocumentDetailPage() {
         setDocument(data)
         try {
           setImageUrls(JSON.parse(data.imageUrls || "[]"))
-        } catch (_e) { /* ignore */ }
+        } catch (e) {
+          console.error("[training-doc] Failed to parse image URLs:", e);
+        }
       } else if (res.status === 404) {
         toast.error("Document not found")
         router.push("/dashboard/training")
@@ -188,7 +190,9 @@ export default function DocumentDetailPage() {
 
         setEmployees(filtered.map((e: Employee) => ({ id: e.id, name: e.name, email: e.email, role: e.role })))
       }
-    } catch (_e) { /* ignore */ }
+    } catch (e) {
+      console.error("[training-doc] Failed to fetch employees:", e);
+    }
   }, [session])
 
   useEffect(() => {
@@ -514,16 +518,16 @@ export default function DocumentDetailPage() {
                             <p className="text-sm text-muted-foreground p-3 text-center">No developers found</p>
                           ) : (
                             employees.map((emp) => (
-                              <label
+                              <div
                                 key={emp.id}
                                 className={cn(
                                   "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-accent/50 transition-colors",
                                   selectedEmployees.includes(emp.id) && "bg-primary/5"
                                 )}
+                                onClick={() => toggleEmployee(emp.id)}
                               >
                                 <Checkbox
                                   checked={selectedEmployees.includes(emp.id)}
-                                  onCheckedChange={() => toggleEmployee(emp.id)}
                                 />
                                 <Avatar className="h-7 w-7">
                                   <AvatarFallback className="text-xs">{emp.name.split(" ").map((n) => n[0]).join("")}</AvatarFallback>
@@ -532,7 +536,7 @@ export default function DocumentDetailPage() {
                                   <p className="text-sm font-medium truncate">{emp.name}</p>
                                   <p className="text-xs text-muted-foreground truncate">{emp.email}</p>
                                 </div>
-                              </label>
+                              </div>
                             ))
                           )}
                         </div>

@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
 
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/documents] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -30,8 +31,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get("search") || ""
     const status = searchParams.get("status") || ""
+    const page = Math.max(Number(searchParams.get("page")) || 1, 1)
+    const skip = (page - 1) * 50
 
-    const where: any = {}
+    const where: Record<string, unknown> = {}
     if (search) where.topic = { contains: search }
     if (status) where.status = status
 
@@ -42,11 +45,13 @@ export async function GET(req: NextRequest) {
         _count: { select: { tests: true, assignments: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50,
+      skip,
     })
 
     return NextResponse.json(documents)
-  } catch (error: any) {
-    console.error("[training/documents] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/documents] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -60,15 +65,21 @@ export async function POST(req: NextRequest) {
 
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/documents] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
     const rl = rateLimit(userId, 5, 60000)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { topic, brief, attachmentText } = body
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { topic, brief, attachmentText } = body as { topic?: string; brief?: string; attachmentText?: string }
 
     if (!topic || typeof topic !== "string" || topic.trim().length < 3) {
       return NextResponse.json({ error: "Topic must be at least 3 characters" }, { status: 400 })
@@ -178,19 +189,21 @@ ${attachmentText ? "- Base the content primarily on the provided reference mater
 
         // Update API key usage tracking
         if (result.apiKeyId && result.cost > 0) {
-          await db.apiKey.update({
-            where: { id: result.apiKeyId },
-            data: { currentSpend: { increment: result.cost } },
-          })
-          await db.apiUsageLog.create({
-            data: {
-              apiKeyId: result.apiKeyId,
-              model: result.model,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              cost: result.cost,
-            },
-          })
+          await Promise.all([
+            db.apiKey.update({
+              where: { id: result.apiKeyId },
+              data: { currentSpend: { increment: result.cost } },
+            }),
+            db.apiUsageLog.create({
+              data: {
+                apiKeyId: result.apiKeyId,
+                model: result.model,
+                inputTokens: result.inputTokens,
+                outputTokens: result.outputTokens,
+                cost: result.cost,
+              },
+            }),
+          ])
         }
 
         // Generate summary from content
@@ -217,15 +230,15 @@ ${attachmentText ? "- Base the content primarily on the provided reference mater
         })
 
         console.log(`[training/documents] Document ${document.id} generated successfully (${result.model}, ${result.outputTokens} tokens)`)
-      } catch (bgError: any) {
-        console.error("[training/documents] Background generation error:", bgError.message, bgError.stack)
+      } catch (bgError: unknown) {
+        console.error("[training/documents] Background generation error:", bgError instanceof Error ? bgError.message : bgError)
         try {
           await db.trainingDocument.update({
             where: { id: document.id },
             data: { status: "GENERATION_FAILED" },
           })
-        } catch (updateErr: any) {
-          console.error("[training/documents] Failed to update status to FAILED:", updateErr.message)
+        } catch (updateErr: unknown) {
+          console.error("[training/documents] Failed to update status to FAILED:", updateErr instanceof Error ? updateErr.message : updateErr)
         }
       }
     })
@@ -236,8 +249,8 @@ ${attachmentText ? "- Base the content primarily on the provided reference mater
       generator: { id: userId, name: session.user.name || "Admin" },
       _count: { tests: 0, assignments: 0 },
     }, { status: 201 })
-  } catch (error: any) {
-    console.error("[training/documents] POST error:", error.message, error.stack)
+  } catch (error: unknown) {
+    console.error("[training/documents] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to generate document" }, { status: 500 })
   }
 }

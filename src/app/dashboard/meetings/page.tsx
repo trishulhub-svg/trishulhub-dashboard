@@ -25,6 +25,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -42,6 +52,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "sonner";
 import { cn, safeArray } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { Checkbox } from "@/components/ui/checkbox";
+
+// ━━ Meeting link URL sanitization — prevent javascript: XSS ━━
+function safeMeetingLink(link: string | null): string {
+  if (!link) return '#';
+  try {
+    const url = new URL(link);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? link : '#';
+  } catch {
+    return '#';
+  }
+}
 
 // ━━ Types ━━
 interface MeetingAttendee {
@@ -206,6 +228,8 @@ export default function MeetingsPage() {
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Today: true, Tomorrow: true, "This Week": true, Later: true });
 
+  const [cancelMeetingId, setCancelMeetingId] = useState<string | null>(null);
+
   // Form state
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
@@ -232,7 +256,7 @@ export default function MeetingsPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error("Failed to fetch meetings");
+      console.error("[meetings] Failed to fetch meetings:", err);
       toast.error("Failed to load meetings");
     } finally {
       setLoading(false);
@@ -438,6 +462,7 @@ export default function MeetingsPage() {
       if (res.ok) {
         toast.success("Meeting cancelled");
         setDetailOpen(false);
+        setCancelMeetingId(null);
         fetchMeetings();
       } else {
         const err = await res.json();
@@ -445,6 +470,8 @@ export default function MeetingsPage() {
       }
     } catch {
       toast.error("Failed to cancel meeting");
+    } finally {
+      setCancelMeetingId(null);
     }
   };
 
@@ -1001,11 +1028,9 @@ export default function MeetingsPage() {
                           : "hover:bg-accent"
                       )}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={formAttendeeIds.includes(member.id)}
-                        onChange={() => toggleAttendee(member.id)}
-                        className="rounded"
+                        onCheckedChange={() => toggleAttendee(member.id)}
                       />
                       <Avatar className="h-7 w-7">
                         <AvatarFallback className="text-xs bg-primary/10 text-primary">
@@ -1076,7 +1101,7 @@ export default function MeetingsPage() {
               {/* Join Meeting Button */}
               {selectedMeeting.meetingType === "VIRTUAL" && selectedMeeting.meetingLink && (
                 <a
-                  href={selectedMeeting.meetingLink}
+                  href={safeMeetingLink(selectedMeeting.meetingLink)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block"
@@ -1136,7 +1161,7 @@ export default function MeetingsPage() {
                     <div>
                       <p className="text-sm font-medium">Meeting Link</p>
                       <a
-                        href={selectedMeeting.meetingLink}
+                        href={safeMeetingLink(selectedMeeting.meetingLink)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-primary hover:underline break-all"
@@ -1239,7 +1264,7 @@ export default function MeetingsPage() {
                     <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditDialog(selectedMeeting)}>
                       Edit
                     </Button>
-                    <Button variant="destructive" size="sm" className="flex-1" onClick={() => handleCancel(selectedMeeting.id)}>
+                    <Button variant="destructive" size="sm" className="flex-1" onClick={() => setCancelMeetingId(selectedMeeting.id)}>
                       Cancel Meeting
                     </Button>
                   </div>
@@ -1249,6 +1274,24 @@ export default function MeetingsPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Cancel Meeting Confirmation Dialog */}
+      <AlertDialog open={!!cancelMeetingId} onOpenChange={() => setCancelMeetingId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Meeting</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this meeting? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Meeting</AlertDialogCancel>
+            <AlertDialogAction onClick={() => cancelMeetingId && handleCancel(cancelMeetingId)} className="bg-red-600 hover:bg-red-700">
+              Cancel Meeting
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1365,10 +1408,10 @@ function MeetingCard({
                 {userRsvp === "PENDING" ? (
                   <>
                     <span className="text-xs text-muted-foreground">RSVP:</span>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onRsvp(meeting.id, "ACCEPTED")}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onRsvp(meeting.id, "ACCEPTED")} aria-label={`Accept invitation for ${meeting.title}`}>
                       <Check className="h-3 w-3 mr-1" /> Accept
                     </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs text-red-600" onClick={() => onRsvp(meeting.id, "DECLINED")}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs text-red-600" onClick={() => onRsvp(meeting.id, "DECLINED")} aria-label={`Decline invitation for ${meeting.title}`}>
                       <X className="h-3 w-3 mr-1" /> Decline
                     </Button>
                   </>
@@ -1391,7 +1434,7 @@ function MeetingCard({
               className="shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <a href={meeting.meetingLink} target="_blank" rel="noopener noreferrer">
+              <a href={safeMeetingLink(meeting.meetingLink)} target="_blank" rel="noopener noreferrer">
                 <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
                   <Video className="h-4 w-4 mr-1.5" />
                   Join

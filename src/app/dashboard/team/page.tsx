@@ -15,6 +15,16 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -138,7 +148,6 @@ export default function TeamPage() {
   const [error, setError] = useState<string | null>(null);
   const { data: session, status: sessionStatus } = useSession();
 
-  const userRole = session?.user?.role || "DEVELOPER";
   const currentUserId = session?.user?.id || "";
   // [I11] useMemo to prevent unnecessary fetchData recomputation
   const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
@@ -178,6 +187,7 @@ export default function TeamPage() {
   const [attDateFrom, setAttDateFrom] = useState("");
   const [attDateTo, setAttDateTo] = useState("");
   const [attUserFilter, setAttUserFilter] = useState("all");
+  const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -216,8 +226,8 @@ export default function TeamPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load team data");
+      console.error("[team] fetchData Error:", err);
+      setError("Failed to load team data");
     } finally {
       setLoading(false);
     }
@@ -492,7 +502,7 @@ export default function TeamPage() {
   }, [editAttForm, fetchAttendance, attendance]);
 
   const handleDeleteAttendance = useCallback(async (id: string) => {
-    if (!confirm("Are you sure you want to delete this attendance record?")) return;
+    if (!id) return;
     try {
       const res = await fetch(`/api/team?type=attendance&id=${id}`, {
         method: "DELETE",
@@ -500,6 +510,7 @@ export default function TeamPage() {
       });
       if (res.ok) {
         toast.success("Attendance record deleted");
+        setDeleteAttId(null);
         fetchAttendance();
       } else {
         const errData = await res.json().catch(() => null);
@@ -545,13 +556,17 @@ export default function TeamPage() {
   }
 
   // Filtered leaves based on status filter
-  const filteredLeaves = leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter);
-  const pendingLeavesCount = leaves.filter(l => l.status === "PENDING").length;
+  const filteredLeaves = useMemo(
+    () => leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter),
+    [leaves, leaveFilter]
+  );
+  const pendingLeavesCount = useMemo(() => leaves.filter(l => l.status === "PENDING").length, [leaves]);
 
   // Filtered attendance based on user filter
-  const filteredAttendance = attUserFilter === "all"
-    ? attendance
-    : attendance.filter(a => a.userId === attUserFilter);
+  const filteredAttendance = useMemo(
+    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
+    [attUserFilter, attendance]
+  );
 
   // [I12] useMemo to prevent recomputation every render
   const attStats = useMemo(() => ({
@@ -636,7 +651,7 @@ export default function TeamPage() {
                     <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px]">
                       {user.isActive ? "Active" : "Inactive"}
                     </Badge>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditDialog(user)}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit member" onClick={() => openEditDialog(user)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -831,10 +846,10 @@ export default function TeamPage() {
                       <Badge className={`text-[10px] ${attStatusColors[record.status] || ""}`}>{safeText(record.status).replace("_", " ")}</Badge>
                       {record.isManual && (
                         <>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditAttDialog(record)}>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit attendance" onClick={() => openEditAttDialog(record)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => handleDeleteAttendance(record.id)}>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" aria-label="Delete attendance" onClick={() => setDeleteAttId(record.id)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </>
@@ -1167,6 +1182,22 @@ export default function TeamPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Attendance Confirmation */}
+      <AlertDialog open={!!deleteAttId} onOpenChange={(open) => { if (!open) setDeleteAttId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Attendance Record</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this attendance record? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteAttId) handleDeleteAttendance(deleteAttId); }} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

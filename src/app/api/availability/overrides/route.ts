@@ -11,7 +11,6 @@ const timeRegex = /^\d{2}:\d{2}$/
 // GET /api/availability/overrides - List overrides
 export async function GET(req: NextRequest) {
   try {
-    await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -20,14 +19,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
+    await ensureTable("AvailabilityOverride")
+
+    // Rate limit for GET
+    const rl = rateLimit(`availability-overrides-list-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    }
+
     const { searchParams } = new URL(req.url)
-    const where: any = {}
+    const where: Record<string, unknown> = {}
 
     const userId = searchParams.get("userId")
     if (userId) where.userId = userId
 
     const date = searchParams.get("date")
     if (date) {
+      const parsedDate = new Date(date)
+      if (isNaN(parsedDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+      }
       const startOfDay = new Date(date)
       startOfDay.setHours(0, 0, 0, 0)
       const endOfDay = new Date(date)
@@ -41,11 +52,12 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
       orderBy: { date: "asc" },
+      take: 100,
     })
 
     return NextResponse.json(overrides)
-  } catch (error: any) {
-    console.error("[availability/overrides] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[availability/overrides] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -53,7 +65,6 @@ export async function GET(req: NextRequest) {
 // POST /api/availability/overrides - Create override
 export async function POST(req: NextRequest) {
   try {
-    await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -61,6 +72,8 @@ export async function POST(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
+
+    await ensureTable("AvailabilityOverride")
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
@@ -74,6 +87,12 @@ export async function POST(req: NextRequest) {
 
     if (!userId || !date) {
       return NextResponse.json({ error: "User ID and date are required" }, { status: 400 })
+    }
+
+    // Validate date
+    const parsedDate = new Date(date)
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
     }
 
     // W37: Validate time format and startTime < endTime
@@ -102,8 +121,8 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json(override, { status: 201 })
-  } catch (error: any) {
-    console.error("[availability/overrides] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[availability/overrides] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -111,7 +130,6 @@ export async function POST(req: NextRequest) {
 // DELETE /api/availability/overrides - Delete override
 export async function DELETE(req: NextRequest) {
   try {
-    await ensureTable("AvailabilityOverride")
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -119,6 +137,8 @@ export async function DELETE(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
+
+    await ensureTable("AvailabilityOverride")
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
@@ -130,13 +150,18 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
 
+    // Validate id format
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) {
+      return NextResponse.json({ error: "Invalid ID format" }, { status: 400 })
+    }
+
     const existing = await db.availabilityOverride.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 })
 
     await db.availabilityOverride.delete({ where: { id } })
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[availability/overrides] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[availability/overrides] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

@@ -18,7 +18,8 @@ export async function GET(
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/assignments/[id]] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -49,13 +50,16 @@ export async function GET(
     // If assignment IS completed, show correct answers + the employee's answers for review
     if (assignment.test) {
       try {
-        const questions = JSON.parse(assignment.test.questions)
+        // Create a safe copy instead of mutating Prisma object
+        const questions = typeof assignment.test.questions === 'string' 
+          ? JSON.parse(assignment.test.questions) 
+          : assignment.test.questions || []
         const isCompleted = ["COMPLETED", "PASSED", "FAILED"].includes(assignment.status)
 
         if (!isAdmin(session.user.role) && !isCompleted) {
           // Hide answers for employee taking the test
-          ;(assignment.test as any).questions = JSON.stringify(
-            questions.map((q: any) => ({
+          ;(assignment.test as Record<string, unknown>).questions = JSON.stringify(
+            (questions as Array<{ question: string; options: string[] }>).map((q) => ({
               question: q.question,
               options: q.options,
             }))
@@ -66,8 +70,8 @@ export async function GET(
         if (isCompleted && assignment.attempts.length > 0) {
           try {
             const attemptAnswers: number[] = JSON.parse(assignment.attempts[0].answers || "[]")
-            ;(assignment.test as any).questions = JSON.stringify(
-              questions.map((q: any, idx: number) => ({
+            ;(assignment.test as Record<string, unknown>).questions = JSON.stringify(
+              (questions as Array<{ question: string; options: string[]; correctAnswer?: number; explanation?: string }>).map((q, idx: number) => ({
                 ...q,
                 selectedAnswer: attemptAnswers[idx] ?? null,
               }))
@@ -82,8 +86,8 @@ export async function GET(
     }
 
     return NextResponse.json(assignment)
-  } catch (error: any) {
-    console.error("[training/assignments/[id]] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[training/assignments/[id]] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -100,7 +104,8 @@ export async function PATCH(
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/assignments/[id]] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
@@ -108,12 +113,22 @@ export async function PATCH(
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
     const { id } = await params
-    const body = await req.json()
-    const { status } = body
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { status } = body as { status?: string }
 
     const validStatuses = ["ASSIGNED", "READ", "TEST_STARTED", "COMPLETED", "PASSED", "FAILED"]
     if (!status || !validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+    }
+
+    // PASSED/FAILED can only be set via test submission endpoint
+    if (["PASSED", "FAILED"].includes(status)) {
+      return NextResponse.json({ error: "This status is set automatically by test submission" }, { status: 400 })
     }
 
     const assignment = await db.trainingAssignment.findUnique({ where: { id } })
@@ -135,18 +150,25 @@ export async function PATCH(
       return NextResponse.json({ error: `Cannot transition from ${assignment.status} to ${status}` }, { status: 400 })
     }
 
-    const updated = await db.trainingAssignment.update({
-      where: { id },
-      data: { status },
-      include: {
-        document: { select: { id: true, topic: true } },
-        employee: { select: { id: true, name: true } },
-      },
+    const updated = await db.$transaction(async (tx) => {
+      const existing = await tx.trainingAssignment.findUnique({ where: { id } })
+      if (!existing) throw new Error("NOT_FOUND")
+      return await tx.trainingAssignment.update({
+        where: { id },
+        data: { status },
+        include: {
+          document: { select: { id: true, topic: true } },
+          employee: { select: { id: true, name: true } },
+        },
+      })
     })
 
     return NextResponse.json(updated)
-  } catch (error: any) {
-    console.error("[training/assignments/[id]] PATCH error:", error.message)
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+    }
+    console.error("[training/assignments/[id]] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

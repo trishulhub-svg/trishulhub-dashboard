@@ -105,53 +105,53 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Date range cannot exceed 90 days" }, { status: 400 })
       }
 
-      // 1. Fetch all active non-CLIENT users
+      // 1. Fetch all active non-CLIENT users (must be first to get IDs for subsequent queries)
       const activeUsers = await db.user.findMany({
         where: { role: { not: "CLIENT" }, isActive: true },
         select: { id: true, name: true, email: true, role: true, avatar: true },
         orderBy: { name: "asc" },
       })
+      const userIds = activeUsers.map(u => u.id)
 
-      // 2. Fetch all availability schedules for these users
-      const allAvailability = await db.availability.findMany({
-        where: { userId: { in: activeUsers.map(u => u.id) }, isAvailable: true },
-      })
-
-      // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
-      const leaveRequests = await db.leaveRequest.findMany({
-        where: {
-          userId: { in: activeUsers.map(u => u.id) },
-          status: "APPROVED",
-          startDate: { lte: dateTo },
-          endDate: { gte: dateFrom },
-        },
-      })
-
-      const leaves = await db.leave.findMany({
-        where: {
-          userId: { in: activeUsers.map(u => u.id) },
-          status: "APPROVED",
-          startDate: { lte: dateTo },
-          endDate: { gte: dateFrom },
-        },
-      })
-
-      // 4. Fetch all COMPLETED time entries in the date range
-      const timeEntries = await db.timeEntry.findMany({
-        where: {
-          userId: { in: activeUsers.map(u => u.id) },
-          status: "COMPLETED",
-          clockIn: { gte: dateFrom, lt: new Date(dateTo.getTime() + 86400000) },
-        },
-        select: { id: true, userId: true, clockIn: true, clockOut: true, totalHours: true, date: true },
-      })
-
-      // 5. Fetch existing manual attendance records
-      const manualAttendance = await db.attendance.findMany({
-        where: {
-          date: { gte: dateFrom, lte: dateTo },
-        },
-      })
+      // 2-5. Fetch remaining data sources in parallel for performance
+      const [allAvailability, leaveRequests, leaves, timeEntries, manualAttendance] = await Promise.all([
+        // 2. Fetch all availability schedules for these users
+        db.availability.findMany({
+          where: { userId: { in: userIds }, isAvailable: true },
+        }),
+        // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
+        db.leaveRequest.findMany({
+          where: {
+            userId: { in: userIds },
+            status: "APPROVED",
+            startDate: { lte: dateTo },
+            endDate: { gte: dateFrom },
+          },
+        }),
+        db.leave.findMany({
+          where: {
+            userId: { in: userIds },
+            status: "APPROVED",
+            startDate: { lte: dateTo },
+            endDate: { gte: dateFrom },
+          },
+        }),
+        // 4. Fetch all COMPLETED time entries in the date range
+        db.timeEntry.findMany({
+          where: {
+            userId: { in: userIds },
+            status: "COMPLETED",
+            clockIn: { gte: dateFrom, lt: new Date(dateTo.getTime() + 86400000) },
+          },
+          select: { id: true, userId: true, clockIn: true, clockOut: true, totalHours: true, date: true },
+        }),
+        // 5. Fetch existing manual attendance records
+        db.attendance.findMany({
+          where: {
+            date: { gte: dateFrom, lte: dateTo },
+          },
+        }),
+      ])
 
       // 6. Build lookup maps
       const availByUserDay = new Map<string, { startTime: string; endTime: string }[]>()
@@ -221,8 +221,8 @@ export async function GET(req: NextRequest) {
       }
 
       // 7. Generate computed attendance records for each day × each user
-      const records: Record<string, unknown>[] = []
-      const dayMs = 86400000
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const records: Record<string, any>[] = []
 
       for (let d = new Date(dateFrom); d <= dateTo; d.setDate(d.getDate() + 1)) {
         const dayStr = toLocalDateStr(d)
@@ -472,6 +472,7 @@ export async function POST(req: NextRequest) {
           where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
         })
         const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
+        // TODO: Use db.notification.createMany for batch insert
         for (const admin of admins) {
           await db.notification.create({
             data: {
@@ -502,7 +503,7 @@ export async function POST(req: NextRequest) {
       const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "NO_SCHEDULE"]
       const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
       if (attStatus && !validAttStatuses.includes(attStatus as string)) {
-        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, or LEAVE" }, { status: 400 })
+        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, LEAVE, or NO_SCHEDULE" }, { status: 400 })
       }
       if (!date) {
         return NextResponse.json({ error: "Date is required" }, { status: 400 })
@@ -510,6 +511,14 @@ export async function POST(req: NextRequest) {
       // [W14] Validate date format
       if (isNaN(new Date(date as string).getTime())) {
         return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+      }
+
+      // Validate checkIn/checkOut date format if provided
+      if (checkIn && isNaN(new Date(checkIn as string).getTime())) {
+        return NextResponse.json({ error: "Invalid checkIn date format" }, { status: 400 })
+      }
+      if (checkOut && isNaN(new Date(checkOut as string).getTime())) {
+        return NextResponse.json({ error: "Invalid checkOut date format" }, { status: 400 })
       }
 
       // [T10] Validate userId exists before creating attendance record
@@ -713,10 +722,28 @@ export async function PATCH(req: NextRequest) {
         updatePayload.status = data.status
         updatePayload.approvedBy = session.user.id
       }
-      const leave = await db.leaveRequest.update({
-        where: { id: id as string },
-        data: updatePayload,
+
+      // Wrap leave approve/reject in transaction to prevent TOCTOU
+      const leave = await db.$transaction(async (tx) => {
+        if (data.status && (data.status === "APPROVED" || data.status === "REJECTED")) {
+          const targetLeave = await tx.leaveRequest.findUnique({ where: { id: id as string } })
+          if (!targetLeave) return null
+          if (targetLeave.userId === session.user.id) {
+            throw new Error("You cannot approve or reject your own leave request")
+          }
+          if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
+            throw new Error(`Leave request is already ${targetLeave.status.toLowerCase()}`)
+          }
+        }
+        return await tx.leaveRequest.update({
+          where: { id: id as string },
+          data: updatePayload,
+        })
       })
+
+      if (!leave) {
+        return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
+      }
 
       // Notify the user about leave decision (fire-and-forget — non-blocking)
       try {
@@ -839,6 +866,16 @@ export async function PATCH(req: NextRequest) {
     })
     return NextResponse.json(user)
   } catch (error: unknown) {
+    // Handle authorization/validation errors thrown inside transaction
+    if (error instanceof Error) {
+      const msg = error.message
+      if (msg.includes("cannot approve or reject your own")) {
+        return NextResponse.json({ error: msg }, { status: 403 })
+      }
+      if (msg.includes("already ")) {
+        return NextResponse.json({ error: msg }, { status: 400 })
+      }
+    }
     // [T2] Fixed error: any → error: unknown
     console.error("[team] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -116,6 +116,9 @@ export default function TrainingReaderPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const submittingRef = useRef(false)
   const answersRef = useRef<(number | null)[]>([])
+  const timeLeftRef = useRef(timeLeft);
+  timeLeftRef.current = timeLeft;
+  const submitTestRef = useRef<(() => Promise<void>) | null>(null);
 
   // Keep answersRef in sync so timer auto-submit always has the latest answers
   useEffect(() => {
@@ -219,28 +222,23 @@ export default function TrainingReaderPage() {
 
   // Timer effect
   useEffect(() => {
-    if (viewMode !== "test" || timeLeft <= 0) return
+    if (viewMode !== "test" || !timeLeft || submittingRef.current) return;
 
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          // Auto-submit when time runs out
-          if (timerRef.current) clearInterval(timerRef.current)
-          // Use submittingRef to avoid stale closure
-          if (!submittingRef.current) {
-            toast.warning("Time is up! Auto-submitting your test...")
-            submitTest()
-          }
-          return 0
+    const timer = setInterval(() => {
+      const current = timeLeftRef.current;
+      if (current <= 1) {
+        clearInterval(timer);
+        if (!submittingRef.current && submitTestRef.current) {
+          toast.warning("Time is up! Auto-submitting your test...");
+          submitTestRef.current();
         }
-        return prev - 1
-      })
-    }, 1000)
+        return;
+      }
+      setTimeLeft(prev => prev - 1);
+    }, 1000);
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [viewMode])
+    return () => clearInterval(timer);
+  }, [viewMode]);
 
   const handlePdfOpened = useCallback(() => {
     setPdfOpened(true)
@@ -355,6 +353,11 @@ export default function TrainingReaderPage() {
       setSubmitting(false)
     }
   }
+
+  // Keep submitTestRef in sync
+  useEffect(() => {
+    submitTestRef.current = submitTest;
+  });
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60)
@@ -557,6 +560,7 @@ export default function TrainingReaderPage() {
                     ? "border-primary bg-primary/5 shadow-sm"
                     : "border-border hover:border-primary/30 hover:bg-accent/50"
                 )}
+                aria-label={`Option ${String.fromCharCode(65 + idx)}: ${opt}`}
               >
                 <div className={cn(
                   "h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0",
@@ -597,6 +601,8 @@ export default function TrainingReaderPage() {
                     ? "bg-primary/10 text-primary font-bold"
                     : "bg-muted text-muted-foreground hover:bg-accent"
                 )}
+                aria-label={`Go to question ${idx + 1}`}
+                aria-current={idx === currentQ ? "step" : undefined}
               >
                 {idx + 1}
               </button>
@@ -633,6 +639,8 @@ export default function TrainingReaderPage() {
                   ? "bg-primary/10 text-primary font-bold"
                   : "bg-muted text-muted-foreground hover:bg-accent"
               )}
+              aria-label={`Go to question ${idx + 1}`}
+              aria-current={idx === currentQ ? "step" : undefined}
             >
               {idx + 1}
             </button>

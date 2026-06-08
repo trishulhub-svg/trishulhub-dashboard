@@ -40,15 +40,15 @@ export async function GET(
     const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       const isOrganizer = meeting.organizerId === userId
-      const isAttendee = meeting.attendees.some((a: any) => a.userId === userId)
+      const isAttendee = meeting.attendees.some((a: { userId: string; rsvpStatus: string }) => a.userId === userId)
       if (!isOrganizer && !isAttendee) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
       }
     }
 
     return NextResponse.json(meeting)
-  } catch (error: any) {
-    console.error("[meetings/id] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings/id] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -99,7 +99,7 @@ export async function PATCH(
     const { title, description, date, startTime, endTime, meetingType, meetingLink, projectId, status, attendeeIds, notes } = validation.data
 
     // Build update data
-    const updateData: any = {}
+    const updateData: Record<string, unknown> = {}
     if (title !== undefined) updateData.title = title
     if (description !== undefined) updateData.description = description || null
     if (date !== undefined) updateData.date = new Date(date)
@@ -113,28 +113,23 @@ export async function PATCH(
 
     // Handle attendee updates
     if (attendeeIds !== undefined) {
-      // Remove existing attendees not in the new list
+      // Wrap attendee delete + create in transaction for atomicity
+      await db.$transaction(async (tx) => {
+        await tx.meetingAttendee.deleteMany({ where: { meetingId: id } })
+        if (attendeeIds.length > 0) {
+          await tx.meetingAttendee.createMany({
+            data: attendeeIds.map((userId) => ({
+              meetingId: id,
+              userId,
+              rsvpStatus: "PENDING",
+            })),
+          })
+        }
+      })
+
+      // Determine which attendees are new (for notifications)
       const existingAttendeeIds = existingMeeting.attendees.map((a) => a.userId)
-      const toRemove = existingAttendeeIds.filter((aid) => !attendeeIds.includes(aid))
       const toAdd = attendeeIds.filter((aid: string) => !existingAttendeeIds.includes(aid))
-
-      // Delete removed attendees
-      if (toRemove.length > 0) {
-        await db.meetingAttendee.deleteMany({
-          where: { meetingId: id, userId: { in: toRemove } },
-        })
-      }
-
-      // Add new attendees
-      if (toAdd.length > 0) {
-        await db.meetingAttendee.createMany({
-          data: toAdd.map((aid: string) => ({
-            meetingId: id,
-            userId: aid,
-            rsvpStatus: "PENDING",
-          })),
-        })
-      }
 
       // W39: Notify new attendees in parallel using Promise.allSettled
       await Promise.allSettled(
@@ -172,8 +167,8 @@ export async function PATCH(
     })
 
     return NextResponse.json(meeting)
-  } catch (error: any) {
-    console.error("[meetings/id] PATCH error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings/id] PATCH error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -208,7 +203,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
     }
 
-    // Only organizer or admin can cancel
+    // Only organizer or admin to cancel
     if (existingMeeting.organizerId !== userId && userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Only the organizer or admin can cancel this meeting" }, { status: 403 })
     }
@@ -218,23 +213,32 @@ export async function DELETE(
       return NextResponse.json({ error: "Meeting already cancelled" }, { status: 400 })
     }
 
-    const meeting = await db.meeting.update({
-      where: { id },
-      data: { status: "CANCELLED" },
-      include: {
-        organizer: { select: { id: true, name: true, email: true } },
-        project: { select: { id: true, name: true } },
-        attendees: {
-          include: {
-            user: { select: { id: true, name: true, email: true } },
+    // Wrap findUnique + update in transaction
+    const meeting = await db.$transaction(async (tx) => {
+      const existing = await tx.meeting.findUnique({
+        where: { id },
+        include: { attendees: { include: { user: { select: { id: true, name: true, email: true } } } } },
+      })
+      if (!existing) throw new Error("Meeting not found")
+
+      return tx.meeting.update({
+        where: { id },
+        data: { status: "CANCELLED" },
+        include: {
+          organizer: { select: { id: true, name: true, email: true } },
+          project: { select: { id: true, name: true } },
+          attendees: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
           },
         },
-      },
+      })
     })
 
     // W39: Notify attendees about cancellation in parallel using Promise.allSettled
     await Promise.allSettled(
-      existingMeeting.attendees.map(async (attendee: any) => {
+      existingMeeting.attendees.map(async (attendee: { userId: string; user: { id: string; name: string; email: string } }) => {
         try {
           await db.notification.create({
             data: {
@@ -253,8 +257,8 @@ export async function DELETE(
     )
 
     return NextResponse.json(meeting)
-  } catch (error: any) {
-    console.error("[meetings/id] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[meetings/id] DELETE error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

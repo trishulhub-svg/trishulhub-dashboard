@@ -85,24 +85,8 @@ export default function MyTrainingPage() {
   }, [session, authStatus, router, fetchAssignments])
 
   const handleAction = (assignment: Assignment) => {
-    switch (assignment.status) {
-      case "ASSIGNED":
-        router.push(`/dashboard/my-training/${assignment.id}`)
-        break
-      case "READ":
-        router.push(`/dashboard/my-training/${assignment.id}`)
-        break
-      case "TEST_STARTED":
-        router.push(`/dashboard/my-training/${assignment.id}`)
-        break
-      case "PASSED":
-      case "FAILED":
-        router.push(`/dashboard/my-training/${assignment.id}`)
-        break
-      default:
-        break
-    }
-  }
+    router.push(`/dashboard/my-training/${assignment.id}`);
+  };
 
   const getActionLabel = (assignment: Assignment) => {
     switch (assignment.status) {

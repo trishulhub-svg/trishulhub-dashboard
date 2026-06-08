@@ -19,15 +19,21 @@ export async function POST(req: NextRequest) {
 
     const migration = await ensureTrainingTables()
     if (!migration.ok) {
-      return NextResponse.json({ error: `Database migration failed: ${migration.error}` }, { status: 500 })
+      console.error("[training/tests/generate] Migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
     }
 
     const userId = session.user.id
     const rl = rateLimit(userId, 5, 60000)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    const body = await req.json()
-    const { documentId, level } = body
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { documentId, level } = body as { documentId?: string; level?: string }
 
     if (!documentId) return NextResponse.json({ error: "Document ID is required" }, { status: 400 })
     if (!level || !["LOW", "MEDIUM", "HIGH"].includes(level)) {
@@ -51,7 +57,7 @@ export async function POST(req: NextRequest) {
       HIGH: "analysis and critical thinking questions. Test deep understanding with complex scenarios.",
     }
 
-    let questions: any[] = []
+    let questions: { question: string; options: string[]; correctAnswer: number; explanation: string }[] = []
     try {
       // Get available API keys from database
       const apiKeys = await db.apiKey.findMany({
@@ -114,37 +120,39 @@ Return format:
 
       // Update API key usage tracking
       if (result.apiKeyId && result.cost > 0) {
-        await db.apiKey.update({
-          where: { id: result.apiKeyId },
-          data: { currentSpend: { increment: result.cost } },
-        })
-        await db.apiUsageLog.create({
-          data: {
-            apiKeyId: result.apiKeyId,
-            model: result.model,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            cost: result.cost,
-          },
-        })
+        await Promise.all([
+          db.apiKey.update({
+            where: { id: result.apiKeyId },
+            data: { currentSpend: { increment: result.cost } },
+          }),
+          db.apiUsageLog.create({
+            data: {
+              apiKeyId: result.apiKeyId,
+              model: result.model,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+              cost: result.cost,
+            },
+          }),
+        ])
       }
-    } catch (aiError: any) {
-      console.error("[training/tests/generate] AI error:", aiError.message, aiError.stack)
+    } catch (aiError: unknown) {
+      console.error("[training/tests/generate] AI error:", aiError instanceof Error ? aiError.message : aiError)
       return NextResponse.json({
-        error: `AI generation failed: ${aiError.message}. Make sure you have active API keys configured in Dashboard > API Keys.`,
+        error: "AI generation failed. Make sure you have active API keys configured in Dashboard > API Keys.",
       }, { status: 500 })
     }
 
     // Validate questions structure
-    if (!Array.isArray(questions) || questions.length < 5) {
-      return NextResponse.json({ error: "AI generated insufficient questions. Please try again." }, { status: 500 })
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return NextResponse.json({ error: "Failed to generate any questions" }, { status: 500 })
     }
 
     // Validate and sanitize each question
-    questions = questions.slice(0, 10).map((q: any, idx: number) => {
+    questions = questions.slice(0, 10).map((q, idx: number) => {
       let correctAnswer = typeof q.correctAnswer === "number" && q.correctAnswer >= 0 && q.correctAnswer <= 3
         ? q.correctAnswer
-        : ["A", "a", "B", "b", "C", "c", "D", "d"].indexOf(q.correctAnswer)
+        : ["A", "a", "B", "b", "C", "c", "D", "d"].indexOf(String(q.correctAnswer))
       if (correctAnswer === -1 || typeof correctAnswer !== "number" || isNaN(correctAnswer)) {
         correctAnswer = 0
       }
@@ -158,33 +166,32 @@ Return format:
       }
     })
 
-    while (questions.length < 10) {
-      const lastQ = questions[questions.length - 1]
-      questions.push({
-        question: `Additional question ${questions.length + 1} about ${document.topic}`,
-        options: ["Option A", "Option B", "Option C", "Option D"],
-        correctAnswer: 0,
-        explanation: "Refer to the training material.",
-      })
+    // Only use AI-generated questions; don't pad with free-point dummies
+    if (questions.length === 0) {
+      return NextResponse.json({ error: "Failed to generate any questions" }, { status: 500 })
     }
 
-    // Create test in database
-    const test = await db.trainingTest.create({
-      data: {
-        documentId,
-        level,
-        questions: JSON.stringify(questions),
-        timeLimit: 20,
-        generatedBy: userId,
-      },
-      include: {
-        generator: { select: { id: true, name: true } },
-      },
+    // Create test in database (transaction to prevent race condition)
+    const test = await db.$transaction(async (tx) => {
+      const existing = await tx.trainingTest.findFirst({ where: { documentId, level } })
+      if (existing) return existing
+      return await tx.trainingTest.create({
+        data: {
+          documentId,
+          level,
+          questions: JSON.stringify(questions),
+          timeLimit: 20,
+          generatedBy: userId,
+        },
+        include: {
+          generator: { select: { id: true, name: true } },
+        },
+      })
     })
 
     return NextResponse.json(test, { status: 201 })
-  } catch (error: any) {
-    console.error("[training/tests/generate] POST error:", error.message, error.stack)
-    return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[training/tests/generate] POST error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

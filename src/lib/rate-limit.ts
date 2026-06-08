@@ -181,4 +181,41 @@ export const RATE_LIMITS = {
   finance: { limit: 30, windowMs: 60 * 1000 },       // 30 per minute for finance endpoints
   financeWrite: { limit: 10, windowMs: 60 * 1000 },  // 10 per minute for finance write operations
   invoiceSend: { limit: 5, windowMs: 60 * 1000 },    // 5 per minute for invoice send operations
+  meeting: { limit: 30, windowMs: 60 * 1000 },        // 30 per minute for meeting endpoints
+  rsvp: { limit: 10, windowMs: 60 * 1000 },          // 10 per minute for RSVP operations
 } as const
+
+/** Convenience wrapper for meeting rate limiting (30/min) */
+export function meetingRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, RATE_LIMITS.meeting.limit, RATE_LIMITS.meeting.windowMs)
+}
+
+/** Convenience wrapper for RSVP rate limiting (10/min) */
+export function rsvpRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, RATE_LIMITS.rsvp.limit, RATE_LIMITS.rsvp.windowMs)
+}
+
+// HR rate limits (convenience wrappers using the existing rateLimit function)
+export function hrRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 60, 60_000)
+}
+
+export function leaveRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 30, 60_000)
+}
+
+export function attendanceRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 60, 60_000)
+}
+
+export function approvalRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 30, 60_000)
+}
+
+export function trainingRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 30, 60_000)
+}
+
+export function availabilityRateLimit(key: string): RateLimitResult {
+  return rateLimit(key, 60, 60_000)
+}

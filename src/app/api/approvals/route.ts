@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/approvals - List approvals (ADMIN/SUPER_ADMIN only for full access)
 export async function GET(req: NextRequest) {
@@ -11,6 +12,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`approvals-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
     const userRole = session.user.role
     const userId = session.user.id
 
@@ -19,7 +24,7 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get("type")
     const agentId = searchParams.get("agentId")
 
-    const where: any = {}
+    const where: Record<string, unknown> = {}
     if (type) where.type = type
     if (agentId) where.agentId = agentId
 
@@ -34,6 +39,11 @@ export async function GET(req: NextRequest) {
       where.status = statusParam || "PENDING"
     }
 
+    // Pagination
+    const page = Math.max(Number(searchParams.get("page")) || 1, 1)
+    const take = Math.max(Number(searchParams.get("limit")) || 50, 1)
+    const skip = (page - 1) * take
+
     const approvals = await db.approval.findMany({
       where,
       include: {
@@ -41,12 +51,14 @@ export async function GET(req: NextRequest) {
         approvedBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
+      take,
+      skip,
     })
 
-    return NextResponse.json(JSON.parse(JSON.stringify(approvals)))
-  } catch (error: any) {
-    console.error("[approvals] GET error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json(approvals)
+  } catch (error: unknown) {
+    console.error("[approvals] GET Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
@@ -58,9 +70,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`approvals-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
     const userId = session.user.id
     let body
-    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
     const { type, requesterType, agentId, title, description, data } = body
 
     if (!type || !title) {
@@ -74,6 +90,11 @@ export async function POST(req: NextRequest) {
     }
     if (requesterType && !["AI", "HUMAN"].includes(requesterType)) {
       return NextResponse.json({ error: "Invalid requester type" }, { status: 400 })
+    }
+
+    // Size limit on data field
+    if (JSON.stringify(data).length > 10000) {
+      return NextResponse.json({ error: "Data field exceeds maximum size of 10KB" }, { status: 400 })
     }
 
     const approval = await db.approval.create({
@@ -113,14 +134,14 @@ export async function POST(req: NextRequest) {
           }
         })
       }
-    } catch (notifyErr: any) {
-      console.error("[approvals] notification error (non-blocking):", notifyErr?.message)
+    } catch (notifyErr: unknown) {
+      console.error("[approvals] notification error (non-blocking):", notifyErr)
     }
 
     return NextResponse.json(approval, { status: 201 })
-  } catch (error: any) {
-    console.error("[approvals] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[approvals] POST Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
@@ -132,11 +153,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Rate limiting
+    const rl = rateLimit(`approvals-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
     const userId = session.user.id
     const userRole = session.user.role
     let body
-    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }) }
+    try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
     const { id, status, feedback } = body
+
+    // Sanitize feedback
+    const sanitizedFeedback = String(feedback || "").slice(0, 500).replace(/[<>]/g, "")
 
     // Only ADMIN and SUPER_ADMIN can approve/reject
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
@@ -151,32 +179,47 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid status. Must be APPROVED, REJECTED, or NEEDS_IMPROVEMENT" }, { status: 400 })
     }
 
+    // Wrap approval update in transaction
+    const updated = await db.$transaction(async (tx) => {
+      const approval = await tx.approval.findUnique({
+        where: { id },
+        include: { agent: true }
+      })
+
+      if (!approval) return null
+
+      // Can only act on PENDING approvals
+      if (approval.status !== "PENDING") {
+        throw new Error(`This approval is already ${approval.status.toLowerCase()}`)
+      }
+
+      return await tx.approval.update({
+        where: { id },
+        data: {
+          status,
+          feedback: sanitizedFeedback || null,
+          approvedById: userId,
+          ...(status === "APPROVED" ? { approvedAt: new Date() } : {}),
+        },
+        include: {
+          agent: { select: { id: true, name: true, type: true } },
+          approvedBy: { select: { id: true, name: true } },
+        }
+      })
+    })
+
+    if (!updated) {
+      return NextResponse.json({ error: "Approval not found" }, { status: 404 })
+    }
+
+    // Re-fetch the approval for agent/requester info needed for notifications
     const approval = await db.approval.findUnique({
       where: { id },
       include: { agent: true }
     })
-
     if (!approval) {
-      return NextResponse.json({ error: "Approval not found" }, { status: 404 })
+      return NextResponse.json(updated)
     }
-
-    // Can only act on PENDING approvals
-    if (approval.status !== "PENDING") {
-      return NextResponse.json({ error: `This approval is already ${approval.status.toLowerCase()}` }, { status: 400 })
-    }
-
-    const updated = await db.approval.update({
-      where: { id },
-      data: {
-        status,
-        feedback: feedback || null,
-        approvedById: userId,
-      },
-      include: {
-        agent: { select: { id: true, name: true, type: true } },
-        approvedBy: { select: { id: true, name: true } },
-      }
-    })
 
     // If approval was requested by a human, notify them
     if (approval.requesterType === "HUMAN" && approval.requesterId) {
@@ -185,14 +228,14 @@ export async function PATCH(req: NextRequest) {
           data: {
             userId: approval.requesterId,
             title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
-            message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${feedback ? ` Feedback: ${feedback}` : ""}`,
+            message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
             type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
             link: "/dashboard/approvals",
             metadata: JSON.stringify({ approvalId: id }),
           }
         })
-      } catch (notifyErr: any) {
-        console.error("[approvals] notification error (non-blocking):", notifyErr?.message)
+      } catch (notifyErr: unknown) {
+        console.error("[approvals] notification error (non-blocking):", notifyErr)
       }
     }
 
@@ -205,13 +248,12 @@ export async function PATCH(req: NextRequest) {
         if (chatId) {
           // Delete the chat and its messages
           await db.chatMessage.deleteMany({ where: { chatId } })
-          await db.chat.delete({ where: { id: chatId } }).catch(() => {
-            // Chat may already be deleted
-          })
+          await db.chat.delete({ where: { id: chatId } }).catch((err) => console.error("[approvals] Chat deletion failed:", err))
         }
-      } catch (deleteErr) {
-        console.error("Failed to delete chat during approval:", deleteErr)
+      } catch (deleteErr: unknown) {
+        console.error("[approvals] Failed to delete chat during approval:", deleteErr)
       }
+      // TODO: Wrap chat deletion in transaction with approval update
     }
 
     // If it was an AI agent that requested approval, update agent status
@@ -236,7 +278,7 @@ export async function PATCH(req: NextRequest) {
             data: {
               chatId: chats[0].id,
               role: "system",
-              content: `[Approval Feedback] Your request "${approval.title}" needs improvement. Feedback: ${feedback || "No specific feedback provided. Please revise and resubmit."}`,
+              content: `[Approval Feedback] Your request "${approval.title}" needs improvement. Feedback: ${sanitizedFeedback || "No specific feedback provided. Please revise and resubmit."}`,
             }
           })
         }
@@ -249,8 +291,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json(updated)
-  } catch (error: any) {
-    console.error("[approvals] PATCH error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.includes("already ")) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+    console.error("[approvals] PATCH Error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

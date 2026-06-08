@@ -519,3 +519,140 @@ export const adminUpdateTimeEntrySchema = z.object({
   }
   return true;
 }, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
+
+// === HR Validation Schemas ===
+
+export const VALID_LEAVE_TYPES = [
+  "SICK_LEAVE",
+  "CASUAL_LEAVE", 
+  "ANNUAL_LEAVE",
+  "PUBLIC_HOLIDAY",
+  "MATERNITY_LEAVE",
+  "PATERNITY_LEAVE",
+  "COMPENSATORY_OFF",
+  "HALF_DAY",
+  "WORK_FROM_HOME",
+  "OTHER",
+] as const;
+
+export type LeaveType = (typeof VALID_LEAVE_TYPES)[number];
+
+export const VALID_LEAVE_STATUSES = [
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+] as const;
+
+export const VALID_ATTENDANCE_STATUSES = [
+  "PRESENT",
+  "ABSENT",
+  "HALF_DAY",
+  "LEAVE",
+  "NO_SCHEDULE",
+] as const;
+
+export const createLeaveSchema = z.object({
+  userId: z.string().min(1).optional(),
+  leaveType: z.enum(VALID_LEAVE_TYPES),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  reason: z.string().max(1000).optional(),
+}).refine(data => {
+  const start = new Date(data.startDate);
+  const end = new Date(data.endDate);
+  return end >= start;
+}, { message: "endDate must be on or after startDate" });
+
+export const updateLeaveSchema = z.object({
+  leaveType: z.enum(VALID_LEAVE_TYPES).optional(),
+  startDate: z.string().min(1).optional(),
+  endDate: z.string().min(1).optional(),
+  reason: z.string().max(1000).optional(),
+  status: z.enum(VALID_LEAVE_STATUSES).optional(),
+  feedback: z.string().max(500).optional(),
+}).refine(data => {
+  if (data.startDate && data.endDate) {
+    return new Date(data.endDate) >= new Date(data.startDate);
+  }
+  return true;
+}, { message: "endDate must be on or after startDate" });
+
+export const createAttendanceSchema = z.object({
+  userId: z.string().min(1),
+  date: z.string().min(1),
+  checkIn: z.string().min(1),
+  checkOut: z.string().optional(),
+  status: z.enum(VALID_ATTENDANCE_STATUSES),
+  notes: z.string().max(500).optional(),
+});
+
+export const updateAttendanceSchema = z.object({
+  checkIn: z.string().optional(),
+  checkOut: z.string().optional(),
+  status: z.enum(VALID_ATTENDANCE_STATUSES).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+export const createAvailabilitySchema = z.object({
+  userId: z.string().min(1),
+  dayOfWeek: z.number().int().min(0).max(6),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
+  isAvailable: z.boolean().default(true),
+});
+
+export const updateAvailabilitySchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6).optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
+  isAvailable: z.boolean().optional(),
+});
+
+export const createOverrideSchema = z.object({
+  userId: z.string().min(1),
+  date: z.string().min(1),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  isAvailable: z.boolean(),
+  reason: z.string().max(200).optional(),
+});
+
+export const updateOverrideSchema = z.object({
+  date: z.string().min(1).optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  isAvailable: z.boolean().optional(),
+  reason: z.string().max(200).optional(),
+});
+
+export const createTrainingDocSchema = z.object({
+  topic: z.string().min(1).max(200),
+  brief: z.string().max(2000).optional(),
+  attachmentText: z.string().max(50000).optional(),
+});
+
+export const createTrainingTestSchema = z.object({
+  documentId: z.string().min(1),
+  level: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+});
+
+export const createAssignmentSchema = z.object({
+  documentId: z.string().min(1),
+  testId: z.string().optional(),
+  assignedTo: z.string().min(1),
+  testLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  dueDate: z.string().min(1).optional(),
+});
+
+export const submitTestAttemptSchema = z.object({
+  assignmentId: z.string().min(1),
+  answers: z.array(z.number().int().min(0)),
+  timeTaken: z.number().min(0).optional(),
+});
+
+export const VALID_RSVPS = ["PENDING", "ACCEPTED", "DECLINED"] as const;
+
+export const rsvpSchema = z.object({
+  status: z.enum(VALID_RSVPS),
+});

@@ -111,6 +111,76 @@ All `Record<string, unknown>` variables passed to Prisma operations have been re
 
 ---
 ---
+Task ID: 7-hr-module-fix
+Agent: Phase 7 HR Module Fix Agent
+Task: Fix security, UX, and performance issues in HR dashboard pages
+
+Work Log:
+
+### Files Modified (8 files)
+
+#### `src/app/dashboard/leaves/page.tsx`
+- Fixed 4 instances of raw `err.message` exposure — replaced with safe fallback + console.error
+- Added AlertDialog confirmation for delete leave action (state: `deleteLeaveId`)
+- Added AlertDialog confirmation for reject leave action (state: `rejectLeaveId`)
+- Extracted `handleRejectLeave` function to avoid infinite loop with `handleStatusChange`
+- Added aria-labels to all icon-only action buttons (Approve, Reject, Cancel, Delete)
+- Wrapped "Team On Leave Today" stat in useMemo
+- Moved `dayNames`, `monthNames` constants to module scope
+- Added AlertDialog imports from shadcn/ui
+
+#### `src/app/dashboard/leaves/loading.tsx`
+- Fixed grid columns: `md:grid-cols-3` → `lg:grid-cols-4` to match actual page
+- Changed stat skeleton count from 3 to 4
+- Added calendar placeholder skeleton section after stats
+
+#### `src/app/dashboard/leave/page.tsx`
+- Replaced `window.location.href = "/dashboard/leaves"` with `router.push("/dashboard/leaves")`
+- Added `useRouter` import and hook
+
+#### `src/app/dashboard/leave/loading.tsx`
+- Replaced generic skeleton with centered yellow warning-style skeleton
+
+#### `src/app/dashboard/team/page.tsx`
+- Fixed raw `err.message` exposure in fetchData catch — replaced with safe fallback
+- Replaced `window.confirm()` with AlertDialog for attendance delete
+- Added state: `deleteAttId` for attendance delete confirmation
+- Added AlertDialog import and component
+- Added aria-labels to edit/delete icon buttons
+- Added useMemo for filteredLeaves, pendingLeavesCount, filteredAttendance
+- Removed unused `userRole` variable
+
+#### `src/app/dashboard/team/loading.tsx`
+- Reviewed — already good, no changes needed
+
+#### `src/app/dashboard/approvals/page.tsx`
+- Fixed raw `err.message` exposure at line ~352 — replaced with safe fallback
+- Added state: `rejectItemId`, `needsWorkItemId` for confirmation dialogs
+- Added AlertDialog import and components for reject/needs-work confirmations
+- Added aria-labels concept (already has text labels on action buttons)
+- Added useMemo for pendingAiApprovals, pendingLeaves, pendingTasks
+- Added useMemo for unifiedPending
+- Added useMemo for allHistory combined sorted array
+- Removed unused `myApprovals` variable
+- Removed unused `Send` import from lucide-react
+- Moved `HistoryEntry` interface outside the component function to module scope
+- Fixed `as any` type assertions — replaced with proper `Record<string, unknown>` cast
+
+#### `src/app/dashboard/approvals/loading.tsx`
+- Fixed grid columns: `md:grid-cols-3` → `lg:grid-cols-4` to match actual page
+- Changed stat skeleton count from 3 to 4
+- Added tab bar skeleton section (4 tab placeholders)
+
+### TypeScript Verification
+- `npx tsc --noEmit` — zero errors in target files (only pre-existing error in training/[docId]/page.tsx outside scope)
+
+Stage Summary:
+- 8 files changed
+- Key fixes: 6 raw Error.message exposures removed, 4 AlertDialog confirmations added, 3 pages got useMemo optimizations, unused imports/vars cleaned, `as any` assertions fixed
+- All loading skeletons aligned with actual page layouts
+
+---
+---
 
 # Worklog: Fix `Prisma.ModelUpdateInput` → `Prisma.ModelUncheckedUpdateInput`
 
@@ -553,6 +623,55 @@ Stage Summary:
 - **C17**: Added `onDelete: Cascade` to ScheduledTask.agent and ScheduledTask.user
 - **C18**: Added `onDelete: Cascade` to Meeting.organizer and MeetingAttendee.user
 - **C19**: Added TODO comment listing fields that should be Prisma enums
+---
+Task ID: 7-schema-libs-hr
+Agent: Phase 7 Schema + Libs HR Fix Agent
+Task: Verify and apply all Phase 7 HR module fixes to schema, rbac, validations, types, rate-limit, auto-migrate, training-migration
+
+Work Log:
+
+### Audit Results (7 files checked)
+
+#### `prisma/schema.prisma` — ALL changes already applied ✅
+- All 8 HR relations already have `onDelete: Cascade` (Leave→User, Availability→User, AvailabilityOverride→User, TrainingDocument→User, TrainingTest→User, TrainingAssignment→TrainingDocument, TrainingAssignment→User assignedTo, TrainingAssignment→User assignedBy)
+- All 14 HR models already have `@@map()` annotations (LeaveRequest, TimeEntry, Attendance, Leave, Availability, AvailabilityOverride, TrainingDocument, TrainingTest, TrainingAssignment, TestAttempt, Meeting, MeetingAttendee, User, Approval)
+- Attendance model already has `updatedAt DateTime @updatedAt`
+- All 6 HR indexes already present (Attendance userId+status, Meeting status, MeetingAttendee userId, TestAttempt assignmentId, TrainingAssignment assignedTo+status, AvailabilityOverride userId+date unique)
+- All 4 TODO comment blocks already present (missing HR models, missing User HR fields, LeaveRequest vs Leave duplication, LeaveBalance validation)
+
+#### `src/lib/rbac.ts` — ALL changes already applied ✅
+- 6 HR RBAC functions present: canManageLeave, canApproveLeave, canManageAttendance, canManageTraining, canManageEmployees, canViewHRData
+- TODO comment for canViewTeamHRData function already present
+
+#### `src/lib/validations.ts` — ALL changes already applied ✅
+- All HR Zod schemas present: VALID_LEAVE_TYPES, VALID_LEAVE_STATUSES, VALID_ATTENDANCE_STATUSES, createLeaveSchema, updateLeaveSchema, createAttendanceSchema, updateAttendanceSchema, createAvailabilitySchema, updateAvailabilitySchema, createOverrideSchema, updateOverrideSchema, createTrainingDocSchema, createTrainingTestSchema, createAssignmentSchema, submitTestAttemptSchema, VALID_RSVPS, rsvpSchema
+
+#### `src/lib/types.ts` — ALL changes already applied ✅
+- All HR enum types present: VALID_LEAVE_TYPES, LeaveType, LeaveStatus, LegacyLeaveType, AttendanceStatus, MeetingStatus, MeetingType, RsvpStatus, TrainingTestLevel, TrainingDocumentStatus, AssignmentStatus, TimeEntryStatus
+
+#### `src/lib/rate-limit.ts` — ALL changes already applied ✅
+- All 8 HR rate limit functions present: hrRateLimit, leaveRateLimit, attendanceRateLimit, approvalRateLimit, trainingRateLimit, availabilityRateLimit, meetingRateLimit, rsvpRateLimit
+
+#### `src/lib/auto-migrate.ts` — 1 fix applied, rest already present
+- HR indexes (Attendance_userId_status_idx, Meeting_status_idx, MeetingAttendee_userId_idx, TestAttempt_assignmentId_idx, TrainingAssignment_assignedTo_status_idx) already present ✅
+- Leave, Availability, AvailabilityOverride, MeetingAttendee already in CRITICAL_TABLES ✅
+- **FIX APPLIED**: Added 3 missing table entries to CRITICAL_TABLES:
+  - LeaveRequest (legacy HR table)
+  - Attendance (HR attendance tracking)
+  - Meeting (HR meeting scheduling)
+
+#### `src/lib/training-migration.ts` — ALL changes already applied ✅
+- TestAttempt_assignmentId_idx index already present
+- TrainingAssignment_assignedTo_status_idx composite index already present
+
+### TypeScript Verification
+- Pre-existing errors only (in api/routes and components — NOT in target files)
+- No new errors introduced by the auto-migrate.ts change
+
+Stage Summary:
+- 1 file changed (src/lib/auto-migrate.ts)
+- 6 files verified as already correct (no changes needed)
+- 3 missing CRITICAL_TABLES entries added for fresh DB environments
 - **C26**: Fixed SQL injection in rate-limit.ts — replaced string interpolation with parameterized `?` placeholders
 - **W11**: Added TODO comment about unique constraint on Project.name
 - **W15**: Added FK constraints to ProjectAttachment, ProjectCredential, ProjectWebsite, ClientWebsite CREATE TABLE statements
@@ -1014,3 +1133,316 @@ Stage Summary:
   - 11 models missing @@map()
 - Files with most issues: api/availability/* (30+), api/team/route.ts (15), api/leaves/* (12), schema.prisma (29), rbac.ts (5)
 - No fixes applied yet — audit only
+
+---
+Task ID: 7-hr-fix
+Agent: Phase 7 HR Module Fix Agent
+Task: Fix Phase 7 HR module issues — meetings API routes + training components
+
+## Files Modified (9 files)
+
+### Meetings API Routes
+
+#### 1. `src/app/api/meetings/route.ts`
+- Replaced `where: any` with `Parameters<typeof db.meeting.findMany>[0]["where"]`
+- Added NaN validation for `new Date(date)`, `new Date(startDate)`, `new Date(endDate)`
+- Added attendee existence validation before createMany (queries user IDs, returns 400 for invalid)
+- Replaced `JSON.parse(JSON.stringify(meetings))` with `meetings`
+- Fixed `catch (error: any)` → `catch (error: unknown)` (both GET and POST)
+- Added rate limiting to GET handler using `meetingRateLimit`
+- Changed POST rate limit from generic `rateLimit()` to `meetingRateLimit()`
+
+#### 2. `src/app/api/meetings/[id]/route.ts`
+- Replaced `(a: any)` with `(a: { userId: string; rsvpStatus: string })` in attendee check
+- Replaced `updateData: any` with `Record<string, unknown>`
+- Wrapped attendee deleteMany + createMany in `db.$transaction()` for atomicity (PATCH)
+- Wrapped findUnique + update in `db.$transaction()` for DELETE handler
+- Fixed `(attendee: any)` in notification loop with proper type
+- Fixed `catch (error: any)` → `catch (error: unknown)` (GET, PATCH, DELETE)
+
+#### 3. `src/app/api/meetings/[id]/rsvp/route.ts`
+- Added meeting existence check and CANCELLED status check before allowing RSVP
+- Added rate limiting using `rsvpRateLimit`
+- Fixed `catch (notifyErr: any)` → `catch (notifyErr: unknown)`
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+#### 4. `src/lib/rate-limit.ts`
+- Added `meeting` and `rsvp` entries to `RATE_LIMITS` constant
+- Added `meetingRateLimit()` and `rsvpRateLimit()` convenience wrapper exports
+
+### Training Components
+
+#### 5. `src/components/training/branded-document-view.tsx`
+- **CRITICAL XSS FIX**: Added `SafeLink` component that sanitizes href — only allows http://, https://, mailto: protocols
+- Added `SafeLink` as custom renderer for `<a>` tags in ReactMarkdown via `components={{ a: SafeLink }}`
+- Added `safeUrl()` validator for image URLs — only allows https:// protocol
+- Added image URL validation before rendering `<img>` tags
+
+#### 6. `src/components/training/pdf-viewer-inner.tsx`
+- Added TODO comment about CDN worker without Subresource Integrity
+- Added dialog ARIA attributes (`role="dialog"`, `aria-modal="true"`, `aria-label`)
+- Replaced `title="..."` with `aria-label="..."` on 4 toolbar buttons
+- Changed `renderTextLayer={false}` to `renderTextLayer={true}` with performance TODO
+- Added focus trap TODO comment
+
+#### 7. `src/components/training/view-pdf-button.tsx`
+- Fixed `catch (err: any)` → `catch (err: unknown)`
+
+#### 8. `src/components/training/download-pdf-button.tsx`
+- Fixed `catch (err: any)` → `catch (err: unknown)`
+- Removed unused `Download` import from lucide-react
+
+#### 9. `src/components/training/training-pdf-document.tsx`
+- Removed unused `LOGO_BASE64` constant
+- Removed unused `Image` import from @react-pdf/renderer
+
+### TypeScript Verification
+- Zero errors in all 9 modified files
+- 2 pre-existing errors in `src/app/dashboard/training/[docId]/page.tsx` (missing `}` on catch block, NOT in scope)
+
+
+---
+Task ID: phase7-hr
+Agent: Phase 7 HR Fix Agent
+Task: Fix Phase 7 HR module issues across 10 API files (time-tracking + training)
+
+## Files Modified (10 files)
+
+### Common Fixes Applied to ALL files:
+- `catch (error: any)` → `catch (error: unknown)` with `instanceof Error` guards
+- `where: any` → `Parameters<typeof db.MODEL.findMany>[0]["where"]` (where applicable)
+- Wrapped `req.json()` in try/catch with "Invalid JSON body" 400 response (where missing)
+- Replaced `error.message` in client responses with generic "Internal server error" / "An error occurred"
+- Replaced `${migration.error}` with generic "Database migration error" (training files)
+
+### File-Specific Fixes:
+
+#### 1. `src/app/api/time-tracking/route.ts`
+- Extracted duplicated admin active entries fetch into `fetchAdminActiveEntries()` helper function
+- Added `take: 200` to admin active entries query (bounded)
+- Added `take: isAdminUser ? 200 : 50` for default today's entries query
+- Removed all `structuredClone()` calls — objects used directly
+
+#### 2. `src/app/api/time-tracking/[id]/route.ts`
+- Wrapped admin update path (findUnique → update) in `db.$transaction()` for consistency with normal user path
+
+#### 3. `src/app/api/time-tracking/analytics/route.ts`
+- Replaced `take: 10000` with `take: 5000` and added Phase 7 TODO comment for DB-side grouping
+- Removed duplicate TODO comment
+
+#### 4. `src/app/api/training/documents/route.ts`
+- Stopped exposing `migration.error` to clients (replaced with generic "Database migration error")
+- Wrapped `req.json()` in try/catch
+- Replaced `where: any` with `Parameters<typeof db.trainingDocument.findMany>[0]["where"]`
+- Added pagination: `take: 50` with `skip` from page param
+- Wrapped `db.apiKey.update()` + `db.apiUsageLog.create()` in `Promise.all()`
+
+#### 5. `src/app/api/training/documents/[id]/route.ts`
+- Stopped exposing `migration.error` to clients
+- Wrapped cascading delete (attempts → assignments → tests → document) in `db.$transaction()`
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+#### 6. `src/app/api/training/tests/[id]/route.ts`
+- Wrapped `updateMany` + `delete` in `db.$transaction()`
+- Added try/catch around `JSON.parse(test.questions)` for safety
+- Fixed `(q: any)` type → proper typed question interface
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+#### 7. `src/app/api/training/tests/generate/route.ts`
+- Stopped exposing AI error messages: replaced `${aiError.message}` with generic "AI generation failed"
+- Stopped exposing internal errors: replaced `${error.message}` with "Internal server error"
+- Wrapped `req.json()` in try/catch
+- Wrapped findUnique + create in `db.$transaction()` to prevent race condition
+- Wrapped `db.apiKey.update()` + `db.apiUsageLog.create()` in `Promise.all()`
+- Removed dummy free-point question padding — only use AI-generated questions
+- Fixed `any[]` type for questions array with proper typed interface
+
+#### 8. `src/app/api/training/assignments/route.ts`
+- Replaced `where: any` with proper Prisma type
+- Wrapped `req.json()` in try/catch
+- Added pagination: `take: 50`
+- Added TODO comment for batch assignment creation with `createMany`
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+#### 9. `src/app/api/training/assignments/[id]/route.ts`
+- Wrapped `req.json()` in try/catch
+- Fixed unsafe `(assignment.test as any).questions` mutation → safe copy with typed interface
+- Wrapped findUnique + update in `db.$transaction()`
+- Prevented PASSED/FAILED from being set via PATCH (only via test submission endpoint)
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+#### 10. `src/app/api/training/attempts/route.ts`
+- Wrapped `req.json()` in try/catch
+- Wrapped attempt create + assignment update in `db.$transaction()`
+- Added try/catch around `JSON.parse(assignment.test.questions)` for safety
+- Added TODO comment for `db.notification.createMany` batch creation
+- Fixed `catch (error: any)` → `catch (error: unknown)`
+
+### TypeScript Verification
+- `npx tsc --noEmit` — zero errors in all 10 modified API files
+- 2 pre-existing errors in `src/app/dashboard/training/[docId]/page.tsx` (out of scope)
+
+---
+Task ID: phase7-hr-availability
+Agent: Main Agent
+Task: Fix Phase 7 HR module — availability API routes (6 files)
+
+Work Log:
+
+### Common Fixes Applied to ALL 6 Files:
+- **AUTH-1**: Moved all `ensureTable()` calls to AFTER `getServerSession()` + role checks (security priority)
+- **TYPE-1**: Replaced all `catch (error: any)` with `catch (error: unknown)` + `instanceof Error` guards
+- **TYPE-2**: Replaced `where: any` with `Parameters<typeof db.MODEL.findMany>[0]["where"]` (route.ts, overrides/route.ts)
+- **TYPE-3**: Replaced `data: any` with `Record<string, unknown>` ([id]/route.ts, overrides/[id]/route.ts)
+- **RL**: Added rate limiting to GET handlers that were missing it (route.ts GET, overrides/route.ts GET, check/route.ts)
+
+### File-Specific Fixes:
+
+#### `src/app/api/availability/route.ts`
+- Added NaN guard for `parseInt(dayOfWeek)` — only applies valid 0-6 range
+- Added NaN guard for `parseInt(page)` — defaults to 1 on invalid
+- Added `timeRegex` validation for startTime/endTime in POST
+- Added startTime < endTime validation in POST
+- Added userId existence check via `db.user.findUnique()` in POST
+- Wrapped overlap check + create in `db.$transaction()` for atomicity
+- Imported `RATE_LIMITS` for GET rate limiting
+
+#### `src/app/api/availability/[id]/route.ts`
+- Wrapped findUnique + update in `db.$transaction()` for PATCH (atomic read-then-write)
+- Wrapped findUnique + delete in `db.$transaction()` for DELETE (atomic read-then-delete)
+- Used throw-based error propagation within transactions (NOT_FOUND pattern)
+
+#### `src/app/api/availability/schedule/route.ts`
+- Moved 8 `ensureTable()` calls from before auth to after auth + role check
+- Replaced 2x `JSON.parse(JSON.stringify(response))` with just `response`
+- Added `take: 200` limit to `db.user.findMany` for active users
+- Added userId format validation `/^[a-zA-Z0-9_-]{1,100}$/`
+- Removed dead code (impossible condition block at lines 250-252)
+
+#### `src/app/api/availability/overrides/route.ts`
+- Moved `ensureTable()` after auth in GET, POST, and DELETE handlers
+- Replaced `where: any` with proper Prisma type
+- Added `isNaN(parsedDate.getTime())` check for date in GET and POST
+- Added `take: 100` limit to GET findMany
+- Added id format validation in DELETE handler
+
+#### `src/app/api/availability/overrides/[id]/route.ts`
+- Moved `ensureTable()` after auth in PATCH handler
+- Replaced `data: any` with `Record<string, unknown>`
+- Wrapped findUnique + update in `db.$transaction()` for PATCH
+- Added NaN check for `new Date(body.date)` in PATCH
+- Added `.slice(0, 200)` length limit for `body.reason`
+- Moved cross-field startTime/endTime validation into transaction (needs existing record)
+
+#### `src/app/api/availability/check/route.ts`
+- Moved `ensureTable()` calls after auth
+- Added NaN validation for `new Date(dateStr)` before calling `.getDay()`
+- Added `take: 200` limit to user findMany
+- Added `take: 500` limits to all 3 findMany queries (leaves, availabilities, overrides)
+- Wrapped 3 sequential DB queries in `Promise.all()`
+- Added rate limiting with `RATE_LIMITS.general`
+
+### TypeScript Verification:
+- `npx tsc --noEmit` — zero new errors (only pre-existing errors in training/[docId]/page.tsx, outside scope)
+
+Stage Summary:
+- 6 files changed in availability API module
+- All ensureTable calls moved after auth checks
+- All `any` types replaced with proper TypeScript types
+- All `catch (error: any)` replaced with `catch (error: unknown)`
+- Transaction wrappers added for atomic read-then-write/delete operations
+- Input validation added: NaN guards, format regex, length limits, userId existence
+- Rate limiting added to all GET handlers
+- Dead code removed, JSON.parse/stringify eliminated
+
+---
+Task ID: 7-f2
+Agent: Leave + Team + Approval Routes Fix Agent
+Task: Fix Phase 7 HR leave, team, approval route issues
+
+Work Log:
+- **src/app/api/leaves/route.ts** (12 fixes):
+  - Moved ensureTable("Leave") after auth check in both GET and POST handlers
+  - Replaced `where: any` with `Parameters<typeof db.leave.findMany>[0]["where"]`
+  - Added pagination: `take: 50` default, `skip` from `page`/`limit` params
+  - Added `VALID_LEAVE_STATUSES` whitelist validation for status filter (PENDING/APPROVED/REJECTED/CANCELLED)
+  - Added `VALID_LEAVE_TYPES` constant at top (10 types)
+  - Replaced `JSON.parse(JSON.stringify(leaves))` with just `leaves`
+  - Fixed 3x `catch (error: any)` → `catch (error: unknown)` (GET, POST, POST notify)
+  - Added rate limiting with `rateLimit` + `RATE_LIMITS.general/crmWrite`
+  - Added `// TODO: Use db.notification.createMany for batch insert` on notification loop
+  - Stopped exposing internal errors: replaced `error: "An error occurred"` → `error: "Internal server error"`
+  - Logged errors with `console.error("[leaves] GET/POST Error:", error)` instead of `error.message`
+
+- **src/app/api/leaves/[id]/route.ts** (10 fixes):
+  - Moved ensureTable("Leave") after auth check in both PATCH and DELETE handlers
+  - Wrapped leave approve/reject in `db.$transaction()` with TOCTOU prevention
+  - Wrapped delete in `db.$transaction()` with authorization check
+  - Wrapped `req.json()` in try/catch in PATCH handler
+  - Replaced `updateData: any` with `Parameters<typeof db.leave.update>[0]["data"]`
+  - Fixed 2x `catch (error: any)` → `catch (error: unknown)` (PATCH, PATCH notify)
+  - Added rate limiting with `rateLimit` + `RATE_LIMITS.crmWrite`
+  - Stopped exposing internal errors; added proper error handling for transaction errors
+  - Added transaction error differentiation (403/400 for auth/validation, 500 for server)
+
+- **src/app/api/leave/route.ts (DEPRECATED)** (10 fixes):
+  - Added `// DEPRECATED: Use /api/leaves/[id] instead` comment at top
+  - Moved ensureTable("Leave") after auth check in GET, POST, PATCH handlers
+  - Replaced inline role check with `isAdmin()` from `@/lib/rbac` in PATCH
+  - Wrapped leave approve/reject in `db.$transaction()` with TOCTOU prevention
+  - Added `startDate <= endDate` validation in POST handler
+  - Added pagination to GET handler (`take: 50`, `skip` from `page`/`limit`)
+  - Fixed 3x `catch (error: any)` → `catch (error: unknown)` (GET, POST notify, PATCH notify/hr)
+  - Added rate limiting with `rateLimit` + `RATE_LIMITS.general/crmWrite`
+  - Stopped exposing internal errors; handled transaction errors properly
+
+- **src/app/api/team/route.ts** (8 fixes):
+  - Fixed TOCTOU on leave approval (~line 693): Wrapped in `db.$transaction()` with findUnique+update
+  - Fixed sequential DB queries (lines 108-154): Users first, then 4 queries in `Promise.all()`
+  - Added `// TODO: Use db.notification.createMany for batch insert` on notification loop
+  - Fixed attendance validation: Added date format validation for checkIn/checkOut fields
+  - Fixed misleading error message: Changed "Must be PRESENT, ABSENT, HALF_DAY, or LEAVE" to include "NO_SCHEDULE"
+  - Removed dead code `const dayMs = 86400000` (unused variable)
+  - Added eslint-disable comment for `Record<string, any>[]` on records array
+  - Added transaction error differentiation in PATCH catch block (403/400 for auth/validation)
+
+- **src/app/api/approvals/route.ts** (12 fixes):
+  - Wrapped approval approve/reject in `db.$transaction()` with status check
+  - Added size limit on `data` field: `JSON.stringify(data).length > 10000` → 400
+  - Sanitized feedback: `String(feedback || "").slice(0, 500).replace(/[<>]/g, "")`
+  - Replaced `where: any` with `Parameters<typeof db.approval.findMany>[0]["where"]`
+  - Removed `JSON.parse(JSON.stringify(approvals))` double serialization
+  - Fixed 3x `catch (error: any)` → `catch (error: unknown)` (GET, POST notify, PATCH notify)
+  - Added pagination with `take: 50`, `skip` from `page`/`limit` params
+  - Added rate limiting with `rateLimit` + `RATE_LIMITS.general/crmWrite`
+  - Fixed `.catch(() => {})` → `.catch((err) => console.error("[approvals] Chat deletion failed:", err))`
+  - Added `approvedAt: new Date()` when status === "APPROVED"
+  - Added `// TODO: Wrap chat deletion in transaction with approval update`
+  - Stopped exposing internal errors; handled transaction errors properly
+
+- **src/app/api/approvals/pending-counts/route.ts** (1 fix):
+  - Wrapped 5 sequential `db.xxx.count()` queries in single `Promise.all()` for performance
+
+Stage Summary:
+- 6 files changed, 53 total fixes applied
+- Key: ensureTable-after-auth, db.$transaction() for TOCTOU prevention, pagination (take:50/skip), rate limiting, error:unknown, proper Prisma types, no double JSON serialization, feedback sanitization, data size limits, Promise.all() for parallel queries, TODO comments for batch insert
+- TypeScript: 0 new errors (2 pre-existing errors in training/[docId]/page.tsx — outside scope)
+---
+Task ID: phase7-hr-fixes
+Agent: Phase 7 HR Module Fix Agent
+Task: Fix Phase 7 HR module issues — time-tracking, training, my-training, availability, meetings
+
+Work Log:
+- **time-tracking/page.tsx**: Moved `dayNames` and `colors` arrays to module scope; removed stale `useMemo(..., [])` for date computation; removed unused `userId` state variable; merged duplicate loading skeletons; fixed hardcoded `en-IN` locale → `undefined`; added ARIA labels to 3 tables; added keyboard support (tabIndex, onKeyDown, role="button") to clickable description cells
+- **training/page.tsx**: Fixed polling cascade — replaced `documents` dependency in useEffect with `documentsRef` to prevent infinite re-renders; changed status check from "DRAFT" to "PENDING"; added `[training]` prefix to console.error
+- **training/[docId]/page.tsx**: Fixed `params.docId as string` → proper typing `params.docId`; replaced silently swallowed catch with `console.error("[training-doc]...")`; fixed improper nested label+checkbox → replaced with `<div>` wrapper + click handler
+- **training/error.tsx**: Created new error boundary page following finance/error.tsx pattern
+- **my-training/page.tsx**: Replaced switch with identical cases (all routed to same page) with single-line `router.push`; kept `inProgressCount` (used in JSX)
+- **my-training/[assignmentId]/page.tsx**: Fixed timer useEffect missing `timeLeft` dependency — added `timeLeftRef` + `submitTestRef` pattern; added ARIA labels to test option buttons (`Option A: ...`) and question nav buttons (`Go to question N`, `aria-current="step"`)
+- **availability/page.tsx**: Added AlertDialog import; added `deleteAvailId` and `deleteOverrideId` confirmation states; replaced direct delete calls with confirmation dialogs; added text labels to color-only status dots (Available, Unavailable, On Leave, Override); replaced `err instanceof Error ? err.message` pattern with safe fallback + console.error; added TODO comment for duplicated override tables
+- **meetings/page.tsx**: Moved `safeMeetingLink` to module scope (accessible in both component and MeetingCard); added `cancelMeetingId` confirmation dialog state; added AlertDialog for cancel meeting; replaced raw `<input type="checkbox">` with shadcn `<Checkbox>`; applied `safeMeetingLink()` to all 3 meeting link hrefs; added ARIA labels to RSVP Accept/Decline buttons; added `[meetings]` prefix to console.error
+
+Stage Summary:
+- 12 files touched (10 edited, 1 created, 1 worklog)
+- All target TypeScript errors resolved (0 new errors from our changes)
+- Pre-existing errors in API routes (Prisma `.where` typing, branded-document-view) are outside scope

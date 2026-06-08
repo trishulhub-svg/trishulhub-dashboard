@@ -171,11 +171,25 @@ function escapeCSV(value: string): string {
   return `"${value}"`;
 }
 
+// ── Module-scope constants ──
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const COLORS = [
+  "bg-emerald-500",
+  "bg-teal-500",
+  "bg-cyan-500",
+  "bg-sky-500",
+  "bg-violet-500",
+  "bg-fuchsia-500",
+  "bg-pink-500",
+  "bg-rose-500",
+  "bg-orange-500",
+  "bg-amber-500",
+];
+
 // ── Component ──
 export default function TimeTrackingPage() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
-  const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // State
@@ -658,13 +672,11 @@ export default function TimeTrackingPage() {
   }, [teamEntries]);
 
   // ── Computed stats (memoized) ──
-  const { today, startOfToday, weekDays, endOfWeek } = useMemo(() => {
-    const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const weekDays = getWeekDays();
-    const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
-    return { today, startOfToday, weekDays, endOfWeek };
-  }, []);
+  // Computed dates — recalculated on every render (lightweight, ensures freshness)
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const weekDays = getWeekDays();
+  const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
 
   const { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries } = useMemo(() => {
     const todayHours = entries
@@ -710,29 +722,15 @@ export default function TimeTrackingPage() {
     });
 
     return { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries };
-  }, [entries, startOfToday, weekDays, endOfWeek, today]);
+  }, [entries]);
 
   // Add active timer hours to today and week
   const activeTimerHours = activeEntry ? elapsed / (1000 * 60 * 60) : 0;
   const todayTotal = todayHours + activeTimerHours;
   const weekTotal = weekHours + activeTimerHours;
 
-  // [FIX C2: Show loading skeleton during session loading]
-  if (sessionStatus === "loading") {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Time Tracking</h1>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />
-          ))}
-        </div>
-        <div className="h-64 bg-muted animate-pulse rounded-lg" />
-      </div>
-    );
-  }
-
-  if (loading) {
+  // [FIX C2: Show loading skeleton during session loading or data loading]
+  if (sessionStatus === "loading" || loading) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold">Time Tracking</h1>
@@ -892,7 +890,7 @@ export default function TimeTrackingPage() {
                     <div>
                       <p className="text-sm font-medium">{entry.user?.name || "Unknown"}</p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                        {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                       </p>
                     </div>
                   </div>
@@ -1014,7 +1012,6 @@ export default function TimeTrackingPage() {
             <CardContent>
               <div className="grid grid-cols-7 gap-2">
                 {weeklyGrid.map(({ day, total, isToday }, i) => {
-                  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
                   return (
                     <div
                       key={day.toISOString()} // [FIX M1: Use stable key instead of array index]
@@ -1027,7 +1024,7 @@ export default function TimeTrackingPage() {
                       }`}
                     >
                       <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                        {dayNames[i]}
+                        {DAY_NAMES[i]}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         {day.getDate()}
@@ -1062,7 +1059,7 @@ export default function TimeTrackingPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table aria-label="Today's time entries">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Project</TableHead>
@@ -1084,6 +1081,9 @@ export default function TimeTrackingPage() {
                           <TableCell
                             className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
                             onClick={() => entry.description && setViewDescriptionEntry(entry)}
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter') entry.description && setViewDescriptionEntry(entry) }}
+                            role="button"
                           >
                             {entry.description || "\u2014"}
                           </TableCell>
@@ -1231,7 +1231,7 @@ export default function TimeTrackingPage() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-                    <Table>
+                    <Table aria-label="Team time logs">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Employee</TableHead>
@@ -1258,6 +1258,9 @@ export default function TimeTrackingPage() {
                             <TableCell
                               className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
                               onClick={() => entry.description && setViewDescriptionEntry(entry)}
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === 'Enter') entry.description && setViewDescriptionEntry(entry) }}
+                              role="button"
                             >
                               {entry.description || "\u2014"}
                             </TableCell>
@@ -1355,19 +1358,7 @@ export default function TimeTrackingPage() {
                     : 0;
                   const barWidth = Math.max(2, (hours / maxHours) * 100);
 
-                  const colors = [
-                    "bg-emerald-500",
-                    "bg-teal-500",
-                    "bg-cyan-500",
-                    "bg-sky-500",
-                    "bg-violet-500",
-                    "bg-fuchsia-500",
-                    "bg-pink-500",
-                    "bg-rose-500",
-                    "bg-orange-500",
-                    "bg-amber-500",
-                  ];
-                  const color = colors[i % colors.length];
+                  const color = COLORS[i % COLORS.length];
                   // [FIX M2: Use stable key instead of array index]
                   const stableKey = analyticsTab === "employee" ? item.userId : item.projectId;
 

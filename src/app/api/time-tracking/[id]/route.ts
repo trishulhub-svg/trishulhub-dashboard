@@ -95,14 +95,22 @@ export async function PATCH(
           updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
         }
 
-        const entry = await db.timeEntry.update({
-          where: { id },
-          data: updateData,
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-            project: { select: { id: true, name: true } },
-          },
+        const entry = await db.$transaction(async (tx) => {
+          const existingInTx = await tx.timeEntry.findUnique({ where: { id } })
+          if (!existingInTx) return null
+          return await tx.timeEntry.update({
+            where: { id },
+            data: updateData,
+            include: {
+              user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+              project: { select: { id: true, name: true } },
+            },
+          })
         })
+
+        if (!entry) {
+          return NextResponse.json({ error: "Time entry not found" }, { status: 404 })
+        }
 
         return NextResponse.json(entry)
       }

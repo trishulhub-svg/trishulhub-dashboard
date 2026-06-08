@@ -215,6 +215,66 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
+  // HR Tables
+  {
+    name: "Leave",
+    sql: `CREATE TABLE IF NOT EXISTS "Leave" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "leaveType" TEXT NOT NULL,
+      "startDate" DATETIME NOT NULL,
+      "endDate" DATETIME NOT NULL,
+      "reason" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "approvedBy" TEXT,
+      "approvedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("approvedBy") REFERENCES "User"("id")
+    )`
+  },
+  {
+    name: "Availability",
+    sql: `CREATE TABLE IF NOT EXISTS "Availability" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "dayOfWeek" INTEGER NOT NULL,
+      "startTime" TEXT NOT NULL,
+      "endTime" TEXT NOT NULL,
+      "isAvailable" BOOLEAN NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "AvailabilityOverride",
+    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityOverride" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATETIME NOT NULL,
+      "startTime" TEXT,
+      "endTime" TEXT,
+      "isAvailable" BOOLEAN NOT NULL,
+      "reason" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "MeetingAttendee",
+    sql: `CREATE TABLE IF NOT EXISTS "MeetingAttendee" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "meetingId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "rsvpStatus" TEXT NOT NULL DEFAULT 'PENDING',
+      FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      CONSTRAINT "MeetingAttendee_meetingId_userId_key" UNIQUE ("meetingId", "userId")
+    )`
+  },
   {
     name: "TimetableSettings",
     sql: `CREATE TABLE IF NOT EXISTS "TimetableSettings" (
@@ -226,6 +286,63 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  // HR — LeaveRequest (legacy)
+  {
+    name: "LeaveRequest",
+    sql: `CREATE TABLE IF NOT EXISTS "LeaveRequest" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "type" TEXT NOT NULL DEFAULT 'CASUAL',
+      "startDate" DATETIME NOT NULL,
+      "endDate" DATETIME NOT NULL,
+      "reason" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "approvedBy" TEXT,
+      "feedback" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  // HR — Attendance
+  {
+    name: "Attendance",
+    sql: `CREATE TABLE IF NOT EXISTS "Attendance" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATETIME NOT NULL,
+      "checkIn" DATETIME,
+      "checkOut" DATETIME,
+      "status" TEXT NOT NULL DEFAULT 'PRESENT',
+      "notes" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      CONSTRAINT "Attendance_userId_date_key" UNIQUE ("userId", "date")
+    )`
+  },
+  // HR — Meeting
+  {
+    name: "Meeting",
+    sql: `CREATE TABLE IF NOT EXISTS "Meeting" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "title" TEXT NOT NULL,
+      "description" TEXT,
+      "date" DATETIME NOT NULL,
+      "startTime" TEXT NOT NULL,
+      "endTime" TEXT,
+      "organizerId" TEXT NOT NULL,
+      "meetingType" TEXT NOT NULL DEFAULT 'VIRTUAL',
+      "meetingLink" TEXT,
+      "projectId" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+      "notes" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("organizerId") REFERENCES "User"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
     )`
   },
 ]
@@ -618,6 +735,43 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: any) {
       if (!err?.message?.includes('already exists')) {
         console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${err?.message}`)
+      }
+    }
+
+    // 1i. HR indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Attendance_userId_status_idx" ON "Attendance"("userId", "status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] Attendance_userId_status_idx: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Meeting_status_idx" ON "Meeting"("status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] Meeting_status_idx: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MeetingAttendee_userId_idx" ON "MeetingAttendee"("userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] MeetingAttendee_userId_idx: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] TestAttempt_assignmentId_idx: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${err?.message}`)
       }
     }
 

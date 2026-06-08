@@ -14,6 +14,20 @@ type TimeEntryWithUser = {
   [key: string]: unknown;
 }
 
+/** Shared helper to fetch all active time entries for admin dashboards */
+async function fetchAdminActiveEntries(): Promise<TimeEntryWithUser[]> {
+  const allActive = await db.timeEntry.findMany({
+    where: { status: "ACTIVE" },
+    include: {
+      user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+      project: { select: { id: true, name: true } },
+    },
+    orderBy: { clockIn: "desc" },
+    take: 200,
+  })
+  return allActive as TimeEntryWithUser[]
+}
+
 /**
  * GET /api/time-tracking
  * Lists time entries with optional filters. Supports pagination.
@@ -103,23 +117,16 @@ export async function GET(req: NextRequest) {
           project: { select: { id: true, name: true } },
         },
         orderBy: { clockIn: "desc" },
+        take: isAdminUser ? 200 : 50,
       })
 
       // For admin users, fetch all currently active entries across all users
       let activeEntries: TimeEntryWithUser[] = []
       if (isAdminUser) {
-        const allActive = await db.timeEntry.findMany({
-          where: { status: "ACTIVE" },
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-            project: { select: { id: true, name: true } },
-          },
-          orderBy: { clockIn: "desc" },
-        })
-        activeEntries = structuredClone(allActive) as TimeEntryWithUser[]
+        activeEntries = await fetchAdminActiveEntries()
       }
 
-      return NextResponse.json({ entries: structuredClone(entries), activeEntries, page: 1, limit: 100, totalPages: 1 })
+      return NextResponse.json({ entries, activeEntries, page: 1, limit: 100, totalPages: 1 })
     }
 
     // Pagination support
@@ -145,18 +152,10 @@ export async function GET(req: NextRequest) {
     // For admin users on filtered queries, also fetch active entries
     let activeEntries: TimeEntryWithUser[] = []
     if (isAdminUser) {
-      const allActive = await db.timeEntry.findMany({
-        where: { status: "ACTIVE" },
-        include: {
-          user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-          project: { select: { id: true, name: true } },
-        },
-        orderBy: { clockIn: "desc" },
-      })
-      activeEntries = structuredClone(allActive) as TimeEntryWithUser[]
+      activeEntries = await fetchAdminActiveEntries()
     }
 
-    return NextResponse.json({ entries: structuredClone(entries), activeEntries, page, limit, totalPages })
+    return NextResponse.json({ entries, activeEntries, page, limit, totalPages })
   } catch (error: unknown) {
     console.error("[time-tracking] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

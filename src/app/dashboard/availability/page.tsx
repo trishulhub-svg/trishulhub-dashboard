@@ -37,6 +37,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -232,6 +242,10 @@ export default function AvailabilityPage() {
   const [editingOverride, setEditingOverride] = useState<OverrideEntry | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // ── Delete confirmation states ──
+  const [deleteAvailId, setDeleteAvailId] = useState<string | null>(null);
+  const [deleteOverrideId, setDeleteOverrideId] = useState<string | null>(null);
+
   // ── Availability form state ──
   const [formUserId, setFormUserId] = useState("");
   const [formDayOfWeek, setFormDayOfWeek] = useState("1");
@@ -285,8 +299,8 @@ export default function AvailabilityPage() {
         }
       }
     } catch (err) {
-      console.error("Failed to fetch data:", err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      console.error("[availability] Failed to fetch data:", err);
+      setError("Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -535,6 +549,8 @@ export default function AvailabilityPage() {
       }
     } catch {
       toast.error("Failed to delete");
+    } finally {
+      setDeleteAvailId(null);
     }
   };
 
@@ -553,6 +569,8 @@ export default function AvailabilityPage() {
       }
     } catch {
       toast.error("Failed to delete");
+    } finally {
+      setDeleteOverrideId(null);
     }
   };
 
@@ -696,16 +714,20 @@ export default function AvailabilityPage() {
             </div>
             <div className="flex items-center gap-3 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> Available
+                <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                <span className="text-xs text-muted-foreground">Available</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Unavailable
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                <span className="text-xs text-muted-foreground">Unavailable</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> On Leave
+                <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                <span className="text-xs text-muted-foreground">On Leave</span>
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Override
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                <span className="text-xs text-muted-foreground">Override</span>
               </span>
             </div>
           </div>
@@ -1528,7 +1550,7 @@ export default function AvailabilityPage() {
                                     size="icon"
                                     variant="ghost"
                                     className="h-7 w-7 text-red-400 hover:text-red-600"
-                                    onClick={() => handleDeleteOverride(override.id)}
+                                    onClick={() => setDeleteOverrideId(override.id)}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
@@ -1625,7 +1647,7 @@ export default function AvailabilityPage() {
                                     size="icon"
                                     variant="ghost"
                                     className="h-7 w-7 text-red-400 hover:text-red-600"
-                                    onClick={() => handleDeleteOverride(override.id)}
+                                    onClick={() => setDeleteOverrideId(override.id)}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
@@ -1796,6 +1818,44 @@ export default function AvailabilityPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Availability Confirmation Dialog */}
+      <AlertDialog open={!!deleteAvailId} onOpenChange={() => setDeleteAvailId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Availability</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this availability slot? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteAvailId && handleDeleteAvailability(deleteAvailId)} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Override Confirmation Dialog */}
+      <AlertDialog open={!!deleteOverrideId} onOpenChange={() => setDeleteOverrideId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Override</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this availability override? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* TODO: Extract duplicated override tables (upcoming/past) into a shared OverrideTable component */}
     </div>
   );
 }

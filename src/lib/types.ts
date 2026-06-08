@@ -167,3 +167,37 @@ export const DEPARTMENTS = [
 
 /** Flat array of valid department values for API validation */
 export const VALID_DEPARTMENT_VALUES: readonly string[] = DEPARTMENTS.map(d => d.value);
+
+// === HR Enum Types ===
+
+/** Leave types — single source of truth */
+export const VALID_LEAVE_TYPES = [
+  "SICK_LEAVE",
+  "CASUAL_LEAVE",
+  "ANNUAL_LEAVE",
+  "PUBLIC_HOLIDAY",
+  "MATERNITY_LEAVE",
+  "PATERNITY_LEAVE",
+  "COMPENSATORY_OFF",
+  "HALF_DAY",
+  "WORK_FROM_HOME",
+  "OTHER",
+] as const;
+export type LeaveType = (typeof VALID_LEAVE_TYPES)[number];
+
+export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+/** @deprecated Use LeaveType instead. Legacy leave types from LeaveRequest model. */
+export type LegacyLeaveType = "CASUAL" | "SICK" | "PAID";
+
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "NO_SCHEDULE";
+
+export type MeetingStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type MeetingType = "VIRTUAL" | "IN_PERSON" | "PHONE";
+export type RsvpStatus = "PENDING" | "ACCEPTED" | "DECLINED";
+
+export type TrainingTestLevel = "LOW" | "MEDIUM" | "HIGH";
+export type TrainingDocumentStatus = "DRAFT" | "READY" | "ARCHIVED";
+export type AssignmentStatus = "ASSIGNED" | "READ" | "TEST_STARTED" | "COMPLETED" | "PASSED" | "FAILED";
+
+export type TimeEntryStatus = "ACTIVE" | "COMPLETED";
