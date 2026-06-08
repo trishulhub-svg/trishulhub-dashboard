@@ -124,6 +124,7 @@ export const LEAD_COLUMNS: LeadStatus[] = [
 export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
 
 // ━━ Department Options ━━
+// Keep in sync with Prisma schema User model comment
 // Single source of truth — imported by API routes and UI components
 export const DEPARTMENTS = [
   { value: "MANAGEMENT", label: "Management" },

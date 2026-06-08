@@ -1,6 +1,9 @@
 import { randomUUID } from "crypto"
 import { db } from "@/lib/db"
 
+// NOTE: In-memory rate limiting has inherent burst bypass risk in serverless.
+// Accept as known limitation. The DB-backed persistence helps mitigate this.
+
 // ── In-memory hot cache ──
 // Serves as the primary read/write path for speed.
 // Survives within the same serverless function instance.
@@ -55,6 +58,8 @@ async function ensureRateLimitTable(): Promise<void> {
 // ── Preload from DB into in-memory cache ──
 // Runs once per cold start (non-blocking). Populates the in-memory
 // cache with active entries from the database.
+// NOTE: On cold starts, first request always passes (fail-open) because preload is async.
+// The DB-backed persistence mitigates this on subsequent cold starts by preserving counters.
 let _preloadAttempted = false
 
 async function preloadFromDb(): Promise<void> {
@@ -98,15 +103,14 @@ function persistToDb(key: string, count: number, windowStart: string, windowMs: 
       const id = randomUUID()
 
       await db.$executeRawUnsafe(
-        `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
-         VALUES ('${id}', '${key.replace(/'/g, "''")}', ${count}, '${windowStart}', ${windowMs}, '${now}')
-         ON CONFLICT("key") DO UPDATE SET "count" = ${count}, "windowStart" = '${windowStart}', "windowMs" = ${windowMs}`
+        'INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt") VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT("key") DO UPDATE SET "count" = ?, "windowStart" = ?, "windowMs" = ?',
+        id, key, count, windowStart, windowMs, now, count, windowStart, windowMs
       )
 
       // Cleanup: delete entries where window expired (older than 2x the window duration)
       const cutoff = new Date(Date.now() - 2 * windowMs).toISOString()
       await db.$executeRawUnsafe(
-        `DELETE FROM "RateLimitEntry" WHERE "windowStart" < '${cutoff}'`
+        'DELETE FROM "RateLimitEntry" WHERE "windowStart" < ?', cutoff
       )
     } catch {
       // Fail silently — in-memory cache is the primary store

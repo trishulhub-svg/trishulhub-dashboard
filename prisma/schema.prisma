@@ -1,3 +1,10 @@
+// TODO: Convert to Prisma enums when feasible: UserRole, ProjectStatus, TaskStatus, TaskPriority,
+// ScheduledTaskStatus, ScheduledTaskPriority, MeetingStatus, MeetingType, InvoiceStatus,
+// LeadStatus, ClientStatus, ApprovalStatus, AgentType, AgentStatus, ApiKeyStatus, ApiKeyProvider,
+// LeaveType, LeaveRequestType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
+// DealStage, Currency, PaymentMethod, NotificationType, RsvpStatus, TimetableCategory,
+// ProjectMemberRole, TrainingTestLevel, AssignmentStatus, etc.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,8 +21,8 @@ model User {
   name          String
   email         String   @unique
   password      String
-  role          String   @default("DEVELOPER") // SUPER_ADMIN, ADMIN, DEVELOPER, CLIENT
-  department    String?  // DEV, SALES, FINANCE, HR, CONTENT, SUPPORT, MANAGEMENT
+  role          String   @default("DEVELOPER") // SUPER_ADMIN, ADMIN, DEVELOPER, VIEWER, CLIENT
+  department    String?  // MANAGEMENT, ENGINEERING, DESIGN, MARKETING, SALES, FINANCE, OPERATIONS, DEV, HR, CONTENT, SUPPORT
   avatar        String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -192,7 +199,7 @@ model ScheduledTask {
   description      String?
   dueDate          DateTime
   status           String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
-  progress         Int       @default(0) // 0-100
+  progress         Int       @default(0) // 0-100 (validated at application level)
   priority         String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
   result           String?   // AI output / result of the task
   notifyAt         DateTime? // When to notify
@@ -202,8 +209,8 @@ model ScheduledTask {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  agent Agent @relation(fields: [agentId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([agentId, status])
   @@index([userId, status])
@@ -387,7 +394,8 @@ model Project {
   description String?
   clientId    String?
   status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
-  progress    Int      @default(0)
+  progress    Int      @default(0) // 0-100 (validated at application level)
+  // TODO: Add unique constraint on name or composite @@unique([name, clientId]) after data cleanup
   startDate   DateTime?
   deadline    DateTime?
   budget      Float?
@@ -461,7 +469,7 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  project     Project? @relation(fields: [projectId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, status])
   @@index([assignedTo, status])
@@ -487,7 +495,7 @@ model Invoice {
   updatedAt     DateTime @updatedAt
 
   client        Client   @relation(fields: [clientId], references: [id])
-  project       Project? @relation(fields: [projectId], references: [id])
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   paymentMethod  String?   // UPI, CREDIT_DEBIT_CARD, BANK_TRANSFER, OTHER
   gst            Float?    // GST amount in INR
   gstPercent     Float?    // GST percentage (e.g., 18)
@@ -680,7 +688,7 @@ model TimeEntry {
   date        DateTime @default(now()) // The date this entry belongs to (for grouping)
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     Project? @relation(fields: [projectId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([projectId])
@@ -757,8 +765,8 @@ model Meeting {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  organizer    User     @relation(fields: [organizerId], references: [id])
-  project      Project? @relation(fields: [projectId], references: [id])
+  organizer    User     @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   attendees    MeetingAttendee[]
 
   @@index([organizerId])
@@ -773,7 +781,7 @@ model MeetingAttendee {
   rsvpStatus String  @default("PENDING") // PENDING, ACCEPTED, DECLINED
 
   meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user       User    @relation(fields: [userId], references: [id])
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([meetingId, userId])
 }
@@ -792,7 +800,7 @@ model Expense {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  project     Project? @relation(fields: [projectId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   employee    User?    @relation("ExpenseEmployee", fields: [employeeId], references: [id])
 
   @@index([projectId])
@@ -818,7 +826,7 @@ model Subscription {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  project      Project?  @relation(fields: [projectId], references: [id])
+  project      Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([status])
@@ -1068,6 +1076,7 @@ model PersonalTimetableTask {
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@index([userId, date])
   @@index([userId, status])
   @@index([date])

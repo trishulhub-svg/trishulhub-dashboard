@@ -96,24 +96,20 @@ export async function canPerformFileAction(
 
 /**
  * Get all descendant file IDs under a folder (recursive).
+ * Uses a recursive CTE for a single-query traversal.
  * Returns an array of FileMetadata.id values.
  */
-export async function getDescendantFileIds(parentDriveId: string, depth: number = 0): Promise<string[]> {
-  if (depth > 10) return []
-
-  const children = await db.fileMetadata.findMany({
-    where: { parentId: parentDriveId },
-    select: { id: true, driveFileId: true },
-  })
-
-  let ids: string[] = children.map(c => c.id)
-
-  for (const child of children) {
-    const subIds = await getDescendantFileIds(child.driveFileId, depth + 1)
-    ids = ids.concat(subIds)
-  }
-
-  return ids
+export async function getDescendantFileIds(folderId: string): Promise<string[]> {
+  const rows: Array<{ id: string }> = await db.$queryRawUnsafe(
+    `WITH RECURSIVE descendants AS (
+      SELECT id FROM "FileMetadata" WHERE "parentId" = ?
+      UNION ALL
+      SELECT f.id FROM "FileMetadata" f JOIN descendants d ON f."parentId" = d.id
+    )
+    SELECT id FROM descendants`,
+    folderId
+  )
+  return rows.map((r: any) => r.id)
 }
 
 /**
@@ -130,15 +126,14 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
 
   // CLIENT users: find projects via their linked Client record
   if (role === "CLIENT") {
-    const client = await db.client.findFirst({ where: { userId } })
-    if (!client) return []
-    const projects = await db.project.findMany({
-      where: { clientId: client.id },
-      select: { id: true },
-    })
-    return projects.map(p => p.id)
+    const clientProjects: Array<{ id: string }> = await db.$queryRawUnsafe(
+      'SELECT p.id FROM "Project" p JOIN "Client" c ON p."clientId" = c.id WHERE c."userId" = ?',
+      userId
+    )
+    return clientProjects.map((cp) => cp.id)
   }
 
+  // VIEWER: read-only access, filtered by project membership
   // ADMIN, DEVELOPER, VIEWER: only see projects they are members of
   const memberships = await db.projectMember.findMany({
     where: { userId },

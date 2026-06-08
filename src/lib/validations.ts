@@ -1,13 +1,60 @@
 import { z } from "zod"
 
+// ━━ Task Schemas ━━
+export const createTaskSchema = z.object({
+  title: z.string().min(1, "Title is required").max(500),
+  description: z.string().max(50000).optional(),
+  projectId: z.string().min(1, "Project ID is required").optional(),
+  assignedTo: z.string().optional(),
+  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
+  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+  deadline: z.string().optional(),
+  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
+})
+
+export const updateTaskSchema = z.object({
+  id: z.string().min(1, "Task ID is required"),
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(50000).optional(),
+  projectId: z.string().min(1).nullable().optional(),
+  assignedTo: z.string().nullable().optional(),
+  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
+  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+  deadline: z.string().nullable().optional(),
+  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
+})
+
+// ━━ Project Member Schema ━━
+export const createProjectMemberSchema = z.object({
+  userId: z.string().min(1, "User ID is required"),
+  projectId: z.string().min(1, "Project ID is required"),
+  role: z.enum(["MEMBER", "LEAD"]).default("MEMBER"),
+})
+
+// ━━ Project Credential Schema ━━
+export const createCredentialSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200),
+  username: z.string().min(1, "Username is required").max(500),
+  password: z.string().min(1, "Password is required").max(1000),
+  projectId: z.string().min(1, "Project ID is required"),
+})
+
+// ━━ Project Schemas ━━
 export const createProjectSchema = z.object({
   name: z.string().min(1, "Project name is required").max(200),
   description: z.string().max(2000).optional(),
-  clientId: z.string().min(1, "Client ID is required"),
+  clientId: z.string().min(1).optional().or(z.literal(null).optional()),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   deadline: z.string().optional(),
   budget: z.number().min(0).optional(),
+  websites: z.array(z.object({
+    url: z.string().min(1, "URL is required").max(500),
+    label: z.string().max(100).nullable().optional(),
+    isPrimary: z.boolean().optional(),
+  })).optional(),
 })
 
 export const updateProjectSchema = z.object({
@@ -106,6 +153,9 @@ export const createInvoiceSchema = z.object({
   invoiceNumber: z.string().max(50).optional(),
 })
 
+// Named helper for update schema "at least one field" validation
+const hasAtLeastOneField = (data: Record<string, any>) => Object.values(data).some(v => v !== undefined)
+
 export const updateInvoiceSchema = z.object({
   id: z.string().min(1),
   invoiceNumber: z.string().max(50).optional(),
@@ -123,7 +173,7 @@ export const updateInvoiceSchema = z.object({
   gstPercent: z.number().min(0).max(100).optional(),
   notes: z.string().max(5000).nullable().optional(),
   paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
-}).refine(data => data.status !== undefined || data.paymentStatus !== undefined || data.items !== undefined || data.invoiceNumber !== undefined || data.clientId !== undefined || data.subtotal !== undefined || data.tax !== undefined || data.total !== undefined || data.dueDate !== undefined || data.paidAt !== undefined || data.paymentMethod !== undefined || data.gst !== undefined || data.gstPercent !== undefined || data.notes !== undefined || data.projectId !== undefined, { message: "At least one field must be provided" })
+}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 export const updateExpenseSchema = z.object({
   id: z.string().min(1),

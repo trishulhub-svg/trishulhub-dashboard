@@ -53,7 +53,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
 const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   {
     name: "ClientWebsite",
-    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL)`
+    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
   },
   {
     name: "ProtocolVersion",
@@ -86,15 +86,15 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "ProjectAttachment",
-    sql: `CREATE TABLE IF NOT EXISTS "ProjectAttachment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "fileName" TEXT NOT NULL, "fileData" TEXT NOT NULL, "fileSize" INTEGER NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectAttachment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "fileName" TEXT NOT NULL, "fileData" TEXT NOT NULL, "fileSize" INTEGER NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   {
     name: "ProjectCredential",
-    sql: `CREATE TABLE IF NOT EXISTS "ProjectCredential" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "title" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "iv" TEXT NOT NULL, "tag" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectCredential" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "title" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "iv" TEXT NOT NULL, "tag" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   {
     name: "ProjectWebsite",
-    sql: `CREATE TABLE IF NOT EXISTS "ProjectWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "projectId" TEXT NOT NULL)`
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "projectId" TEXT NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   {
     name: "Contract",
@@ -129,7 +129,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "_ProjectMethodToProject",
-    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY("A","B"))`
+    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY("A","B"), FOREIGN KEY ("A") REFERENCES "ProjectMethod"("id") ON DELETE CASCADE, FOREIGN KEY ("B") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   // Protocol auth tables (serverless-friendly)
   {
@@ -162,6 +162,39 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
       "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`
+  },
+  // Personal Timetable (matching Prisma schema)
+  {
+    name: "PersonalTimetableTask",
+    sql: `CREATE TABLE IF NOT EXISTS "PersonalTimetableTask" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "description" TEXT,
+      "startTime" DATETIME NOT NULL,
+      "endTime" DATETIME NOT NULL,
+      "date" DATETIME NOT NULL,
+      "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "category" TEXT NOT NULL DEFAULT 'PERSONAL',
+      "completedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "TimetableSettings",
+    sql: `CREATE TABLE IF NOT EXISTS "TimetableSettings" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL UNIQUE,
+      "sleepHours" REAL NOT NULL DEFAULT 8,
+      "workSplitPercent" REAL NOT NULL DEFAULT 60,
+      "weekStartsOn" TEXT NOT NULL DEFAULT 'MONDAY',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
 ]
@@ -351,6 +384,51 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${err?.message}`)
       }
     }
+    // ProjectAttachment indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectAttachment_projectId_index" ON "ProjectAttachment"("projectId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectAttachment_projectId_index: ${err?.message}`)
+      }
+    }
+    // ProjectCredential indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectCredential_projectId_index" ON "ProjectCredential"("projectId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectCredential_projectId_index: ${err?.message}`)
+      }
+    }
+    // PersonalTimetableTask indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_index" ON "PersonalTimetableTask"("userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_date_index" ON "PersonalTimetableTask"("userId", "date")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_date_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_status_index" ON "PersonalTimetableTask"("userId", "status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_status_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_date_index" ON "PersonalTimetableTask"("date")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_date_index: ${err?.message}`)
+      }
+    }
     // EmailLog indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_type_index" ON "EmailLog"("type")`)
@@ -432,14 +510,14 @@ export async function ensureAllTables(): Promise<void> {
 }
 
 /**
- * No-op function kept for backward compatibility with existing imports.
+ * @deprecated — use ensureAllTables()
  */
 export async function ensureTable(_tableName: string): Promise<boolean> {
   return true
 }
 
 /**
- * No-op function kept for backward compatibility with existing imports.
+ * @deprecated — use ensureAllTables()
  */
 export async function runAutoMigrations(): Promise<void> {
   await ensureAllTables()
