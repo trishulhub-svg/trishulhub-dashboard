@@ -96,19 +96,24 @@ export async function GET(req: NextRequest) {
       where.date = { lt: e }
     }
 
-    // Default: if no date filters, return entries for today + active entries
+    // Default: if no date filters, return entries for current week + active entries
     if (!date && !startDate && !endDate && !status) {
       const today = new Date()
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-      const endOfDay = new Date(startOfDay)
-      endOfDay.setDate(endOfDay.getDate() + 1)
+      const dayOfWeek = today.getDay()
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+      const startOfWeek = new Date(today)
+      startOfWeek.setDate(today.getDate() + mondayOffset)
+      startOfWeek.setHours(0, 0, 0, 0)
+      const endOfWeek = new Date(startOfWeek)
+      endOfWeek.setDate(startOfWeek.getDate() + 6)
+      endOfWeek.setHours(23, 59, 59, 999)
 
-      // Get today's entries + any active entries
+      // Get this week's entries + any active entries
       const entries = await db.timeEntry.findMany({
         where: {
           ...where,
           OR: [
-            { date: { gte: startOfDay, lt: endOfDay } },
+            { date: { gte: startOfWeek, lte: endOfWeek } },
             { status: "ACTIVE" },
           ],
         },

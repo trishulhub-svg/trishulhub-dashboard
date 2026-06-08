@@ -250,6 +250,7 @@ export default function FilesPage() {
 
   // Upload state
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const [uploadingFiles, setUploadingFiles] = useState<{ name: string; progress: number; error?: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -466,6 +467,10 @@ export default function FilesPage() {
     const filesToUpload = Array.from(fileList)
     if (filesToUpload.length === 0) return
 
+    // Guard: prevent double-upload from multi-click
+    if (isUploading) return
+    setIsUploading(true)
+
     const uploadItems = filesToUpload.map((f) => ({
       name: f.name,
       progress: 0,
@@ -521,9 +526,10 @@ export default function FilesPage() {
     // Clear upload state after delay
     setTimeout(() => {
       setUploadingFiles([])
+      setIsUploading(false)
       fetchFiles()
     }, 1500)
-  }, [currentFolder, fetchFiles])
+  }, [currentFolder, fetchFiles, isUploading])
 
   // ── Create folder (original simple dialog) ──
   const handleCreateFolder = useCallback(async () => {
@@ -979,7 +985,7 @@ export default function FilesPage() {
                 Sync
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="outline" size="sm" disabled={isUploading} onClick={() => fileInputRef.current?.click()}>
               <Upload className="h-4 w-4 mr-1" />
               Upload
             </Button>

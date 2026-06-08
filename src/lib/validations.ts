@@ -159,10 +159,13 @@ export const createInvoiceSchema = z.object({
   // Note: If not provided, backend auto-generates one. Optional is correct here.
 })
 .refine((data) => {
-  if (data.subtotal !== undefined && data.tax !== undefined && data.total !== undefined) {
-    return Math.abs(data.total - data.subtotal - data.tax - (data.gst ?? 0)) < 0.01
+  const sub = data.subtotal ?? 0;
+  const tax = data.tax ?? 0;
+  const gst = data.gst ?? 0;
+  if (data.total !== undefined) {
+    return Math.abs(data.total - sub - tax - gst) < 0.01;
   }
-  return true
+  return true; // total not provided — backend will compute it
 }, { message: "total must equal subtotal + tax + gst" })
 
 export const updateInvoiceSchema = z.object({
@@ -186,10 +189,13 @@ export const updateInvoiceSchema = z.object({
 })
 .refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 .refine((data) => {
-  if (data.subtotal !== undefined && data.tax !== undefined && data.total !== undefined) {
-    return Math.abs(data.total - data.subtotal - data.tax - (data.gst ?? 0)) < 0.01
+  const sub = data.subtotal ?? 0;
+  const tax = data.tax ?? 0;
+  const gst = data.gst ?? 0;
+  if (data.total !== undefined) {
+    return Math.abs(data.total - sub - tax - gst) < 0.01;
   }
-  return true
+  return true; // total not provided — backend will compute it
 }, { message: "total must equal subtotal + tax + gst" })
 
 export const createExpenseSchema = z.object({

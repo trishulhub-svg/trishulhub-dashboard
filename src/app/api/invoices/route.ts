@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
             items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : "[]",
             subtotal: subtotal ?? 0,
             tax: tax ?? 0,
-            total: total ?? 0,
+            total: (subtotal ?? 0) + (tax ?? 0) + (gst ?? 0),
             // SECURITY: Always create as DRAFT — ignore client-provided status
             status: "DRAFT",
             dueDate: dueDate ? new Date(dueDate) : null,
@@ -269,6 +269,17 @@ export async function PATCH(req: NextRequest) {
           sanitizedData[key] = data[key]
         }
       }
+    }
+
+    // Recompute total from subtotal + tax + gst to ensure consistency
+    const bodyFields = body as Record<string, unknown>
+    const needsRecompute = ["subtotal", "tax", "gst", "gstPercent"].some(f => bodyFields[f] !== undefined);
+    if (needsRecompute || bodyFields.total !== undefined) {
+      const existing = await db.invoice.findUnique({ where: { id } });
+      const sub = (sanitizedData.subtotal ?? existing?.subtotal ?? 0);
+      const taxVal = (sanitizedData.tax ?? existing?.tax ?? 0);
+      const gstVal = (sanitizedData.gst ?? existing?.gst ?? 0);
+      sanitizedData.total = sub + taxVal + gstVal;
     }
 
     // If marking as PAID, set paidAt automatically

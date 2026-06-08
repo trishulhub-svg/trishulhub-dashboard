@@ -775,6 +775,16 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
+    // Phase 7: Fix invoices where total !== subtotal + tax + gst
+    try {
+      const result = await db.$executeRawUnsafe(
+        `UPDATE Invoice SET total = (subtotal + tax + COALESCE(gst, 0)) WHERE ABS(total - (subtotal + tax + COALESCE(gst, 0))) > 0.01 AND total IS NOT NULL`
+      )
+      console.log("[auto-migrate] Fixed invoice totals where total !== subtotal + tax + gst")
+    } catch (err: any) {
+      console.warn("[auto-migrate] Invoice total fix migration:", err?.message)
+    }
+
     // 2. Add missing columns to existing tables
     // Use "try ALTER TABLE, catch duplicate column" approach instead of PRAGMA table_info.
     // This is safe because: if column exists → ALTER fails with "duplicate column" (caught & ignored)

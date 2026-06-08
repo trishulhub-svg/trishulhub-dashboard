@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   User, Clock, Calendar, CheckCircle2, XCircle, Plus, Trash2, AlertCircle, RefreshCw, Pencil,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -533,6 +533,26 @@ export default function TeamPage() {
     setEditAttDialogOpen(true);
   }, []);
 
+  // [I10] useMemo — must be called before any conditional early returns (Rules of Hooks)
+  const filteredLeaves = useMemo(
+    () => leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter),
+    [leaves, leaveFilter]
+  );
+  const pendingLeavesCount = useMemo(() => leaves.filter(l => l.status === "PENDING").length, [leaves]);
+
+  const filteredAttendance = useMemo(
+    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
+    [attUserFilter, attendance]
+  );
+
+  const attStats = useMemo(() => ({
+    total: filteredAttendance.length,
+    present: filteredAttendance.filter(a => a.status === "PRESENT").length,
+    absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
+    halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
+    leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
+  }), [filteredAttendance]);
+
   // [I10] Consolidated loading skeleton
   if (sessionStatus === "loading" || loading) {
     return (
@@ -554,28 +574,6 @@ export default function TeamPage() {
       </div>
     );
   }
-
-  // Filtered leaves based on status filter
-  const filteredLeaves = useMemo(
-    () => leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter),
-    [leaves, leaveFilter]
-  );
-  const pendingLeavesCount = useMemo(() => leaves.filter(l => l.status === "PENDING").length, [leaves]);
-
-  // Filtered attendance based on user filter
-  const filteredAttendance = useMemo(
-    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
-    [attUserFilter, attendance]
-  );
-
-  // [I12] useMemo to prevent recomputation every render
-  const attStats = useMemo(() => ({
-    total: filteredAttendance.length,
-    present: filteredAttendance.filter(a => a.status === "PRESENT").length,
-    absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
-    halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
-    leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
-  }), [filteredAttendance]);
 
   return (
     <div className="space-y-4">

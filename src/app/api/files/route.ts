@@ -332,6 +332,24 @@ export async function POST(req: NextRequest) {
         )
       }
 
+      // Deduplication check: return existing folder if one with the same name exists in the same parent
+      try {
+        const existing = await db.fileMetadata.findFirst({
+          where: {
+            name: folderName,
+            parentId: effectiveParentId,
+            trashed: false,
+            mimeType: "application/vnd.google-apps.folder",
+          },
+        })
+        if (existing) {
+          return NextResponse.json(JSON.parse(JSON.stringify(existing)))
+        }
+      } catch (dedupErr: any) {
+        // Non-critical: if dedup check fails, proceed with creation
+        console.warn("[files] Dedup check error:", dedupErr?.message)
+      }
+
       // Ensure parent exists in local DB to satisfy FK constraint
       await ensureParentInDb(effectiveParentId, userId)
 
