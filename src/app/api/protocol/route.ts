@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
+import { rateLimit } from "@/lib/rate-limit";
 
 // ── Helper: get active protocol (no auth required for reading) ──
 async function getActiveProtocol() {
@@ -111,6 +112,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // P10-013: Rate limit PATCH (20 per minute)
+    const rlKey = `protocol-patch:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rl = rateLimit(rlKey, 20, 60 * 1000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
     const body = await request.json();
     const { downloadEnabled } = body;
 
@@ -147,6 +155,13 @@ export async function PUT(request: NextRequest) {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // P10-013: Rate limit PUT (20 per minute)
+    const rlKey = `protocol-put:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rl = rateLimit(rlKey, 20, 60 * 1000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
     const body = await request.json();
@@ -187,26 +202,24 @@ export async function PUT(request: NextRequest) {
       uploadedBy: (token as any).name || (token as any).email || "Admin",
     });
 
-    // Check if active protocol already exists → update, otherwise create
-    const existing: any[] = await db.$queryRawUnsafe(
-      `SELECT id FROM "ProtocolVersion" WHERE isActive = true LIMIT 1`
-    );
-
-    if (existing.length > 0) {
-      await db.$executeRawUnsafe(
-        `UPDATE "ProtocolVersion" SET content = ?, title = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-        base64Data, meta, existing[0].id
+    // P10-009: Wrap check-then-insert in a transaction to prevent TOCTOU race
+    const result = await db.$transaction(async (tx) => {
+      // Deactivate any existing active protocol first
+      await tx.$executeRawUnsafe(
+        `UPDATE "ProtocolVersion" SET isActive = false WHERE isActive = true`
       );
-      return NextResponse.json({ success: true, action: "updated" });
-    } else {
+
+      // Insert new active protocol
       const id = crypto.randomUUID();
-      await db.$executeRawUnsafe(
+      await tx.$executeRawUnsafe(
         `INSERT INTO "ProtocolVersion" (id, version, title, content, isActive, createdBy)
          VALUES (?, '1.0', ?, ?, true, ?)`,
         id, meta, base64Data, (token as any).sub || (token as any).id || "unknown"
       );
-      return NextResponse.json({ success: true, action: "created" }, { status: 201 });
-    }
+      return "created";
+    });
+
+    return NextResponse.json({ success: true, action: result });
   } catch (error: any) {
     console.error("[protocol] PUT error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -220,6 +233,13 @@ export async function DELETE(request: NextRequest) {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // P10-013: Rate limit DELETE (20 per minute)
+    const rlKey = `protocol-delete:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rl = rateLimit(rlKey, 20, 60 * 1000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
     await db.$executeRawUnsafe(

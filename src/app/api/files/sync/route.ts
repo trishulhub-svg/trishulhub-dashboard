@@ -82,9 +82,10 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Continue pagination
-        if (result.nextPageToken) {
-          const nextResult = await drive.listFiles(parentDriveId || undefined, result.nextPageToken, 200)
+        // F-014: Full pagination loop — continue until no next page token
+        let pageToken = result.nextPageToken || null
+        while (pageToken) {
+          const nextResult = await drive.listFiles(parentDriveId || undefined, pageToken, 200)
           for (const f of nextResult.files) {
             const driveParentId = f.parents?.[0] || parentId
             await db.fileMetadata.upsert({
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
             })
             totalSynced++
           }
+          pageToken = nextResult.nextPageToken || null
         }
       } catch (err: any) {
         console.error(`[files/sync] Error syncing folder ${parentDriveId}:`, err?.message)

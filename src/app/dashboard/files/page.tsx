@@ -652,32 +652,6 @@ export default function FilesPage() {
     }
   }, [fetchFiles])
 
-  // ── Grant permission ──
-  const handleGrantPermission = useCallback(async (targetUserId: string, accessLevel: string) => {
-    if (!shareDialog) return
-
-    try {
-      const res = await fetch("/api/files/permissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: shareDialog.id,
-          targetUserId,
-          accessLevel,
-        }),
-      })
-
-      if (res.ok) {
-        toast.success("Permission granted")
-      } else {
-        const data = await res.json()
-        toast.error(data.error || "Failed to grant permission")
-      }
-    } catch {
-      toast.error("Failed to grant permission")
-    }
-  }, [shareDialog])
-
   // ── Restore file from trash ──
   const handleRestore = useCallback(async (file: FileItem) => {
     try {

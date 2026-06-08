@@ -243,9 +243,6 @@ export default function TrishulWorkspacePage() {
   }, []);
 
   /* ── Handlers ── */
-  const handleStart = useCallback(() => {
-    window.open("https://chat.z.ai", "_blank");
-  }, []);
   const handleCredentials = useCallback(() => {
     router.push("/dashboard/access-hub");
   }, [router]);
@@ -331,7 +328,7 @@ export default function TrishulWorkspacePage() {
                 : next;
             });
             // Drive status bars from this operation
-            const bump = (window as unknown as Record<string, unknown>).__wsBarBump as ((p: string, t: LineType) => void) | undefined;
+            const bump = barBumpFnRef.current;
             if (bump) bump(line.prefix, line.type);
           }, b * (randomBetween(200, 600)));
         }
@@ -359,6 +356,7 @@ export default function TrishulWorkspacePage() {
   /* ── Dynamic status bars — fully independent with wide spread ── */
   const [barValues, setBarValues] = useState({ ai: 82, sync: 45, api: 67 });
   const barTargets = useRef({ ai: 82, sync: 45, api: 67 });
+  const barBumpFnRef = useRef<((p: string, t: LineType) => void) | null>(null);
 
   /* Each bar gets its OWN base range — intentionally spread apart */
   const getBarBase = (bar: "ai" | "sync" | "api") => {
@@ -472,7 +470,7 @@ export default function TrishulWorkspacePage() {
     scheduleDecay("api");
 
     /* Expose function so feed can bump bars */
-    (window as unknown as Record<string, unknown>).__wsBarBump = (prefix: string, type: LineType) => {
+    barBumpFnRef.current = (prefix: string, type: LineType) => {
       const impact = getBarImpact(prefix, type);
       barTargets.current = {
         ai: Math.max(3, Math.min(99, barTargets.current.ai + impact.ai)),
@@ -484,7 +482,7 @@ export default function TrishulWorkspacePage() {
     return () => {
       cancelAnimationFrame(frame);
       decayTimers.forEach(clearTimeout);
-      delete (window as unknown as Record<string, unknown>).__wsBarBump;
+      barBumpFnRef.current = null;
     };
   }, [entered]);
 
@@ -622,15 +620,16 @@ export default function TrishulWorkspacePage() {
                   />
                 </div>
                 <div className="ws-hero-actions">
-                  <button
-                    onClick={handleStart}
+                <a
+                    href="https://chat.z.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className={`ws-btn-primary ws-btn-primary--${mode}`}
-                    type="button"
                   >
                     <Zap size={16} strokeWidth={2.5} />
                     <span>START</span>
                     <ArrowUpRight size={14} />
-                  </button>
+                  </a>
                   <button
                     onClick={handleCredentials}
                     className={`ws-btn-ghost ws-btn-ghost--${mode}`}
@@ -863,10 +862,11 @@ export default function TrishulWorkspacePage() {
               className={`ws-card ws-start-card ${entered ? "ws-in" : ""}`}
               style={{ transitionDelay: "0.4s" }}
             >
-              <button
-                onClick={handleStart}
+              <a
+                href="https://chat.z.ai"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="ws-start-card-inner"
-                type="button"
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -885,7 +885,7 @@ export default function TrishulWorkspacePage() {
                   <span>Open</span>
                   <ArrowUpRight size={14} />
                 </div>
-              </button>
+              </a>
               <div className="ws-start-accent" />
             </div>
 

@@ -264,11 +264,19 @@ export async function GET(req: NextRequest) {
     // Get storage info (cached)
     const storageInfo = await getCachedStorageInfo()
 
+    // F-004/F-005: Sanitize credential status for non-admin users
+    if (isAdmin(role)) {
+      return NextResponse.json(JSON.parse(JSON.stringify({
+        files,
+        storage: storageInfo,
+        driveConfigured: credentialStatus.configured,
+        credentialStatus,
+      })))
+    }
     return NextResponse.json(JSON.parse(JSON.stringify({
       files,
       storage: storageInfo,
       driveConfigured: credentialStatus.configured,
-      credentialStatus,
     })))
   } catch (error: unknown) {
     console.error("[files] GET error:", error instanceof Error ? error.message : error)
@@ -297,16 +305,22 @@ export async function POST(req: NextRequest) {
     // Check Drive configuration first
     const credentialStatus = drive.getCredentialStatus()
     if (!credentialStatus.configured) {
-      const missing: string[] = []
-      if (!credentialStatus.clientEmail) missing.push("GOOGLE_DRIVE_CLIENT_EMAIL")
-      if (!credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY")
-      if (!credentialStatus.privateKeyValid && credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY (invalid format)")
+      // F-004/F-005: Sanitize error details for non-admin users
+      if (isAdmin(role)) {
+        const missing: string[] = []
+        if (!credentialStatus.clientEmail) missing.push("GOOGLE_DRIVE_CLIENT_EMAIL")
+        if (!credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY")
+        if (!credentialStatus.privateKeyValid && credentialStatus.privateKey) missing.push("GOOGLE_DRIVE_PRIVATE_KEY (invalid format)")
 
+        return NextResponse.json({
+          error: `Google Drive is not properly configured. Missing or invalid: ${missing.join(", ")}. ` +
+                 (credentialStatus.hint || "") +
+                 " Please check your Vercel environment variables.",
+          credentialStatus,
+        }, { status: 503 })
+      }
       return NextResponse.json({
-        error: `Google Drive is not properly configured. Missing or invalid: ${missing.join(", ")}. ` +
-               (credentialStatus.hint || "") +
-               " Please check your Vercel environment variables.",
-        credentialStatus,
+        error: "Google Drive is not configured. Please contact your administrator.",
       }, { status: 503 })
     }
 
@@ -362,20 +376,26 @@ export async function POST(req: NextRequest) {
         console.error("[files] Drive createFolder error:", msg)
 
         // Detect common errors and provide helpful messages
-        if (msg.includes("DECODER") || msg.includes("unsupported")) {
-          return NextResponse.json({
-            error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY appears to be in an invalid format. ` +
-                   `Error: ${msg}. ` +
-                   `Please re-copy the private key from your Google Cloud service account JSON file. ` +
-                   `Make sure to include the full key including -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- headers. ` +
-                   `Do NOT wrap the value in quotes in Vercel env vars.`,
-            credentialStatus,
-          }, { status: 503 })
-        }
+        // F-004/F-005: Sanitize Drive error details for non-admin users
+        if (isAdmin(role)) {
+          if (msg.includes("DECODER") || msg.includes("unsupported")) {
+            return NextResponse.json({
+              error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY appears to be in an invalid format. ` +
+                     `Error: ${msg}. ` +
+                     `Please re-copy the private key from your Google Cloud service account JSON file. ` +
+                     `Make sure to include the full key including -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- headers. ` +
+                     `Do NOT wrap the value in quotes in Vercel env vars.`,
+              credentialStatus,
+            }, { status: 503 })
+          }
 
+          return NextResponse.json({
+            error: `Failed to create folder in Google Drive: ${msg}`,
+            credentialStatus,
+          }, { status: 500 })
+        }
         return NextResponse.json({
-          error: `Failed to create folder in Google Drive: ${msg}`,
-          credentialStatus,
+          error: "Failed to create folder in Google Drive. Please contact your administrator.",
         }, { status: 500 })
       }
 
@@ -453,16 +473,22 @@ export async function POST(req: NextRequest) {
       const msg = driveErr?.message || String(driveErr)
       console.error("[files] Drive upload error:", msg)
 
-      if (msg.includes("DECODER") || msg.includes("unsupported")) {
-        return NextResponse.json({
-          error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY format is invalid. Error: ${msg}`,
-          credentialStatus,
-        }, { status: 503 })
-      }
+      // F-004/F-005: Sanitize Drive error details for non-admin users
+      if (isAdmin(role)) {
+        if (msg.includes("DECODER") || msg.includes("unsupported")) {
+          return NextResponse.json({
+            error: `Google Drive authentication failed. Your GOOGLE_DRIVE_PRIVATE_KEY format is invalid. Error: ${msg}`,
+            credentialStatus,
+          }, { status: 503 })
+        }
 
+        return NextResponse.json({
+          error: `Failed to upload to Google Drive: ${msg}`,
+          credentialStatus,
+        }, { status: 500 })
+      }
       return NextResponse.json({
-        error: `Failed to upload to Google Drive: ${msg}`,
-        credentialStatus,
+        error: "Failed to upload to Google Drive. Please contact your administrator.",
       }, { status: 500 })
     }
 
@@ -510,8 +536,9 @@ export async function POST(req: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error("[files] POST error:", msg)
 
+    // F-004: Don't leak internal error details to clients
     return NextResponse.json(
-      { error: `Operation failed: ${msg}` },
+      { error: "Operation failed" },
       { status: 500 }
     )
   }

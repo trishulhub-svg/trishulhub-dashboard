@@ -204,9 +204,14 @@ async function saveConfig(request: NextRequest) {
         existing[0].id
       );
     } else {
-      // W65: Use crypto.randomUUID() instead of weak ID generation
-      const id = "tgc_" + crypto.randomUUID();
-      const currentEncKey = process.env.ENCRYPTION_KEY || "";
+      // P10-014: Validate encryption key before persisting — must be valid 64-char hex
+      let currentEncKey = process.env.ENCRYPTION_KEY || ""
+      if (currentEncKey && (!/^[0-9a-fA-F]{64}$/.test(currentEncKey))) {
+        console.warn("[task-git-config] Existing ENCRYPTION_KEY is invalid, skipping persist")
+        currentEncKey = ""
+      }
+
+      const id = "tgc_" + crypto.randomUUID()
       await db.$executeRawUnsafe(
         `INSERT INTO "TaskGitConfig" (id, "repoUrl", "repoOwner", "repoName", "branch", "tokenEncrypted", "tokenIv", "tokenTag", "encryptionKey", "isEnabled", "createdBy")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

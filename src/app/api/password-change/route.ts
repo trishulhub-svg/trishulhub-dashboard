@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { generateOTP, sendPasswordChangeOTP, logEmailEvent } from "@/lib/email"
 import { invalidateSession } from "@/lib/session-manager"
+import { checkDbRateLimit } from "@/lib/rate-limit"
 
 // Auto-migrate: ensure PasswordChange table exists
 let pwTableChecked = false
@@ -55,44 +56,6 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
   }
 }
 
-// C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
-// SEC-007: Wrapped in transaction to prevent race condition between SELECT and UPDATE
-async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
-  const windowStart = new Date(Date.now() - windowMs).toISOString()
-  const now = new Date().toISOString()
-
-  try {
-    return await db.$transaction(async (tx) => {
-      const rows: any[] = await tx.$queryRawUnsafe(
-        `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
-      )
-      const record = rows[0]
-
-      if (!record || record.windowStart < windowStart) {
-        await tx.$executeRawUnsafe(
-          `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
-           VALUES (?, ?, 1, ?, ?, ?)
-           ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
-          key, key, now, now, String(windowMs), now, now, String(windowMs)
-        )
-        return true
-      }
-
-      if (record.count >= maxAttempts) {
-        return false
-      }
-
-      await tx.$executeRawUnsafe(
-        `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
-      )
-      return true
-    })
-  } catch (e) {
-    console.error("[password-change] Rate limit DB error:", e)
-    return false // fail-closed
-  }
-}
-
 // POST /api/password-change - Request password change OTP (verifies current password + sends OTP)
 export async function POST(req: NextRequest) {
   try {
@@ -111,7 +74,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: max 5 password verification attempts per user in 15 minutes
-    if (!await checkDbRateLimit(`pw-change-verify-${userId}`, 5, 15 * 60 * 1000)) {
+    const pwCheck = await checkDbRateLimit(`pw-change-verify-${userId}`, 5, 15 * 60 * 1000)
+    if (!pwCheck.allowed) {
       return NextResponse.json({ error: "Too many attempts. Please try again after 15 minutes." }, { status: 429 })
     }
 
@@ -213,7 +177,8 @@ export async function PUT(req: NextRequest) {
     }
 
     // Rate limit: max 10 OTP verification attempts per user in 10 minutes
-    if (!await checkDbRateLimit(`pw-otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
+    const otpCheck = await checkDbRateLimit(`pw-otp-verify-${userId}`, 10, 10 * 60 * 1000)
+    if (!otpCheck.allowed) {
       return NextResponse.json({ error: "Too many verification attempts. Please request a new OTP." }, { status: 429 })
     }
 

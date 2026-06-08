@@ -27,24 +27,18 @@ export async function POST() {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
-    // Get all trashed files from DB
+    // Get all trashed files from DB (for Drive cleanup)
     const trashedFiles = await db.fileMetadata.findMany({
       where: { trashed: true },
       select: { id: true, driveFileId: true },
     })
 
-    let deleted = 0
+    // Best-effort delete from Google Drive first (non-atomic, Drive call can fail)
     for (const file of trashedFiles) {
       try {
         await drive.deleteFile(file.driveFileId, true)
       } catch (err) {
-        console.error(`[empty-trash] Failed to delete ${file.driveFileId}:`, err)
-      }
-      try {
-        await db.fileMetadata.delete({ where: { id: file.id } })
-        deleted++
-      } catch (err) {
-        console.error(`[empty-trash] Failed to delete DB record ${file.id}:`, err)
+        console.error(`[empty-trash] Failed to delete ${file.driveFileId} from Drive:`, err)
       }
     }
 
@@ -55,7 +49,12 @@ export async function POST() {
       console.error("[empty-trash] Failed to empty Drive trash:", err)
     }
 
-    return NextResponse.json({ success: true, deleted })
+    // F-015: Atomic DB delete — single query instead of one-by-one loop
+    const result = await db.fileMetadata.deleteMany({
+      where: { trashed: true },
+    })
+
+    return NextResponse.json({ success: true, deleted: result.count })
   } catch (error: unknown) {
     console.error("[empty-trash] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to empty trash" }, { status: 500 })

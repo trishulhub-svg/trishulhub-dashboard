@@ -49,8 +49,8 @@ export async function POST(request: Request) {
       })
     }
 
-    // SECURITY: Mask password hash — never expose raw hash even to SUPER_ADMIN
-    const maskedPassword = user.password ? `${user.password.substring(0, 4)}...${user.password.slice(-4)}` : "(empty)"
+    // SEC-012: Do NOT expose any portion of the password hash — only indicate status
+    const hasPassword = !!user.password && user.password.length > 0
 
     const bcrypt = await import("bcryptjs")
     const passwordValid = await bcrypt.compare(password, user.password)

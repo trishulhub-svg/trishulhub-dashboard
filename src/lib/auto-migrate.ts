@@ -366,24 +366,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
     )`
   },
-  // SmtpConfig
-  {
-    name: "SmtpConfig",
-    sql: `CREATE TABLE IF NOT EXISTS "SmtpConfig" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "host" TEXT NOT NULL,
-      "port" INTEGER NOT NULL DEFAULT 587,
-      "username" TEXT NOT NULL,
-      "password" TEXT NOT NULL,
-      "fromEmail" TEXT NOT NULL,
-      "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
-      "secure" BOOLEAN NOT NULL DEFAULT 0,
-      "isPrimary" BOOLEAN NOT NULL DEFAULT 1,
-      "isActive" BOOLEAN NOT NULL DEFAULT 1,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`
-  },
 ]
 
 /**
@@ -519,22 +501,29 @@ export async function ensureAllTables(): Promise<void> {
 
     // 1g. Migrate _ProjectMethodToProject to add PRIMARY KEY for existing DBs
     // SQLite doesn't support ALTER TABLE ADD PRIMARY KEY, so we recreate the table
+    // Wrapped in a transaction for atomicity (L13)
     try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject_new" (
-          "A" TEXT NOT NULL,
-          "B" TEXT NOT NULL,
-          PRIMARY KEY("A","B")
-        )
-      `)
-      // Copy data from old table (if it exists) — INSERT OR IGNORE handles duplicate PKs
+      await db.$executeRawUnsafe(`BEGIN`)
       try {
+        await db.$executeRawUnsafe(`
+          CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject_new" (
+            "A" TEXT NOT NULL,
+            "B" TEXT NOT NULL,
+            PRIMARY KEY("A","B")
+          )
+        `)
+        // Copy data from old table (if it exists) — INSERT OR IGNORE handles duplicate PKs
         await db.$executeRawUnsafe(`INSERT OR IGNORE INTO "_ProjectMethodToProject_new" ("A", "B") SELECT "A", "B" FROM "_ProjectMethodToProject"`)
         await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "_ProjectMethodToProject"`)
         await db.$executeRawUnsafe(`ALTER TABLE "_ProjectMethodToProject_new" RENAME TO "_ProjectMethodToProject"`)
+        await db.$executeRawUnsafe(`COMMIT`)
         console.log(`[auto-migrate] Migrated _ProjectMethodToProject to add PRIMARY KEY`)
-      } catch {
+      } catch (innerErr: any) {
+        await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
         // Old table doesn't exist yet (fresh DB) — new table is already correct
+        if (!innerErr?.message?.includes('no such table') && !innerErr?.message?.includes('already exists')) {
+          throw innerErr
+        }
       }
     } catch (err: any) {
       console.warn(`[auto-migrate] _ProjectMethodToProject PRIMARY KEY migration: ${err?.message}`)

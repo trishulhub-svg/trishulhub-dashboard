@@ -66,9 +66,8 @@ function getCredentials() {
   // Step 6: Final validation — must contain PEM header
   if (!cleanKey.includes("-----BEGIN")) {
     console.error(
-      "[google-drive] GOOGLE_DRIVE_PRIVATE_KEY is missing PEM header (-----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----). " +
-      "Make sure you pasted the full key from your service account JSON file. " +
-      "Key starts with: " + cleanKey.substring(0, 30).replace(/[^a-zA-Z0-9+/=]/g, "*")
+      "[google-drive] GOOGLE_DRIVE_PRIVATE_KEY has a key format issue: missing PEM header (-----BEGIN PRIVATE KEY----- or -----BEGIN RSA PRIVATE KEY-----). " +
+      "Make sure you pasted the full key from your service account JSON file."
     )
     return null
   }
@@ -158,6 +157,15 @@ export function getCredentialStatus(): CredentialStatus {
     error: !hasEmail ? "Missing GOOGLE_DRIVE_CLIENT_EMAIL" : !hasKey ? "Missing GOOGLE_DRIVE_PRIVATE_KEY" : !keyValid ? "Private key format is invalid" : !actuallyConfigured ? "Private key could not be parsed after all decoding attempts" : undefined,
     hint: keyHint,
   }
+}
+
+// ── Timeout wrapper for Drive API calls ──
+const DRIVE_TIMEOUT = 30000;
+async function withDriveTimeout<T>(promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Google Drive API timeout")), DRIVE_TIMEOUT)),
+  ]);
 }
 
 // ── Auth client (lazy initialized) ──
@@ -253,13 +261,13 @@ export async function listFiles(
   }
   const q = qParts.join(" and ")
 
-  const res = await drive.files.list({
+  const res = await withDriveTimeout(drive.files.list({
     q,
     pageSize,
     pageToken,
     fields: "nextPageToken, files(id, name, mimeType, size, parents, trashed, description, thumbnailLink, webViewLink, modifiedTime, createdTime)",
     orderBy: "folder, name",
-  })
+  }))
 
   const files: DriveFileInfo[] = (res.data.files || []).map((f: any) => ({
     id: f.id,
@@ -287,10 +295,10 @@ export async function getFile(fileId: string): Promise<DriveFileInfo | null> {
   if (!drive) throw new Error("Google Drive credentials not configured")
 
   try {
-    const res = await drive.files.get({
+    const res = await withDriveTimeout(drive.files.get({
       fileId,
       fields: "id, name, mimeType, size, parents, trashed, description, thumbnailLink, webViewLink, modifiedTime, createdTime",
-    })
+    }))
 
     return {
       id: res.data.id!,
@@ -335,11 +343,11 @@ export async function uploadFile(
     body: buffer as any,
   }
 
-  const res = await drive.files.create({
+  const res = await withDriveTimeout(drive.files.create({
     requestBody: fileMetadata,
     media,
     fields: "id, name, mimeType, size, parents, description, thumbnailLink, webViewLink",
-  })
+  }))
 
   return {
     id: res.data.id!,
@@ -513,9 +521,9 @@ export async function getStorageUsage(): Promise<StorageInfo> {
   }
 
   try {
-    const res = await drive.about.get({
+    const res = await withDriveTimeout(drive.about.get({
       fields: "storageQuota",
-    })
+    }))
 
     const quota = res.data.storageQuota
     return {

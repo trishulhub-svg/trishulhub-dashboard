@@ -15,6 +15,13 @@ const notificationSchema = z.object({
   link: z.string().max(500).optional(),
 })
 
+// N-023: Zod schema for notification PATCH — proper runtime validation
+const notificationPatchSchema = z.object({
+  id: z.string().optional(),
+  isRead: z.boolean().optional(),
+  markAllRead: z.boolean().optional(),
+})
+
 // W43: Module-level debounce timestamp — cleanup runs at most once per hour
 let lastCleanup = 0;
 
@@ -181,14 +188,22 @@ export async function PATCH(req: NextRequest) {
     }
 
     // W21: Wrap body parsing in try/catch
-    let body
+    let body: unknown
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const { id, isRead, markAllRead } = body
+    // N-023: Validate with Zod schema
+    const parsed = notificationPatchSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: `Validation failed: ${parsed.error.issues.map(i => i.message).join(", ")}` },
+        { status: 400 }
+      )
+    }
+    const { id, isRead, markAllRead } = parsed.data
 
     // Batch: mark all as read in one DB query instead of N requests
     if (markAllRead) {

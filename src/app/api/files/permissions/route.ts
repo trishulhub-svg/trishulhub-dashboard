@@ -40,32 +40,33 @@ export async function GET(req: NextRequest) {
       where: { fileId },
     })
 
-    // Enrich with user names
-    const enriched = await Promise.all(
-      permissions.map(async (perm) => {
-        const user = await db.user.findUnique({
-          where: { id: perm.userId },
-          select: { id: true, name: true, email: true, role: true },
-        })
-        return {
-          ...perm,
-          user: user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null,
-        }
-      })
-    )
+    // F-011: Batch-fetch user info to avoid N+1 queries
+    const allUserIds = [...new Set([
+      ...permissions.map(p => p.userId),
+    ])]
 
-    // Also get the file creator info
     const file = await db.fileMetadata.findUnique({
       where: { id: fileId },
       select: { createdBy: true },
     })
+    if (file?.createdBy) allUserIds.push(file.createdBy)
+
+    const users = await db.user.findMany({
+      where: { id: { in: allUserIds } },
+      select: { id: true, name: true, email: true, role: true },
+    })
+    const userMap = new Map(users.map(u => [u.id, u]))
+
+    const enriched = permissions.map(perm => ({
+      ...perm,
+      user: userMap.get(perm.userId)
+        ? { id: userMap.get(perm.userId)!.id, name: userMap.get(perm.userId)!.name, email: userMap.get(perm.userId)!.email, role: userMap.get(perm.userId)!.role }
+        : null,
+    }))
 
     let creator: { id: string; name: string; email: string; role: string } | null = null
     if (file?.createdBy) {
-      const creatorUser = await db.user.findUnique({
-        where: { id: file.createdBy },
-        select: { id: true, name: true, email: true, role: true },
-      })
+      const creatorUser = userMap.get(file.createdBy)
       if (creatorUser) creator = creatorUser
     }
 
@@ -168,38 +169,44 @@ export async function POST(req: NextRequest) {
 
     let cascadeCount = 0
 
-    // Cascade: if this is a folder and cascade=true, apply same permission to all descendants
+    // F-012: Batch cascade — fetch all descendants once, then batch upsert
     if (cascade === true) {
       const descendantIds = await getDescendantFileIds(file.driveFileId)
 
-      for (const descId of descendantIds) {
-        // Skip if target user is the creator of the descendant
-        const descFile = await db.fileMetadata.findUnique({
-          where: { id: descId },
-          select: { createdBy: true, driveFileId: true },
+      if (descendantIds.length > 0) {
+        // Batch-fetch all descendant metadata
+        const descendants = await db.fileMetadata.findMany({
+          where: { id: { in: descendantIds } },
+          select: { id: true, createdBy: true, driveFileId: true },
         })
-        if (!descFile || descFile.createdBy === targetUserId) continue
 
-        await db.filePermission.upsert({
-          where: {
-            fileId_userId: {
-              fileId: descId,
-              userId: targetUserId as string,
+        // Filter out files where target user is the creator
+        const eligibleDescendants = descendants.filter(
+          d => d.createdBy !== targetUserId
+        )
+
+        for (const desc of eligibleDescendants) {
+          await db.filePermission.upsert({
+            where: {
+              fileId_userId: {
+                fileId: desc.id,
+                userId: targetUserId as string,
+              },
             },
-          },
-          update: {
-            accessLevel: level,
-            grantedBy: userId,
-          },
-          create: {
-            fileId: descId,
-            driveFileId: descFile.driveFileId,
-            userId: targetUserId as string,
-            accessLevel: level,
-            grantedBy: userId,
-          },
-        })
-        cascadeCount++
+            update: {
+              accessLevel: level,
+              grantedBy: userId,
+            },
+            create: {
+              fileId: desc.id,
+              driveFileId: desc.driveFileId,
+              userId: targetUserId as string,
+              accessLevel: level,
+              grantedBy: userId,
+            },
+          })
+          cascadeCount++
+        }
       }
     }
 
@@ -279,18 +286,18 @@ export async function DELETE(req: NextRequest) {
 
     let cascadeCount = 0
 
-    // Cascade: if this is a folder and cascade=true, remove from all descendants
+    // F-013: Batch cascade delete — single query instead of loop
     if (cascade === true) {
       const descendantIds = await getDescendantFileIds(file.driveFileId)
 
-      for (const descId of descendantIds) {
+      if (descendantIds.length > 0) {
         const result = await db.filePermission.deleteMany({
           where: {
-            fileId: descId,
+            fileId: { in: descendantIds },
             userId: targetUserId as string,
           },
         })
-        cascadeCount += result.count
+        cascadeCount = result.count
       }
     }
 

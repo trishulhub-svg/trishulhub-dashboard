@@ -85,7 +85,6 @@ export default function ApiKeysPage() {
   const [formPriority, setFormPriority] = useState("1");
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const resetForm = () => {
     setFormProvider("ZAI");
@@ -134,7 +133,6 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     fetchKeys();
-    return () => { fetchAbortRef.current?.abort(); };
   }, [fetchKeys]);
 
   const handleAddKey = async (e: React.FormEvent) => {

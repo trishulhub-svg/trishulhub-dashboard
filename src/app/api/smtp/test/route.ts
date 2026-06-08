@@ -35,6 +35,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Host, username, and password are required" }, { status: 400 })
     }
 
+    // N-012: Validate port range (1-65535)
+    const portNum = port || 587
+    if (typeof portNum !== "number" || portNum < 1 || portNum > 65535) {
+      return NextResponse.json({ error: "Port must be a number between 1 and 65535" }, { status: 400 })
+    }
+
     // SSRF protection: block private/internal IP addresses (async — includes DNS rebinding check)
     if (await isPrivateHost(host)) {
       return NextResponse.json({ error: "Private/internal IP addresses are not allowed. Use a public SMTP server." }, { status: 400 })
@@ -43,7 +49,7 @@ export async function POST(req: NextRequest) {
     const isSecure = secure || false
     const transporter = nodemailer.createTransport({
       host,
-      port: port || 587,
+      port: portNum,
       secure: isSecure, // true = implicit TLS (port 465), false = STARTTLS (port 587)
       requireTLS: !isSecure, // When secure=false, upgrade to TLS via STARTTLS
       auth: { user: username, pass: password },

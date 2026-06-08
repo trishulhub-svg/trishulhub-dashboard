@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPrivateHost } from "@/lib/ssrf"
 import { isValidEmail } from "@/lib/email"
+import { rateLimit } from "@/lib/rate-limit"
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto"
 
 // ── AES-256-GCM encryption helpers ──
@@ -14,6 +15,9 @@ function getEncryptionKey(): Buffer {
   if (!key || key.length < 32) {
     throw new Error("ENCRYPTION_KEY environment variable is not set or too short (min 32 chars). Encryption operations are disabled.")
   }
+  // N-026: NOTE — Buffer.from(..., "utf8").slice(0, 32) can truncate multi-byte UTF-8 characters.
+  // For production use, the ENCRYPTION_KEY should be provided as a hex or base64-encoded
+  // 32-byte string (e.g., 64 hex chars or 44 base64 chars) to guarantee correct key length.
   return Buffer.from(key, "utf8").slice(0, 32)
 }
 
@@ -59,6 +63,7 @@ export async function GET() {
       return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
     }
 
+    // N-011: Select password field to check actual existence
     const configs = await db.smtpConfig.findMany({
       orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       select: {
@@ -66,7 +71,7 @@ export async function GET() {
         host: true,
         port: true,
         username: true,
-        // SECURITY: Never return password in API response
+        password: true,
         fromEmail: true,
         fromName: true,
         secure: true,
@@ -77,10 +82,10 @@ export async function GET() {
       },
     })
 
-    // Mask passwords - indicate if set or not
-    const masked = configs.map(c => ({
+    // SECURITY: Mask passwords - indicate if actually set or not
+    const masked = configs.map(({ password, ...c }) => ({
       ...c,
-      passwordSet: true, // If it exists in DB, it's set (we excluded it from select)
+      passwordSet: !!password && password.length > 0,
     }))
 
     return NextResponse.json(masked)
@@ -101,6 +106,12 @@ export async function POST(req: NextRequest) {
     const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
+    }
+
+    // N-004: Rate limit — 20 requests per minute for SMTP mutations
+    const rl = rateLimit(`smtp-mutation-${session.user.id}`, 20, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
     }
 
     // Auto-migrate: ensure SmtpConfig and EmailVerification tables exist
@@ -236,6 +247,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
 
+    // N-004: Rate limit — 20 requests per minute for SMTP mutations
+    const rl = rateLimit(`smtp-mutation-${session.user.id}`, 20, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
+    }
+
     let body
     try {
       body = await req.json()
@@ -342,6 +359,12 @@ export async function DELETE(req: NextRequest) {
     const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
+    }
+
+    // N-004: Rate limit — 20 requests per minute for SMTP mutations
+    const rl = rateLimit(`smtp-mutation-${session.user.id}`, 20, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
     }
 
     // W36: NOTE — Currently uses query param for ID. In a future refactor, the frontend

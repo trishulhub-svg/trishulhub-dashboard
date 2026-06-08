@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isValidEmail, isDisposableEmail, generateOTP, sendOTPEmail } from "@/lib/email"
 import { invalidateSession } from "@/lib/session-manager"
+import { checkDbRateLimit } from "@/lib/rate-limit"
 
 // Auto-migrate: ensure EmailVerification table exists
 let emailTableChecked = false
@@ -58,45 +59,6 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
   }
 }
 
-// C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
-// SEC-008: Wrapped in transaction to prevent race condition between SELECT and UPDATE
-async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
-  const windowStart = new Date(Date.now() - windowMs).toISOString()
-  const now = new Date().toISOString()
-
-  try {
-    return await db.$transaction(async (tx) => {
-      // Use the RateLimitEntry table for persistence across cold starts
-      const rows: any[] = await tx.$queryRawUnsafe(
-        `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
-      )
-      const record = rows[0]
-
-      if (!record || record.windowStart < windowStart) {
-        await tx.$executeRawUnsafe(
-          `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
-           VALUES (?, ?, 1, ?, ?, ?)
-           ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
-          key, key, now, now, String(windowMs), now, now, String(windowMs)
-        )
-        return true
-      }
-
-      if (record.count >= maxAttempts) {
-        return false
-      }
-
-      await tx.$executeRawUnsafe(
-        `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
-      )
-      return true
-    })
-  } catch (e) {
-    console.error("[email-change] Rate limit DB error:", e)
-    return false // fail-closed
-  }
-}
-
 // POST /api/email-change - Request email change (sends OTP to new email)
 export async function POST(req: NextRequest) {
   try {
@@ -107,7 +69,14 @@ export async function POST(req: NextRequest) {
     await ensureEmailTableExists()
 
     const userId = session.user.id
-    const body = await req.json()
+
+    // N-015: Wrap req.json() in try/catch
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
     const { newEmail, currentPassword } = body
 
     if (!newEmail || !currentPassword) {
@@ -115,7 +84,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: max 5 password verification attempts per user in 15 minutes
-    if (!await checkDbRateLimit(`email-change-pwd-${userId}`, 5, 15 * 60 * 1000)) {
+    const pwdCheck = await checkDbRateLimit(`email-change-pwd-${userId}`, 5, 15 * 60 * 1000)
+    if (!pwdCheck.allowed) {
       return NextResponse.json({ error: "Too many attempts. Please try again after 15 minutes." }, { status: 429 })
     }
 
@@ -220,7 +190,14 @@ export async function PUT(req: NextRequest) {
     await ensureEmailTableExists()
 
     const userId = session.user.id
-    const body = await req.json()
+
+    // N-015: Wrap req.json() in try/catch
+    let body
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
     const { otp, newEmail } = body
 
     if (!otp || !newEmail) {
@@ -228,7 +205,8 @@ export async function PUT(req: NextRequest) {
     }
 
     // Rate limit: max 10 OTP verification attempts per user in 10 minutes
-    if (!await checkDbRateLimit(`otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
+    const otpCheck = await checkDbRateLimit(`otp-verify-${userId}`, 10, 10 * 60 * 1000)
+    if (!otpCheck.allowed) {
       return NextResponse.json({ error: "Too many verification attempts. Please request a new OTP." }, { status: 429 })
     }
 
@@ -299,7 +277,7 @@ export async function PUT(req: NextRequest) {
     // This forces re-login with the new email address, ensuring
     // the old session (with the old email) is immediately terminated.
     try {
-      await invalidateSession(userId)
+      void invalidateSession(userId)
       console.log("[email-change] Session invalidated for user", userId, "— must re-login with new email")
     } catch (err) {
       console.error("[email-change] Failed to invalidate session:", err)

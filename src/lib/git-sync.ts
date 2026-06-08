@@ -70,6 +70,7 @@ async function githubGet(
         Accept: "application/vnd.github.v3+json",
         "User-Agent": "TrishulHub-CRM",
       },
+      signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) {
       return { ok: false, error: `GET ${path} failed: ${response.status}` };
@@ -102,6 +103,7 @@ async function githubDelete(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ message, sha, branch }),
+        signal: AbortSignal.timeout(30000),
       }
     );
     if (!response.ok) {
@@ -135,6 +137,7 @@ async function githubPut(
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "TrishulHub-CRM",
         },
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -156,6 +159,7 @@ async function githubPut(
             branch,
             sha: fileData.sha,
           }),
+          signal: AbortSignal.timeout(30000),
         }
       );
 
@@ -191,6 +195,7 @@ async function githubPut(
           content: base64Content,
           branch,
         }),
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -261,6 +266,7 @@ export async function testGitConnection(config: {
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "TrishulHub-CRM",
         },
+        signal: AbortSignal.timeout(30000),
       }
     );
 

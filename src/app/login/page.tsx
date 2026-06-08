@@ -104,9 +104,9 @@ function LoginForm() {
   }
 
   if (status === "authenticated" && session) {
-    // Redirect immediately if already authenticated
-    const role = session.user?.role;
-    router.replace(getRedirectUrl(role, callbackUrl));
+    // Already authenticated — show loading while useEffect handles redirect
+    // NOTE: Do NOT call router.replace() here — navigation during render is a
+    // React anti-pattern that silently fails, causing users to get stuck.
     return <LoadingScreen message="Redirecting..." />;
   }
 
@@ -152,8 +152,14 @@ function LoginForm() {
         setLoading(false);
       } else {
         toast.success("Login successful!");
-        setLoading(false);  // Reset even on success (redirect may fail)
-        setTimeout(() => router.refresh(), 300);
+        setLoading(false);
+        // Use full-page navigation for reliable redirect after login.
+        // router.refresh() + router.replace() chain is fragile and can silently
+        // fail when router.replace() is called during render (React anti-pattern).
+        // window.location.href forces a fresh page load where the session cookie
+        // is picked up immediately. The middleware handles role-based routing
+        // (CLIENT → /portal, others → /dashboard).
+        window.location.href = callbackUrl || "/dashboard";
       }
     } catch {
       toast.error("Something went wrong. Please try again.");

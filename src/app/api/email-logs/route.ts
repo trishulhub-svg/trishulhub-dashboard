@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rateLimit } from "@/lib/rate-limit"
 
 // Auto-migrate: ensure EmailLog table exists
 let logTableChecked = false
@@ -70,6 +71,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can view email logs" }, { status: 403 })
     }
 
+    // N-003: Rate limit — 30 requests per minute for email log listing
+    const rl = rateLimit(`email-logs-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
+    }
+
     // Auto-migrate: ensure EmailLog table exists
     const migrateResult = await ensureEmailLogTable()
     if (!migrateResult.success) {
@@ -119,6 +126,12 @@ export async function DELETE(req: NextRequest) {
     const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can delete email logs" }, { status: 403 })
+    }
+
+    // N-003: Rate limit — 10 requests per minute for email log deletion
+    const rl = rateLimit(`email-logs-del-${session.user.id}`, 10, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
     }
 
     const { searchParams } = new URL(req.url)

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { callAI, getModelForProvider, APIKeyInvalidError, APIKeyExhaustedError, translateZaiError } from "@/lib/ai/openrouter"
+import { rateLimit } from "@/lib/rate-limit"
 
 // GET /api/api-keys/test?id=xxx — Test an API key by making a small AI call
 export async function GET(req: NextRequest) {
@@ -16,6 +17,12 @@ export async function GET(req: NextRequest) {
     const userRole = session.user.role
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ valid: false, error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
+    // P10-008: Rate limit — 5 tests per minute (each test makes an external API call costing money)
+    const rl = rateLimit(`api-key-test-${session.user.id}`, 5, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ valid: false, error: "Too many test attempts. Try again later." }, { status: 429 })
     }
 
     const id = req.nextUrl.searchParams.get("id")
@@ -55,31 +62,34 @@ export async function GET(req: NextRequest) {
     // If we got here, the key works
     console.log(`[api-keys/test] Key "${apiKey.keyName}" is VALID. Model: ${result.model}, Tokens: ${result.inputTokens}/${result.outputTokens}`)
 
-    // Update key status to ACTIVE if it was in ERROR state
-    if (apiKey.status === "ERROR") {
-      await db.apiKey.update({
-        where: { id },
-        data: { status: "ACTIVE" },
+    // P10-005: Wrap all DB writes in a transaction for atomicity
+    await db.$transaction(async (tx) => {
+      // Update key status to ACTIVE if it was in ERROR state
+      if (apiKey.status === "ERROR") {
+        await tx.apiKey.update({
+          where: { id },
+          data: { status: "ACTIVE" },
+        })
+      }
+
+      // Log the test usage
+      await tx.apiUsageLog.create({
+        data: {
+          apiKeyId: apiKey.id,
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          cost: result.cost,
+        },
       })
-    }
 
-    // Log the test usage
-    await db.apiUsageLog.create({
-      data: {
-        apiKeyId: apiKey.id,
-        model: result.model,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        cost: result.cost,
-      },
-    })
-
-    // Update spend
-    await db.apiKey.update({
-      where: { id },
-      data: {
-        currentSpend: { increment: result.cost },
-      },
+      // Update spend
+      await tx.apiKey.update({
+        where: { id },
+        data: {
+          currentSpend: { increment: result.cost },
+        },
+      })
     })
 
     return NextResponse.json({
@@ -107,8 +117,9 @@ export async function GET(req: NextRequest) {
     } else if (error instanceof APIKeyExhaustedError) {
       isExhausted = true
     } else {
-      isInvalid = errorMsg.includes("401") || errorMsg.includes("403") || errorMsg.includes("invalid") || errorMsg.includes("Token expired") || errorMsg.includes("Invalid authentication")
-      isExhausted = errorMsg.includes("429") || errorMsg.includes("402") || errorMsg.includes("exhausted") || errorMsg.includes("Insufficient balance") || errorMsg.includes("rate limit")
+      const lowerError = errorMsg.toLowerCase()
+      isInvalid = errorMsg.includes("401") || errorMsg.includes("403") || lowerError.includes("invalid") || errorMsg.includes("Token expired") || errorMsg.includes("Invalid authentication")
+      isExhausted = errorMsg.includes("429") || errorMsg.includes("402") || lowerError.includes("exhausted") || errorMsg.includes("Insufficient balance") || lowerError.includes("rate limit")
     }
 
     // Try to update the key status in the database
