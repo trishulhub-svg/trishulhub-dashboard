@@ -123,6 +123,11 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const olderThanDays = parseInt(searchParams.get("olderThanDays") || "30")
 
+    // W19: Validate olderThanDays to prevent accidental deletion of all logs
+    if (isNaN(olderThanDays) || olderThanDays < 1) {
+      return NextResponse.json({ error: "olderThanDays must be a number >= 1" }, { status: 400 })
+    }
+
     const cutoffDate = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000)
 
     const result = await (db as any).emailLog.deleteMany({

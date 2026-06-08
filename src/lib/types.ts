@@ -53,7 +53,7 @@ export type DealStage = "LEAD" | "QUALIFIED" | "PROPOSAL" | "NEGOTIATION" | "CLO
 export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "EXPIRED" | "CANCELLED";
 
 /** Subscription lifecycle status */
-export type SubscriptionStatus = "ACTIVE" | "STOPPED" | "COMPLETED" | "EXPIRED";
+export type SubscriptionStatus = "ACTIVE" | "STOPPED" | "COMPLETED";
 
 /** Subscription billing frequency */
 export type SubscriptionFrequency = "MONTHLY" | "YEARLY" | "ONE_TIME";
@@ -201,3 +201,7 @@ export type TrainingDocumentStatus = "DRAFT" | "READY" | "ARCHIVED";
 export type AssignmentStatus = "ASSIGNED" | "READ" | "TEST_STARTED" | "COMPLETED" | "PASSED" | "FAILED";
 
 export type TimeEntryStatus = "ACTIVE" | "COMPLETED";
+
+// I14: Scheduled task types (non-agent)
+export type ScheduledTaskStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "OVERDUE" | "CANCELLED";
+export type ScheduledTaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";

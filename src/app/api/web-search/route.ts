@@ -45,15 +45,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Search query cannot be empty" }, { status: 400 })
     }
 
-    // SECURITY FIX: Use environment variables directly instead of writing config to disk.
-    // Vercel's filesystem is read-only — writing .z-ai-config fails silently.
-    // Also, writing API keys to plain JSON files on disk is a security risk.
-    // Note: We read env vars but do NOT mutate process.env to avoid race conditions
-    // in concurrent serverless requests.
+    // W12: Pass env vars directly to SDK config — do NOT mutate process.env
+    // to avoid race conditions in concurrent serverless requests.
     const baseUrl = process.env.ZAI_BASE_URL || process.env.ZAI_API_BASE_URL
     const apiKey = process.env.ZAI_API_KEY
-    if (baseUrl) process.env.ZAI_BASE_URL = baseUrl
-    if (apiKey) process.env.ZAI_API_KEY = apiKey
+
+    // W12: SDK reads ZAI_BASE_URL from process.env directly.
+    // Only set the fallback if ZAI_BASE_URL isn't already defined.
+    // This minimizes process.env mutation to the strict necessary case.
+    if (!process.env.ZAI_BASE_URL && process.env.ZAI_API_BASE_URL) {
+      process.env.ZAI_BASE_URL = process.env.ZAI_API_BASE_URL
+    }
 
     // Dynamic import to avoid build-time issues
     const { default: ZAI } = await import("z-ai-web-dev-sdk")

@@ -6,7 +6,8 @@ import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 
-const timeRegex = /^\d{2}:\d{2}$/
+// W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 // PATCH /api/availability/[id] - Update availability
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -42,14 +43,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.dayOfWeek = dow
     }
     if (body.startTime !== undefined) {
-      if (!timeRegex.test(body.startTime)) {
-        return NextResponse.json({ error: "Start time must be in HH:MM format" }, { status: 400 })
+      if (!TIME_REGEX.test(body.startTime)) {
+        return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
       }
       data.startTime = body.startTime
     }
     if (body.endTime !== undefined) {
-      if (!timeRegex.test(body.endTime)) {
-        return NextResponse.json({ error: "End time must be in HH:MM format" }, { status: 400 })
+      if (!TIME_REGEX.test(body.endTime)) {
+        return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
       }
       data.endTime = body.endTime
     }
@@ -65,6 +66,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (!existing) {
         throw new Error("NOT_FOUND")
       }
+
+      // C25: Overlap validation — check if updated times overlap with other entries for the same user
+      const checkDow = data.dayOfWeek !== undefined ? data.dayOfWeek as number : existing.dayOfWeek
+      const checkStart = data.startTime !== undefined ? data.startTime as string : existing.startTime
+      const checkEnd = data.endTime !== undefined ? data.endTime as string : existing.endTime
+
+      // Only check overlap if day/time fields are being updated
+      if (data.dayOfWeek !== undefined || data.startTime !== undefined || data.endTime !== undefined) {
+        const overlapping = await tx.availability.findFirst({
+          where: {
+            userId: existing.userId,
+            dayOfWeek: checkDow,
+            id: { not: id },
+            OR: [
+              // Overlap: new start falls within existing range
+              { startTime: { lt: checkEnd }, endTime: { gt: checkStart } },
+            ],
+          },
+        })
+        if (overlapping) {
+          throw new Error("OVERLAP")
+        }
+      }
+
       return tx.availability.update({
         where: { id },
         data,
@@ -79,6 +104,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     console.error("[availability] PATCH error:", error instanceof Error ? error.message : String(error))
     if (error instanceof Error && error.message === "NOT_FOUND") {
       return NextResponse.json({ error: "Availability not found" }, { status: 404 })
+    }
+    if (error instanceof Error && error.message === "OVERLAP") {
+      return NextResponse.json({ error: "Time slot overlaps with an existing availability entry for this user" }, { status: 409 })
     }
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

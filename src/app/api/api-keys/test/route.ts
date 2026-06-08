@@ -144,7 +144,9 @@ export async function GET(req: NextRequest) {
         ? "Authentication failed — key is invalid or expired"
         : isExhausted
         ? "Rate limited or balance exhausted"
-        : `API error: ${errorMsg.substring(0, 200)}`,
+        : errorMsg.includes("Model does not exist") || errorMsg.includes("model not found")
+        ? "The selected model is not available on this provider"
+        : "API test failed. Please check the key and try again.",
       hint,
     })
   }

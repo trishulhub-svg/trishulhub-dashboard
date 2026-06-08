@@ -67,9 +67,11 @@ export async function GET(request: NextRequest) {
           }
           const row = rows[0];
           const tk = row.configToken || "";
+          // C9: Only return full configToken for SUPER_ADMIN users
+          const isSuperAdmin = token.role === "SUPER_ADMIN";
           return {
             id: row.id,
-            configToken: tk,
+            configToken: isSuperAdmin ? tk : "",
             configTokenMasked: tk.length <= 12 ? "••••••••" : tk.slice(0, 4) + "••••••••" + tk.slice(-4),
             configTokenLabel: row.configTokenLabel || "Workspace Token",
             hasToken: !!tk,
@@ -83,10 +85,11 @@ export async function GET(request: NextRequest) {
           const rows: any[] = await db.$queryRawUnsafe(
             `SELECT "code", "updatedAt" FROM "UserCode" WHERE "userId" = ?`, userId
           );
-          if (!rows.length) return { hasCode: false, code: "", codeMasked: "" };
+          if (!rows.length) return { hasCode: false, codeMasked: "" };
           const code = rows[0].code || "";
-          return { hasCode: !!code, code, codeMasked: code ? "••••••••" : "", updatedAt: rows[0].updatedAt || null };
-        } catch { return { hasCode: false, code: "", codeMasked: "" }; }
+          // I21: Only return masked code, never the full user code
+          return { hasCode: !!code, codeMasked: code ? "••••••••" : "", updatedAt: rows[0].updatedAt || null };
+        } catch { return { hasCode: false, codeMasked: "" }; }
       })(),
 
       // 4. Admin-only: Git config (with stale PENDING reset)
@@ -161,8 +164,8 @@ export async function GET(request: NextRequest) {
       myUserCode: myCodeResult,
       ...(isAdmin ? { gitConfig: adminResults[0], allUserCodes: adminResults[1] } : {}),
     });
-  } catch (error: any) {
-    console.error("[protocol/init] GET error:", error);
+  } catch (error: unknown) {
+    console.error("[protocol/init] GET error:", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

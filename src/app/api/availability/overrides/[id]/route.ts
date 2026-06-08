@@ -6,7 +6,8 @@ import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 
-const timeRegex = /^\d{2}:\d{2}$/
+// W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 // PATCH /api/availability/overrides/[id] - Update override
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -42,14 +43,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.date = new Date(body.date)
     }
     if (body.startTime !== undefined) {
-      if (!timeRegex.test(body.startTime)) {
-        return NextResponse.json({ error: "Start time must be in HH:MM format" }, { status: 400 })
+      if (!TIME_REGEX.test(body.startTime)) {
+        return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
       }
       data.startTime = body.startTime
     }
     if (body.endTime !== undefined) {
-      if (!timeRegex.test(body.endTime)) {
-        return NextResponse.json({ error: "End time must be in HH:MM format" }, { status: 400 })
+      if (!TIME_REGEX.test(body.endTime)) {
+        return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
       }
       data.endTime = body.endTime
     }

@@ -7,6 +7,24 @@ import { invalidateSession } from "@/lib/session-manager"
 import bcrypt from "bcryptjs"
 import { createHash } from "crypto"
 
+function validatePasswordComplexity(password: string): { valid: boolean; error: string } {
+  if (password.length < 8) {
+    return { valid: false, error: "Password must be at least 8 characters" }
+  }
+  // W10: Enforce minimum 8 chars + at least 3 of: uppercase, lowercase, digit, special char
+  const checks = [
+    /[A-Z]/.test(password), // uppercase
+    /[a-z]/.test(password), // lowercase
+    /[0-9]/.test(password), // digit
+    /[^A-Za-z0-9]/.test(password), // special character
+  ]
+  const passed = checks.filter(Boolean).length
+  if (passed < 3) {
+    return { valid: false, error: "Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character" }
+  }
+  return { valid: true, error: "" }
+}
+
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex")
 }
@@ -154,9 +172,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
       }
 
-      // FIX: Enforce password complexity (same as self-service password change)
-      if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-        return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+      // W10: Enforce password complexity
+      const pwCheck = validatePasswordComplexity(newPassword)
+      if (!pwCheck.valid) {
+        return NextResponse.json({ error: pwCheck.error }, { status: 400 })
       }
 
       // Hash and update the password
@@ -220,9 +239,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
-    // Enforce password complexity (same as self-service password change)
-    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+    // W10: Enforce password complexity
+    const pwCheck = validatePasswordComplexity(newPassword)
+    if (!pwCheck.valid) {
+      return NextResponse.json({ error: pwCheck.error }, { status: 400 })
     }
 
     // Find the reset token

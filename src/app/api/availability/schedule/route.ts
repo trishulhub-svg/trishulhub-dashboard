@@ -373,6 +373,12 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
     take: 200,
   })
 
+  // W44: Get total active users count to warn if capped
+  const totalUsers = await db.user.count({
+    where: { isActive: true, role: { not: "CLIENT" } },
+  })
+  const hitCap = users.length >= 200 && totalUsers > 200
+
   if (users.length === 0) {
     return NextResponse.json({
       weekStart: formatDateOnly(weekStart),
@@ -453,9 +459,14 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
 
   // W34: Pre-build Maps for O(1) lookups instead of .filter() in inner loops
   // Key format: "userId:dayOfWeek" for availabilities, "userId:dateStr" for overrides, etc.
-  const availByKey = new Map(
-    allAvailabilities.map(a => [`${a.userId}:${a.dayOfWeek}`, a])
-  )
+  // C24: Fix Map to store arrays per key — users can have multiple slots per day
+  const availByKey = new Map<string, typeof allAvailabilities>()
+  for (const a of allAvailabilities) {
+    const key = `${a.userId}:${a.dayOfWeek}`
+    const arr = availByKey.get(key) || []
+    arr.push(a)
+    availByKey.set(key, arr)
+  }
   const overrideByKey = new Map(
     allOverrides.map(o => {
       const overrideDate = o.date instanceof Date ? o.date : new Date(o.date)
@@ -500,10 +511,8 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
       const dayEnd = new Date(dayDate)
       dayEnd.setHours(23, 59, 59, 999)
 
-      // W34: O(1) lookup instead of .filter()
-      const userAvailabilities = availByKey.has(`${user.id}:${dow}`)
-        ? [availByKey.get(`${user.id}:${dow}`)!]
-        : []
+      // C24: O(1) lookup — returns array of all slots for this user/day
+      const userAvailabilities = availByKey.get(`${user.id}:${dow}`) || []
 
       const userOverride = overrideByKey.get(`${user.id}:${dayStr}`) || null
 
@@ -593,6 +602,9 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
   const response = {
     weekStart: formatDateOnly(weekStart),
     weekEnd: formatDateOnly(weekEnd),
+    // W44: Include totalUsers count and cap warning
+    totalUsers,
+    ...(hitCap ? { warning: "Result capped at 200 users. Some users may not be shown." } : {}),
     users: usersSchedule,
   }
 

@@ -284,8 +284,8 @@ export const updateTimeEntrySchema = z.object({
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
 })
 
-// Time format validation regex (HH:mm)
-const timeFormat = z.string().regex(/^\d{2}:\d{2}$/, "Time must be in HH:mm format")
+// W32: Time format validation regex (HH:mm with proper hour/minute ranges)
+const timeFormat = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format (00:00–23:59)")
 
 export const createMeetingSchema = z.object({
   title: z.string().min(1, "Meeting title is required").max(200),
@@ -662,3 +662,62 @@ export const VALID_RSVPS = ["PENDING", "ACCEPTED", "DECLINED"] as const;
 export const rsvpSchema = z.object({
   status: z.enum(VALID_RSVPS),
 });
+
+// === Phase 8 Validation Schemas ===
+
+// Support Ticket — additional schemas (existing ones above use `subject`)
+export const createTicketMessageSchema = z.object({
+  message: z.string().min(1).max(50000),
+})
+
+// Approval
+export const validApprovalTypes = [
+  "TASK",
+  "INVOICE",
+  "EMAIL",
+  "QUOTATION",
+  "PROJECT_PLAN",
+  "CODE_REVIEW",
+  "LEAD_OUTREACH",
+  "CONTENT_PIECE",
+] as const
+
+export const createApprovalSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().min(1).max(2000),
+  type: z.enum(validApprovalTypes),
+  requesterType: z.enum(["AI", "HUMAN"]).default("HUMAN"),
+  data: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const patchApprovalSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]),
+  feedback: z.string().max(2000).optional(),
+})
+
+// API Key
+export const createApiKeySchema = z.object({
+  name: z.string().min(1).max(100),
+  provider: z.enum(["OPENROUTER", "GOOGLE_AI", "ZAI", "ANTHROPIC", "OPENAI", "CUSTOM"]).optional(),
+  keyValue: z.string().min(1).max(500),
+  budgetLimit: z.number().min(0).optional(),
+})
+
+export const updateApiKeySchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  provider: z.string().max(50).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE", "EXHAUSTED"]).optional(),
+  budgetLimit: z.number().min(0).optional(),
+})
+
+// Notification Preference
+const hhMmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+export const updateNotificationPreferenceSchema = z.object({
+  emailNotifications: z.boolean().optional(),
+  pushNotifications: z.boolean().optional(),
+  quietHoursEnabled: z.boolean().optional(),
+  quietHoursStart: z.string().regex(hhMmRegex).nullable().optional(),
+  quietHoursEnd: z.string().regex(hhMmRegex).nullable().optional(),
+})

@@ -6,7 +6,13 @@ import { sendEmailWithFailover, isValidEmail, logEmailEvent } from "@/lib/email"
 // ── OTP security constants ──
 // Secret key for HMAC-SHA256 computation used in timing-safe OTP comparison.
 // In production, override via OTP_HMAC_SECRET env var.
-const OTP_HMAC_SECRET = process.env.OTP_HMAC_SECRET || "trishul-protocol-otp-hmac-key-2024";
+function getOtpHmacSecret(): string {
+  const secret = process.env.OTP_HMAC_SECRET
+  if (!secret || secret.length < 16) {
+    throw new Error("OTP_HMAC_SECRET environment variable is not set or too short (min 16 chars). OTP operations are disabled.")
+  }
+  return secret
+}
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
 // Pre-computed dummy bcrypt hash for constant-time operations.
@@ -26,35 +32,40 @@ const MAX_VERIFY_ATTEMPTS = 5; // Max 5 verify attempts per window
 
 async function checkRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
   const windowStart = new Date(Date.now() - windowMs).toISOString()
+  const now = new Date().toISOString()
 
   try {
-    const record = await db.protocolRateLimit.findUnique({
-      where: { key },
-    })
-
-    if (!record || record.windowStart < windowStart) {
-      // New window — reset count
-      await db.protocolRateLimit.upsert({
+    // Use a transaction to make the check-and-increment atomic
+    return await db.$transaction(async (tx) => {
+      const record = await tx.protocolRateLimit.findUnique({
         where: { key },
-        update: { count: 1, windowStart: new Date().toISOString() },
-        create: { id: randomUUID(), key, count: 1, windowStart: new Date().toISOString() },
+      })
+
+      if (!record || record.windowStart < windowStart) {
+        // New window — reset count
+        await tx.protocolRateLimit.upsert({
+          where: { key },
+          update: { count: 1, windowStart: now },
+          create: { id: randomUUID(), key, count: 1, windowStart: now },
+        })
+        return true // allowed
+      }
+
+      if (record.count >= maxAttempts) {
+        return false // rate limited
+      }
+
+      // Increment count
+      await tx.protocolRateLimit.update({
+        where: { key },
+        data: { count: { increment: 1 }, updatedAt: now },
       })
       return true // allowed
-    }
-
-    if (record.count >= maxAttempts) {
-      return false // rate limited
-    }
-
-    // Increment count
-    await db.protocolRateLimit.update({
-      where: { key },
-      data: { count: { increment: 1 }, updatedAt: new Date().toISOString() },
     })
-    return true // allowed
   } catch (e) {
-    // Fail-open on DB error
-    return true
+    // Fail-closed on DB error — deny the request to prevent abuse
+    console.error("[protocol-auth] Rate limit DB error (fail-closed):", e)
+    return false
   }
 }
 
@@ -155,7 +166,7 @@ export async function POST(request: NextRequest) {
     const hashedOtp = await bcrypt.default.hash(otp, 10);
 
     // W3: Compute HMAC-SHA256 for timing-safe comparison (fixed-length 32-byte digest)
-    const otpHmac = createHmac("sha256", OTP_HMAC_SECRET).update(otp).digest("hex");
+    const otpHmac = createHmac("sha256", getOtpHmacSecret()).update(otp).digest("hex");
 
     // Store both hashes: bcrypt for security, HMAC for constant-time comparison
     await db.protocolOtp.create({
@@ -313,7 +324,7 @@ export async function PUT(request: NextRequest) {
     if (otpData?.type === "secure") {
       // New format: bcrypt + HMAC
       // 1. HMAC-SHA256 comparison using timingSafeEqual on fixed-length 32-byte buffers
-      const providedHmacBuf = createHmac("sha256", OTP_HMAC_SECRET).update(otpStr).digest();
+      const providedHmacBuf = createHmac("sha256", getOtpHmacSecret()).update(otpStr).digest();
       const storedHmacBuf = Buffer.from(otpData.h, "hex");
       let hmacValid = false;
       try {

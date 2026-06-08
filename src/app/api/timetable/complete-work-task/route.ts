@@ -39,18 +39,6 @@ export async function POST(req: NextRequest) {
     const userRole = session.user.role;
 
     switch (sourceType) {
-      case "AGENT_TASK": {
-        const task = await db.scheduledTask.findUnique({ where: { id: taskId as string } });
-        if (!task || task.userId !== userId) {
-          return NextResponse.json({ error: "Task not found or unauthorized" }, { status: 404 });
-        }
-        const updated = await db.scheduledTask.update({
-          where: { id: taskId as string },
-          data: { status: "COMPLETED", completedAt: new Date(), progress: 100 },
-        });
-        return NextResponse.json({ success: true, task: updated });
-      }
-
       case "PROJECT_TASK": {
         const task = await db.task.findUnique({ where: { id: taskId as string } });
         if (!task) {

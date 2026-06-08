@@ -37,11 +37,9 @@ export async function GET(req: NextRequest) {
   try {
     const { db } = await import("@/lib/db")
     const userCount = await db.user.count()
-    const agentCount = await db.agent.count()
     results.database = {
       status: "CONNECTED",
       userCount,
-      agentCount,
     }
   } catch (err: any) {
     results.database = {

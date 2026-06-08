@@ -49,7 +49,6 @@ interface KeyInfo {
   priority: number
   monthlyBudget: number
   currentSpend: number
-  assignedAgents: string
 }
 
 // ━━ Valid Model Sets ━━

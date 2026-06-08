@@ -44,14 +44,8 @@ export async function GET() {
     const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
     const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
 
-    // For developers: only fetch agents they have access to
-    const agentWhere = !admin
-      ? { userAccess: { some: { userId, canView: true } } }
-      : {}
-
     // PERF: Single Promise.all — everything parallel including leads + aggregates
     const [
-      agents,
       projects,
       clients,
       invoices,
@@ -72,10 +66,6 @@ export async function GET() {
       overdueAmount,
       totalExpenses,
     ] = await Promise.all([
-      db.agent.findMany({
-        where: agentWhere,
-        include: { apiKey: { select: { id: true, keyName: true, provider: true, status: true, currentSpend: true, monthlyBudget: true } } },
-      }),
       db.project.findMany({
         where: projectWhere,
         include: { client: true, _count: { select: { tasks: true } } },
@@ -91,8 +81,6 @@ export async function GET() {
           ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true } })
           : Promise.resolve([] as unknown[]),
       db.apiUsageLog.findMany({
-        where: !admin ? { agent: { userAccess: { some: { userId, canView: true } } } } : {},
-        include: { agent: { select: { id: true, name: true, type: true } } },
         take: 30,
         orderBy: { createdAt: "desc" },
       }),
@@ -129,28 +117,19 @@ export async function GET() {
 
     // SECURITY: API keys — SUPER_ADMIN sees masked values; other admins don't receive keyValue at all
     const safeApiKeys = role === "SUPER_ADMIN"
-      ? (apiKeys as Array<{ id: string; keyName: string; keyValue?: string; currentSpend: number; monthlyBudget: number; provider: string; status: string }>).map(k => ({ ...k, keyValue: k.keyValue ? `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` : "" }))
+      ? (apiKeys as Array<{ id: string; keyName: string; keyValue?: string; currentSpend: number; monthlyBudget: number; provider: string; status: string }>).map(k => ({ ...k, keyValue: k.keyValue ? `****${k.keyValue.slice(-4)}` : "" }))
       : admin
         ? apiKeys
         : []
 
-    // Usage logs — same shape for all roles (agent details are already limited by include)
-    const safeUsageLogs = (usageLogs as Array<{ id: string; model: string; inputTokens: number; outputTokens: number; cost: number; createdAt: Date; agent: { id: string; name: string; type: string } }>).map(log => ({
-      id: log.id,
-      model: log.model,
-      inputTokens: log.inputTokens,
-      outputTokens: log.outputTokens,
-      cost: log.cost,
-      createdAt: log.createdAt,
-      agent: log.agent,
-    }))
+    // Usage logs
+    const safeUsageLogs = usageLogs
 
     const totalApiSpend = admin ? (apiKeys as Array<{ currentSpend: number }>).reduce((sum, k) => sum + k.currentSpend, 0) : 0
     const monthlyBudget = admin ? (apiKeys as Array<{ monthlyBudget: number }>).reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
     const totalLeads = totalLeadsCount
 
     const safeResponse = sanitizeForJson({
-      agents,
       projects,
       clients: admin ? clients : (clients as Array<{ id: string; name: string; company: string }>).map(c => ({ id: c.id, name: c.name, company: c.company })),
       leads,

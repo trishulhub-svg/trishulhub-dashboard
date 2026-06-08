@@ -219,3 +219,86 @@ export function trainingRateLimit(key: string): RateLimitResult {
 export function availabilityRateLimit(key: string): RateLimitResult {
   return rateLimit(key, 60, 60_000)
 }
+
+// Phase 8 — Rate limit constants for new modules
+export const apiKeyRateLimit = { max: 3, windowMs: 60_000 } // 3 per minute
+export const supportTicketRateLimit = { max: 15, windowMs: 60_000 } // 15 per minute
+export const protocolOtpRateLimit = { max: 5, windowMs: 60_000 } // 5 per minute
+export const protocolInviteRateLimit = { max: 10, windowMs: 60_000 } // 10 per minute
+export const notificationRateLimit = { max: 30, windowMs: 60_000 } // 30 per minute
+
+// Phase 8 — Convenience wrappers for new modules
+export function apiKeyLimit(key: string): RateLimitResult {
+  return rateLimit(key, apiKeyRateLimit.max, apiKeyRateLimit.windowMs)
+}
+
+export function supportTicketLimit(key: string): RateLimitResult {
+  return rateLimit(key, supportTicketRateLimit.max, supportTicketRateLimit.windowMs)
+}
+
+export function protocolOtpLimit(key: string): RateLimitResult {
+  return rateLimit(key, protocolOtpRateLimit.max, protocolOtpRateLimit.windowMs)
+}
+
+export function protocolInviteLimit(key: string): RateLimitResult {
+  return rateLimit(key, protocolInviteRateLimit.max, protocolInviteRateLimit.windowMs)
+}
+
+export function notificationLimit(key: string): RateLimitResult {
+  return rateLimit(key, notificationRateLimit.max, notificationRateLimit.windowMs)
+}
+
+/**
+ * DB-backed atomic rate limiter for cross-instance persistence.
+ * Uses the ProtocolRateLimit table (already created in auto-migrate).
+ * Thread-safe via raw SQL — no separate DB calls needed.
+ *
+ * @param key - Unique identifier (userId, email, IP, etc.)
+ * @param maxAttempts - Max allowed attempts in the window
+ * @param windowMs - Window duration in milliseconds
+ * @returns Whether the request is allowed and remaining attempts
+ */
+export async function checkDbRateLimit(
+  key: string,
+  maxAttempts: number,
+  windowMs: number
+): Promise<{ allowed: boolean; remaining: number }> {
+  await ensureRateLimitTable()
+
+  const windowStart = new Date(Date.now() - windowMs).toISOString()
+
+  try {
+    // Atomic upsert: increment count if within window, else reset to 1
+    const rows: Array<{ count: number }> = await db.$queryRawUnsafe(
+      `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
+       VALUES (?, ?, 1, ?, ?, datetime('now'))
+       ON CONFLICT("key") DO UPDATE SET
+         "count" = CASE
+           WHEN "RateLimitEntry"."windowStart" > ? THEN "RateLimitEntry"."count" + 1
+           ELSE 1
+         END,
+         "windowStart" = CASE
+           WHEN "RateLimitEntry"."windowStart" > ? THEN "RateLimitEntry"."windowStart"
+           ELSE ?
+         END,
+         "windowMs" = ?
+       RETURNING "count"`,
+      randomUUID(),
+      key,
+      new Date().toISOString(),
+      windowMs,
+      windowStart,
+      windowStart,
+      new Date().toISOString(),
+      windowMs
+    )
+
+    const count = rows[0]?.count ?? 1
+    const remaining = Math.max(0, maxAttempts - count)
+
+    return { allowed: count <= maxAttempts, remaining }
+  } catch {
+    // Fail-open on DB errors — don't block legitimate requests
+    return { allowed: true, remaining: maxAttempts }
+  }
+}

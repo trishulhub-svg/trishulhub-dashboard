@@ -29,8 +29,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
-import { AGENT_TYPES as AGENT_TYPE_CONFIG, type AgentType } from "@/lib/types";
-
 const statusColors: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   EXHAUSTED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -51,8 +49,6 @@ const providerInfo: Record<string, { name: string; color: string; url: string; i
   OTHER: { name: "Other", color: "bg-gray-500", url: "#", icon: "🔑" },
 };
 
-const agentTypeKeys = Object.keys(AGENT_TYPE_CONFIG) as AgentType[];
-
 interface ApiKeyData {
   id: string;
   provider: string;
@@ -62,8 +58,7 @@ interface ApiKeyData {
   currentSpend: number;
   status: string;
   priority: number;
-  assignedAgents: string;
-  _count?: { usageLogs: number; agents: number };
+  _count?: { usageLogs: number };
 }
 
 export default function ApiKeysPage() {
@@ -88,7 +83,7 @@ export default function ApiKeysPage() {
   const [formKeyValue, setFormKeyValue] = useState("");
   const [formBudget, setFormBudget] = useState("18");
   const [formPriority, setFormPriority] = useState("1");
-  const [formAssignedAgents, setFormAssignedAgents] = useState<string[]>([]);
+
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
 
@@ -98,7 +93,6 @@ export default function ApiKeysPage() {
     setFormKeyValue("");
     setFormBudget("18");
     setFormPriority("1");
-    setFormAssignedAgents([]);
   };
 
   const fetchKeys = useCallback(async () => {
@@ -161,7 +155,6 @@ export default function ApiKeysPage() {
           keyValue: formKeyValue.trim(),
           monthlyBudget: parseFloat(formBudget) || 18,
           priority: parseInt(formPriority) || 1,
-          assignedAgents: JSON.stringify(formAssignedAgents),
           status: "ACTIVE",
         }),
       });
@@ -191,7 +184,6 @@ export default function ApiKeysPage() {
         keyName: formKeyName.trim(),
         monthlyBudget: parseFloat(formBudget) || 18,
         priority: parseInt(formPriority) || 1,
-        assignedAgents: JSON.stringify(formAssignedAgents),
         status: formProvider === editingKey.provider ? editingKey.status : "ACTIVE",
       };
       // Only update key value if it was changed
@@ -292,21 +284,7 @@ export default function ApiKeysPage() {
     setFormKeyValue("••••••••");
     setFormBudget(String(key.monthlyBudget));
     setFormPriority(String(key.priority));
-    try {
-      const assigned = JSON.parse(key.assignedAgents || "[]");
-      setFormAssignedAgents(Array.isArray(assigned) ? assigned : []);
-    } catch {
-      setFormAssignedAgents([]);
-    }
     setEditOpen(true);
-  };
-
-  const toggleAgentAssignment = (agentType: string) => {
-    setFormAssignedAgents(prev =>
-      prev.includes(agentType)
-        ? prev.filter(a => a !== agentType)
-        : [...prev, agentType]
-    );
   };
 
   const maskKeyValue = (key: string) => {
@@ -372,8 +350,6 @@ export default function ApiKeysPage() {
               setFormBudget={setFormBudget}
               formPriority={formPriority}
               setFormPriority={setFormPriority}
-              formAssignedAgents={formAssignedAgents}
-              toggleAgentAssignment={toggleAgentAssignment}
               onSubmit={handleAddKey}
               saving={saving}
               submitLabel="Add Key"
@@ -478,13 +454,6 @@ export default function ApiKeysPage() {
           const isWarning = usagePercent >= 75;
           const isCritical = usagePercent >= 90;
           const provider = providerInfo[key.provider] || providerInfo.OTHER;
-          const assignedAgents = (() => {
-            try {
-              const parsed = JSON.parse(key.assignedAgents || "[]");
-              return Array.isArray(parsed) ? parsed : [];
-            } catch { return []; }
-          })();
-
           const testRes = testResult[key.id];
 
           return (
@@ -590,36 +559,17 @@ export default function ApiKeysPage() {
                     </div>
 
                     {/* Stats row */}
-                    <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="text-center p-1.5 rounded bg-muted/50">
                         <Activity className="h-3 w-3 mx-auto text-muted-foreground mb-0.5" />
                         <p className="text-muted-foreground">Logs</p>
                         <p className="font-semibold">{key._count?.usageLogs ?? 0}</p>
                       </div>
                       <div className="text-center p-1.5 rounded bg-muted/50">
-                        <Zap className="h-3 w-3 mx-auto text-muted-foreground mb-0.5" />
-                        <p className="text-muted-foreground">Agents</p>
-                        <p className="font-semibold">{key._count?.agents ?? 0}</p>
-                      </div>
-                      <div className="text-center p-1.5 rounded bg-muted/50">
                         <Key className="h-3 w-3 mx-auto text-muted-foreground mb-0.5" />
                         <p className="text-muted-foreground">Priority</p>
                         <p className="font-semibold">{key.priority}</p>
                       </div>
-                    </div>
-
-                    {/* Assigned agents */}
-                    <div className="text-xs">
-                      <span className="text-muted-foreground">Assigned: </span>
-                      {assignedAgents.length === 0 ? (
-                        <Badge variant="outline" className="text-[10px]">All Agents</Badge>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {assignedAgents.map(a => (
-                            <Badge key={a} variant="outline" className="text-[10px]">{a}</Badge>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
                     {/* Actions */}
@@ -698,8 +648,6 @@ export default function ApiKeysPage() {
             setFormBudget={setFormBudget}
             formPriority={formPriority}
             setFormPriority={setFormPriority}
-            formAssignedAgents={formAssignedAgents}
-            toggleAgentAssignment={toggleAgentAssignment}
             onSubmit={handleEditKey}
             saving={saving}
             submitLabel="Save Changes"
@@ -714,7 +662,7 @@ export default function ApiKeysPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete API Key</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this API key? Agents using this key will need to be reassigned. This action cannot be undone.
+              Are you sure you want to delete this API key? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -736,7 +684,6 @@ function KeyForm({
   formKeyValue, setFormKeyValue,
   formBudget, setFormBudget,
   formPriority, setFormPriority,
-  formAssignedAgents, toggleAgentAssignment,
   onSubmit, saving, submitLabel, isEdit,
 }: {
   formProvider: string;
@@ -749,8 +696,6 @@ function KeyForm({
   setFormBudget: (v: string) => void;
   formPriority: string;
   setFormPriority: (v: string) => void;
-  formAssignedAgents: string[];
-  toggleAgentAssignment: (a: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   saving: boolean;
   submitLabel: string;
@@ -821,25 +766,6 @@ function KeyForm({
             max="10"
           />
         </div>
-      </div>
-
-      <div className="space-y-1">
-        <Label className="text-xs">Assigned Agents (empty = all agents)</Label>
-        <div className="flex flex-wrap gap-1.5">
-          {agentTypeKeys.map(agentType => (
-            <Badge
-              key={agentType}
-              variant={formAssignedAgents.includes(agentType) ? "default" : "outline"}
-              className="cursor-pointer text-[10px] select-none"
-              onClick={() => toggleAgentAssignment(agentType)}
-            >
-              {agentType}
-            </Badge>
-          ))}
-        </div>
-        {formAssignedAgents.length === 0 && (
-          <p className="text-[10px] text-muted-foreground">All agents will use this key</p>
-        )}
       </div>
 
       <Button type="submit" className="w-full" disabled={saving}>

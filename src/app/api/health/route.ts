@@ -37,16 +37,10 @@ export async function POST() {
     const totalUsers = await db.user.count()
     diagnostics.database = "connected"
     diagnostics.totalUsers = totalUsers
-    diagnostics.nextAuthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "MISSING"
-    diagnostics.tursoUrl = process.env.TURSO_DATABASE_URL ? "SET" : "MISSING"
-    diagnostics.tursoAuthToken = process.env.TURSO_AUTH_TOKEN ? "SET" : "MISSING"
     return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics })
   } catch (error: any) {
     diagnostics.database = "disconnected"
-    diagnostics.nextAuthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "MISSING"
-    diagnostics.tursoUrl = process.env.TURSO_DATABASE_URL ? "SET" : "MISSING"
-    diagnostics.tursoAuthToken = process.env.TURSO_AUTH_TOKEN ? "SET" : "MISSING"
-    diagnostics.error = error.message
+    diagnostics.error = "Database connection failed"
     return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics }, { status: 503 })
   }
 }

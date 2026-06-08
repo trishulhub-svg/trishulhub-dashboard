@@ -6,7 +6,8 @@ import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
-const timeRegex = /^\d{2}:\d{2}$/
+// W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 // GET /api/availability - List availability entries
 export async function GET(req: NextRequest) {
@@ -31,7 +32,13 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {}
 
     const userId = searchParams.get("userId")
-    if (userId) where.userId = userId
+    if (userId) {
+      // W33: Validate userId format to prevent injection
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId)) {
+        return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
+      }
+      where.userId = userId
+    }
 
     const dayOfWeekParam = searchParams.get("dayOfWeek")
     if (dayOfWeekParam !== null) {
@@ -105,11 +112,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate startTime/endTime format
-    if (!timeRegex.test(startTime)) {
-      return NextResponse.json({ error: "Start time must be in HH:MM format" }, { status: 400 })
+    if (!TIME_REGEX.test(startTime)) {
+      return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
-    if (!timeRegex.test(endTime)) {
-      return NextResponse.json({ error: "End time must be in HH:MM format" }, { status: 400 })
+    if (!TIME_REGEX.test(endTime)) {
+      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
     if (startTime >= endTime) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })

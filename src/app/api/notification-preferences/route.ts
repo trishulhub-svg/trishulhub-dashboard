@@ -12,16 +12,12 @@ export async function GET() {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    let prefs = await db.notificationPreference.findUnique({
+    // C23: Use upsert instead of find-then-create to prevent race condition
+    const prefs = await db.notificationPreference.upsert({
       where: { userId: session.user.id },
+      create: { userId: session.user.id },
+      update: {},
     })
-
-    // Create default preferences if none exist
-    if (!prefs) {
-      prefs = await db.notificationPreference.create({
-        data: { userId: session.user.id },
-      })
-    }
 
     return NextResponse.json(prefs)
   } catch (error: unknown) {

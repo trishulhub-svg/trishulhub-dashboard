@@ -195,8 +195,8 @@ interface UnifiedPendingItem {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// History Entry Interface (module scope)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// History Entry Interface — I6: Used for unified history rendering in renderHistoryCard
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 interface HistoryEntry {
   id: string;
@@ -247,8 +247,6 @@ export default function ApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedbackTexts, setFeedbackTexts] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
-  const [rejectItemId, setRejectItemId] = useState<{id: string, type: string} | null>(null);
-  const [needsWorkItemId, setNeedsWorkItemId] = useState<string | null>(null);
 
   // Computed counts (memoized)
   const pendingAiApprovals = useMemo(() => aiApprovals.filter((a) => a.status === "PENDING"), [aiApprovals]);
@@ -317,6 +315,9 @@ export default function ApprovalsPage() {
     setError(null);
 
     try {
+      // I7: Optimization opportunity — 6 parallel API calls are acceptable here
+      // because each serves a distinct data domain (approvals, leaves, tasks).
+      // Could be consolidated into a single batched endpoint if needed in future.
       const [
         approvalsRes,
         approvedRes,
@@ -429,8 +430,10 @@ export default function ApprovalsPage() {
         });
         fetchAllData();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to process approval");
+        // W47: Wrap res.json() in try/catch to handle non-JSON error responses
+        let err: Record<string, unknown> = {};
+        try { err = await res.json(); } catch { err = {}; }
+        toast.error((err as { error?: string }).error || "Failed to process approval");
       }
     } catch {
       toast.error("Failed to process approval");
@@ -459,8 +462,10 @@ export default function ApprovalsPage() {
         });
         fetchAllData();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to process leave request");
+        // W47: Wrap res.json() in try/catch to handle non-JSON error responses
+        let err: Record<string, unknown> = {};
+        try { err = await res.json(); } catch { err = {}; }
+        toast.error((err as { error?: string }).error || "Failed to process leave request");
       }
     } catch {
       toast.error("Failed to process leave request");
@@ -479,7 +484,8 @@ export default function ApprovalsPage() {
         body.status = "DONE";
       } else {
         body.status = "IN_PROGRESS";
-        // Note: feedback is optional and shown via toast; we don't overwrite task description
+        // W48: Send feedback in task rejection body
+        if (feedback) body.feedback = feedback;
       }
 
       const res = await fetch("/api/tasks", {
@@ -498,8 +504,10 @@ export default function ApprovalsPage() {
         });
         fetchAllData();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to process task");
+        // W47: Wrap res.json() in try/catch to handle non-JSON error responses
+        let err: Record<string, unknown> = {};
+        try { err = await res.json(); } catch { err = {}; }
+        toast.error((err as { error?: string }).error || "Failed to process task");
       }
     } catch {
       toast.error("Failed to process task");

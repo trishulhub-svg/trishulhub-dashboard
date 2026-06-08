@@ -50,35 +50,7 @@ export async function GET(req: NextRequest) {
 
     const results: Array<Record<string, unknown>> = [];
 
-    // 1. Scheduled Tasks
-    const scheduledTasks = await db.scheduledTask.findMany({
-      where: {
-        userId,
-        dueDate: { gte: start, lt: end },
-        status: { notIn: ["COMPLETED", "CANCELLED"] },
-      },
-      include: {
-        agent: { select: { id: true, name: true, type: true } },
-      },
-      orderBy: { dueDate: "asc" },
-    });
-
-    for (const t of scheduledTasks) {
-      results.push({
-        id: t.id,
-        sourceType: "AGENT_TASK",
-        sourceLabel: "Agent Task",
-        title: t.title,
-        description: t.description,
-        priority: t.priority,
-        status: t.status,
-        dueDate: t.dueDate.toISOString(),
-        agentName: t.agent?.name || "Unknown Agent",
-        agentType: t.agent?.type,
-      });
-    }
-
-    // 2. Project Tasks
+    // 1. Project Tasks
     const projectTasks = await db.task.findMany({
       where: {
         assignedTo: userId,

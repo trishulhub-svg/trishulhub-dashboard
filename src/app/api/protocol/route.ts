@@ -45,9 +45,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "No protocol uploaded" }, { status: 404 });
     }
 
-    // If download requested, return binary stream
+    // Check authentication for full metadata
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const isAuthenticated = !!token;
+
+    // If download requested, return binary stream (requires auth)
     if (request.nextUrl.searchParams.get("download") === "true") {
-      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
       if (!token) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
@@ -73,16 +76,25 @@ export async function GET(request: NextRequest) {
       // Convert base64 to binary buffer
       const buffer = Buffer.from(base64Data, "base64");
 
-      return new NextResponse(buffer, {
-        headers: {
-          "Content-Type": protocol.mimeType || "application/pdf",
-          "Content-Disposition": `attachment; filename="${protocol.fileName}"`,
-          "Content-Length": String(buffer.length),
-        },
+      // W7: Safe Content-Disposition header (prevent injection)
+      const safeFileName = encodeURIComponent(protocol.fileName);
+      const headers: Record<string, string> = {
+        "Content-Type": protocol.mimeType || "application/pdf",
+        "Content-Length": String(buffer.length),
+        "Content-Disposition": `attachment; filename*=UTF-8''${safeFileName}`,
+      };
+      return new NextResponse(buffer, { headers });
+    }
+
+    // C8: Return limited info for unauthenticated, full info for authenticated
+    if (!isAuthenticated) {
+      return NextResponse.json({
+        fileName: protocol.fileName,
+        downloadEnabled: protocol.downloadEnabled,
+        hasUpload: true,
       });
     }
 
-    // Otherwise just return metadata (including downloadEnabled)
     return NextResponse.json(protocol);
   } catch (error: any) {
     console.error("[protocol] GET error:", error);
@@ -138,10 +150,33 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { fileName, fileSize, mimeType, data } = body;
+    const { fileName, fileSize, data } = body;
+    let mimeType = body.mimeType;
 
     if (!data || !fileName) {
       return NextResponse.json({ error: "File data and name are required" }, { status: 400 });
+    }
+
+    // W6: Server-side validation — enforce PDF only
+    if (mimeType && mimeType !== "application/pdf") {
+      return NextResponse.json({ error: "Only PDF files are allowed" }, { status: 400 });
+    }
+
+    // W6: Check base64 data size (max 50MB)
+    const MAX_SIZE = 50 * 1024 * 1024;
+    if (typeof data === "string" && data.length * 0.75 > MAX_SIZE) {
+      return NextResponse.json({ error: "File too large. Maximum size is 50MB" }, { status: 400 });
+    }
+
+    // W6: Verify PDF magic bytes (%PDF-)
+    let base64Data = data;
+    if (typeof data === "string") {
+      const decodedPrefix = Buffer.from(data.slice(0, 40), "base64").toString("utf8").slice(0, 5);
+      if (decodedPrefix !== "%PDF-") {
+        return NextResponse.json({ error: "Invalid PDF file. File must start with %PDF-" }, { status: 400 });
+      }
+      // Normalize mimeType
+      mimeType = "application/pdf";
     }
 
     // Store metadata as JSON in the title field, PDF base64 in content
@@ -160,7 +195,7 @@ export async function PUT(request: NextRequest) {
     if (existing.length > 0) {
       await db.$executeRawUnsafe(
         `UPDATE "ProtocolVersion" SET content = ?, title = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
-        data, meta, existing[0].id
+        base64Data, meta, existing[0].id
       );
       return NextResponse.json({ success: true, action: "updated" });
     } else {
@@ -168,7 +203,7 @@ export async function PUT(request: NextRequest) {
       await db.$executeRawUnsafe(
         `INSERT INTO "ProtocolVersion" (id, version, title, content, isActive, createdBy)
          VALUES (?, '1.0', ?, ?, true, ?)`,
-        id, meta, data, (token as any).sub || (token as any).id || "unknown"
+        id, meta, base64Data, (token as any).sub || (token as any).id || "unknown"
       );
       return NextResponse.json({ success: true, action: "created" }, { status: 201 });
     }

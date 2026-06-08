@@ -55,19 +55,39 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
   }
 }
 
-// In-memory rate limiter for OTP verification attempts
-const otpVerifyAttempts = new Map<string, { count: number; resetAt: number }>()
-const passwordAttempts = new Map<string, { count: number; resetAt: number }>()
+// C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
+async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString()
+  const now = new Date().toISOString()
 
-function checkRateLimit(store: Map<string, { count: number; resetAt: number }>, key: string, maxAttempts: number, windowMs: number): boolean {
-  const now = Date.now()
-  const entry = store.get(key)
-  if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + windowMs })
+  try {
+    const rows: any[] = await db.$queryRawUnsafe(
+      `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
+    )
+    const record = rows[0]
+
+    if (!record || record.windowStart < windowStart) {
+      await db.$executeRawUnsafe(
+        `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
+         VALUES (?, ?, 1, ?, ?, ?)
+         ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
+        key, key, now, now, String(windowMs), now, now, String(windowMs)
+      )
+      return true
+    }
+
+    if (record.count >= maxAttempts) {
+      return false
+    }
+
+    await db.$executeRawUnsafe(
+      `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
+    )
     return true
+  } catch (e) {
+    console.error("[password-change] Rate limit DB error:", e)
+    return false // fail-closed
   }
-  entry.count++
-  return entry.count <= maxAttempts
 }
 
 // POST /api/password-change - Request password change OTP (verifies current password + sends OTP)
@@ -88,7 +108,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: max 5 password verification attempts per user in 15 minutes
-    if (!checkRateLimit(passwordAttempts, `pw-change-verify-${userId}`, 5, 15 * 60 * 1000)) {
+    if (!await checkDbRateLimit(`pw-change-verify-${userId}`, 5, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many attempts. Please try again after 15 minutes." }, { status: 429 })
     }
 
@@ -142,7 +162,9 @@ export async function POST(req: NextRequest) {
     if (!emailResult.success) {
       // Delete the verification record if email failed
       await (db as any).passwordChange.deleteMany({ where: { userId, verified: false } })
-      return NextResponse.json({ error: `Failed to send OTP email: ${emailResult.error}` }, { status: 500 })
+      // C12: Log the actual error server-side, return generic message
+      console.error("[password-change] Failed to send OTP email:", emailResult.error)
+      return NextResponse.json({ error: "Failed to send OTP email. Please try again later." }, { status: 500 })
     }
 
     return NextResponse.json({
@@ -176,13 +198,19 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
-    // SECURITY: Basic password complexity (at least one letter and one number)
-    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+    // W10: Enforce password complexity (min 8 chars + at least 3 of: uppercase, lowercase, digit, special)
+    const checks = [
+      /[A-Z]/.test(newPassword),
+      /[a-z]/.test(newPassword),
+      /[0-9]/.test(newPassword),
+      /[^A-Za-z0-9]/.test(newPassword),
+    ]
+    if (checks.filter(Boolean).length < 3) {
+      return NextResponse.json({ error: "Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character" }, { status: 400 })
     }
 
     // Rate limit: max 10 OTP verification attempts per user in 10 minutes
-    if (!checkRateLimit(otpVerifyAttempts, `pw-otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
+    if (!await checkDbRateLimit(`pw-otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many verification attempts. Please request a new OTP." }, { status: 429 })
     }
 
@@ -229,22 +257,25 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Mark as verified only after all pre-checks pass
-    await (db as any).passwordChange.update({
-      where: { id: verification.id },
-      data: { verified: true },
-    })
-
-    // Update the user's password
+    // W13: Wrap OTP verify + password update + cleanup in transaction for atomicity
     const hashedPassword = await bcrypt.default.hash(newPassword, 12)
-    await db.user.update({
-      where: { id: userId },
-      data: { password: hashedPassword },
-    })
+    await db.$transaction(async (tx) => {
+      // Mark as verified only after all pre-checks pass
+      await (tx as any).passwordChange.update({
+        where: { id: verification.id },
+        data: { verified: true },
+      })
 
-    // Clean up all verification records for this user
-    await (db as any).passwordChange.deleteMany({
-      where: { userId },
+      // Update the user's password
+      await tx.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword },
+      })
+
+      // Clean up all verification records for this user
+      await (tx as any).passwordChange.deleteMany({
+        where: { userId },
+      })
     })
 
     // Log the password change event

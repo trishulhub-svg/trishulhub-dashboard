@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { randomBytes } from "crypto"
 
 // GET handler - allows seeding by visiting URL in browser
 export async function GET() {
@@ -32,10 +33,10 @@ export async function POST() {
       return NextResponse.json({ message: "Database already seeded", skipped: true })
     }
 
-    // ⚠️ SECURITY WARNING: Hardcoded password for development seeding only.
+    // SECURITY: Generate a cryptographically random password instead of hardcoded value.
     // This route requires SUPER_ADMIN auth and only runs on an empty database.
-    // NEVER use this in production — use /api/setup instead which generates a random password.
-    const hashedPassword = await bcrypt.hash("password123", 12)
+    const generatedPassword = randomBytes(16).toString("hex")
+    const hashedPassword = await bcrypt.hash(generatedPassword, 12)
 
     // Create users
     const taroon = await db.user.create({
@@ -52,78 +53,6 @@ export async function POST() {
     })
 
     // No placeholder API key - user adds their real key from the API Keys page
-    const agents = await Promise.all([
-      db.agent.create({
-        data: {
-          name: "Dev Agent",
-          type: "DEV",
-          description: "Writes code, builds websites, fixes bugs, deploys projects",
-          model: "openai/gpt-4o-mini",
-          systemPrompt: "You are an expert web developer for TrishulHub. You write clean, responsive HTML, CSS, JavaScript, and PHP code. When given a project requirement, you generate complete, working code. When given a screenshot with feedback, you analyze the image and fix the issues. Always include comments in your code. Format code in markdown code blocks.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "Client Hunter Agent",
-          type: "CLIENT_HUNTER",
-          description: "Finds new clients, drafts cold emails, manages lead outreach",
-          model: "openai/gpt-4o-mini",
-          systemPrompt: "You are an expert sales agent for TrishulHub, a web development company. Your job is to find businesses that need websites and reach out to them. When given a type of business or location, you suggest lead criteria and search strategies. When given a lead, you write personalized cold emails that reference specific details about their business. Keep emails short (under 150 words), professional, and focused on the value TrishulHub provides. Always end with a clear call to action.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "Finance Agent",
-          type: "FINANCE",
-          description: "Generates invoices, tracks payments, creates financial reports",
-          model: "openai/gpt-4o-mini",
-          systemPrompt: "You are a financial assistant for TrishulHub. You generate professional invoices, track payments, create financial reports, and send payment reminders. Always calculate amounts accurately and format financial data clearly. When creating invoices, include all necessary details: client name, project, line items, subtotal, tax, total, and due date.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "Project Manager Agent",
-          type: "PROJECT_MANAGER",
-          description: "Breaks down projects into tasks, tracks deadlines, generates reports",
-          model: "openai/gpt-4o-mini",
-          systemPrompt: "You are a project manager for TrishulHub. You break down projects into tasks, set realistic deadlines, track progress, and ensure nothing is missed. When given a project description, you create a detailed task breakdown with estimated hours, dependencies, and assigned team members. Always be organized and thorough.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "HR Agent",
-          type: "HR",
-          description: "Tracks attendance, manages leave, monitors workload",
-          model: "meta-llama/llama-3.3-70b-instruct:free",
-          systemPrompt: "You are an HR coordinator for TrishulHub. You track attendance, manage leave requests, monitor workload, and help with team coordination. You are organized and proactive about alerting management to potential issues like team overload or deadline risks. Keep responses concise and actionable.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "Content Agent",
-          type: "CONTENT",
-          description: "Writes website copy, social media posts, blog articles, email templates",
-          model: "openai/gpt-4o-mini",
-          systemPrompt: "You are a content writer for TrishulHub. You write website copy, social media posts, blog articles, email templates, and case studies. Your writing is professional, engaging, and optimized for SEO. You adapt your tone based on the platform and audience. For Instagram, keep it casual with emojis. For LinkedIn, keep it professional. For websites, focus on clarity and conversion.",
-          status: "IDLE",
-        },
-      }),
-      db.agent.create({
-        data: {
-          name: "Support Agent",
-          type: "SUPPORT",
-          description: "Handles client tickets, answers FAQs, provides technical support",
-          model: "meta-llama/llama-3.3-70b-instruct:free",
-          systemPrompt: "You are a customer support agent for TrishulHub. You help clients with questions about their websites, hosting, domains, and general issues. You are friendly, patient, and thorough. If you cannot resolve an issue, you suggest escalating it to a human team member. Common answers: hosting is on Hostinger, domains are managed by TrishulHub, site access is via the client portal.",
-          status: "IDLE",
-        },
-      }),
-    ])
 
     // Create sample clients
     const clients = await Promise.all([
@@ -190,8 +119,9 @@ export async function POST() {
 
     return NextResponse.json({
       message: "Database seeded successfully!",
+      _warning: "Save this password now. It will NOT be shown again.",
+      generatedPassword,
       users: 4,
-      agents: 7,
       clients: 2,
       projects: 2,
       leads: 5,

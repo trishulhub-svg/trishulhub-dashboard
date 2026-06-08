@@ -20,7 +20,7 @@ export async function GET() {
       orderBy: { priority: "asc" },
       include: {
         _count: {
-          select: { usageLogs: true, agents: true },
+          select: { usageLogs: true },
         },
       },
     })
@@ -66,7 +66,6 @@ export async function POST(req: NextRequest) {
         currentSpend: 0,
         status: body.status || "ACTIVE",
         priority: body.priority || 1,
-        assignedAgents: body.assignedAgents || "[]",
       },
     })
     // Return full key value ONCE with a warning — it won't be shown again in GET
@@ -98,8 +97,7 @@ export async function PUT(req: NextRequest) {
     if (body.monthlyBudget !== undefined) data.monthlyBudget = body.monthlyBudget
     if (body.status !== undefined) data.status = body.status
     if (body.priority !== undefined) data.priority = body.priority
-    if (body.assignedAgents !== undefined) data.assignedAgents = body.assignedAgents
-    if (body.currentSpend !== undefined) data.currentSpend = body.currentSpend
+    if (body.currentSpend !== undefined && session.user.role === "SUPER_ADMIN") data.currentSpend = body.currentSpend
 
     const key = await db.apiKey.update({ where: { id }, data })
     // SECURITY: Always mask key values in PUT response (consistent with GET)
@@ -139,18 +137,15 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
     }
 
-    // First, unlink any agents using this key
-    await db.agent.updateMany({
-      where: { apiKeyId: id },
-      data: { apiKeyId: null },
-    })
+    // C20: Wrap all delete operations in a transaction for atomicity
+    await db.$transaction(async (tx) => {
+      // Delete usage logs for this key first (foreign key constraint)
+      await tx.apiUsageLog.deleteMany({
+        where: { apiKeyId: id },
+      })
 
-    // Delete usage logs for this key first (foreign key constraint)
-    await db.apiUsageLog.deleteMany({
-      where: { apiKeyId: id },
+      await tx.apiKey.delete({ where: { id } })
     })
-
-    await db.apiKey.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error("[api-keys] DELETE error:", error)

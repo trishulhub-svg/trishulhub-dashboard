@@ -6,7 +6,18 @@ import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 
-const timeRegex = /^\d{2}:\d{2}$/
+// W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+// C26: Helper to check for Prisma unique constraint error (P2002)
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: string }).code === "P2002"
+  )
+}
 
 // GET /api/availability/overrides - List overrides
 export async function GET(req: NextRequest) {
@@ -46,16 +57,28 @@ export async function GET(req: NextRequest) {
       where.date = { gte: startOfDay, lte: endOfDay }
     }
 
+    // W42: Add skip/take pagination with query params
+    const pageParam = parseInt(searchParams.get("page") || "1", 10)
+    const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam
+    const pageSize = Math.min(Math.max(parseInt(searchParams.get("limit") || "100", 10), 1), 500)
+    const skip = (page - 1) * pageSize
+
+    const total = await db.availabilityOverride.count({ where })
+
     const overrides = await db.availabilityOverride.findMany({
       where,
       include: {
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
       orderBy: { date: "asc" },
-      take: 100,
+      take: pageSize,
+      skip,
     })
 
-    return NextResponse.json(overrides)
+    return NextResponse.json({
+      data: overrides,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    })
   } catch (error: unknown) {
     console.error("[availability/overrides] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -89,6 +112,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User ID and date are required" }, { status: 400 })
     }
 
+    // W18: Verify user exists before creating override
+    const userExists = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!userExists) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
     // Validate date
     const parsedDate = new Date(date)
     if (isNaN(parsedDate.getTime())) {
@@ -96,11 +125,11 @@ export async function POST(req: NextRequest) {
     }
 
     // W37: Validate time format and startTime < endTime
-    if (startTime && !timeRegex.test(startTime)) {
-      return NextResponse.json({ error: "Start time must be in HH:MM format" }, { status: 400 })
+    if (startTime && !TIME_REGEX.test(startTime)) {
+      return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
-    if (endTime && !timeRegex.test(endTime)) {
-      return NextResponse.json({ error: "End time must be in HH:MM format" }, { status: 400 })
+    if (endTime && !TIME_REGEX.test(endTime)) {
+      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
     if (startTime && endTime && startTime >= endTime) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
@@ -122,6 +151,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(override, { status: 201 })
   } catch (error: unknown) {
+    // C26: Handle P2002 unique constraint violation (duplicate userId+date)
+    if (isUniqueConstraintError(error)) {
+      return NextResponse.json({ error: "An availability override already exists for this user on this date" }, { status: 409 })
+    }
     console.error("[availability/overrides] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

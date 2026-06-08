@@ -346,25 +346,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(leaves)
     }
 
-    if (type === "agent-access") {
-      // Admin-only: all user-agent access mappings
-      const userRole = session.user.role
-      if (!isAdmin(userRole)) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-      }
-      // TODO: Add cursor-based pagination for large datasets
-      const access = await db.userAgentAccess.findMany({
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true, department: true } },
-          agent: { select: { id: true, name: true, type: true } },
-        },
-        orderBy: { userId: "asc" },
-        take: 100,
-      })
-      return NextResponse.json(access)
-    }
-
-    // Default: return team members with their agent access (admin-only)
+    // Default: return team members (admin-only)
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
@@ -373,12 +355,7 @@ export async function GET(req: NextRequest) {
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
       include: {
-        _count: { select: { leaveRequests: true, agentAccess: true } },
-        agentAccess: {
-          include: {
-            agent: { select: { id: true, name: true, type: true } }
-          }
-        },
+        _count: { select: { leaveRequests: true } },
       },
       orderBy: { name: "asc" },
       take: 100,
@@ -542,41 +519,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(attendance, { status: 201 })
     }
 
-    if (type === "agent-access") {
-      // Grant agent access to a user (admin-only)
-      const currentUserRole = session.user.role
-      if (!isAdmin(currentUserRole)) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-      }
-      const { userId, agentId, canChat, canView, canApprove } = data
-      if (!userId || !agentId) {
-        return NextResponse.json({ error: "User ID and Agent ID are required" }, { status: 400 })
-      }
 
-      // Verify agent exists
-      const agentExists = await db.agent.findUnique({ where: { id: agentId as string } })
-      if (!agentExists) {
-        return NextResponse.json({ error: "Agent not found. Please select a valid agent." }, { status: 400 })
-      }
-
-      // [W16] Verify user exists and is active
-      const userExists = await db.user.findUnique({ where: { id: userId as string }, select: { id: true, isActive: true } })
-      if (!userExists?.isActive) {
-        return NextResponse.json({ error: "Cannot grant access to inactive user" }, { status: 400 })
-      }
-
-      const access = await db.userAgentAccess.upsert({
-        where: { userId_agentId: { userId: userId as string, agentId: agentId as string } },
-        create: { userId: userId as string, agentId: agentId as string, canChat: (canChat as boolean) ?? true, canView: (canView as boolean) ?? true, canApprove: (canApprove as boolean) ?? false },
-        update: { canChat: (canChat as boolean) ?? true, canView: (canView as boolean) ?? true, canApprove: (canApprove as boolean) ?? false },
-        include: {
-          user: { select: { id: true, name: true } },
-          agent: { select: { id: true, name: true, type: true } },
-        }
-      })
-
-      return NextResponse.json(access, { status: 201 })
-    }
 
     if (type === "user") {
       // SUPER_ADMIN and ADMIN: Create a new team member
@@ -781,22 +724,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(attendanceRecord)
     }
 
-    if (type === "agent-access") {
-      // SECURITY: Only admins can update agent access
-      const patchRole = session.user.role
-      if (!isAdmin(patchRole)) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-      }
-      const access = await db.userAgentAccess.update({
-        where: { id: id as string },
-        data: {
-          ...(data.canChat !== undefined && { canChat: data.canChat as boolean }),
-          ...(data.canView !== undefined && { canView: data.canView as boolean }),
-          ...(data.canApprove !== undefined && { canApprove: data.canApprove as boolean }),
-        },
-      })
-      return NextResponse.json(access)
-    }
+
 
     // Authorization: users can only update their own profile unless they're SUPER_ADMIN
     const sessionUserId = session.user.id;
@@ -906,15 +834,7 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
 
-    if (type === "agent-access") {
-      // SECURITY: Only admins can delete agent access
-      const deleteRole = session.user.role
-      if (!isAdmin(deleteRole)) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
-      }
-      await db.userAgentAccess.delete({ where: { id } })
-      return NextResponse.json({ success: true })
-    }
+
 
     if (type === "attendance") {
       // SECURITY: Only admins can delete attendance records

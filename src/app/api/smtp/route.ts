@@ -9,8 +9,16 @@ import { createCipheriv, createDecipheriv, randomBytes } from "crypto"
 // ── AES-256-GCM encryption helpers ──
 const ALGO = "aes-256-gcm"
 
+function getEncryptionKey(): Buffer {
+  const key = process.env.ENCRYPTION_KEY
+  if (!key || key.length < 32) {
+    throw new Error("ENCRYPTION_KEY environment variable is not set or too short (min 32 chars). Encryption operations are disabled.")
+  }
+  return Buffer.from(key, "utf8").slice(0, 32)
+}
+
 function encrypt(text: string): string {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || "default-dev-key-must-be-32!", "utf8").slice(0, 32)
+  const key = getEncryptionKey()
   const iv = randomBytes(16)
   const cipher = createCipheriv(ALGO, key, iv)
   let encrypted = cipher.update(text, "utf8", "hex")
@@ -20,7 +28,7 @@ function encrypt(text: string): string {
 }
 
 function decrypt(encrypted: string): string {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || "default-dev-key-must-be-32!", "utf8").slice(0, 32)
+  const key = getEncryptionKey()
   const [ivHex, authTagHex, encryptedData] = encrypted.split(":")
   const iv = Buffer.from(ivHex, "hex")
   const authTag = Buffer.from(authTagHex, "hex")
@@ -136,12 +144,43 @@ export async function POST(req: NextRequest) {
     // This prevents Vercel Hobby 10-second function timeouts caused by
     // the SMTP handshake (5-10s) + DB operations combined exceeding the limit.
 
-    // If this is set as primary, unset any existing primary
+    // W15: If this is set as primary, wrap unset existing + create new in transaction
     if (isPrimary !== false) {
-      await db.smtpConfig.updateMany({
-        where: { isPrimary: true },
-        data: { isPrimary: false },
+      const config = await db.$transaction(async (tx) => {
+        await tx.smtpConfig.updateMany({
+          where: { isPrimary: true },
+          data: { isPrimary: false },
+        })
+        return await tx.smtpConfig.create({
+          data: {
+            host,
+            port: port || 587,
+            username,
+            password: encrypt(password), // C7: Encrypt password before storage
+            fromEmail,
+            fromName: fromName || "TrishulHub",
+            secure: secure || false,
+            isPrimary: true,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            host: true,
+            port: true,
+            username: true,
+            fromEmail: true,
+            fromName: true,
+            secure: true,
+            isPrimary: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        })
       })
+
+      console.log("[smtp] POST: SMTP config created successfully:", config.id)
+      return NextResponse.json(config, { status: 201 })
     }
 
     const config = await db.smtpConfig.create({

@@ -224,3 +224,30 @@ export function canViewHRData(role: string, isOwnData: boolean): boolean {
 // TODO: Phase 7 — Add own-data vs team-data separation function:
 // canViewTeamHRData(role, userId, targetUserId, teamMemberIds) 
 // that checks if targetUserId is in the user's managed team
+
+// === Phase 8 RBAC Functions ===
+
+/** Check if user can manage support tickets (assign, resolve, close) */
+export function canManageSupport(role: string): boolean {
+  return isAdmin(role)
+}
+
+/** Check if user can manage approvals (approve, reject, request improvements) */
+export function canManageApprovals(role: string): boolean {
+  return isAdmin(role)
+}
+
+/** Check if user can manage API keys (create, update, rotate, delete) — restricted to super admins */
+export function canManageApiKeys(role: string): boolean {
+  return isSuperAdmin(role)
+}
+
+/** Check if user can manage protocol settings (versions, invites, access) — restricted to super admins */
+export function canManageProtocol(role: string): boolean {
+  return isSuperAdmin(role)
+}
+
+/** Check if user can manage notifications (send, mark read, preferences) */
+export function canManageNotifications(role: string): boolean {
+  return isAdmin(role)
+}

@@ -58,19 +58,40 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
   }
 }
 
-// In-memory rate limiter for OTP verification attempts
-const otpVerifyAttempts = new Map<string, { count: number; resetAt: number }>()
-const passwordAttempts = new Map<string, { count: number; resetAt: number }>()
+// C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
+async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString()
+  const now = new Date().toISOString()
 
-function checkRateLimit(store: Map<string, { count: number; resetAt: number }>, key: string, maxAttempts: number, windowMs: number): boolean {
-  const now = Date.now()
-  const entry = store.get(key)
-  if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + windowMs })
+  try {
+    // Use the RateLimitEntry table for persistence across cold starts
+    const rows: any[] = await db.$queryRawUnsafe(
+      `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
+    )
+    const record = rows[0]
+
+    if (!record || record.windowStart < windowStart) {
+      await db.$executeRawUnsafe(
+        `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
+         VALUES (?, ?, 1, ?, ?, ?)
+         ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
+        key, key, now, now, String(windowMs), now, now, String(windowMs)
+      )
+      return true
+    }
+
+    if (record.count >= maxAttempts) {
+      return false
+    }
+
+    await db.$executeRawUnsafe(
+      `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
+    )
     return true
+  } catch (e) {
+    console.error("[email-change] Rate limit DB error:", e)
+    return false // fail-closed
   }
-  entry.count++
-  return entry.count <= maxAttempts
 }
 
 // POST /api/email-change - Request email change (sends OTP to new email)
@@ -91,7 +112,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: max 5 password verification attempts per user in 15 minutes
-    if (!checkRateLimit(passwordAttempts, `email-change-pwd-${userId}`, 5, 15 * 60 * 1000)) {
+    if (!await checkDbRateLimit(`email-change-pwd-${userId}`, 5, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many attempts. Please try again after 15 minutes." }, { status: 429 })
     }
 
@@ -171,7 +192,9 @@ export async function POST(req: NextRequest) {
     if (!emailResult.success) {
       // Delete the verification record if email failed
       await db.emailVerification.deleteMany({ where: { userId, newEmail, verified: false } })
-      return NextResponse.json({ error: `Failed to send verification email: ${emailResult.error}` }, { status: 500 })
+      // C12: Log the actual error server-side, return generic message
+      console.error("[email-change] Failed to send verification email:", emailResult.error)
+      return NextResponse.json({ error: "Failed to send verification email. Please try again later." }, { status: 500 })
     }
 
     return NextResponse.json({
@@ -202,7 +225,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Rate limit: max 10 OTP verification attempts per user in 10 minutes
-    if (!checkRateLimit(otpVerifyAttempts, `otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
+    if (!await checkDbRateLimit(`otp-verify-${userId}`, 10, 10 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many verification attempts. Please request a new OTP." }, { status: 429 })
     }
 

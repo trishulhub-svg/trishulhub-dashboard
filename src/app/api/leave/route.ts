@@ -214,24 +214,6 @@ export async function PATCH(req: NextRequest) {
       console.error("[leave] PATCH notification error (non-blocking):", notifyErr)
     }
 
-    // Notify HR agent about leave approval for workload tracking (fire-and-forget)
-    try {
-      const hrAgent = await db.agent.findFirst({ where: { type: "HR" } })
-      if (hrAgent) {
-        await db.crossAgentMessage.create({
-          data: {
-            fromAgentId: hrAgent.id,
-            toAgentId: hrAgent.id,
-            message: `Leave ${status.toLowerCase()}: ${leave.user?.name || "Employee"} - ${leave.leaveType} leave from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()}. Update workload tracking accordingly.`,
-            type: "INFO",
-            status: "PROCESSED",
-          },
-        })
-      }
-    } catch (hrErr: unknown) {
-      console.error("[leave] PATCH HR agent notification error (non-blocking):", hrErr)
-    }
-
     const response = NextResponse.json(leave)
     response.headers.set('X-Deprecation-Warning', 'This endpoint is deprecated. Use /api/leaves instead.')
     return response

@@ -82,6 +82,24 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     name: "EmailLog",
     sql: `CREATE TABLE IF NOT EXISTS "EmailLog" ("id" TEXT NOT NULL PRIMARY KEY, "to" TEXT NOT NULL, "subject" TEXT NOT NULL, "type" TEXT NOT NULL, "status" TEXT NOT NULL, "smtpConfigId" TEXT, "smtpHost" TEXT, "method" TEXT, "error" TEXT, "triggeredBy" TEXT, "metadata" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   },
+  // W20: SmtpConfig (was only in ensureTablesExist() in smtp route, not in auto-migrate)
+  {
+    name: "SmtpConfig",
+    sql: `CREATE TABLE IF NOT EXISTS "SmtpConfig" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "host" TEXT NOT NULL,
+      "port" INTEGER NOT NULL DEFAULT 587,
+      "username" TEXT NOT NULL,
+      "password" TEXT NOT NULL,
+      "fromEmail" TEXT NOT NULL,
+      "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
+      "secure" BOOLEAN NOT NULL DEFAULT false,
+      "isPrimary" BOOLEAN NOT NULL DEFAULT true,
+      "isActive" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
   // New tables from feature updates
   {
     name: "ProjectMethod",
@@ -262,7 +280,8 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "reason" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      CONSTRAINT "AvailabilityOverride_userId_date_key" UNIQUE ("userId", "date")
     )`
   },
   {
@@ -345,6 +364,24 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("organizerId") REFERENCES "User"("id") ON DELETE CASCADE,
       FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+    )`
+  },
+  // SmtpConfig
+  {
+    name: "SmtpConfig",
+    sql: `CREATE TABLE IF NOT EXISTS "SmtpConfig" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "host" TEXT NOT NULL,
+      "port" INTEGER NOT NULL DEFAULT 587,
+      "username" TEXT NOT NULL,
+      "password" TEXT NOT NULL,
+      "fromEmail" TEXT NOT NULL,
+      "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
+      "secure" BOOLEAN NOT NULL DEFAULT 0,
+      "isPrimary" BOOLEAN NOT NULL DEFAULT 1,
+      "isActive" BOOLEAN NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
   },
 ]
@@ -774,6 +811,100 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: any) {
       if (!err?.message?.includes('already exists')) {
         console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${err?.message}`)
+      }
+    }
+
+    // Phase 8: Indexes for new modules
+    // SupportTicket indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_assignedTo" ON "SupportTicket"("assignedTo")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_assignedTo: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_priority" ON "SupportTicket"("priority")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_priority: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId_status" ON "SupportTicket"("clientId", "status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_clientId_status: ${err?.message}`)
+      }
+    }
+    // Notification indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notification_isRead" ON "Notification"("isRead")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_notification_isRead: ${err?.message}`)
+      }
+    }
+    // NotificationPreference index
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notificationpreference_userId" ON "NotificationPreference"("userId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_notificationpreference_userId: ${err?.message}`)
+      }
+    }
+    // Approval index
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_approval_requesterId_status" ON "Approval"("requesterId", "status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_approval_requesterId_status: ${err?.message}`)
+      }
+    }
+    // ProtocolAccessLog indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_protocolId" ON "ProtocolAccessLog"("protocolId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_protocolId: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_userEmail" ON "ProtocolAccessLog"("userEmail")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_userEmail: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_createdAt" ON "ProtocolAccessLog"("createdAt")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_createdAt: ${err?.message}`)
+      }
+    }
+    // AvailabilityOverride index (composite userId+date — UNIQUE already covers this, but add explicit for clarity)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availabilityoverride_userId_date" ON "AvailabilityOverride"("userId", "date")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_availabilityoverride_userId_date: ${err?.message}`)
+      }
+    }
+    // Availability index (composite userId+dayOfWeek)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availability_userId_dayOfWeek" ON "Availability"("userId", "dayOfWeek")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${err?.message}`)
+      }
+    }
+    // MeetingAttendee index (meetingId)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_meetingattendee_meetingId" ON "MeetingAttendee"("meetingId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_meetingattendee_meetingId: ${err?.message}`)
       }
     }
 

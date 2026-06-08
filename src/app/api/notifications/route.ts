@@ -5,8 +5,20 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
+import { z } from "zod"
 
-// Cleanup old notifications (fire-and-forget)
+// W11: Zod schema for notification creation — proper runtime validation
+const notificationSchema = z.object({
+  title: z.string().min(1).max(255),
+  message: z.string().min(1).max(1000),
+  type: z.string().optional(),
+  link: z.string().max(500).optional(),
+})
+
+// W43: Module-level debounce timestamp — cleanup runs at most once per hour
+let lastCleanup = 0;
+
+// Cleanup old notifications (fire-and-forget, debounced)
 async function cleanupOldNotifications() {
   try {
     await db.notification.deleteMany({
@@ -43,8 +55,11 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1")
     const limit = 50
 
-    // Fire-and-forget cleanup (C15)
-    cleanupOldNotifications()
+    // W43: Debounced cleanup — only run once per hour instead of on every GET
+    if (Date.now() - lastCleanup > 3600000) {
+      lastCleanup = Date.now();
+      cleanupOldNotifications();
+    }
 
     // W23: Type-safe where clause
     const where: Prisma.NotificationWhereInput = { userId }
@@ -69,8 +84,8 @@ export async function GET(req: NextRequest) {
       hasMore: page * limit < total,
       unreadCount,
     })
-  } catch (error: any) {
-    console.error("[notifications] error:", error.message)
+  } catch (error: unknown) {
+    console.error("[notifications] error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -91,6 +106,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    // W30: Design intent — POST only creates notifications for the authenticated admin (self-notification).
+    // This is intentional: admins use this to create reminders/todo items for themselves.
+    // System-wide notifications are dispatched by backend logic (e.g., approval events).
     // C13: Only SUPER_ADMIN/ADMIN can create notifications manually
     if (!["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -103,19 +121,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const { title, message, type, link } = body as {
-      title?: string
-      message?: string
-      type?: string
-      link?: string
-    }
-
-    if (!title || !message) {
+    // W11: Validate with Zod schema instead of `as` type assertion
+    const parsed = notificationSchema.safeParse(body)
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "title and message are required" },
+        { error: `Validation failed: ${parsed.error.issues.map(i => i.message).join(", ")}` },
         { status: 400 }
       )
     }
+    const { title, message, type, link } = parsed.data
 
     // W25: Explicitly reject invalid notification types
     const allowedTypes = ["INFO", "WARNING", "ERROR", "SUCCESS", "TASK", "APPROVAL", "AGENT"]
@@ -127,9 +141,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // C13/W26: Validate link field for safe URLs (prevent XSS)
+    // C14/W26: Validate link field for safe URLs (prevent XSS)
+    // Also block protocol-relative URLs (//evil.com)
     if (link && !link.startsWith("/") && !link.startsWith("https://") && !link.startsWith("http://")) {
       return NextResponse.json({ error: "Invalid link URL" }, { status: 400 })
+    }
+    if (link && link.startsWith("//")) {
+      return NextResponse.json({ error: "Invalid link URL: protocol-relative URLs are not allowed" }, { status: 400 })
     }
 
     const notification = await db.notification.create({
@@ -144,8 +162,8 @@ export async function POST(req: NextRequest) {
 
     // I16: JSON.parse(JSON.stringify()) handles Prisma Date serialization
     return NextResponse.json(JSON.parse(JSON.stringify(notification)))
-  } catch (error: any) {
-    console.error("[notifications] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[notifications] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -200,8 +218,8 @@ export async function PATCH(req: NextRequest) {
       data: { isRead: isRead !== undefined ? isRead : true },
     })
     return NextResponse.json(updated)
-  } catch (error: any) {
-    console.error("[notifications] error:", error.message)
+  } catch (error: unknown) {
+    console.error("[notifications] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -222,8 +240,20 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    const { searchParams } = new URL(req.url)
-    const id = searchParams.get("id")
+    // W50: Accept ID from request body instead of query params (safer, supports DELETE via fetch)
+    let body: { id?: string } | undefined;
+    try {
+      body = await req.json();
+    } catch {
+      // Fallback: check query param for backward compatibility
+      const { searchParams } = new URL(req.url);
+      const queryId = searchParams.get("id");
+      if (!queryId) {
+        return NextResponse.json({ error: "Notification ID required" }, { status: 400 });
+      }
+      body = { id: queryId };
+    }
+    const id = body?.id;
 
     if (!id) {
       return NextResponse.json({ error: "Notification ID required" }, { status: 400 })
@@ -237,8 +267,8 @@ export async function DELETE(req: NextRequest) {
     }
     await db.notification.delete({ where: { id } })
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[notifications] error:", error.message)
+  } catch (error: unknown) {
+    console.error("[notifications] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

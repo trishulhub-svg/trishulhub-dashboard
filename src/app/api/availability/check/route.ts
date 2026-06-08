@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
       take: 200,
     })
+    const userIds = users.map(u => u.id)
 
     // Get start/end of day
     const startOfDay = new Date(dateStr)
@@ -70,9 +71,9 @@ export async function GET(req: NextRequest) {
         take: 500,
       }),
 
-      // Get availability schedules for the day of week
+      // W41: Filter availability by users in the response set (instead of loading ALL records)
       db.availability.findMany({
-        where: { dayOfWeek },
+        where: { dayOfWeek, userId: { in: userIds } },
         take: 500,
       }),
 

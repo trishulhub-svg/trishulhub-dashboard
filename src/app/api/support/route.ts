@@ -43,7 +43,8 @@ export async function GET(req: NextRequest) {
     const [tickets, total] = await Promise.all([
       db.supportTicket.findMany({
         where: ticketWhere,
-        include: { client: true, messages: true },
+        // W39: Limit messages in list view to last 5 (full messages fetched via detail endpoint)
+        include: { client: true, messages: { take: 5, orderBy: { createdAt: 'desc' } } },
         orderBy: { createdAt: "desc" },
         skip: offset,
         take: limit,
@@ -253,7 +254,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     const id = String(body.id || "")
-    const message = body.message as string | undefined
+    // W28: Cap message length to prevent abuse
+    const safeMessage = String(body.message || "").slice(0, 50000)
+    const message = safeMessage as string | undefined
     const rest: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(body)) {
       if (k !== 'id' && k !== 'message') rest[k] = v
@@ -261,34 +264,54 @@ export async function PATCH(req: NextRequest) {
 
     // CLIENT/DEVELOPER users can only add messages to their own tickets
     if (!isAdmin(userRole)) {
-      // For CLIENT users, find their client profile to check ownership
-      const clientProfile = await db.client.findFirst({ where: { userId: sessionUserId } })
-      if (!clientProfile) {
-        return NextResponse.json({ error: "No client profile found" }, { status: 403 })
-      }
-      const ticket = await db.supportTicket.findUnique({ where: { id } })
-      if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
-      if (ticket.clientId !== clientProfile.id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-      }
-      // Only allow adding a message, not changing status
-      if (!message) {
-        return NextResponse.json({ error: "Message is required" }, { status: 400 })
-      }
-      // Create a new TicketMessage record (messages is a relation, not a JSON column)
-      await db.ticketMessage.create({
-        data: {
-          ticketId: id,
-          senderId: sessionUserId,
-          senderType: "HUMAN",
-          message,
-        },
+      // C19: Wrap ownership check + message create + re-fetch in transaction
+      const updated = await db.$transaction(async (tx) => {
+        // For CLIENT users, find their client profile to check ownership
+        const clientProfile = await tx.client.findFirst({ where: { userId: sessionUserId } })
+        if (!clientProfile) {
+          throw new Error("NO_CLIENT_PROFILE")
+        }
+        const ticket = await tx.supportTicket.findUnique({ where: { id } })
+        if (!ticket) throw new Error("NOT_FOUND")
+        if (ticket.clientId !== clientProfile.id) {
+          throw new Error("FORBIDDEN")
+        }
+        // Only allow adding a message, not changing status
+        if (!message) {
+          throw new Error("MESSAGE_REQUIRED")
+        }
+        // Create a new TicketMessage record (messages is a relation, not a JSON column)
+        await tx.ticketMessage.create({
+          data: {
+            ticketId: id,
+            senderId: sessionUserId,
+            senderType: "HUMAN",
+            message,
+          },
+        })
+        // Return the updated ticket with all messages
+        return await tx.supportTicket.findUnique({
+          where: { id },
+          include: { client: true, messages: true },
+        })
+      }).catch((error: unknown) => {
+        if (error instanceof Error) {
+          if (error.message === "NO_CLIENT_PROFILE") {
+            return NextResponse.json({ error: "No client profile found" }, { status: 403 })
+          }
+          if (error.message === "NOT_FOUND") {
+            return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+          }
+          if (error.message === "FORBIDDEN") {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+          }
+          if (error.message === "MESSAGE_REQUIRED") {
+            return NextResponse.json({ error: "Message is required" }, { status: 400 })
+          }
+        }
+        throw error
       })
-      // Return the updated ticket with all messages
-      const updated = await db.supportTicket.findUnique({
-        where: { id },
-        include: { client: true, messages: true },
-      })
+
       // Issue #27: deepSanitize on PATCH response
       return NextResponse.json(deepSanitize(updated))
     }

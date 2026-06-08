@@ -1446,3 +1446,362 @@ Stage Summary:
 - 12 files touched (10 edited, 1 created, 1 worklog)
 - All target TypeScript errors resolved (0 new errors from our changes)
 - Pre-existing errors in API routes (Prisma `.where` typing, branded-document-view) are outside scope
+
+
+## Phase 8: RBAC, Rate Limits, DB Indexes, and Zod Schemas
+
+### Changes Made
+
+#### 1. `src/lib/rbac.ts` — Added 5 RBAC functions
+- `canManageSupport(role)` — Admin+ only (isAdmin)
+- `canManageApprovals(role)` — Admin+ only (isAdmin)
+- `canManageApiKeys(role)` — Super Admin only (isSuperAdmin)
+- `canManageProtocol(role)` — Super Admin only (isSuperAdmin)
+- `canManageNotifications(role)` — Admin+ only (isAdmin)
+
+#### 2. `src/lib/rate-limit.ts` — Added rate limits and DB-backed helper
+- Added 5 new rate limit constants: `apiKeyRateLimit` (3/min), `supportTicketRateLimit` (15/min), `protocolOtpRateLimit` (5/min), `protocolInviteRateLimit` (10/min), `notificationRateLimit` (30/min)
+- Added 5 convenience wrapper functions: `apiKeyLimit`, `supportTicketLimit`, `protocolOtpLimit`, `protocolInviteLimit`, `notificationLimit`
+- Added `checkDbRateLimit(key, maxAttempts, windowMs)` — atomic DB-backed rate limiter using RateLimitEntry table with UPSERT and RETURNING clause
+
+#### 3. `prisma/schema.prisma` — Added 12 @@index declarations
+- **SupportTicket**: @@index([assignedTo]), @@index([priority]), @@index([clientId, status])
+- **Notification**: @@index([isRead])
+- **NotificationPreference**: @@index([userId])
+- **Approval**: @@index([requesterId, status])
+- **ProtocolAccessLog**: @@index([protocolId]), @@index([userEmail]), @@index([createdAt])
+- **AvailabilityOverride**: @@index([userId, date])
+- **Availability**: @@index([userId, dayOfWeek])
+- **MeetingAttendee**: @@index([meetingId])
+
+#### 4. `src/lib/validations.ts` — Added 7 new Zod schemas
+- `createTicketMessageSchema` — message validation (1-50000 chars)
+- `validApprovalTypes` — array of valid approval type constants
+- `createApprovalSchema` — title, description, type, requesterType, data
+- `patchApprovalSchema` — id, status, feedback
+- `createApiKeySchema` — name, provider enum, keyValue, budgetLimit
+- `updateApiKeySchema` — name, provider, status, budgetLimit (all optional)
+- `updateNotificationPreferenceSchema` — emailNotifications, pushNotifications, quiet hours settings
+
+#### 5. `src/lib/auto-migrate.ts` — Added SmtpConfig table and 11 index migrations
+- Added `SmtpConfig` to CRITICAL_TABLES (was missing)
+- Fixed `AvailabilityOverride` CREATE TABLE to include UNIQUE constraint on [userId, date]
+- Added 11 new CREATE INDEX IF NOT EXISTS statements for Phase 8 indexes
+
+#### 6. TypeScript Check
+- All 5 pre-existing TS errors remain unchanged (unrelated to Phase 8 changes)
+- The `z.record(z.unknown())` error was fixed to `z.record(z.string(), z.unknown())`
+- No new lint errors in modified files
+---
+Task ID: phase8-security-fixes
+Agent: Phase 8 Security Fix Agent
+Task: Fix ALL Phase 8 Critical and Warning security issues (non-agent-related)
+
+Work Log:
+
+### Files Modified (16 files)
+
+#### 1. `src/app/api/smtp/route.ts` — C4: Insecure default encryption key
+- Removed hardcoded fallback `"default-dev-key-must-be-32!"` from encrypt/decrypt functions
+- Added `getEncryptionKey()` helper that throws if ENCRYPTION_KEY is missing or < 32 chars
+- Both encrypt() and decrypt() now use getEncryptionKey()
+
+#### 2. `src/app/api/protocol-auth/route.ts` — C5: Hardcoded HMAC secret + C11: Rate limiter race
+- Replaced `OTP_HMAC_SECRET` const with `getOtpHmacSecret()` function that throws if OTP_HMAC_SECRET missing or < 16 chars
+- Wrapped rate limiter checkRateLimit() in `db.$transaction()` for atomicity
+- Changed fail-open to fail-closed (returns false on DB error)
+- Updated all OTP_HMAC_SECRET references to use getOtpHmacSecret()
+
+#### 3. `src/app/api/seed/route.ts` — C6: Hardcoded seed password
+- Replaced hardcoded `"password123"` with `randomBytes(16).toString("hex")`
+- Added `import { randomBytes } from "crypto"` 
+- Added `generatedPassword` to response JSON with warning message
+
+#### 4. `src/app/api/setup/route.ts` — C7: Unauthenticated DB seeding
+- Added SETUP_TOKEN mechanism for unauthenticated first-time setup
+- If SETUP_TOKEN env var exists: require matching token in query param or body
+- If no SETUP_TOKEN configured: reject unauthenticated setup entirely (403)
+- Added `NextRequest` import and parameter to POST handler
+
+#### 5. `src/app/api/protocol/route.ts` — C8: Protocol metadata without auth + W6: Upload validation + W7: Header injection
+- GET handler now checks authentication: unauthenticated users see only fileName + downloadEnabled + hasUpload
+- Download endpoint already required auth (unchanged)
+- Added server-side PDF validation: mimeType must be application/pdf, size check (50MB), PDF magic bytes (%PDF-)
+- Fixed Content-Disposition header to use RFC 5987 encoding: `filename*=UTF-8''${encodeURIComponent(name)}`
+
+#### 6. `src/app/api/workspace-config/route.ts` — C9: Config token leaked
+- GET handler now only returns full `configToken` for SUPER_ADMIN users
+- Non-admin users get empty string for configToken, still see configTokenMasked
+
+#### 7. `src/app/api/protocol/init/route.ts` — C9: Config token leaked (same pattern)
+- wsConfig section now checks `token.role === "SUPER_ADMIN"` before including full token
+- Non-admin users get empty configToken
+
+#### 8. `src/app/api/email-change/route.ts` — C10: In-memory rate limiter + C12: Email error leak
+- Replaced in-memory Map rate limiter with DB-based `checkDbRateLimit()` using RateLimitEntry table
+- Fail-closed on DB error (returns false)
+- Changed email error message from `${emailResult.error}` to generic "Failed to send verification email. Please try again later."
+- Added console.error for server-side logging
+
+#### 9. `src/app/api/password-change/route.ts` — C10: In-memory rate limiter + C12: Email error leak + W10: Password complexity
+- Same DB-based rate limiter replacement as email-change
+- Same generic email error message
+- Enhanced password complexity: min 8 chars + at least 3 of: uppercase, lowercase, digit, special char
+
+#### 10. `src/app/api/health/route.ts` — C13: Health endpoint leaks env config
+- Removed all env var checks (NEXTAUTH_SECRET, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN) from diagnostics
+- POST diagnostics now only shows: database connected/disconnected, totalUsers
+- Error path shows generic "Database connection failed" instead of error.message
+
+#### 11. `src/app/api/notifications/route.ts` — C14: Protocol-relative URL bypass + W11: Type assertion
+- Added block for `//` protocol-relative URLs in link validation
+- Added Zod schema (`notificationSchema`) for notification creation with proper runtime validation
+- Replaced `as` type assertion with `safeParse()` validation
+- Removed redundant `!title || !message` check (now handled by Zod)
+
+#### 12. `src/app/api/approvals/route.ts` — W3: No deepSanitize + W4: Error message leak
+- Added `import { deepSanitize } from "@/lib/utils"`
+- Applied `deepSanitize()` to GET, POST, and PATCH response objects
+- Replaced raw `error.message` in catch with generic "This approval has already been processed"
+
+#### 13. `src/app/api/api-keys/route.ts` — W5: currentSpend manipulable
+- PUT handler now only allows `currentSpend` modification for SUPER_ADMIN role
+- Changed condition: `body.currentSpend !== undefined && session.user.role === "SUPER_ADMIN"`
+
+#### 14. `src/app/api/api-keys/test/route.ts` — W8: API test error leaks provider details
+- Replaced raw `errorMsg.substring(0, 200)` with category-based generic messages
+- Known 401/403/429 errors: specific messages (existing behavior)
+- Model errors: "The selected model is not available on this provider"
+- All other errors: "API test failed. Please check the key and try again."
+
+#### 15. `src/app/api/dashboard/route.ts` — W9: API key masking inconsistency
+- Changed SUPER_ADMIN masking from `${k.keyValue.substring(0, 6)}...${k.keyValue.slice(-4)}` to `****${k.keyValue.slice(-4)}`
+- Now consistent with api-keys/route.ts masking pattern (last 4 chars only)
+
+#### 16. `src/app/api/password-reset/route.ts` — W10: Password complexity
+- Added `validatePasswordComplexity()` function with enhanced rules
+- Enforces: min 8 chars + at least 3 of: uppercase, lowercase, digit, special char
+- Applied to both POST (direct reset) and PUT (reset link) handlers
+
+#### 17. `src/app/api/web-search/route.ts` — W12: process.env mutation
+- Removed unconditional `process.env.ZAI_BASE_URL = baseUrl` and `process.env.ZAI_API_KEY = apiKey`
+- Added conditional mutation only for fallback case: if ZAI_BASE_URL not set but ZAI_API_BASE_URL is set
+
+### TypeScript Verification
+- Ran `npx tsc --noEmit` — only pre-existing error in `availability/overrides/route.ts` (outside scope)
+- Fixed 5 TypeScript errors introduced during development: missing import, const reassignment, SDK API mismatch, possibly undefined, missing module import
+
+### Summary
+- 16 files modified
+- 10 Critical fixes (C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14)
+- 10 Warning fixes (W3, W4, W5, W6, W7, W8, W9, W10, W11, W12)
+- W1 (agent token masking) skipped per instructions
+- W2 not found in audit
+- Zero new TypeScript errors introduced
+
+---
+
+# Worklog: Phase 8 — Critical & Warning Data Integrity Fixes
+
+**Task ID:** phase8-data-integrity
+**Date:** 2025-07-XX
+**Scope:** Data integrity fixes for transactions, cascading deletes, race conditions, and validation
+
+## CRITICAL Fixes Applied
+
+### C16: approvedAt field on Approval model
+- **File:** `prisma/schema.prisma`
+- Added `approvedAt DateTime?` field to the Approval model
+- Code in `src/app/api/approvals/route.ts` already referenced `approvedAt` correctly with conditional spread
+
+### C17: Chat deletion moved inside transaction
+- **File:** `src/app/api/approvals/route.ts`
+- Moved chat deletion (`tx.chatMessage.deleteMany` + `tx.chat.delete`) inside the existing `$transaction` block
+- Chat deletion now happens atomically with the approval status update
+- Eliminated the separate re-fetch and standalone deletion code
+
+### C19: TOCTOU race in support ticket PATCH
+- **File:** `src/app/api/support/route.ts`
+- Wrapped client ownership check + message create + ticket re-fetch in `db.$transaction()`
+- Uses thrown error strings caught by `.catch()` to return proper HTTP responses
+
+### C20: Non-atomic API key delete
+- **File:** `src/app/api/api-keys/route.ts`
+- Wrapped agent unlinking + usage log deletion + key deletion in `db.$transaction()`
+
+### C21: Missing onDelete: Cascade
+- **File:** `prisma/schema.prisma`
+- Added `onDelete: Cascade` to `ApiUsageLog → ApiKey` relation
+- Verified all other listed relations already had `onDelete: Cascade`
+
+### C23: Race condition in notification-preferences
+- **File:** `src/app/api/notification-preferences/route.ts`
+- Replaced `findUnique` + `create` pattern with `db.notificationPreference.upsert()` in GET handler
+
+### C24: Map overwrites multi-slot availability
+- **File:** `src/app/api/availability/schedule/route.ts`
+- Changed `availByKey` Map from `Map(entries)` (single value per key) to loop-based `Map<string, array>` pattern
+- Now correctly stores ALL availability slots per user/day instead of overwriting with the last one
+
+### C25: No overlap check on availability PATCH
+- **File:** `src/app/api/availability/[id]/route.ts`
+- Added overlap validation inside the existing transaction
+- Checks if updated dayOfWeek/startTime/endTime overlaps with other entries for the same user
+- Returns 409 Conflict on overlap
+
+### C26: Unhandled P2002 on override POST
+- **File:** `src/app/api/availability/overrides/route.ts`
+- Added `isUniqueConstraintError()` helper to detect Prisma P2002 errors
+- Returns 409 with clear message when duplicate userId+date override exists
+
+## WARNING Fixes Applied
+
+### W13: Non-atomic password change
+- **File:** `src/app/api/password-change/route.ts`
+- Wrapped OTP verify + password update + cleanup in `db.$transaction()`
+
+### W14: Non-atomic seed operations
+- **File:** `src/app/api/setup/route.ts`
+- Wrapped user creation in `db.$transaction([...])` batch
+- Wrapped sample data seeding (clients, projects, leads, expenses) in `db.$transaction(async (tx) => {...})`
+
+### W15: Non-atomic SMTP primary flag in POST
+- **File:** `src/app/api/smtp/route.ts`
+- Wrapped "unset existing primary" + "create new" in `db.$transaction()` for the primary path
+
+### W18: No user existence check for overrides
+- **File:** `src/app/api/availability/overrides/route.ts`
+- Added `db.user.findUnique()` check before creating override; returns 404 if user not found
+
+### W19: Email logs DELETE validation
+- **File:** `src/app/api/email-logs/route.ts`
+- Added validation: `olderThanDays` must be a number >= 1, returns 400 if invalid
+
+### W20: SmtpConfig missing from auto-migrate
+- **File:** `src/lib/auto-migrate.ts`
+- Added SmtpConfig CREATE TABLE to CRITICAL_TABLES array
+
+### W21: AvailabilityOverride UNIQUE constraint
+- Already present in auto-migrate.ts — verified and confirmed correct
+
+## Additional Fixes
+- Fixed pre-existing TS error: `{ count: total }` destructuring on `db.availabilityOverride.count()` (returns number, not object)
+- Ran `npx tsc --noEmit` — 0 errors
+- Ran `bun run db:push --accept-data-loss` — schema synced successfully
+
+## Phase 8 WARNING Fixes — Validation, Performance, Error Handling, Code Quality
+
+### VALIDATION Fixes (10 items)
+
+1. **W28 — Support PATCH message cap** (`src/app/api/support/route.ts`): Added `safeMessage = String(message || "").slice(0, 50000)` before creating ticket messages to prevent abuse.
+
+2. **W30 — Notification POST comment** (`src/app/api/notifications/route.ts`): Added explanatory comment about design intent (self-notification for admins; system notifications dispatched by backend).
+
+3. **W31 — `error: any` → `error: unknown`** (`src/app/api/notifications/route.ts`): Changed all 4 `error: any` catch blocks (GET, POST, PATCH, DELETE) to `error: unknown` with safe property access.
+
+4. **W32 — Standardized time regex**: Updated time validation regex from `/^\d{2}:\d{2}$/` to `/^([01]\d|2[0-3]):([0-5]\d)$/` across 6 files:
+   - `src/app/api/availability/route.ts`
+   - `src/app/api/availability/[id]/route.ts`
+   - `src/app/api/availability/overrides/route.ts`
+   - `src/app/api/availability/overrides/[id]/route.ts`
+   - `src/lib/validations.ts`
+
+5. **W33 — userId format validation** (`src/app/api/availability/route.ts`): Added `/^[a-zA-Z0-9_-]{1,100}$/` validation for userId query param.
+
+6. **W26 — Status param whitelist** (`src/app/api/approvals/route.ts`): Added validation of `statusParam` against `["PENDING", "APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]` for both admin and non-admin paths.
+
+7. **W27 — Type/agentId validation** (`src/app/api/approvals/route.ts`): Added whitelist validation for `type` against all valid approval types. Added format validation for `agentId`.
+
+8. **W28 — Approvals PATCH validation** (`src/app/api/approvals/route.ts`): Added basic validation ensuring `id` is a non-empty string and `status` is in valid list.
+
+9. **W25 — Unbounded take** (`src/app/api/approvals/route.ts`): Added upper bound: `Math.min(Math.max(..., 1), 200)`.
+
+10. **W10 — Password complexity**: Already handled by another agent. Verified in both `password-reset/route.ts` and `password-change/route.ts`.
+
+### PERFORMANCE Fixes (6 items)
+
+11. **W39 — Support GET loads ALL messages** (`src/app/api/support/route.ts`): Changed `include: { messages: true }` to `messages: { take: 5, orderBy: { createdAt: 'desc' } }` for list view.
+
+12. **W40 — Sequential notification creation** (`src/app/api/approvals/route.ts`): Replaced `for` loop with `db.notification.createMany()` for single round-trip.
+
+13. **W41 — Availability check not filtered** (`src/app/api/availability/check/route.ts`): Added `userId: { in: userIds }` filter to availability query.
+
+14. **W42 — Missing pagination on overrides** (`src/app/api/availability/overrides/route.ts`): Added `page`, `limit`, `skip`, `take` pagination with `total` count in response.
+
+15. **W43 — Fire-and-forget cleanup** (`src/app/api/notifications/route.ts`): Added module-level `lastCleanup` timestamp; cleanup runs at most once per hour.
+
+16. **W44 — Week view cap** (`src/app/api/availability/schedule/route.ts`): Added `totalUsers` count in response and `warning` flag when 200-user cap is hit.
+
+### ERROR HANDLING Fixes (4 items)
+
+17. **W47 — res.json() can throw** (`src/app/dashboard/approvals/page.tsx`): Wrapped all 3 `res.json()` calls in try/catch in action handlers.
+
+18. **W48 — Feedback not sent in task rejection** (`src/app/dashboard/approvals/page.tsx`): Added `body.feedback = feedback` to task rejection request body.
+
+19. **W50 — Notifications DELETE query param** (`src/app/api/notifications/route.ts`): Changed to accept ID from request body with fallback to query param for backward compatibility.
+
+20. **I5 — Dead state variables** (`src/app/dashboard/approvals/page.tsx`): Removed unused `rejectItemId` and `needsWorkItemId` state variables.
+
+### CODE QUALITY Fixes (6 items)
+
+21. **I6 — HistoryEntry interface** (`src/app/dashboard/approvals/page.tsx`): Updated comment to document that it's actively used by `renderHistoryCard`.
+
+22. **I7 — 6 parallel API calls** (`src/app/dashboard/approvals/page.tsx`): Added comment explaining why 6 parallel calls are acceptable and noting future optimization opportunity.
+
+23. **I11 — Duplicate agent status update**: SKIPPED per instructions (agent code being removed).
+
+24. **I13 — SubscriptionStatus mismatch** (`src/lib/types.ts`): Removed `"EXPIRED"` from `SubscriptionStatus` type (not in schema).
+
+25. **I14 — Missing type definitions** (`src/lib/types.ts`): Added `ScheduledTaskStatus` and `ScheduledTaskPriority` types.
+
+26. **I21 — Protocol init returns full code** (`src/app/api/protocol/init/route.ts`): Removed `code` from response, only returns `codeMasked`. Also fixed `error: any` → `error: unknown`.
+
+27. **I22 — Duplicate override table** (`src/app/dashboard/availability/page.tsx`): TODO comment already exists; no additional change needed.
+
+### Verification
+- `npx tsc --noEmit` passes cleanly with 0 errors.
+- No new lint errors introduced in modified files.
+
+## [Agent Model Removal] TypeScript Error Cleanup — $(date -u +"%Y-%m-%d %H:%M UTC")
+
+### Problem
+After removing agent models from the Prisma schema, 60 TypeScript errors remained where code still referenced `db.agent`, `agentId`, `agentRoleConfig`, `assignedAgents`, `crossAgentMessage`, `userAgentAccess`, `scheduledTask`, etc.
+
+### Root Cause
+Agent-related Prisma models (Agent, AgentRoleConfig, UserAgentAccess, CrossAgentMessage, AgentConversation, ScheduledTask) were removed from the schema, but 14 source files still referenced them.
+
+### Files Fixed (14 files)
+
+1. **`src/lib/ai/openrouter.ts`** — Removed `assignedAgents` field from `KeyInfo` interface
+
+2. **`src/app/api/api-keys/route.ts`** — Removed `agents` from count select, removed `assignedAgents` from create/update, removed `db.agent.updateMany` from delete transaction
+
+3. **`src/app/api/approvals/route.ts`** — Removed all `agent` from include objects (4 places), removed `agentId` from where clauses and create data, removed entire agent status update block (~30 lines)
+
+4. **`src/app/api/dashboard/route.ts`** — Removed agent query from Promise.all, removed `agentWhere` filter, removed agent from usageLogs query (where + include), removed `agents` from response, simplified usage log mapping
+
+5. **`src/app/api/debug/route.ts`** — Removed `db.agent.count()` from connectivity test
+
+6. **`src/app/api/leave/route.ts`** — Removed entire HR agent notification block (db.agent.findFirst + db.crossAgentMessage.create)
+
+7. **`src/app/api/seed/route.ts`** — Removed all 7 `db.agent.create()` calls (~70 lines), removed agents count from response
+
+8. **`src/app/api/setup/route.ts`** — Removed `Agent`, `AgentRoleConfig`, `UserAgentAccess`, `AgentConversation`, `CrossAgentMessage` from ALLOWED_TABLE_NAMES, removed deprecated model migration loop, removed agent feature update loop, removed agent creation in POST (~100 lines), removed roleConfig creation, removed userAgentAccess mappings, updated response counts
+
+9. **`src/app/api/team/route.ts`** — Removed agent-access GET endpoint (userAgentAccess query), removed agent-access POST handler (agent verify + upsert), removed agent-access PATCH handler, removed agent-access DELETE handler, removed `agentAccess` from default GET include
+
+10. **`src/app/api/timetable/complete-work-task/route.ts`** — Removed entire AGENT_TASK case (db.scheduledTask references)
+
+11. **`src/app/api/timetable/work-data/route.ts`** — Removed scheduledTask query and AGENT_TASK result mapping (~25 lines)
+
+12. **`src/app/api/training/documents/route.ts`** — KeyInfo fix via openrouter.ts (no changes needed in this file directly)
+
+13. **`src/app/api/training/tests/generate/route.ts`** — KeyInfo fix via openrouter.ts (no changes needed in this file directly)
+
+14. **`src/app/dashboard/api-keys/page.tsx`** — Removed `formAssignedAgents` and `toggleAgentAssignment` props from KeyForm edit dialog
+
+### Cache Cleanup
+- Removed `.next/types/` directory to clear stale type cache
+
+### Verification
+- `npx tsc --noEmit` exits with code 0 — zero TypeScript errors remaining

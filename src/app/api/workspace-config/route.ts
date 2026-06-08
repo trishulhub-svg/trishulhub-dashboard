@@ -52,10 +52,12 @@ export async function GET(request: NextRequest) {
     }
 
     const row = rows[0];
+    const isSuperAdmin = (token as any).role === "SUPER_ADMIN";
 
     return NextResponse.json({
       id: row.id,
-      configToken: row.configToken || "",
+      // C9: Only return full configToken for SUPER_ADMIN users
+      configToken: isSuperAdmin ? (row.configToken || "") : "",
       configTokenMasked: maskToken(row.configToken),
       configTokenLabel: row.configTokenLabel || "Workspace Token",
       hasToken: !!row.configToken,
