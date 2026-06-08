@@ -981,3 +981,36 @@ Stage Summary:
 - All security vulnerabilities addressed (C1–C6, C21, C22, C27, C34)
 - All warnings fixed (W23, W24, W43, W49, W55, W66, W72)
 - All info issues addressed (I8, I9, I17)
+
+---
+Task ID: 7-audit
+Agent: Main Agent (coordinator) + 7 parallel audit agents
+Task: Phase 7 Deep Audit - HR Module (Leave, Attendance, Team, Approvals, Training, Availability, Meetings)
+
+Work Log:
+- Identified 84 files (~22,600 lines) across 7 HR domains
+- Launched 7 parallel audit agents:
+  - Agent 1: HR API batch 1 (leaves, leave legacy, team, approvals) — 70 issues
+  - Agent 2: HR API batch 2 (time-tracking, training) — 67 issues
+  - Agent 3: HR API batch 3 (availability, meetings) — 46 issues
+  - Agent 4: HR dashboard batch 1 (leaves, team, approvals) — 45 issues
+  - Agent 5: HR dashboard batch 2 (time-tracking, training, availability, meetings) — 35 issues
+  - Agent 6: Schema, RBAC, validations, types, auto-migrate — 62 issues
+  - Agent 7: Training components — 28 issues
+- Deduplicated all findings to produce final count
+
+Stage Summary:
+- Total issues found: 159 (44 Critical, 84 Warning, 31 Info)
+- Top issue categories:
+  - 16 ensureTable() before auth (systemic across availability module)
+  - 14 TOCTOU race conditions (leave/approval/availability/meeting state transitions)
+  - 12 missing onDelete: Cascade on HR relations
+  - 10 missing HR schema models (Department, LeaveBalance, Designation, etc.)
+  - 3 missing HR RBAC function groups
+  - 8 internal error messages exposed to clients
+  - 6 req.json() without try/catch
+  - 5 giant 1,000+ line dashboard components
+  - ~30 catch(error: any) instances
+  - 11 models missing @@map()
+- Files with most issues: api/availability/* (30+), api/team/route.ts (15), api/leaves/* (12), schema.prisma (29), rbac.ts (5)
+- No fixes applied yet — audit only
