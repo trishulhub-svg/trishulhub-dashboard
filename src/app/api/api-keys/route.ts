@@ -33,8 +33,8 @@ export async function GET() {
     }))
 
     return NextResponse.json(JSON.parse(JSON.stringify(maskedKeys)))
-  } catch (error: any) {
-    console.error("[api-keys] GET error:", error)
+  } catch (error: unknown) {
+    console.error("[api-keys] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -70,8 +70,8 @@ export async function POST(req: NextRequest) {
     })
     // Return full key value ONCE with a warning — it won't be shown again in GET
     return NextResponse.json({ ...config, keyValue: config.keyValue, _warning: "Copy this key now. It won't be shown again." }, { status: 201 })
-  } catch (error: any) {
-    console.error("[api-keys] POST error:", error)
+  } catch (error: unknown) {
+    console.error("[api-keys] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -103,8 +103,8 @@ export async function PUT(req: NextRequest) {
     // SECURITY: Always mask key values in PUT response (consistent with GET)
     const masked = { ...key, keyValue: key.keyValue ? `****${key.keyValue.slice(-4)}` : "" }
     return NextResponse.json(JSON.parse(JSON.stringify(masked)))
-  } catch (error: any) {
-    console.error("[api-keys] PUT error:", error)
+  } catch (error: unknown) {
+    console.error("[api-keys] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -112,8 +112,11 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (session.user.role !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can delete API keys" }, { status: 403 })
     }
 
     // Support both query param and JSON body for the ID
@@ -147,8 +150,8 @@ export async function DELETE(req: NextRequest) {
       await tx.apiKey.delete({ where: { id } })
     })
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[api-keys] DELETE error:", error)
+  } catch (error: unknown) {
+    console.error("[api-keys] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

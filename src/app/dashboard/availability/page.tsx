@@ -651,6 +651,7 @@ export default function AvailabilityPage() {
   }
 
   // ─── Render ──────────────────────────────────────────────────────────────────
+  const todayStr = formatDateOnly(new Date());
 
   return (
     <div className="space-y-6">
@@ -757,7 +758,7 @@ export default function AvailabilityPage() {
                       </div>
                       {weekDates.map((date, i) => {
                         const dayStr = formatDateOnly(date);
-                        const isToday = dayStr === formatDateOnly(new Date());
+                        const isToday = dayStr === todayStr;
                         return (
                           <div
                             key={dayStr}
@@ -803,7 +804,7 @@ export default function AvailabilityPage() {
                         {weekDates.map((date) => {
                           const dayStr = formatDateOnly(date);
                           const dayData = userSchedule.days[dayStr];
-                          const isToday = dayStr === formatDateOnly(new Date());
+                          const isToday = dayStr === todayStr;
 
                           if (!dayData) {
                             return (

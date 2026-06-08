@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import type { NextApiRequest } from "next"
+
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
 import { type UserRole } from "@/lib/types"
@@ -35,12 +35,12 @@ function isRateLimited(email: string): boolean {
   const elapsed = now - attempts.lastAttempt
 
   if (attempts.count >= RATE_LIMIT_20_THRESHOLD && elapsed < RATE_LIMIT_20_COOLDOWN_MS) {
-    console.warn(`[auth] Rate limited (${attempts.count} attempts, 5min cooldown): ${email}`)
+    if (isDev) console.warn(`[auth] Rate limited (${attempts.count} attempts, 5min cooldown): ${email}`)
     return true
   }
 
   if (attempts.count >= RATE_LIMIT_5_THRESHOLD && elapsed < RATE_LIMIT_5_COOLDOWN_MS) {
-    console.warn(`[auth] Rate limited (${attempts.count} attempts, 30s cooldown): ${email}`)
+    if (isDev) console.warn(`[auth] Rate limited (${attempts.count} attempts, 30s cooldown): ${email}`)
     return true
   }
 

@@ -40,7 +40,6 @@ import {
   Shield,
   AlertTriangle,
   Cloud,
-  Clock,
   RotateCcw,
   Briefcase,
   Building2,

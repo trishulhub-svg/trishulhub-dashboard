@@ -59,35 +59,38 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
 }
 
 // C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
+// SEC-008: Wrapped in transaction to prevent race condition between SELECT and UPDATE
 async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
   const windowStart = new Date(Date.now() - windowMs).toISOString()
   const now = new Date().toISOString()
 
   try {
-    // Use the RateLimitEntry table for persistence across cold starts
-    const rows: any[] = await db.$queryRawUnsafe(
-      `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
-    )
-    const record = rows[0]
+    return await db.$transaction(async (tx) => {
+      // Use the RateLimitEntry table for persistence across cold starts
+      const rows: any[] = await tx.$queryRawUnsafe(
+        `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
+      )
+      const record = rows[0]
 
-    if (!record || record.windowStart < windowStart) {
-      await db.$executeRawUnsafe(
-        `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
-         VALUES (?, ?, 1, ?, ?, ?)
-         ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
-        key, key, now, now, String(windowMs), now, now, String(windowMs)
+      if (!record || record.windowStart < windowStart) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
+           VALUES (?, ?, 1, ?, ?, ?)
+           ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
+          key, key, now, now, String(windowMs), now, now, String(windowMs)
+        )
+        return true
+      }
+
+      if (record.count >= maxAttempts) {
+        return false
+      }
+
+      await tx.$executeRawUnsafe(
+        `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
       )
       return true
-    }
-
-    if (record.count >= maxAttempts) {
-      return false
-    }
-
-    await db.$executeRawUnsafe(
-      `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
-    )
-    return true
+    })
   } catch (e) {
     console.error("[email-change] Rate limit DB error:", e)
     return false // fail-closed
@@ -201,8 +204,8 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `OTP sent to ${newEmail}. Please check your inbox.`,
     })
-  } catch (error: any) {
-    console.error("[email-change] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[email-change] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -245,7 +248,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Check max attempts on this OTP
-    if ((verification as any).attempts >= 5) {
+    if (verification.attempts >= 5) {
       await db.emailVerification.delete({ where: { id: verification.id } })
       return NextResponse.json({ error: "Too many failed attempts. Please request a new OTP." }, { status: 429 })
     }
@@ -263,24 +266,25 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Invalid or expired OTP. Please try again." }, { status: 400 })
     }
 
-    // Mark as verified
-    await db.emailVerification.update({
-      where: { id: verification.id },
-      data: { verified: true },
-    })
-
+    // SEC-014: Move verified flag inside the transaction for atomicity
     // Use transaction for atomic email update (prevents race condition)
     try {
       await db.$transaction(async (tx) => {
+        // Mark as verified inside the transaction
+        await tx.emailVerification.update({
+          where: { id: verification.id },
+          data: { verified: true },
+        })
+
         // Update will fail if unique constraint is violated
         await tx.user.update({
           where: { id: userId },
           data: { email: newEmail },
         })
       })
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Prisma P2002 = unique constraint violation
-      if (error.code === "P2002") {
+      if (error instanceof Error && 'code' in error && (error as { code: string }).code === "P2002") {
         return NextResponse.json({ error: "This email is already registered with another account" }, { status: 409 })
       }
       throw error
@@ -307,8 +311,8 @@ export async function PUT(req: NextRequest) {
       message: "Email changed successfully! Please sign in again with your new email.",
       requiresReauth: true,
     })
-  } catch (error: any) {
-    console.error("[email-change] PUT error:", error.message)
+  } catch (error: unknown) {
+    console.error("[email-change] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

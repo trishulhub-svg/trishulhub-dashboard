@@ -56,34 +56,37 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
 }
 
 // C10: DB-based rate limiter (replaces in-memory Map to work in serverless)
+// SEC-007: Wrapped in transaction to prevent race condition between SELECT and UPDATE
 async function checkDbRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
   const windowStart = new Date(Date.now() - windowMs).toISOString()
   const now = new Date().toISOString()
 
   try {
-    const rows: any[] = await db.$queryRawUnsafe(
-      `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
-    )
-    const record = rows[0]
+    return await db.$transaction(async (tx) => {
+      const rows: any[] = await tx.$queryRawUnsafe(
+        `SELECT "count", "windowStart" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`, key
+      )
+      const record = rows[0]
 
-    if (!record || record.windowStart < windowStart) {
-      await db.$executeRawUnsafe(
-        `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
-         VALUES (?, ?, 1, ?, ?, ?)
-         ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
-        key, key, now, now, String(windowMs), now, now, String(windowMs)
+      if (!record || record.windowStart < windowStart) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "RateLimitEntry" ("id", "key", "count", "windowStart", "windowMs", "createdAt")
+           VALUES (?, ?, 1, ?, ?, ?)
+           ON CONFLICT("key") DO UPDATE SET "count" = 1, "windowStart" = ?, "windowMs" = ?`,
+          key, key, now, now, String(windowMs), now, now, String(windowMs)
+        )
+        return true
+      }
+
+      if (record.count >= maxAttempts) {
+        return false
+      }
+
+      await tx.$executeRawUnsafe(
+        `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
       )
       return true
-    }
-
-    if (record.count >= maxAttempts) {
-      return false
-    }
-
-    await db.$executeRawUnsafe(
-      `UPDATE "RateLimitEntry" SET "count" = "count" + 1 WHERE "key" = ?`, key
-    )
-    return true
+    })
   } catch (e) {
     console.error("[password-change] Rate limit DB error:", e)
     return false // fail-closed
@@ -171,8 +174,8 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `OTP sent to your email (${user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3")}). Please check your inbox.`,
     })
-  } catch (error: any) {
-    console.error("[password-change] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[password-change] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -239,10 +242,12 @@ export async function PUT(req: NextRequest) {
     const otpValid = await bcrypt.default.compare(otp, verification.otp)
 
     if (!otpValid) {
-      // Increment attempts counter
-      await (db as any).passwordChange.update({
-        where: { id: verification.id },
-        data: { attempts: { increment: 1 } },
+      // SEC-013: Increment attempts counter atomically within transaction
+      await db.$transaction(async (tx) => {
+        await (tx as any).passwordChange.update({
+          where: { id: verification.id },
+          data: { attempts: { increment: 1 } },
+        })
       })
       return NextResponse.json({ error: "Invalid OTP. Please try again." }, { status: 400 })
     }
@@ -304,8 +309,8 @@ export async function PUT(req: NextRequest) {
       message: "Password changed successfully! Please sign in again with your new password.",
       requiresReauth: true,
     })
-  } catch (error: any) {
-    console.error("[password-change] PUT error:", error.message)
+  } catch (error: unknown) {
+    console.error("[password-change] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

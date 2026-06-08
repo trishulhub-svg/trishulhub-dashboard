@@ -19,9 +19,9 @@ export interface CredentialStatus {
 function getCredentials() {
   const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
   let privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || null
 
-  if (!clientEmail || !privateKey) {
+  if (!clientEmail || !privateKey || !folderId) {
     return null
   }
 
@@ -88,7 +88,7 @@ function getCredentials() {
 export function getCredentialStatus(): CredentialStatus {
   const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL
   const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID
 
   const hasEmail = !!clientEmail
   const hasKey = !!privateKey
@@ -154,7 +154,7 @@ export function getCredentialStatus(): CredentialStatus {
     clientEmail: hasEmail,
     privateKey: hasKey,
     privateKeyValid: keyValid,
-    folderId: true, // Always has fallback
+    folderId: !!folderId,
     error: !hasEmail ? "Missing GOOGLE_DRIVE_CLIENT_EMAIL" : !hasKey ? "Missing GOOGLE_DRIVE_PRIVATE_KEY" : !keyValid ? "Private key format is invalid" : !actuallyConfigured ? "Private key could not be parsed after all decoding attempts" : undefined,
     hint: keyHint,
   }
@@ -200,7 +200,7 @@ function getDrive() {
 }
 
 function getRootFolderId(): string | null {
-  return process.env.GOOGLE_DRIVE_FOLDER_ID || "1th4v_mtGsQfeX3Im76as8MWGAURo2kVT"
+  return process.env.GOOGLE_DRIVE_FOLDER_ID || null
 }
 
 // ── Types ──

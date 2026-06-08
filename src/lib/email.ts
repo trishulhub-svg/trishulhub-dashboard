@@ -91,7 +91,7 @@ export async function logEmailEvent(options: {
 }): Promise<void> {
   try {
     // Try to log - if EmailLog table doesn't exist, just console.warn
-    await (db as any).emailLog.create({
+    await db.emailLog.create({
       data: {
         to: options.to,
         subject: options.subject,
@@ -123,6 +123,11 @@ export async function sendEmailWithFailover(options: {
   type?: string // For logging: OTP, PASSWORD_RESET, EMAIL_CHANGE, RESET_LINK
   triggeredBy?: string // userId who triggered the email
 }): Promise<{ success: boolean; method?: string; error?: string }> {
+  // Strip CRLF to prevent email header injection
+  function sanitizeEmailHeader(val: string): string { return val.replace(/[\r\n]/g, ' ').trim() }
+  const safeTo = sanitizeEmailHeader(options.to)
+  const safeSubject = sanitizeEmailHeader(options.subject)
+
   const smtpConfigs = await db.smtpConfig.findMany({
     where: { isActive: true },
     orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
@@ -130,8 +135,8 @@ export async function sendEmailWithFailover(options: {
 
   if (smtpConfigs.length === 0) {
     await logEmailEvent({
-      to: options.to,
-      subject: options.subject,
+      to: safeTo,
+      subject: safeSubject,
       type: options.type || "UNKNOWN",
       status: "FAILED",
       error: "No SMTP server configured",
@@ -143,13 +148,13 @@ export async function sendEmailWithFailover(options: {
   // Try each SMTP config (primary first, then failover)
   for (const config of smtpConfigs) {
     try {
-      const result = await sendViaSmtp(config, options)
+      const result = await sendViaSmtp(config, { ...options, to: safeTo, subject: safeSubject })
       if (result.success) {
         const method = config.isPrimary ? "primary" : "failover"
         // Log successful send with messageId for tracking
         await logEmailEvent({
-          to: options.to,
-          subject: options.subject,
+          to: safeTo,
+          subject: safeSubject,
           type: options.type || "UNKNOWN",
           status: "SENT",
           smtpConfigId: config.id,
@@ -164,8 +169,8 @@ export async function sendEmailWithFailover(options: {
       console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) failed: ${result.error}`)
       // Log failure for this attempt
       await logEmailEvent({
-        to: options.to,
-        subject: options.subject,
+        to: safeTo,
+        subject: safeSubject,
         type: options.type || "UNKNOWN",
         status: "FAILED",
         smtpConfigId: config.id,
@@ -177,8 +182,8 @@ export async function sendEmailWithFailover(options: {
     } catch (err: any) {
       console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) error: ${err.message}`)
       await logEmailEvent({
-        to: options.to,
-        subject: options.subject,
+        to: safeTo,
+        subject: safeSubject,
         type: options.type || "UNKNOWN",
         status: "FAILED",
         smtpConfigId: config.id,
@@ -191,8 +196,8 @@ export async function sendEmailWithFailover(options: {
   }
 
   await logEmailEvent({
-    to: options.to,
-    subject: options.subject,
+    to: safeTo,
+    subject: safeSubject,
     type: options.type || "UNKNOWN",
     status: "FAILED",
     error: "All SMTP servers failed to deliver the email",
@@ -382,6 +387,9 @@ export async function sendPasswordResetEmail(
   const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
   const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
 
+  const escapeHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  const safeUserName = escapeHtml(userName)
+
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
       <div style="text-align: center; margin-bottom: 24px;">
@@ -389,7 +397,7 @@ export async function sendPasswordResetEmail(
         <p style="color: #6b7280; margin: 4px 0 0;">Password Reset</p>
       </div>
       <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">Hello ${userName},</p>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">Hello ${safeUserName},</p>
         <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">An administrator has requested a password reset for your account. Click the button below to set a new password:</p>
         <div style="text-align: center; margin: 24px 0;">
           <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">Reset Password</a>
@@ -406,7 +414,7 @@ export async function sendPasswordResetEmail(
     to: toEmail,
     subject: "TrishulHub - Password Reset Request",
     html,
-    text: `Hello ${userName}, an administrator has requested a password reset for your account. Click this link to reset your password: ${resetLink}. This link expires in 1 hour. If you did not request this, ignore this email.`,
+    text: `Hello ${safeUserName}, an administrator has requested a password reset for your account. Click this link to reset your password: ${resetLink}. This link expires in 1 hour. If you did not request this, ignore this email.`,
     type: "RESET_LINK",
     triggeredBy,
   })

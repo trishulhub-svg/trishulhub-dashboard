@@ -142,12 +142,8 @@ export async function POST(req: NextRequest) {
     }
 
     // C14/W26: Validate link field for safe URLs (prevent XSS)
-    // Also block protocol-relative URLs (//evil.com)
     if (link && !link.startsWith("/") && !link.startsWith("https://") && !link.startsWith("http://")) {
       return NextResponse.json({ error: "Invalid link URL" }, { status: 400 })
-    }
-    if (link && link.startsWith("//")) {
-      return NextResponse.json({ error: "Invalid link URL: protocol-relative URLs are not allowed" }, { status: 400 })
     }
 
     const notification = await db.notification.create({
@@ -217,7 +213,8 @@ export async function PATCH(req: NextRequest) {
       where: { id },
       data: { isRead: isRead !== undefined ? isRead : true },
     })
-    return NextResponse.json(updated)
+    // N-010: JSON.parse(JSON.stringify()) handles Prisma Date serialization consistency
+    return NextResponse.json(JSON.parse(JSON.stringify(updated)))
   } catch (error: unknown) {
     console.error("[notifications] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

@@ -3,7 +3,8 @@ import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
 
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/cron", "/api/protocol"]
+// /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol"]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -16,7 +17,7 @@ export async function middleware(request: NextRequest) {
   // Decode JWT token to check session validity
   // Wrap in try/catch: if NEXTAUTH_SECRET is missing, getToken() throws
   // instead of returning null, which would crash ALL matched routes.
-  let token: any = null
+  let token: { error?: string; role?: string; [key: string]: unknown } | null = null
   try {
     token = await getToken({ req: request })
   } catch (err) {
@@ -99,9 +100,16 @@ export async function middleware(request: NextRequest) {
  * Prevents clickjacking, MIME sniffing, and protocol downgrade attacks.
  */
 function addSecurityHeaders(request: NextRequest, response: NextResponse): NextResponse {
-  // Only set security headers for page requests (not API or _next static assets)
   const { pathname } = request.nextUrl
-  if (pathname.startsWith("/api/") || pathname.startsWith("/_next/")) {
+  // Always skip _next static assets
+  if (pathname.startsWith("/_next/")) {
+    return response
+  }
+
+  // Add X-Content-Type-Options and X-Frame-Options to API responses (SEC-016)
+  if (pathname.startsWith("/api/")) {
+    response.headers.set("X-Content-Type-Options", "nosniff")
+    response.headers.set("X-Frame-Options", "DENY")
     return response
   }
 

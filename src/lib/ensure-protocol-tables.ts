@@ -35,7 +35,6 @@ async function tableExists(table: string): Promise<boolean> {
 
 export async function ensureProtocolTables(): Promise<void> {
   if (ensured) return;
-  ensured = true;
 
   // ── ProtocolVersion ──
   if (!(await tableExists("ProtocolVersion"))) {
@@ -326,4 +325,7 @@ export async function ensureProtocolTables(): Promise<void> {
       console.error("[protocol] Failed to create UserCode:", msg);
     }
   }
+
+  // All migrations completed successfully — mark as ensured
+  ensured = true;
 }

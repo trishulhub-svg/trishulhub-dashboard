@@ -15,7 +15,6 @@ let migrationAttempted = false
  */
 export async function ensureTrainingTables(): Promise<{ ok: boolean; error?: string }> {
   if (migrationAttempted) return { ok: true }
-  migrationAttempted = true
 
   try {
     // Quick check — if TrainingDocument table is accessible, all good
@@ -29,6 +28,7 @@ export async function ensureTrainingTables(): Promise<{ ok: boolean; error?: str
     } catch {
       // Column already exists — ignore
     }
+    migrationAttempted = true
     return { ok: true }
   } catch {
     // TrainingDocument table doesn't exist — create ALL training tables
@@ -101,6 +101,7 @@ export async function ensureTrainingTables(): Promise<{ ok: boolean; error?: str
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
       console.log("[training] Auto-migration complete — all training tables created")
+      migrationAttempted = true
       return { ok: true }
     } catch (createErr: unknown) {
       console.error("[training] Auto-migration FAILED:", createErr instanceof Error ? createErr.message : createErr)

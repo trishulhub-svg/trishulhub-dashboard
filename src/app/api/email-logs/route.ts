@@ -10,7 +10,7 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
   if (logTableChecked && logTableExists) return { success: true }
 
   try {
-    await (db as any).emailLog.count({ take: 1 })
+    await db.emailLog.count({ take: 1 })
     logTableChecked = true
     logTableExists = true
     return { success: true }
@@ -48,7 +48,7 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
   }
 
   try {
-    await (db as any).emailLog.count({ take: 1 })
+    await db.emailLog.count({ take: 1 })
     logTableChecked = true
     logTableExists = true
     return { success: true }
@@ -73,7 +73,8 @@ export async function GET(req: NextRequest) {
     // Auto-migrate: ensure EmailLog table exists
     const migrateResult = await ensureEmailLogTable()
     if (!migrateResult.success) {
-      return NextResponse.json({ error: `Database migration needed: ${migrateResult.error}` }, { status: 500 })
+      console.error("[email-logs] Migration failed:", migrateResult.error)
+      return NextResponse.json({ error: "Database unavailable" }, { status: 500 })
     }
 
     const { searchParams } = new URL(req.url)
@@ -93,18 +94,18 @@ export async function GET(req: NextRequest) {
     if (status) where.status = status
 
     const [logs, total] = await Promise.all([
-      (db as any).emailLog.findMany({
+      db.emailLog.findMany({
         where,
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
       }),
-      (db as any).emailLog.count({ where }),
+      db.emailLog.count({ where }),
     ])
 
     return NextResponse.json({ logs, total })
-  } catch (error: any) {
-    console.error("[email-logs] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[email-logs] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -130,15 +131,15 @@ export async function DELETE(req: NextRequest) {
 
     const cutoffDate = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000)
 
-    const result = await (db as any).emailLog.deleteMany({
+    const result = await db.emailLog.deleteMany({
       where: {
         createdAt: { lt: cutoffDate.toISOString() },
       },
     })
 
     return NextResponse.json({ success: true, deleted: result.count })
-  } catch (error: any) {
-    console.error("[email-logs] DELETE error:", error.message)
+  } catch (error: unknown) {
+    console.error("[email-logs] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

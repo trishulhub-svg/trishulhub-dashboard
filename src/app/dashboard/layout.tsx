@@ -406,8 +406,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
 
   // Badge count mapping: use API response directly (role-aware for all users)
-  // W10: Removed no-op useMemo — pass navBadgeData directly
-  const navBadgeCounts = navBadgeData;
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -589,7 +587,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           userName={userName}
           pathname={pathname}
           onNavigate={handleNavigate}
-          badgeCounts={navBadgeCounts}
+          badgeCounts={navBadgeData}
         />
         <Button
           variant="ghost"
@@ -622,7 +620,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             userName={userName}
             pathname={pathname}
             onNavigate={handleNavigate}
-            badgeCounts={navBadgeCounts}
+            badgeCounts={navBadgeData}
           />
         </SheetContent>
       </Sheet>

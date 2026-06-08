@@ -90,11 +90,11 @@ export async function GET(req: NextRequest) {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
     })
-  } catch (error: any) {
-    console.error("[api-keys/test] Test failed:", error.message)
+  } catch (error: unknown) {
+    console.error("[api-keys/test] Test failed:", error instanceof Error ? error.message : String(error))
 
     // Determine if the error is an auth issue or rate limit
-    let errorMsg = error.message || String(error)
+    let errorMsg = error instanceof Error ? error.message : String(error)
 
     // Translate Chinese error messages from Z.ai API
     errorMsg = translateZaiError(errorMsg)

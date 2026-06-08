@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
 
 // ━━ Task Schemas ━━
 export const createTaskSchema = z.object({
@@ -538,20 +539,8 @@ export const adminUpdateTimeEntrySchema = z.object({
 
 // === HR Validation Schemas ===
 
-export const VALID_LEAVE_TYPES = [
-  "SICK_LEAVE",
-  "CASUAL_LEAVE", 
-  "ANNUAL_LEAVE",
-  "PUBLIC_HOLIDAY",
-  "MATERNITY_LEAVE",
-  "PATERNITY_LEAVE",
-  "COMPENSATORY_OFF",
-  "HALF_DAY",
-  "WORK_FROM_HOME",
-  "OTHER",
-] as const;
-
-export type LeaveType = (typeof VALID_LEAVE_TYPES)[number];
+// Re-export from types.ts to avoid duplication (L22)
+export { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
 
 export const VALID_LEAVE_STATUSES = [
   "PENDING",

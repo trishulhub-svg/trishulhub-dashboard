@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -547,7 +547,7 @@ export default function TrishulWorkspacePage() {
     }
   }, [entered]);
 
-  const barPositions = (() => {
+  const barPositions = useMemo(() => {
     const entries = [
       { key: "ai" as const, value: barValues.ai },
       { key: "sync" as const, value: barValues.sync },
@@ -557,7 +557,7 @@ export default function TrishulWorkspacePage() {
     const pos: Record<string, number> = {};
     sorted.forEach((e, i) => { pos[e.key] = i * barStep; });
     return pos;
-  })();
+  }, [barValues, barStep]);
 
   return (
     <>

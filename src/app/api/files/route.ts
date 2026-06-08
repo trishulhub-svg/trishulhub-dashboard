@@ -285,6 +285,7 @@ export async function POST(req: NextRequest) {
     await ensureAllTables()
 
     const userId = session.user.id
+    // TODO: Add RBAC check for file uploads
     const role = session.user.role
 
     // Rate limit

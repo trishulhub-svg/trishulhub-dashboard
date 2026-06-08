@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
-export default function AgentsListError({
+export default function WorkspaceError({
   error,
   reset,
 }: {
@@ -12,7 +12,7 @@ export default function AgentsListError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[AgentsListError]", error.message, error.stack);
+    console.error("[WorkspaceError]", error.message, error.stack);
   }, [error]);
 
   return (

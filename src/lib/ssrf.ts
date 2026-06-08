@@ -106,9 +106,10 @@ export async function isPrivateHost(host: string): Promise<boolean> {
     // If DNS resolution failed entirely (no IPs resolved), fall through —
     // the actual connection will fail anyway.
   } catch {
-    // DNS resolution failed — we can't verify the IP.
-    // Allow the request to proceed; the actual connection attempt will fail
-    // if the host is truly unreachable.
+    // DNS resolution failed entirely — fail CLOSED (block) for safety.
+    // If we can't verify the host resolves to a public IP, we must not allow it.
+    console.warn("[ssrf] DNS resolution failed for host:", cleaned, "— blocking request (fail-closed)")
+    return true
   }
 
   return false

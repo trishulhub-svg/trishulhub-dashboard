@@ -102,7 +102,7 @@ export default function ApiKeysPage() {
       if (res.status === 401) {
         setKeys([]);
         setError("Your session has expired. Please sign in again.");
-        setTimeout(() => { window.location.href = "/login"; }, 1500);
+        setTimeout(() => { router.push("/login"); }, 1500);
         return;
       }
       if (res.ok) {
@@ -585,7 +585,7 @@ export default function ApiKeysPage() {
                           <TooltipContent>Test this API key by making a small AI call</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
-                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => openEditDialog(key)}>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => openEditDialog(key)} aria-label="Edit API key">
                         <Edit2 className="h-3 w-3" />
                       </Button>
                       {(key.status === "EXHAUSTED" || key.status === "ERROR") && (
@@ -593,7 +593,7 @@ export default function ApiKeysPage() {
                           <RefreshCw className="h-3 w-3" />
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" className="h-7 text-xs text-red-500 hover:text-red-600" onClick={() => setDeleteTarget(key.id)}>
+                      <Button variant="outline" size="sm" className="h-7 text-xs text-red-500 hover:text-red-600" onClick={() => setDeleteTarget(key.id)} aria-label="Delete API key">
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>

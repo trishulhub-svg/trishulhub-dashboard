@@ -184,6 +184,7 @@ export default function AccessHubPage() {
   const [credsError, setCredsError] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [deleteProtocolDialogOpen, setDeleteProtocolDialogOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -336,7 +337,11 @@ export default function AccessHubPage() {
 
   const handleDeleteProtocol = async () => {
     if (!protocol) return;
-    if (!confirm("Are you sure you want to delete this protocol PDF?")) return;
+    setDeleteProtocolDialogOpen(true);
+  };
+
+  const confirmDeleteProtocol = async () => {
+    setDeleteProtocolDialogOpen(false);
     try {
       const res = await fetch("/api/protocol", { method: "DELETE" });
       if (res.ok) { toast.success("Protocol PDF deleted"); setProtocol(null); }
@@ -587,7 +592,12 @@ export default function AccessHubPage() {
         const res = await fetch("/api/credentials", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
         if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
       } else {
-        body.userId = isAdmin ? formTargetUserId : session!.user.id;
+        const userId = isAdmin ? formTargetUserId : session?.user?.id;
+        if (!userId) {
+          toast.error("No user session found");
+          return;
+        }
+        body.userId = userId;
         const res = await fetch("/api/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
         if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
       }
@@ -1624,6 +1634,25 @@ export default function AccessHubPage() {
       </Dialog>
 
       {/* Delete Credential Dialog */}
+      {/* ── Delete Protocol Confirmation Dialog ── */}
+      <AlertDialog open={deleteProtocolDialogOpen} onOpenChange={setDeleteProtocolDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Protocol PDF</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this protocol PDF? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmDeleteProtocol}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Delete Credential Confirmation Dialog ── */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

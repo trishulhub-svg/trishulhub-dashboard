@@ -199,7 +199,7 @@ export async function PUT(request: NextRequest) {
       );
       return NextResponse.json({ success: true, action: "updated" });
     } else {
-      const id = "proto_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      const id = crypto.randomUUID();
       await db.$executeRawUnsafe(
         `INSERT INTO "ProtocolVersion" (id, version, title, content, isActive, createdBy)
          VALUES (?, '1.0', ?, ?, true, ?)`,

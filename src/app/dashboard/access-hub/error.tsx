@@ -16,7 +16,7 @@ export default function AccessHubError({
         <AlertCircle className="h-12 w-12 mx-auto text-destructive" />
         <h2 className="text-lg font-semibold">Something went wrong</h2>
         <p className="text-sm text-muted-foreground">
-          {error.message || "An unexpected error occurred while loading the Access Hub."}
+          {process.env.NODE_ENV === "development" ? error.message : "An unexpected error occurred. Please try again."}
         </p>
         <Button onClick={reset} variant="outline">
           Try Again

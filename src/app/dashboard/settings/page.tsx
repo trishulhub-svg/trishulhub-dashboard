@@ -553,6 +553,7 @@ export default function SettingsPage() {
         // updateSession({ name }) triggers JWT callback with trigger="update"
         // which re-reads the user from DB, including the new name
         await updateSession({ name: name });
+        isDirtyRef.current = false;
       } else {
         const errData = await res.json().catch(() => ({}));
         toast.error(errData.error || "Failed to save settings");
