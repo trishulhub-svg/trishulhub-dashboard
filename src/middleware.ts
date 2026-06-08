@@ -2,8 +2,8 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
 
-// Paths that don't require authentication
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth"]
+// Paths where middleware doesn't enforce auth (route handlers may have their own auth)
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/cron", "/api/protocol"]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -82,7 +82,7 @@ export async function middleware(request: NextRequest) {
 
   // FIX: Verify CLIENT role for portal routes at middleware level
   // Prevents non-CLIENT users from accessing portal pages directly
-  if (pathname.startsWith("/portal") && token?.role && token.role !== "CLIENT") {
+  if (pathname.startsWith("/portal") && token?.role !== undefined && token.role !== "CLIENT") {
     return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
   }
 
@@ -104,8 +104,10 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
   response.headers.set("X-Frame-Options", "DENY")
   // Prevent MIME type sniffing
   response.headers.set("X-Content-Type-Options", "nosniff")
-  // XSS protection (legacy browsers)
-  response.headers.set("X-XSS-Protection", "1; mode=block")
+  // Enforce HTTPS for all subdomains for 1 year
+  response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+  // Restrict browser features that this app doesn't need
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
   // Referrer policy — send origin only on cross-origin
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
   return response

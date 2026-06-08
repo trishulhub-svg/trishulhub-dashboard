@@ -1301,3 +1301,26 @@ model FilePermission {
   @@index([userId])
   @@index([driveFileId])
 }
+
+// ━━ Protocol OTP (serverless-safe OTP storage) ━━
+model ProtocolOtp {
+  id        String   @id @default(cuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+}
+
+// ━━ Protocol Rate Limiting (serverless-safe) ━━
+model ProtocolRateLimit {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  count       Int      @default(0)
+  windowStart String
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}

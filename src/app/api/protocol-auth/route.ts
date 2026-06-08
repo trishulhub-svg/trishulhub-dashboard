@@ -1,61 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { sendEmailWithFailover, isValidEmail, logEmailEvent } from "@/lib/email";
 
-// ── Server-side OTP storage ──
-interface OtpEntry {
-  otp: string;
-  expiresAt: number;
-  name: string;
-  role: string;
-  userId: string;
-}
-
-const otpStore = new Map<string, OtpEntry>();
-
-// ── Rate limiters ──
-interface RateEntry {
-  count: number;
-  windowStart: number;
-}
-
-const otpRateLimiter = new Map<string, RateEntry>(); // email -> { count, windowStart }
-const verifyRateLimiter = new Map<string, RateEntry>(); // email -> { count, windowStart }
-
+// ── DB-based rate limiter ──
 const OTP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_OTP_REQUESTS = 5;
 const MAX_VERIFY_ATTEMPTS = 10;
 
-function checkRateLimit(
-  limiter: Map<string, RateEntry>,
-  key: string,
-  max: number
-): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const entry = limiter.get(key);
+async function checkRateLimit(key: string, maxAttempts: number, windowMs: number): Promise<boolean> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString()
 
-  if (!entry || now - entry.windowStart > OTP_WINDOW_MS) {
-    // New window
-    limiter.set(key, { count: 1, windowStart: now });
-    return { allowed: true, remaining: max - 1 };
-  }
+  try {
+    const record = await db.protocolRateLimit.findUnique({
+      where: { key },
+    })
 
-  if (entry.count >= max) {
-    return { allowed: false, remaining: 0 };
-  }
-
-  entry.count++;
-  return { allowed: true, remaining: max - entry.count };
-}
-
-function cleanExpiredOtps() {
-  const now = Date.now();
-  for (const [key, entry] of otpStore.entries()) {
-    if (now > entry.expiresAt) {
-      otpStore.delete(key);
+    if (!record || record.windowStart < windowStart) {
+      // New window — reset count
+      await db.protocolRateLimit.upsert({
+        where: { key },
+        update: { count: 1, windowStart: new Date().toISOString() },
+        create: { id: randomUUID(), key, count: 1, windowStart: new Date().toISOString() },
+      })
+      return true // allowed
     }
+
+    if (record.count >= maxAttempts) {
+      return false // rate limited
+    }
+
+    // Increment count
+    await db.protocolRateLimit.update({
+      where: { key },
+      data: { count: { increment: 1 }, updatedAt: new Date().toISOString() },
+    })
+    return true // allowed
+  } catch (e) {
+    // Fail-open on DB error
+    return true
   }
 }
 
@@ -79,9 +62,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Clean up expired OTPs
+    try {
+      await db.protocolOtp.deleteMany({
+        where: { expiresAt: { lt: new Date().toISOString() } },
+      });
+    } catch (e) {
+      // Non-fatal cleanup
+    }
+
     // Rate limit check
-    const rateCheck = checkRateLimit(otpRateLimiter, email, MAX_OTP_REQUESTS);
-    if (!rateCheck.allowed) {
+    const rateAllowed = await checkRateLimit(`otp:${email.toLowerCase()}`, MAX_OTP_REQUESTS, OTP_WINDOW_MS);
+    if (!rateAllowed) {
       return NextResponse.json(
         { error: "Too many OTP requests. Please try again later." },
         { status: 429 }
@@ -120,17 +112,15 @@ export async function POST(request: NextRequest) {
     const otpNumber = randomBytes(3).readUIntBE(0, 3) % 1000000;
     const otp = String(otpNumber).padStart(6, "0");
 
-    // Store OTP
-    otpStore.set(email.toLowerCase(), {
-      otp,
-      expiresAt: Date.now() + OTP_EXPIRY_MS,
-      name: user.name,
-      role: user.role,
-      userId: user.id,
+    // Store OTP in DB
+    await db.protocolOtp.create({
+      data: {
+        id: randomUUID(),
+        email: email.toLowerCase(),
+        otp: otp.toString(),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 min expiry
+      },
     });
-
-    // Clean expired OTPs periodically
-    cleanExpiredOtps();
 
     // Build professional Trishul-branded email HTML
     const emailHtml = `
@@ -246,8 +236,8 @@ export async function PUT(request: NextRequest) {
     }
 
     // Rate limit check
-    const rateCheck = checkRateLimit(verifyRateLimiter, email, MAX_VERIFY_ATTEMPTS);
-    if (!rateCheck.allowed) {
+    const rateAllowed = await checkRateLimit(`verify:${email.toLowerCase()}`, MAX_VERIFY_ATTEMPTS, OTP_WINDOW_MS);
+    if (!rateAllowed) {
       return NextResponse.json(
         { error: "Too many verification attempts. Please try again later." },
         { status: 429 }
@@ -255,77 +245,66 @@ export async function PUT(request: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase();
-    const entry = otpStore.get(normalizedEmail);
 
-    if (!entry) {
+    // Find valid OTP in DB
+    const record = await db.protocolOtp.findFirst({
+      where: {
+        email: normalizedEmail,
+        otp: otp.toString(),
+        expiresAt: { gt: new Date().toISOString() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!record) {
       await logEmailEvent({
         to: normalizedEmail,
         subject: "TRISHUL PROTOCOL - OTP Verify",
         type: "PROTOCOL_AUTH",
         status: "FAILED",
-        error: "No OTP found for email",
-        metadata: JSON.stringify({ reason: "no_otp_found" }),
+        error: "Invalid or expired OTP",
+        metadata: JSON.stringify({ reason: "invalid_or_expired_otp" }),
       });
       return NextResponse.json(
         { error: "Invalid or expired OTP" },
-        { status: 401 }
+        { status: 400 }
       );
     }
 
-    // Check expiry
-    if (Date.now() > entry.expiresAt) {
-      otpStore.delete(normalizedEmail);
-      await logEmailEvent({
-        to: normalizedEmail,
-        subject: "TRISHUL PROTOCOL - OTP Verify",
-        type: "PROTOCOL_AUTH",
-        status: "FAILED",
-        error: "OTP expired",
-        triggeredBy: entry.userId,
-        metadata: JSON.stringify({ reason: "otp_expired" }),
-      });
+    // Delete used OTP (one-time use)
+    await db.protocolOtp.deleteMany({
+      where: { id: record.id },
+    });
+
+    // Look up user (user info not stored in OTP record)
+    const user = await db.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    if (!user) {
       return NextResponse.json(
-        { error: "OTP has expired. Please request a new one." },
+        { error: "User not found" },
         { status: 401 }
       );
     }
-
-    // Verify OTP
-    if (entry.otp !== otp.trim()) {
-      await logEmailEvent({
-        to: normalizedEmail,
-        subject: "TRISHUL PROTOCOL - OTP Verify",
-        type: "PROTOCOL_AUTH",
-        status: "FAILED",
-        error: "Incorrect OTP",
-        triggeredBy: entry.userId,
-        metadata: JSON.stringify({ reason: "wrong_otp" }),
-      });
-      return NextResponse.json(
-        { error: "Invalid OTP. Please try again." },
-        { status: 401 }
-      );
-    }
-
-    // Valid OTP - delete after use (one-time)
-    otpStore.delete(normalizedEmail);
 
     await logEmailEvent({
       to: normalizedEmail,
       subject: "TRISHUL PROTOCOL - OTP Verify",
       type: "PROTOCOL_AUTH",
       status: "SENT",
-      triggeredBy: entry.userId,
+      triggeredBy: user.id,
       metadata: JSON.stringify({ reason: "verified_successfully" }),
     });
 
     return NextResponse.json({
       success: true,
       user: {
-        id: entry.userId,
-        name: entry.name,
+        id: user.id,
+        name: user.name,
         email: normalizedEmail,
-        role: entry.role,
+        role: user.role,
       },
     });
   } catch (error) {

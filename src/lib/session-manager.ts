@@ -9,66 +9,32 @@ import { randomUUID } from "crypto"
 const sessionCache = new Map<string, { token: string; checkedAt: number }>()
 const CACHE_TTL = 60 * 1000 // 60 seconds
 
+// Evict expired cache entries if map grows large
+function evictExpiredCacheEntries() {
+  if (sessionCache.size > 500) {
+    const now = Date.now()
+    for (const [key, val] of sessionCache) {
+      if (now - val.checkedAt > CACHE_TTL) {
+        sessionCache.delete(key)
+      }
+    }
+  }
+}
+
 // Auto-migrate: ensure ActiveSession table exists
 let sessionTableChecked = false
 let sessionTableExists = false
 
-async function ensureActiveSessionTable(): Promise<boolean> {
+async function ensureActiveSessionTable() {
   if (sessionTableChecked && sessionTableExists) return true
 
   try {
-    await Promise.race([
-      (db as any).activeSession.count({ take: 1 }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
-    ])
+    const count = await db.activeSession.count({ take: 1 })
     sessionTableChecked = true
     sessionTableExists = true
-    return true
-  } catch {
-    // Table not found or timeout, will auto-create below
-  }
-
-  try {
-    await Promise.race([
-      db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "ActiveSession" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "userId" TEXT NOT NULL UNIQUE,
-          "sessionToken" TEXT NOT NULL,
-          "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
-          "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
-          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
-        )
-      `),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
-    ])
-    try {
-      await db.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "ActiveSession_userId_idx" ON "ActiveSession"("userId")`
-      )
-    } catch {}
-    try {
-      await db.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "ActiveSession_sessionToken_idx" ON "ActiveSession"("sessionToken")`
-      )
-    } catch {}
-    // ActiveSession table created successfully
-  } catch (err: any) {
-    console.error("[session] Failed to create ActiveSession table:", err.message)
-    sessionTableChecked = false
-    sessionTableExists = false
-    return false
-  }
-
-  try {
-    await (db as any).activeSession.count({ take: 1 })
-    sessionTableChecked = true
-    sessionTableExists = true
-    return true
-  } catch (err: any) {
-    console.error("[session] ActiveSession table verification failed:", err.message)
-    sessionTableChecked = false
-    sessionTableExists = false
+    return count >= 0 // table exists
+  } catch (error) {
+    console.warn("[session] ActiveSession table not found. Auto-migrate should have created it.")
     return false
   }
 }
@@ -96,14 +62,20 @@ export async function setSessionToken(
     return
   }
 
-  await (db as any).activeSession.upsert({
-    where: { userId },
-    update: { sessionToken: token, updatedAt: new Date() },
-    create: { id: randomUUID(), userId, sessionToken: token },
-  })
+  await Promise.race([
+    db.activeSession.upsert({
+      where: { userId },
+      update: { sessionToken: token, updatedAt: new Date() },
+      create: { id: randomUUID(), userId, sessionToken: token },
+    }),
+    new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error("[session] setSessionToken timed out (5s)")), 5000)
+    ),
+  ])
 
   // Update cache immediately
   sessionCache.set(userId, { token, checkedAt: Date.now() })
+  evictExpiredCacheEntries()
 }
 
 /**
@@ -157,7 +129,7 @@ async function doValidateSession(
     return true
   }
 
-  const session = await (db as any).activeSession.findUnique({
+  const session = await db.activeSession.findUnique({
     where: { userId },
   })
 
@@ -169,6 +141,7 @@ async function doValidateSession(
       token: session.sessionToken,
       checkedAt: Date.now(),
     })
+    evictExpiredCacheEntries()
   }
 
   return isValid
@@ -197,14 +170,20 @@ export async function invalidateSession(userId: string): Promise<string> {
 
   const newToken = generateSessionToken()
 
-  await (db as any).activeSession.upsert({
-    where: { userId },
-    update: { sessionToken: newToken, updatedAt: new Date() },
-    create: { id: randomUUID(), userId, sessionToken: newToken },
-  })
+  await Promise.race([
+    db.activeSession.upsert({
+      where: { userId },
+      update: { sessionToken: newToken, updatedAt: new Date() },
+      create: { id: randomUUID(), userId, sessionToken: newToken },
+    }),
+    new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error("[session] invalidateSession timed out (5s)")), 5000)
+    ),
+  ])
 
   // Update cache immediately
   sessionCache.set(userId, { token: newToken, checkedAt: Date.now() })
+  evictExpiredCacheEntries()
 
   return newToken
 }
@@ -218,7 +197,7 @@ export async function removeSession(userId: string): Promise<void> {
   if (!tableReady) return
 
   try {
-    await (db as any).activeSession.deleteMany({ where: { userId } })
+    await db.activeSession.deleteMany({ where: { userId } })
     sessionCache.delete(userId)
   } catch (err: any) {
     console.warn("[session] Failed to remove session:", err.message)

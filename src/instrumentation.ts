@@ -7,16 +7,41 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     try {
       const { runAutoMigrations } = await import("@/lib/auto-migrate")
+      const startTime = Date.now()
+      let migrationTimedOut = false
+
       // Safety timeout: don't let migrations block the server startup for more than 10s.
       // If migrations hang (e.g., Turso connectivity issue), the server still starts
       // and individual routes will retry migrations on their own.
       await Promise.race([
-        runAutoMigrations(),
-        new Promise<void>((resolve) => setTimeout(resolve, 10000)),
+        (async () => {
+          await runAutoMigrations()
+        })(),
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            migrationTimedOut = true
+            resolve()
+          }, 10000)
+        }),
       ])
-    } catch (err: any) {
-      // Non-fatal: routes will handle their own migrations
-      console.error("[instrumentation] Auto-migrate failed (non-fatal):", err?.message)
+
+      const elapsed = Date.now() - startTime
+
+      if (migrationTimedOut) {
+        console.warn(
+          `[instrumentation] Auto-migrate timed out after ${elapsed}ms — migrations may still be running in background`,
+        )
+      } else {
+        console.log(
+          `[instrumentation] Auto-migrate completed successfully in ${elapsed}ms`,
+        )
+      }
+    } catch (error) {
+      console.error(
+        "[instrumentation] Auto-migrate failed during server startup:",
+        error,
+      )
+      // Non-fatal — individual routes have their own migration fallback
     }
   }
 }

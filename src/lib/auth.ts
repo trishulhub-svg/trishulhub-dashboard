@@ -71,8 +71,8 @@ export const authOptions: NextAuthOptions = {
             name: user.name,
             role: user.role,
           }
-        } catch (error: any) {
-          logError("[auth] Authorize error:", error.message)
+        } catch (error: unknown) {
+          logError("[auth] Authorize error:", error instanceof Error ? error.message : String(error))
           return null
         }
       },
@@ -90,13 +90,15 @@ export const authOptions: NextAuthOptions = {
         // This overwrites any existing session token in the DB,
         // which invalidates any previous device's session.
         const sessionToken = generateSessionToken()
-        token.sessionToken = sessionToken
 
         try {
           await setSessionToken(user.id, sessionToken)
+          token.sessionToken = sessionToken
           log("[auth] Session token stored for user:", user.id)
         } catch (err) {
           logError("[auth] Failed to store session token:", err)
+          // Don't set token.sessionToken — single-device enforcement disabled gracefully
+          // User can still log in, just without single-device enforcement
         }
 
         return token

@@ -18,18 +18,20 @@ function createPrismaClient() {
     })
   }
 
-  // Fallback to local SQLite for development
-  if (process.env.NODE_ENV === 'production') {
+  if (!tursoUrl || (!tursoUrl.startsWith('libsql://') && !tursoUrl.startsWith('https://'))) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        '[db] FATAL: TURSO_DATABASE_URL is not configured or has invalid format. Refusing to start with empty local SQLite in production.'
+      )
+    }
     console.error(
-      '[db] CRITICAL: TURSO_DATABASE_URL is not configured or has invalid format!',
-      'App will use a LOCAL SQLite database with NO data.',
-      'All API queries will return empty results.',
-      'Fix: Set TURSO_DATABASE_URL (libsql://...) and TURSO_AUTH_TOKEN in Vercel env vars.'
+      '[db] WARNING: TURSO_DATABASE_URL is not configured. Using local SQLite for development.',
+      { url: tursoUrl ? `${tursoUrl.substring(0, 20)}...` : 'undefined' }
     )
+    return new PrismaClient({
+      log: ['warn', 'error'],
+    })
   }
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-  })
 }
 
 const globalForPrisma = globalThis as unknown as {
@@ -88,13 +90,13 @@ export async function ensureTimetableTables(): Promise<void> {
     `)
     _timetableEnsured = true
   } catch (error) {
-    // If table already exists (race condition), that's fine
     const msg = error instanceof Error ? error.message : String(error)
-    if (!msg.includes('already exists')) {
+    if (msg.includes('already exists')) {
+      _timetableEnsured = true // Tables exist, no need to retry
+    } else {
       console.error('[db] Failed to ensure timetable tables:', msg)
+      // Do NOT set _timetableEnsured — allow retry on next call
     }
-    // Mark as attempted even on error to avoid infinite retries
-    _timetableEnsured = true
   }
 }
 

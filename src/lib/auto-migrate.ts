@@ -129,7 +129,40 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "_ProjectMethodToProject",
-    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL)`
+    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY("A","B"))`
+  },
+  // Protocol auth tables (serverless-friendly)
+  {
+    name: "ProtocolOtp",
+    sql: `CREATE TABLE IF NOT EXISTS "ProtocolOtp" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "email" TEXT NOT NULL,
+      "otp" TEXT NOT NULL,
+      "expiresAt" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL DEFAULT (datetime('now'))
+    )`
+  },
+  {
+    name: "ProtocolRateLimit",
+    sql: `CREATE TABLE IF NOT EXISTS "ProtocolRateLimit" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "key" TEXT NOT NULL,
+      "count" INTEGER NOT NULL DEFAULT 0,
+      "windowStart" TEXT NOT NULL,
+      "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
+    )`
+  },
+  // ActiveSession (serverless session tracking — also created in session-manager.ts)
+  {
+    name: "ActiveSession",
+    sql: `CREATE TABLE IF NOT EXISTS "ActiveSession" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "userId" TEXT NOT NULL UNIQUE,
+      "sessionToken" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+      "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`
   },
 ]
 
@@ -255,12 +288,120 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
+    // 1g. Migrate _ProjectMethodToProject to add PRIMARY KEY for existing DBs
+    // SQLite doesn't support ALTER TABLE ADD PRIMARY KEY, so we recreate the table
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject_new" (
+          "A" TEXT NOT NULL,
+          "B" TEXT NOT NULL,
+          PRIMARY KEY("A","B")
+        )
+      `)
+      // Copy data from old table (if it exists) — INSERT OR IGNORE handles duplicate PKs
+      try {
+        await db.$executeRawUnsafe(`INSERT OR IGNORE INTO "_ProjectMethodToProject_new" ("A", "B") SELECT "A", "B" FROM "_ProjectMethodToProject"`)
+        await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "_ProjectMethodToProject"`)
+        await db.$executeRawUnsafe(`ALTER TABLE "_ProjectMethodToProject_new" RENAME TO "_ProjectMethodToProject"`)
+        console.log(`[auto-migrate] Migrated _ProjectMethodToProject to add PRIMARY KEY`)
+      } catch {
+        // Old table doesn't exist yet (fresh DB) — new table is already correct
+      }
+    } catch (err: any) {
+      console.warn(`[auto-migrate] _ProjectMethodToProject PRIMARY KEY migration: ${err?.message}`)
+    }
+
     // Join table indexes for Project ↔ ProjectMethod
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_A_index" ON "_ProjectMethodToProject"("A")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] _ProjectMethodToProject_A_index: ${err?.message}`)
+      }
+    }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_B_index" ON "_ProjectMethodToProject"("B")`)
     } catch (err: any) {
       if (!err?.message?.includes('already exists')) {
         console.warn(`[auto-migrate] _ProjectMethodToProject_B_index: ${err?.message}`)
+      }
+    }
+
+    // 1h. Missing indexes declared in Prisma schema
+    // Contract indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Contract_clientId_index" ON "Contract"("clientId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] Contract_clientId_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Contract_status_index" ON "Contract"("status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] Contract_status_index: ${err?.message}`)
+      }
+    }
+    // ProjectWebsite indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectWebsite_projectId_index" ON "ProjectWebsite"("projectId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${err?.message}`)
+      }
+    }
+    // EmailLog indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_type_index" ON "EmailLog"("type")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_type_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_status_index" ON "EmailLog"("status")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_status_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_createdAt_index" ON "EmailLog"("createdAt")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_createdAt_index: ${err?.message}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_triggeredBy_index" ON "EmailLog"("triggeredBy")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_triggeredBy_index: ${err?.message}`)
+      }
+    }
+    // FilePermission indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_driveFileId_index" ON "FilePermission"("driveFileId")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${err?.message}`)
+      }
+    }
+    // ProtocolOtp indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProtocolOtp_expiresAt_index" ON "ProtocolOtp"("expiresAt")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProtocolOtp_expiresAt_index: ${err?.message}`)
+      }
+    }
+    // ProtocolRateLimit indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ProtocolRateLimit_key_index" ON "ProtocolRateLimit"("key")`)
+    } catch (err: any) {
+      if (!err?.message?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${err?.message}`)
       }
     }
 

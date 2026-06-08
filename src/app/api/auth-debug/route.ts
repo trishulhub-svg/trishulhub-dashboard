@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     try {
       body = await request.json()
     } catch {
-      body = { email: "test@test.com", password: "test" }
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
     const { email, password } = body
