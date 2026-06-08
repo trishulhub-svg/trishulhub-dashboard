@@ -1,7 +1,9 @@
 import NextAuth, { type NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
+import type { NextApiRequest } from "next"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
+import { type UserRole } from "@/lib/types"
 import {
   generateSessionToken,
   setSessionToken,
@@ -28,7 +30,7 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, _req) {
         log("[auth] Authorize called for:", credentials?.email)
 
         if (!credentials?.email || !credentials?.password) {
@@ -69,7 +71,7 @@ export const authOptions: NextAuthOptions = {
             id: user.id,
             email: user.email,
             name: user.name,
-            role: user.role,
+            role: user.role as UserRole,
           }
         } catch (error: unknown) {
           logError("[auth] Authorize error:", error instanceof Error ? error.message : String(error))
@@ -120,7 +122,7 @@ export const authOptions: NextAuthOptions = {
             if (freshUser) {
               token.name = freshUser.name
               token.email = freshUser.email
-              token.role = freshUser.role
+              token.role = freshUser.role as UserRole
               log("[auth] Session updated from DB for user:", userId, "name:", freshUser.name)
             }
           } catch (err) {

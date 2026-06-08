@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import { PrismaLibSQL } from '@prisma/adapter-libsql'
 
 // Create the Prisma client with libSQL adapter for Turso
-function createPrismaClient() {
+function createPrismaClient(): PrismaClient {
   const tursoUrl = process.env.TURSO_DATABASE_URL || ''
   const authToken = process.env.TURSO_AUTH_TOKEN || ''
 
@@ -18,29 +18,52 @@ function createPrismaClient() {
     })
   }
 
-  if (!tursoUrl || (!tursoUrl.startsWith('libsql://') && !tursoUrl.startsWith('https://'))) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(
-        '[db] FATAL: TURSO_DATABASE_URL is not configured or has invalid format. Refusing to start with empty local SQLite in production.'
-      )
-    }
-    console.error(
-      '[db] WARNING: TURSO_DATABASE_URL is not configured. Using local SQLite for development.',
-      { url: tursoUrl ? `${tursoUrl.substring(0, 20)}...` : 'undefined' }
+  // No valid Turso URL — in production this is fatal, in dev fall back to local SQLite
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[db] FATAL: TURSO_DATABASE_URL is not configured or has invalid format. Refusing to start with empty local SQLite in production.'
     )
-    return new PrismaClient({
-      log: ['warn', 'error'],
-    })
   }
+
+  console.warn(
+    '[db] WARNING: TURSO_DATABASE_URL is not configured. Using local SQLite for development.',
+    { url: tursoUrl ? `${tursoUrl.substring(0, 20)}...` : 'undefined' }
+  )
+  return new PrismaClient({
+    log: ['warn', 'error'],
+  })
 }
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient()
+// Lazy initialization: create client only when first accessed.
+// This avoids throwing during `next build` on machines without Turso credentials.
+// At Vercel runtime, env vars are always configured so the Turso path is taken.
+function getPrismaClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient()
+  }
+  return globalForPrisma.prisma
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+/**
+ * Database client — lazily initialized on first use.
+ * Typed as PrismaClient so all existing code (`db.user.findMany(...)` etc.) works unchanged.
+ */
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    const client = getPrismaClient()
+    const value = Reflect.get(client, prop, receiver)
+    // Bind methods to the real client so `this` is correct
+    if (typeof value === 'function') return value.bind(client)
+    return value
+  },
+  set(_target, prop, value) {
+    return Reflect.set(getPrismaClient(), prop, value)
+  },
+})
 
 // ── Auto-migration: Create timetable tables if they don't exist ──
 // This ensures the PersonalTimetableTask and TimetableSettings tables
@@ -103,6 +126,6 @@ export async function ensureTimetableTables(): Promise<void> {
 // Graceful shutdown — only in long-running processes, not serverless/Vercel
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
   process.on('beforeExit', async () => {
-    await db.$disconnect()
+    try { await db.$disconnect() } catch {}
   })
 }

@@ -1,7 +1,7 @@
 import { DefaultUser } from "next-auth"
 import { JWT as DefaultJWT } from "next-auth/jwt"
 
-type UserRole = "SUPER_ADMIN" | "ADMIN" | "DEVELOPER" | "CLIENT"
+type UserRole = "SUPER_ADMIN" | "ADMIN" | "DEVELOPER" | "VIEWER" | "CLIENT"
 
 declare module "next-auth" {
   interface User {

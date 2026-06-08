@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
     // Developers already filtered by Prisma where clause above
     if (userRole !== "SUPER_ADMIN") {
       const sanitized = agents.map(agent => {
-        if (agent.roleConfig && agent.type !== "DEV" && userRole !== "SUPER_ADMIN") {
+        if (agent.roleConfig && agent.type !== "DEV") {
           return {
             ...agent,
             roleConfig: {
@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
           }
         }
         // Mask githubToken for all non-super-admin users even for DEV agent
-        if (agent.roleConfig && userRole !== "SUPER_ADMIN") {
+        if (agent.roleConfig) {
           return {
             ...agent,
             roleConfig: {
