@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // ── Helper: get active protocol (no auth required for reading) ──
 async function getActiveProtocol() {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check authentication for full metadata
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     const isAuthenticated = !!token;
 
     // If download requested, return binary stream (requires auth)
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Check downloadEnabled — SUPER_ADMIN always bypasses
-      if (!protocol.downloadEnabled && (token as any).role !== "SUPER_ADMIN") {
+      if (!protocol.downloadEnabled && token.role !== "SUPER_ADMIN") {
         return NextResponse.json(
           { error: "Download disabled by administration" },
           { status: 403 }
@@ -107,13 +108,13 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // P10-013: Rate limit PATCH (20 per minute)
-    const rlKey = `protocol-patch:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rlKey = `protocol-patch:${getTokenUserId(token)}`;
     const rl = rateLimit(rlKey, 20, 60 * 1000);
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
@@ -158,13 +159,13 @@ export async function PATCH(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // P10-013: Rate limit PUT (20 per minute)
-    const rlKey = `protocol-put:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rlKey = `protocol-put:${getTokenUserId(token)}`;
     const rl = rateLimit(rlKey, 20, 60 * 1000);
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
@@ -211,7 +212,7 @@ export async function PUT(request: NextRequest) {
       fileName,
       fileSize: fileSize || 0,
       mimeType: mimeType || "application/pdf",
-      uploadedBy: (token as any).name || (token as any).email || "Admin",
+      uploadedBy: token.name || token.email || "Admin",
     });
 
     // P10-009: Wrap check-then-insert in a transaction to prevent TOCTOU race
@@ -226,7 +227,7 @@ export async function PUT(request: NextRequest) {
       await tx.$executeRawUnsafe(
         `INSERT INTO "ProtocolVersion" (id, version, title, content, isActive, createdBy)
          VALUES (?, '1.0', ?, ?, true, ?)`,
-        id, meta, base64Data, (token as any).sub || (token as any).id || "unknown"
+        id, meta, base64Data, getTokenUserId(token)
       );
       return "created";
     });
@@ -242,13 +243,13 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // P10-013: Rate limit DELETE (20 per minute)
-    const rlKey = `protocol-delete:${(token as any).sub || (token as any).id || "unknown"}`;
+    const rlKey = `protocol-delete:${getTokenUserId(token)}`;
     const rl = rateLimit(rlKey, 20, 60 * 1000);
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });

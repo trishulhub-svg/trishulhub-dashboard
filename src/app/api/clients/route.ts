@@ -320,7 +320,7 @@ export async function POST(req: NextRequest) {
       // Re-check duplicate email inside transaction to prevent TOCTOU race
       const dup = await tx.client.findFirst({ where: { email: data.email } })
       if (dup) {
-        throw { code: "DUPLICATE_EMAIL", status: 409 } as any
+        throw Object.assign(new Error("DUPLICATE_EMAIL"), { code: "DUPLICATE_EMAIL", status: 409 })
       }
       return tx.client.create({
         data: createData,

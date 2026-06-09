@@ -1274,7 +1274,7 @@ export default function ProjectsPage() {
         const res = await fetch(`/api/tasks?projectId=${pid}`, { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load tasks");
         const td = await res.json();
-        return Array.isArray((td as any)?.tasks) ? (td as any).tasks : Array.isArray(td) ? td : (Array.isArray(td?.data) ? td.data : []);
+        return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
       },
       staleTime: 30 * 1000,
     });

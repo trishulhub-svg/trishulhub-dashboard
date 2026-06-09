@@ -215,7 +215,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(lead)
   } catch (error: unknown) {
     // Handle transactional duplicate email check error
-    if (error && typeof error === "object" && "code" in error && (error as any).code === "DUPLICATE_EMAIL") {
+    const code = (error as Record<string, string>).code;
+    if (error && typeof error === "object" && "code" in error && code === "DUPLICATE_EMAIL") {
       return NextResponse.json({ error: "A lead with this email already exists" }, { status: 409 })
     }
     console.error("[leads] POST error:", error instanceof Error ? error.message : error)

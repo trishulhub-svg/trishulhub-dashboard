@@ -3,13 +3,14 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // TODO (I25): This route uses getToken() instead of getServerSession().
 // Consider standardizing auth pattern across all utility routes.
 
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
   if (!token) return null;
   return token;
 }
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // W58: Rate limit GET (30 per minute)
-    const rlResult = rateLimit(`ws-config:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    const rlResult = rateLimit(`ws-config:${getTokenUserId(token)}`, 30, 60_000);
     if (!rlResult.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -92,7 +93,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // W58: Rate limit PATCH (10 per minute)
-    const rlWrite = rateLimit(`ws-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    const rlWrite = rateLimit(`ws-config-write:${getTokenUserId(token)}`, 10, 60_000);
     if (!rlWrite.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -132,7 +133,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       updates.push(`"updatedBy" = ?`);
-      values.push((token as any).sub || (token as any).id || "unknown");
+      values.push(getTokenUserId(token));
       updates.push(`"updatedAt" = CURRENT_TIMESTAMP`);
       values.push(existing[0].id);
 
@@ -150,7 +151,7 @@ export async function PATCH(request: NextRequest) {
         id,
         configToken || "",
         configTokenLabel || "Workspace Token",
-        (token as any).sub || (token as any).id || "unknown"
+        getTokenUserId(token)
       );
     }
 

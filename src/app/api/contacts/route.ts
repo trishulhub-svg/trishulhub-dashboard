@@ -187,11 +187,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(contact, { status: 201 })
   } catch (error: unknown) {
     // Handle transactional duplicate email check error
-    if (error && typeof error === "object" && "code" in error && (error as any).code === "DUPLICATE_EMAIL") {
+    const code = (error as Record<string, string>).code;
+    if (error && typeof error === "object" && "code" in error && code === "DUPLICATE_EMAIL") {
       return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
     }
     // Handle Prisma unique constraint violation as fallback
-    if (error instanceof Error && "code" in error && (error as any).code === "P2002") {
+    if (error instanceof Error && "code" in error && code === "P2002") {
       return NextResponse.json({ error: "A contact with this email already exists" }, { status: 409 })
     }
     console.error("Error creating contact:", error)

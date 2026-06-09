@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // TODO (I25): This route uses getToken() instead of getServerSession().
 // Consider standardizing auth pattern across all utility routes.
@@ -14,13 +15,13 @@ import { rateLimit } from "@/lib/rate-limit";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // W58: Rate limit GET (30 per minute)
-    const rlResult = rateLimit(`user-code-all:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    const rlResult = rateLimit(`user-code-all:${getTokenUserId(token)}`, 30, 60_000);
     if (!rlResult.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }

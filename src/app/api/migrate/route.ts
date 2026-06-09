@@ -118,7 +118,7 @@ export async function POST() {
 
   // Check if Availability table exists
   try {
-    await (db as any).availability.count({ take: 1 })
+    await db.availability.count({ take: 1 })
     results.Availability = "already exists"
   } catch {
     try {
@@ -146,7 +146,7 @@ export async function POST() {
 
   // Check if AvailabilityOverride table exists
   try {
-    await (db as any).availabilityOverride.count({ take: 1 })
+    await db.availabilityOverride.count({ take: 1 })
     results.AvailabilityOverride = "already exists"
   } catch {
     try {
@@ -176,7 +176,7 @@ export async function POST() {
 
   // Check if TrainingDocument table exists
   try {
-    await (db as any).trainingDocument.count({ take: 1 })
+    await db.trainingDocument.count({ take: 1 })
     results.TrainingDocument = "already exists"
   } catch {
     try {
@@ -205,7 +205,7 @@ export async function POST() {
 
   // Check if TrainingTest table exists
   try {
-    await (db as any).trainingTest.count({ take: 1 })
+    await db.trainingTest.count({ take: 1 })
     results.TrainingTest = "already exists"
   } catch {
     try {
@@ -233,7 +233,7 @@ export async function POST() {
 
   // Check if TrainingAssignment table exists
   try {
-    await (db as any).trainingAssignment.count({ take: 1 })
+    await db.trainingAssignment.count({ take: 1 })
     results.TrainingAssignment = "already exists"
   } catch {
     try {
@@ -265,7 +265,7 @@ export async function POST() {
 
   // Check if TestAttempt table exists
   try {
-    await (db as any).testAttempt.count({ take: 1 })
+    await db.testAttempt.count({ take: 1 })
     results.TestAttempt = "already exists"
   } catch {
     try {
@@ -343,14 +343,14 @@ export async function POST() {
     verification.Leave = "failed: verification error"
   }
   try {
-    const count = await (db as any).availability.count({ take: 1 })
+    const count = await db.availability.count({ take: 1 })
     verification.Availability = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] Availability verification failed:", err)
     verification.Availability = "failed: verification error"
   }
   try {
-    const count = await (db as any).availabilityOverride.count({ take: 1 })
+    const count = await db.availabilityOverride.count({ take: 1 })
     verification.AvailabilityOverride = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] AvailabilityOverride verification failed:", err)
@@ -359,28 +359,28 @@ export async function POST() {
 
   // Verify training tables
   try {
-    const count = await (db as any).trainingDocument.count({ take: 1 })
+    const count = await db.trainingDocument.count({ take: 1 })
     verification.TrainingDocument = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] TrainingDocument verification failed:", err)
     verification.TrainingDocument = "failed: verification error"
   }
   try {
-    const count = await (db as any).trainingTest.count({ take: 1 })
+    const count = await db.trainingTest.count({ take: 1 })
     verification.TrainingTest = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] TrainingTest verification failed:", err)
     verification.TrainingTest = "failed: verification error"
   }
   try {
-    const count = await (db as any).trainingAssignment.count({ take: 1 })
+    const count = await db.trainingAssignment.count({ take: 1 })
     verification.TrainingAssignment = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] TrainingAssignment verification failed:", err)
     verification.TrainingAssignment = "failed: verification error"
   }
   try {
-    const count = await (db as any).testAttempt.count({ take: 1 })
+    const count = await db.testAttempt.count({ take: 1 })
     verification.TestAttempt = `verified (${count} rows)`
   } catch (err: unknown) {
     console.error("[migrate] TestAttempt verification failed:", err)

@@ -3,16 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt, encryptWithKey, decryptWithKey } from "@/lib/encryption";
 import { parseRepoUrl } from "@/lib/git-sync";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // TODO (I25): This route uses getToken() instead of getServerSession().
 // Consider standardizing auth pattern across all utility routes.
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
   if (!token || token.role !== "SUPER_ADMIN") {
     return null;
   }
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
     }
 
     // W58: Rate limit GET (30 per minute)
-    const rlGet = rateLimit(`git-config:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    const rlGet = rateLimit(`git-config:${getTokenUserId(token)}`, 30, 60_000);
     if (!rlGet.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -107,7 +108,7 @@ async function saveConfig(request: NextRequest) {
     }
 
     // W58: Rate limit POST/PUT (10 per minute)
-    const rlWrite = rateLimit(`git-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    const rlWrite = rateLimit(`git-config-write:${getTokenUserId(token)}`, 10, 60_000);
     if (!rlWrite.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -136,19 +137,19 @@ async function saveConfig(request: NextRequest) {
       );
     }
 
-    // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
     // Use DB-stored encryption key if available
     const configCheck: any[] = await db.$queryRawUnsafe(
       `SELECT "encryptionKey" FROM "TaskGitConfig" LIMIT 1`
     );
+    let dbEncryptionKey = "";
     if (configCheck.length > 0 && configCheck[0].encryptionKey) {
-      process.env.ENCRYPTION_KEY = configCheck[0].encryptionKey;
+      dbEncryptionKey = configCheck[0].encryptionKey;
     }
 
     // Encrypt the token
     let encrypted: { encrypted: string; iv: string; tag: string };
     try {
-      encrypted = encrypt(gitToken);
+      encrypted = dbEncryptionKey ? encryptWithKey(gitToken, dbEncryptionKey) : encrypt(gitToken);
     } catch (encError: unknown) {
       const encMsg = encError instanceof Error ? encError.message : String(encError);
       console.error("[task-git-config] Encryption error:", encMsg);
@@ -225,7 +226,7 @@ async function saveConfig(request: NextRequest) {
         encrypted.tag,
         currentEncKey,
         isEnabled !== false ? 1 : 0,
-        (token as any).sub || (token as any).id || "unknown"
+        getTokenUserId(token)
       );
     }
 
@@ -246,7 +247,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // W58: Rate limit PATCH (10 per minute)
-    const rlPatch = rateLimit(`git-config-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    const rlPatch = rateLimit(`git-config-write:${getTokenUserId(token)}`, 10, 60_000);
     if (!rlPatch.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -297,30 +298,23 @@ export async function PATCH(request: NextRequest) {
           const oldEnc = configRow[0].tokenEncrypted;
 
           if (oldIv && oldTag && oldEnc && oldKey && oldKey.length === 64) {
-            // I11: Use top-level import instead of require inside async function
-            const keyBuffer = Buffer.from(oldKey, "hex");
-            const ivBuffer = Buffer.from(oldIv, "base64");
-            const tagBuffer = Buffer.from(oldTag, "base64");
-            const decipher = crypto.createDecipheriv("aes-256-gcm", keyBuffer, ivBuffer);
-            decipher.setAuthTag(tagBuffer);
-            plainToken = decipher.update(oldEnc, "base64", "utf8");
-            plainToken += decipher.final("utf8");
-            needsReEncrypt = true;
+            // Use decryptWithKey() — no process.env mutation
+            try {
+              plainToken = decryptWithKey(oldEnc, oldIv, oldTag, oldKey);
+              needsReEncrypt = true;
+            } catch {
+              // Old key might not work — user will need to re-enter the git token
+              console.warn("[task-git-config] Could not decrypt git token with old key for re-encryption");
+            }
           }
-        } catch {
-          // Old key might not work — user will need to re-enter the git token
-          console.warn("[task-git-config] Could not decrypt git token with old key for re-encryption");
         }
       }
 
       // W28: Only re-encrypt if needed, and DON'T save new key if re-encryption fails
       // This prevents permanent data loss if re-encryption fails mid-operation
       if (needsReEncrypt && plainToken) {
-        const previousKey = process.env.ENCRYPTION_KEY;
-        process.env.ENCRYPTION_KEY = newKey;
         try {
-          const { encrypt: encryptFn } = await import("@/lib/encryption");
-          const reEncrypted = encryptFn(plainToken);
+          const reEncrypted = encryptWithKey(plainToken, newKey);
           await db.$executeRawUnsafe(
             `UPDATE "TaskGitConfig" SET "tokenEncrypted" = ?, "tokenIv" = ?, "tokenTag" = ? WHERE id = ?`,
             reEncrypted.encrypted,
@@ -329,8 +323,6 @@ export async function PATCH(request: NextRequest) {
             existing[0].id
           );
         } catch (err: unknown) {
-          // Re-encryption failed — revert to old key to prevent permanent data loss
-          process.env.ENCRYPTION_KEY = previousKey;
           console.error("[task-git-config] Failed to re-encrypt git token with new key:", err instanceof Error ? err.message : String(err));
           return NextResponse.json(
             { error: "Failed to re-encrypt git token with new key. Old encryption key preserved to prevent data loss." },
@@ -338,10 +330,6 @@ export async function PATCH(request: NextRequest) {
           );
         }
       }
-
-      // Set new key (only reached if re-encryption succeeded or wasn't needed)
-      // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
-      process.env.ENCRYPTION_KEY = newKey;
 
       // Store the new key in DB
       await db.$executeRawUnsafe(
@@ -354,15 +342,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (triggerSync) {
-      // TODO (C8): Refactor to pass encryption key as parameter instead of mutating process.env (serverless race condition risk)
-      // Load encryption key from DB before triggering sync
-      const keyRow: any[] = await db.$queryRawUnsafe(
-        `SELECT "encryptionKey" FROM "TaskGitConfig" WHERE id = ?`,
-        existing[0].id
-      );
-      if (keyRow.length > 0 && keyRow[0].encryptionKey) {
-        process.env.ENCRYPTION_KEY = keyRow[0].encryptionKey;
-      }
+      // Load encryption key from DB before triggering sync (no process.env mutation)
+      // The git-sync module will load it from DB independently
 
       // Set status to PENDING and run sync directly within this request
       await db.$executeRawUnsafe(

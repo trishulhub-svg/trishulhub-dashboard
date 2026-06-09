@@ -4,13 +4,14 @@ import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { syncTasksToGit } from "@/lib/git-sync";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // TODO (I25): This route uses getToken() instead of getServerSession().
 // Consider standardizing auth pattern across all utility routes.
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
   if (!token || token.role !== "SUPER_ADMIN") {
     return null;
   }
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     // W58: Rate limit (10 per minute)
-    const rlResult = rateLimit(`git-sync:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    const rlResult = rateLimit(`git-sync:${getTokenUserId(token)}`, 10, 60_000);
     if (!rlResult.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }

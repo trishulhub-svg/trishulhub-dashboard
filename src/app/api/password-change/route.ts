@@ -13,7 +13,7 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
   if (pwTableChecked && pwTableExists) return { success: true }
 
   try {
-    await (db as any).passwordChange.count({ take: 1 })
+    await db.passwordChange.count({ take: 1 })
     pwTableChecked = true
     pwTableExists = true
     return { success: true }
@@ -46,7 +46,7 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
   }
 
   try {
-    await (db as any).passwordChange.count({ take: 1 })
+    await db.passwordChange.count({ take: 1 })
     pwTableChecked = true
     pwTableExists = true
     return { success: true }
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: max 3 OTP requests per user in 15 minutes
-    const recentRequests = await (db as any).passwordChange.count({
+    const recentRequests = await db.passwordChange.count({
       where: {
         userId,
         createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Clean up expired OTPs for this user
-    await (db as any).passwordChange.deleteMany({
+    await db.passwordChange.deleteMany({
       where: {
         userId,
         verified: false,
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
 
     // Save verification record with hashed OTP
-    await (db as any).passwordChange.create({
+    await db.passwordChange.create({
       data: {
         userId,
         otp: hashedOtp,
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
     const emailResult = await sendPasswordChangeOTP(user.email, otp, userId)
     if (!emailResult.success) {
       // Delete the verification record if email failed
-      await (db as any).passwordChange.deleteMany({ where: { userId, verified: false } })
+      await db.passwordChange.deleteMany({ where: { userId, verified: false } })
       // C12: Log the actual error server-side, return generic message
       console.error("[password-change] Failed to send OTP email:", emailResult.error)
       return NextResponse.json({ error: "Failed to send OTP email. Please try again later." }, { status: 500 })
@@ -186,7 +186,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Find the verification record
-    const verification = await (db as any).passwordChange.findFirst({
+    const verification = await db.passwordChange.findFirst({
       where: {
         userId,
         verified: false,
@@ -201,7 +201,7 @@ export async function PUT(req: NextRequest) {
 
     // Check max attempts on this OTP
     if (verification.attempts >= 5) {
-      await (db as any).passwordChange.delete({ where: { id: verification.id } })
+      await db.passwordChange.delete({ where: { id: verification.id } })
       return NextResponse.json({ error: "Too many failed attempts. Please request a new OTP." }, { status: 429 })
     }
 
@@ -212,7 +212,7 @@ export async function PUT(req: NextRequest) {
     if (!otpValid) {
       // SEC-013: Increment attempts counter atomically within transaction
       await db.$transaction(async (tx) => {
-        await (tx as any).passwordChange.update({
+        await tx.passwordChange.update({
           where: { id: verification.id },
           data: { attempts: { increment: 1 } },
         })
@@ -234,7 +234,7 @@ export async function PUT(req: NextRequest) {
     const hashedPassword = await bcrypt.default.hash(newPassword, 12)
     await db.$transaction(async (tx) => {
       // Mark as verified only after all pre-checks pass
-      await (tx as any).passwordChange.update({
+      await tx.passwordChange.update({
         where: { id: verification.id },
         data: { verified: true },
       })
@@ -246,7 +246,7 @@ export async function PUT(req: NextRequest) {
       })
 
       // Clean up all verification records for this user
-      await (tx as any).passwordChange.deleteMany({
+      await tx.passwordChange.deleteMany({
         where: { userId },
       })
     })

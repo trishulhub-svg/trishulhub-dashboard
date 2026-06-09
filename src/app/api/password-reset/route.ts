@@ -36,7 +36,7 @@ async function ensurePasswordResetTable(): Promise<{ success: boolean; error?: s
   if (resetTableChecked && resetTableExists) return { success: true }
 
   try {
-    await (db as any).passwordReset.count({ take: 1 })
+    await db.passwordReset.count({ take: 1 })
     resetTableChecked = true
     resetTableExists = true
     return { success: true }
@@ -57,24 +57,26 @@ async function ensurePasswordResetTable(): Promise<{ success: boolean; error?: s
         FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `)
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_token_idx" ON "PasswordReset"("token")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_userId_idx" ON "PasswordReset"("userId")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
-    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_expiresAt_idx" ON "PasswordReset"("expiresAt")`) } catch (error) { console.warn('[password-reset] Index creation failed (may already exist):', error) }
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_token_idx" ON "PasswordReset"("token")`) } catch (e) { console.warn('[password-reset] Index creation failed (may already exist):', e instanceof Error ? e.message : String(e)) }
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_userId_idx" ON "PasswordReset"("userId")`) } catch (e) { console.warn('[password-reset] Index creation failed (may already exist):', e instanceof Error ? e.message : String(e)) }
+    try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordReset_expiresAt_idx" ON "PasswordReset"("expiresAt")`) } catch (e) { console.warn('[password-reset] Index creation failed (may already exist):', e instanceof Error ? e.message : String(e)) }
     console.log("[password-reset] PasswordReset table created successfully")
-  } catch (err: any) {
-    console.error("[password-reset] Failed to create PasswordReset table:", err.message)
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[password-reset] Failed to create PasswordReset table:", errMsg)
     resetTableChecked = false
     resetTableExists = false
     return { success: false, error: "Failed to initialize password reset table" }
   }
 
   try {
-    await (db as any).passwordReset.count({ take: 1 })
+    await db.passwordReset.count({ take: 1 })
     resetTableChecked = true
     resetTableExists = true
     return { success: true }
-  } catch (err: any) {
-    console.error("[password-reset] PasswordReset table verification failed:", err.message)
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[password-reset] PasswordReset table verification failed:", errMsg)
     resetTableChecked = false
     resetTableExists = false
     return { success: false, error: "Failed to initialize password reset table" }
@@ -126,12 +128,12 @@ export async function POST(req: NextRequest) {
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
 
       // Clean up any existing unused tokens for this user
-      await (db as any).passwordReset.deleteMany({
+      await db.passwordReset.deleteMany({
         where: { userId, used: false },
       })
 
       // Save the reset token
-      await (db as any).passwordReset.create({
+      await db.passwordReset.create({
         data: {
           userId,
           token: hashToken(token),
@@ -150,7 +152,7 @@ export async function POST(req: NextRequest) {
 
       if (!emailResult.success) {
         // Delete the token if email failed
-        await (db as any).passwordReset.deleteMany({ where: { userId, token: hashToken(token) } })
+        await db.passwordReset.deleteMany({ where: { userId, token: hashToken(token) } })
         console.error('[password-reset] Failed to send reset email:', emailResult.error)
         return NextResponse.json({ error: "Failed to send reset email. Please try again later." }, { status: 500 })
       }
@@ -217,8 +219,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
-  } catch (error: any) {
-    console.error("[password-reset] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[password-reset] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Password reset failed. Please try again." }, { status: 500 })
   }
 }
@@ -247,7 +249,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Find the reset token
-    const resetRecord = await (db as any).passwordReset.findUnique({
+    const resetRecord = await db.passwordReset.findUnique({
       where: { token: hashToken(token) },
     })
 
@@ -262,7 +264,7 @@ export async function PUT(req: NextRequest) {
 
     // Check if token is expired
     if (new Date(resetRecord.expiresAt) < new Date()) {
-      await (db as any).passwordReset.delete({ where: { id: resetRecord.id } })
+      await db.passwordReset.delete({ where: { id: resetRecord.id } })
       return NextResponse.json({ error: "Reset link has expired. Please request a new one." }, { status: 400 })
     }
 
@@ -279,11 +281,11 @@ export async function PUT(req: NextRequest) {
         where: { id: user.id },
         data: { password: hashedPassword },
       }),
-      (db as any).passwordReset.update({
+      db.passwordReset.update({
         where: { id: resetRecord.id },
         data: { used: true },
       }),
-      (db as any).passwordReset.deleteMany({
+      db.passwordReset.deleteMany({
         where: { userId: user.id, id: { not: resetRecord.id } },
       }),
     ])
@@ -311,8 +313,8 @@ export async function PUT(req: NextRequest) {
       success: true,
       message: "Password reset successfully! You can now log in with your new password.",
     })
-  } catch (error: any) {
-    console.error("[password-reset] PUT error:", error.message)
+  } catch (error: unknown) {
+    console.error("[password-reset] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Password reset failed. Please try again." }, { status: 500 })
   }
 }
@@ -330,7 +332,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ valid: false, error: "Token is required" }, { status: 400 })
     }
 
-    const resetRecord = await (db as any).passwordReset.findUnique({
+    const resetRecord = await db.passwordReset.findUnique({
       where: { token: hashToken(token) },
     })
 
@@ -343,7 +345,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (new Date(resetRecord.expiresAt) < new Date()) {
-      await (db as any).passwordReset.delete({ where: { id: resetRecord.id } })
+      await db.passwordReset.delete({ where: { id: resetRecord.id } })
       return NextResponse.json({ valid: false, error: "Token expired" })
     }
 
@@ -358,8 +360,8 @@ export async function GET(req: NextRequest) {
       userName: user?.name,
       userEmail: user?.email?.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
     })
-  } catch (error: any) {
-    console.error("[password-reset] GET error:", error.message)
+  } catch (error: unknown) {
+    console.error("[password-reset] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ valid: false, error: "Password reset failed. Please try again." })
   }
 }

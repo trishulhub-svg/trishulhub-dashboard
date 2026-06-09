@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 /**
  * GET /api/protocol/init
@@ -14,13 +15,13 @@ import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const isAdmin = token.role === "SUPER_ADMIN";
-    const userId = (token as any).sub || (token as any).id;
+    const userId = getTokenUserId(token);
 
     // ONE call to ensure tables — shared across all data fetches
     await ensureProtocolTables();

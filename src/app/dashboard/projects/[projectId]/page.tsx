@@ -164,7 +164,7 @@ export default function ProjectDetailPage() {
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load tasks");
       const td = deepSanitize(await res.json());
-      return Array.isArray((td as any)?.tasks) ? (td as any).tasks : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+      return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: !!projectId,
     staleTime: 30 * 1000,

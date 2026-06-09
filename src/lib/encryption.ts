@@ -65,6 +65,48 @@ export function decrypt(encrypted: string, iv: string, tag: string): string {
 }
 
 /**
+ * Encrypt plaintext using AES-256-GCM with an explicit key (no process.env mutation needed).
+ * Use this instead of encrypt() when you need to pass a specific key (e.g., from DB).
+ */
+export function encryptWithKey(plaintext: string, keyHex: string): { encrypted: string; iv: string; tag: string } {
+  if (!keyHex || keyHex.length !== 64) {
+    throw new Error("Key must be a 64-character hex string (32 bytes).");
+  }
+  const key = Buffer.from(keyHex, "hex");
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  let encrypted = cipher.update(plaintext, "utf8", "base64");
+  encrypted += cipher.final("base64");
+  const tag = cipher.getAuthTag();
+  const result = { encrypted, iv: iv.toString("base64"), tag: tag.toString("base64") };
+  key.fill(0);
+  iv.fill(0);
+  tag.fill(0);
+  return result;
+}
+
+/**
+ * Decrypt AES-256-GCM encrypted data with an explicit key (no process.env mutation needed).
+ * Use this instead of decrypt() when you need to pass a specific key (e.g., from DB).
+ */
+export function decryptWithKey(encrypted: string, iv: string, tag: string, keyHex: string): string {
+  if (!keyHex || keyHex.length !== 64) {
+    throw new Error("Key must be a 64-character hex string (32 bytes).");
+  }
+  const key = Buffer.from(keyHex, "hex");
+  const ivBuffer = Buffer.from(iv, "base64");
+  const tagBuffer = Buffer.from(tag, "base64");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, ivBuffer);
+  decipher.setAuthTag(tagBuffer);
+  let decrypted = decipher.update(encrypted, "base64", "utf8");
+  decrypted += decipher.final("utf8");
+  key.fill(0);
+  ivBuffer.fill(0);
+  tagBuffer.fill(0);
+  return decrypted;
+}
+
+/**
  * SMTP-specific encryption (backward compatible with legacy format).
  * Uses the same ENCRYPTION_KEY as canonical encryption.
  * Output format: `ivHex:authTagHex:encryptedHex` (16-byte IV, AES-256-GCM).

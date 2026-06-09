@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { decrypt } from "@/lib/encryption";
+import { decrypt, decryptWithKey } from "@/lib/encryption";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -379,16 +379,15 @@ export async function syncTasksToGit(): Promise<{
     }
 
     // ── 2. Load encryption key from DB if stored ────────────────────────
-    // C6: TODO: Remove process.env mutation from callers — pass key as parameter to decrypt()/encrypt()
-    if (config.encryptionKey && config.encryptionKey.length === 64) {
-      process.env.ENCRYPTION_KEY = config.encryptionKey;
-      console.log("[git-sync] Loaded encryption key from DB config");
-    }
+    // C6: Fixed — use decryptWithKey() instead of mutating process.env.ENCRYPTION_KEY
+    let dbKey = config.encryptionKey || "";
 
     // ── 3. Decrypt token ──────────────────────────────────────────────────
     let token: string;
     try {
-      token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
+      token = dbKey && dbKey.length === 64
+        ? decryptWithKey(config.tokenEncrypted, config.tokenIv, config.tokenTag, dbKey)
+        : decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
     } catch (err: unknown) {
       const errMsg = "Failed to decrypt token. Check encryption settings.";
       console.error(`[git-sync] Decrypt failed:`, err);

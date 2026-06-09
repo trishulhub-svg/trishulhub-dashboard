@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
   try {
     const { authOptions } = await import("@/lib/auth")
     results.nextauth = {
-      hasTrustHost: (authOptions as any).trustHost === true,
+      hasTrustHost: (authOptions as Record<string, unknown>).trustHost === true,
       hasSecret: !!authOptions.secret,
       hasProviders: authOptions.providers?.length > 0,
       providerCount: authOptions.providers?.length,

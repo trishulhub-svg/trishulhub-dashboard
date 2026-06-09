@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
 import { rateLimit } from "@/lib/rate-limit";
+import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // NOTE [I19]: This route uses getToken() instead of getServerSession() like other routes.
 // This is intentional to avoid potential session deserialization issues with raw JWT tokens.
@@ -11,7 +12,7 @@ import { rateLimit } from "@/lib/rate-limit";
 
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
   if (!token) return null;
   return token;
 }
@@ -35,14 +36,14 @@ export async function GET(request: NextRequest) {
     }
 
     // W58: Rate limit GET (30 per minute)
-    const rlResult = rateLimit(`user-code:${(token as any).sub || (token as any).id || "unknown"}`, 30, 60_000);
+    const rlResult = rateLimit(`user-code:${getTokenUserId(token)}`, 30, 60_000);
     if (!rlResult.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 
     await ensureProtocolTables();
 
-    const userId = (token as any).sub || (token as any).id;
+    const userId = getTokenUserId(token);
 
     const rows: any[] = await db.$queryRawUnsafe(
       `SELECT "code", "updatedAt" FROM "UserCode" WHERE "userId" = ?`,
@@ -83,7 +84,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // W58: Rate limit PATCH (10 per minute)
-    const rlWrite = rateLimit(`user-code-write:${(token as any).sub || (token as any).id || "unknown"}`, 10, 60_000);
+    const rlWrite = rateLimit(`user-code-write:${getTokenUserId(token)}`, 10, 60_000);
     if (!rlWrite.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
@@ -117,7 +118,7 @@ export async function PATCH(request: NextRequest) {
       await db.$executeRawUnsafe(
         `UPDATE "UserCode" SET "code" = ?, "updatedBy" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
         code,
-        (token as any).sub || (token as any).id || "unknown",
+        getTokenUserId(token),
         existing[0].id
       );
     } else {
@@ -129,7 +130,7 @@ export async function PATCH(request: NextRequest) {
         id,
         userId,
         code,
-        (token as any).sub || (token as any).id || "unknown"
+        getTokenUserId(token)
       );
     }
 
