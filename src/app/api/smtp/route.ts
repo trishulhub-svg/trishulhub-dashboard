@@ -5,43 +5,7 @@ import { db } from "@/lib/db"
 import { isPrivateHost } from "@/lib/ssrf"
 import { isValidEmail } from "@/lib/email"
 import { rateLimit } from "@/lib/rate-limit"
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto"
-
-// ── AES-256-GCM encryption helpers ──
-const ALGO = "aes-256-gcm"
-
-function getEncryptionKey(): Buffer {
-  const key = process.env.ENCRYPTION_KEY
-  if (!key || key.length < 32) {
-    throw new Error("ENCRYPTION_KEY environment variable is not set or too short (min 32 chars). Encryption operations are disabled.")
-  }
-  // N-026: NOTE — Buffer.from(..., "utf8").slice(0, 32) can truncate multi-byte UTF-8 characters.
-  // For production use, the ENCRYPTION_KEY should be provided as a hex or base64-encoded
-  // 32-byte string (e.g., 64 hex chars or 44 base64 chars) to guarantee correct key length.
-  return Buffer.from(key, "utf8").slice(0, 32)
-}
-
-function encrypt(text: string): string {
-  const key = getEncryptionKey()
-  const iv = randomBytes(16)
-  const cipher = createCipheriv(ALGO, key, iv)
-  let encrypted = cipher.update(text, "utf8", "hex")
-  encrypted += cipher.final("hex")
-  const authTag = cipher.getAuthTag().toString("hex")
-  return `${iv.toString("hex")}:${authTag}:${encrypted}`
-}
-
-function decrypt(encrypted: string): string {
-  const key = getEncryptionKey()
-  const [ivHex, authTagHex, encryptedData] = encrypted.split(":")
-  const iv = Buffer.from(ivHex, "hex")
-  const authTag = Buffer.from(authTagHex, "hex")
-  const decipher = createDecipheriv(ALGO, key, iv)
-  decipher.setAuthTag(authTag)
-  let decrypted = decipher.update(encryptedData, "hex", "utf8")
-  decrypted += decipher.final("utf8")
-  return decrypted
-}
+import { encryptSmtpPassword, decryptSmtpPassword } from "@/lib/encryption"
 
 // I22: Note — error response formats across endpoints are inconsistent (some use `error`+`detail`+`code`, others just `error`).
 // Future: standardize to a single error envelope shape across all API routes.
@@ -173,7 +137,7 @@ export async function POST(req: NextRequest) {
             host,
             port: port || 587,
             username,
-            password: encrypt(password), // C7: Encrypt password before storage
+            password: encryptSmtpPassword(password), // C7: Encrypt password before storage
             fromEmail,
             fromName: fromName || "TrishulHub",
             secure: secure || false,
@@ -205,7 +169,7 @@ export async function POST(req: NextRequest) {
         host,
         port: port || 587,
         username,
-        password: encrypt(password), // C7: Encrypt password before storage
+        password: encryptSmtpPassword(password), // C7: Encrypt password before storage
         fromEmail,
         fromName: fromName || "TrishulHub",
         secure: secure || false,
@@ -293,7 +257,7 @@ export async function PATCH(req: NextRequest) {
     if (host !== undefined) data.host = host
     if (port !== undefined) data.port = port
     if (username !== undefined) data.username = username
-    if (password) data.password = encrypt(password) // C7: Encrypt password before storage
+    if (password) data.password = encryptSmtpPassword(password) // C7: Encrypt password before storage
     if (fromEmail !== undefined) data.fromEmail = fromEmail
     if (fromName !== undefined) data.fromName = fromName
     if (secure !== undefined) data.secure = secure

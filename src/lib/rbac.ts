@@ -253,3 +253,24 @@ export function canManageProtocol(role: string): boolean {
 export function canManageNotifications(role: string): boolean {
   return isAdmin(role)
 }
+
+// === Audit Trail RBAC ===
+
+/** Check if user can view the audit trail */
+export function canViewAuditTrail(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER"].includes(role)
+}
+
+/** Check if user can export audit trail data */
+export function canExportAuditTrail(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN"].includes(role)
+}
+
+/** Get accessible departments for audit trail based on role */
+export function getAccessibleDepartments(role: string, userDepartment?: string): string[] {
+  const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM"]
+  if (["SUPER_ADMIN", "ADMIN"].includes(role)) return depts
+  // DEVELOPER and VIEWER can only see their own department
+  if (userDepartment) return [userDepartment]
+  return []
+}

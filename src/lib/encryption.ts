@@ -63,3 +63,42 @@ export function decrypt(encrypted: string, iv: string, tag: string): string {
   tagBuffer.fill(0);
   return decrypted;
 }
+
+/**
+ * SMTP-specific encryption (backward compatible with legacy format).
+ * Uses the same ENCRYPTION_KEY as canonical encryption.
+ * Output format: `ivHex:authTagHex:encryptedHex` (16-byte IV, AES-256-GCM).
+ * This replaces the inline encrypt/decrypt that was in smtp/route.ts.
+ */
+export function encryptSmtpPassword(plaintext: string): string {
+  const key = getKey();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  let encrypted = cipher.update(plaintext, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
+}
+
+/**
+ * SMTP-specific decryption — handles both legacy format (iv:tag:hex)
+ * and canonical format (base64 encrypted + base64 iv + base64 tag).
+ * Returns decrypted plaintext string.
+ */
+export function decryptSmtpPassword(encrypted: string): string {
+  // Detect format: legacy SMTP format has colons (iv:tag:data)
+  if (encrypted.includes(":")) {
+    const key = getKey();
+    const [ivHex, authTagHex, encryptedData] = encrypted.split(":");
+    const iv = Buffer.from(ivHex, "hex");
+    const authTag = Buffer.from(authTagHex, "hex");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encryptedData, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  }
+  // Canonical format: separate base64 strings (used for project credentials)
+  // This shouldn't normally happen for SMTP, but handle gracefully
+  throw new Error("Unsupported encryption format for SMTP password");
+}

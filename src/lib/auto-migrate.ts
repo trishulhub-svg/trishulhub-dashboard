@@ -371,6 +371,30 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
     )`
   },
+  // Audit Log (Department-Wise) — standalone table, no FK to User
+  {
+    name: "AuditLog",
+    sql: `CREATE TABLE IF NOT EXISTS "AuditLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "userName" TEXT NOT NULL,
+      "userRole" TEXT NOT NULL,
+      "userDepartment" TEXT,
+      "department" TEXT NOT NULL,
+      "page" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "entityType" TEXT,
+      "entityId" TEXT,
+      "description" TEXT NOT NULL,
+      "oldValue" TEXT,
+      "newValue" TEXT,
+      "ipAddress" TEXT,
+      "userAgent" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'SUCCESS',
+      "metadata" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
 ]
 
 /**
@@ -787,6 +811,72 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] Meeting_status_idx: ${getErrMsg(err)}`)
       }
     }
+
+    // AuditLog indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_userId_idx" ON "AuditLog"("userId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_userId_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_idx" ON "AuditLog"("department")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_department_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_page_idx" ON "AuditLog"("page")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_page_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_action_idx" ON "AuditLog"("action")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_action_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_entityId_idx" ON "AuditLog"("entityId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_entityId_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx" ON "AuditLog"("createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_page_idx" ON "AuditLog"("department", "page")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_department_page_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_action_idx" ON "AuditLog"("department", "action")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_department_action_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_userId_createdAt_idx" ON "AuditLog"("userId", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AuditLog_userId_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MeetingAttendee_userId_idx" ON "MeetingAttendee"("userId")`)
     } catch (err: unknown) {

@@ -1227,6 +1227,40 @@ model ProtocolRateLimit {
   @@index([key])
 }
 
+// ━━ Audit Log (Department-Wise) ━━
+// Standalone table — no relation to User (too many records, would slow down User queries).
+// All writes are fire-and-forget (non-blocking) to never slow down API responses.
+model AuditLog {
+  id             String   @id @default(cuid())
+  userId         String
+  userName       String
+  userRole       String   // SUPER_ADMIN, ADMIN, DEVELOPER, VIEWER, CLIENT
+  userDepartment String?  // from DEPARTMENTS values
+  department     String   // BUSINESS, TEAM_WORK, HR_PEOPLE, LEARNING, SYSTEM
+  page           String   // e.g., "invoices", "projects", "leaves"
+  action         String   // CREATE, READ, UPDATE, DELETE, LOGIN, LOGOUT, EXPORT, APPROVE, REJECT, SEND, ASSIGN, etc.
+  entityType     String?  // e.g., "Invoice", "Client", "Project", "Task"
+  entityId       String?
+  description     String   // human-readable description
+  oldValue       String?  // JSON string of previous state (for UPDATE)
+  newValue       String?  // JSON string of new state (for UPDATE/CREATE)
+  ipAddress      String?
+  userAgent      String?
+  status         String   @default("SUCCESS") // SUCCESS, FAILURE
+  metadata       String?  // JSON string for extra context
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([department])
+  @@index([page])
+  @@index([action])
+  @@index([entityId])
+  @@index([createdAt])
+  @@index([department, page])
+  @@index([department, action])
+  @@index([userId, createdAt])
+}
+
 // TODO: Phase 7 — Missing HR Models to implement:
 // - Department model (id, name, headId, budget, createdAt, updatedAt) with @@map("Department")
 // - LeaveBalance model (id, userId, leaveType, totalDays, usedDays, remainingDays, year, @@unique([userId, leaveType, year]))

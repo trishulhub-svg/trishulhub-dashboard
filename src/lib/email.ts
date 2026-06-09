@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer"
 import { randomBytes } from "crypto"
 import { db } from "@/lib/db"
+import { decryptSmtpPassword } from "@/lib/encryption"
 
 // ━━ Disposable Email Domain Blocklist ━━
 // Common temporary/disposable email providers - blocked to prevent spam
@@ -238,7 +239,7 @@ async function sendViaSmtp(
     requireTLS: !config.secure, // When secure=false, upgrade to TLS via STARTTLS
     auth: {
       user: config.username,
-      pass: config.password,
+      pass: config.password.includes(":") ? decryptSmtpPassword(config.password) : config.password,
     },
     // Timeout settings to fail fast and try next server
     connectionTimeout: 10000,
