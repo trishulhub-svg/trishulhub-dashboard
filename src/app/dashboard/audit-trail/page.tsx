@@ -17,6 +17,8 @@ import {
   ChevronDown,
   RotateCcw,
   Loader2,
+  FileText,
+  Calendar,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -123,6 +125,8 @@ export default function AuditTrailPage() {
   const [loading, setLoading] = useState(true)
   const [statsLoading, setStatsLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d")
   const [hasMore, setHasMore] = useState(false)
   const [total, setTotal] = useState(0)
   const userRole = session?.user?.role || "DEVELOPER"
@@ -223,16 +227,26 @@ export default function AuditTrailPage() {
     return `${Math.round(((success?.count || 0) / total) * 100)}%`
   }, [stats])
 
+  // Date range filter for export
+  const getDateRange = useCallback(() => {
+    const now = new Date()
+    switch (dateRange) {
+      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      default: return ""
+    }
+  }, [dateRange])
+
   const exportCsv = async () => {
     setExporting(true)
     try {
       const params = new URLSearchParams()
       if (selectedDept) params.set("department", selectedDept)
       if (actionFilter) params.set("action", actionFilter)
-      const today = new Date()
-      const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
-      params.set("startDate", monthAgo.toISOString())
-      params.set("endDate", today.toISOString())
+      const startDate = getDateRange()
+      if (startDate) params.set("startDate", startDate)
+      params.set("endDate", new Date().toISOString())
 
       const res = await fetch(`/api/audit-trail/export?${params.toString()}`, { credentials: "include" })
       if (res.ok) {
@@ -250,6 +264,35 @@ export default function AuditTrailPage() {
       console.error("Export failed:", err)
     } finally {
       setExporting(false)
+    }
+  }
+
+  const exportPdf = async () => {
+    setExportingPdf(true)
+    try {
+      const params = new URLSearchParams()
+      if (selectedDept) params.set("department", selectedDept)
+      if (actionFilter) params.set("action", actionFilter)
+      const startDate = getDateRange()
+      if (startDate) params.set("startDate", startDate)
+      params.set("endDate", new Date().toISOString())
+
+      const res = await fetch(`/api/audit-trail/export-pdf?${params.toString()}`, { credentials: "include" })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      }
+    } catch (err) {
+      console.error("PDF export failed:", err)
+    } finally {
+      setExportingPdf(false)
     }
   }
 
@@ -410,20 +453,16 @@ export default function AuditTrailPage() {
                     </SelectContent>
                   </Select>
                   {isExportVisible && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-10"
-                      onClick={exportCsv}
-                      disabled={exporting}
-                    >
-                      {exporting ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4 mr-2" />
-                      )}
-                      CSV
-                    </Button>
+                    <>
+                      <Button variant="outline" size="sm" className="h-10" onClick={exportCsv} disabled={exporting}>
+                        {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                        CSV
+                      </Button>
+                      <Button variant="default" size="sm" className="h-10 bg-primary" onClick={exportPdf} disabled={exportingPdf}>
+                        {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                        PDF Report
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
