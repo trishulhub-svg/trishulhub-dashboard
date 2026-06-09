@@ -41,8 +41,10 @@ interface OverviewSectionProps {
 }
 
 // ━━ Helpers ━━
+const inrFormatter = new Intl.NumberFormat("en-IN");
+
 const formatINR = (amount: number) =>
-  `₹${new Intl.NumberFormat("en-IN").format(amount)}`;
+  `₹${inrFormatter.format(amount)}`;
 
 const formatDate = (d: string | undefined | null) => {
   if (!d) return "—";

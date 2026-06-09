@@ -2666,3 +2666,152 @@ Stage Summary:
 - 6 files modified across 6 fixes
 - Key themes: credentials inclusion for auth cookies, try/catch error handling patterns, generic error messages to prevent info leaks
 - All server-side logging preserved via console.error
+
+---
+Task ID: P11-middleware-auth-fixes
+Agent: Phase 11 Fix Agent
+Task: Fix Phase 11 middleware + auth issues (6 fixes)
+
+Work Log:
+
+### Files Modified (3 files)
+
+#### 1. `src/middleware.ts`
+
+**FIX 1 (P11-MW-02):** Added `Cache-Control` and `Pragma` headers to API responses
+- In `addSecurityHeaders()`, added `"Cache-Control": "private, no-store, no-cache, must-revalidate"` and `"Pragma": "no-cache"` to the `/api/` branch
+- Prevents sensitive API responses from being cached by browsers or proxies
+
+**FIX 2 (P11-MW-06):** Added `X-XSS-Protection` header
+- In `addSecurityHeaders()`, added `"X-XSS-Protection": "1; mode=block"` to the page response branch
+- Enables legacy browser XSS filter as defense-in-depth
+
+**FIX 3 (P11-MW-03):** Added missing admin-only route protections
+- Added 7 new routes to `adminOnlyRoutes` array:
+  - `/dashboard/leaves` (leave management)
+  - `/dashboard/my-training` (training admin)
+  - `/dashboard/approvals`
+  - `/dashboard/settings`
+  - `/dashboard/workspace`
+  - `/dashboard/access-hub`
+  - `/dashboard/credentials`
+- Note: `/dashboard/api-keys`, `/dashboard/finance`, `/dashboard/team` were already present
+
+**FIX 4 (P11-MW-05):** Added root path to middleware matcher
+- Added `"/"` to the `config.matcher` array
+- Security headers (HSTS, CSP, X-Frame-Options, etc.) now apply to the homepage
+
+#### 2. `src/app/login/page.tsx`
+
+**FIX 5 (P11-AUTH-03):** Login callbackUrl now validates against role
+- Updated `getRedirectUrl()` to always return `/portal` for CLIENT users, regardless of callbackUrl
+- Updated `handleSubmit()` post-login redirect to fetch `/api/auth/session` and determine the user's role before redirecting
+- CLIENT users can no longer be redirected to `/dashboard/*` via callbackUrl parameter
+- Falls back to original callbackUrl if session fetch fails
+
+#### 3. `src/app/layout.tsx`
+
+**FIX 6 (P11-ROOT-02):** Added robots metadata
+- Added `robots: { index: false, follow: false }` to the root metadata export
+- Prevents search engines from indexing the internal dashboard application
+
+### TypeScript Verification
+- `npx tsc --noEmit` — zero errors
+
+Stage Summary:
+- 3 files changed
+- 6 audit issues resolved (P11-MW-02, P11-MW-03, P11-MW-05, P11-MW-06, P11-AUTH-03, P11-ROOT-02)
+- All changes are backward-compatible
+
+---
+
+# Worklog: Phase 11 — Warning-Level Fixes Batch A
+
+**Task ID:** phase-11-batch-a
+**Scope:** Components, Hooks, Providers
+**Total fixes:** 8
+
+## FIX 1 — P11-UX-02: LoadingScreen missing aria role
+**File:** `src/components/ui/loading-screen.tsx`
+**Change:** Added `role="status"`, `aria-live="polite"`, `aria-label="Loading application"` to the root container `<div>` for screen reader accessibility.
+
+## FIX 2 — P11-CODE-03: Duplicate formatDate helpers
+**Files:**
+- `src/components/dashboard/finance/subscription-expiry-checker.tsx`
+- `src/components/dashboard/finance/subscription-expiry-badge.tsx`
+- `src/components/dashboard/finance/expense-detail-sheet.tsx`
+**Change:** Removed local `formatDate` (and `formatDateTime` in expense-detail-sheet) functions and replaced with imports from `@/lib/format`, which already provides shared `formatDate` and `formatDateTime` utilities.
+
+## FIX 3 — P11-PERF-01: Intl.NumberFormat re-instantiated on every render
+**File:** `src/components/dashboard/finance/overview-section.tsx`
+**Change:** Extracted `new Intl.NumberFormat("en-IN")` from the `formatINR` function body to a module-level constant `inrFormatter`, avoiding re-creation on every call.
+
+## FIX 4 — P11-SEC-02: Receipt URL protocol validation
+**File:** `src/components/dashboard/finance/expense-detail-sheet.tsx`
+**Change:** Added `isValidUrl` helper (`/^https?:\/\//i` regex). The receipt `<a>` link now only renders when `isValidUrl(expense.receiptUrl)` is true, preventing `javascript:` or other dangerous protocol URIs from becoming clickable.
+
+## FIX 5 — P11-SEC-03: Negative expense amount prevention
+**File:** `src/components/dashboard/finance/edit-expense-dialog.tsx`
+**Change:** Added `min={0}` attribute to the amount `<Input>`. Added server-side validation in `handleUpdate`: if `parseFloat(form.amount) < 0`, shows error toast and returns early.
+
+## FIX 6 — P11-DI-01: Date timezone bug in edit expense
+**File:** `src/components/dashboard/finance/edit-expense-dialog.tsx`
+**Change:** Replaced `new Date(expense.date).toISOString().split("T")[0]` with `expense.date.split("T")[0]` to avoid timezone-offset date-shifting when pre-populating the date input.
+
+## FIX 7 — P11-CODE-01: useIsMobile missing "use client" directive
+**File:** `src/hooks/use-mobile.ts`
+**Change:** Added `"use client";` at the top of the file, since the hook uses `window`, `useState`, and `useEffect` which require the client bundle.
+
+## FIX 8 — P11-ERR-01: QueryProvider missing error boundary
+**File:** `src/components/providers/query-provider.tsx`
+**Change:** Added a `QueryErrorBoundary` class component extending `Component` with `getDerivedStateFromError`. It renders a user-friendly fallback with error message and a "Try again" button that resets the error state. Wrapped `QueryClientProvider` children inside this boundary.
+
+## Verification
+- `npx tsc --noEmit` — passed with zero errors.
+
+---
+---
+Task ID: P11-lib-session-fixes
+Agent: Phase 11 Lib + Session Fixes Agent
+Task: Fix 6 warning-level issues from Phase 11 audit (lib + session modules)
+
+## Summary
+- **Files changed:** 5
+- **Fixes applied:** 6 (P11-SEC-02, P11-PERF-03, P11-ERR-02, P11-ERR-04, P11-ERR-01, catch-any→unknown)
+- **TypeScript check:** ✅ Zero errors (`npx tsc --noEmit`)
+
+### FIX 1: invalidateSession() silent failure (P11-SEC-02)
+**File:** `src/lib/session-manager.ts`
+- Changed return type from `Promise<string>` to `Promise<string | null>`
+- When `ensureActiveSessionTable()` returns false, now returns `null` instead of a useless new token that was never stored in DB
+- Callers already handle null (or should — logged as console.error)
+
+### FIX 2: SubscriptionExpiryChecker stale closure (P11-PERF-03)
+**File:** `src/components/dashboard/finance/subscription-expiry-checker.tsx`
+- Added `subscriptions` to the useEffect dependency array (was `[]`)
+- Added early return `if (!subscriptions.length) return;` after the `hasChecked` guard to prevent redundant checks on empty arrays
+- The `hasChecked.current` ref still prevents double-invocation in React Strict Mode
+
+### FIX 3: rate-limit persistToDb silent failure (P11-ERR-02)
+**File:** `src/lib/rate-limit.ts`
+- Added module-level `_persistFailCount` counter
+- On failure: increments counter, logs warning on first failure and every 50th failure thereafter
+- On success: resets counter to 0
+- Prevents log spam while still making persistent failures visible
+
+### FIX 4: deepClone error logging (P11-ERR-04)
+**File:** `src/lib/utils.ts`
+- Added `err` parameter to catch clause: `catch (err)`
+- Changed `console.error("[utils] deepClone failed")` → `console.error("[utils] deepClone failed:", err)` so the actual error object is logged instead of being silently swallowed
+
+### FIX 5: gitApi non-ok response not checked (P11-ERR-01)
+**File:** `src/lib/git-sync.ts`
+- Added `res.ok` check after fetch in `gitApi()` helper
+- If not ok: reads response body as text and throws descriptive error with method, path, status code, and body
+- Callers in `fastRepoCleanup()` already catch errors from `gitApi()` and handle gracefully
+
+### FIX 6: catch (err: any) → catch (err: unknown)
+**Files:** `src/lib/session-manager.ts` (2 instances), `src/app/dashboard/files/page.tsx` (2 instances)
+- Replaced `catch (err: any)` with `catch (err: unknown)` in 4 locations
+- Added `err instanceof Error ? err.message : String(err)` type narrowing wherever `err.message` was accessed
+- No runtime behavior change — only improved type safety

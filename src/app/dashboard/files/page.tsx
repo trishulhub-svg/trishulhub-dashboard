@@ -413,8 +413,8 @@ export default function FilesPage() {
         toast.error(errData.error || `Failed to create "${folderName}"`, { duration: 6000 })
         return null
       }
-    } catch (err: any) {
-      toast.error(`Failed to create "${folderName}": ${err?.message || "Network error"}`)
+    } catch (err: unknown) {
+      toast.error(`Failed to create "${folderName}": ${err instanceof Error ? err.message : "Network error"}`)
       return null
     }
   }, [])
@@ -564,8 +564,8 @@ export default function FilesPage() {
         if (data.driveConfigured === false) setDriveConfigured(false)
         if (data.credentialStatus?.hint) setCredentialHint(data.credentialStatus.hint)
       }
-    } catch (err: any) {
-      const msg = err?.message || "Network error. Please try again."
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error. Please try again."
       toast.error(msg, { duration: 8000 })
       console.error("[Files] Create folder exception:", err)
     } finally {

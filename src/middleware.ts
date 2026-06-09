@@ -78,7 +78,22 @@ export async function middleware(request: NextRequest) {
     }
 
     // Admin-only routes
-    const adminOnlyRoutes = ["/dashboard/api-keys", "/dashboard/finance", "/dashboard/crm", "/dashboard/clients", "/dashboard/availability", "/dashboard/team", "/dashboard/training"]
+    const adminOnlyRoutes = [
+      "/dashboard/api-keys",
+      "/dashboard/finance",
+      "/dashboard/crm",
+      "/dashboard/clients",
+      "/dashboard/availability",
+      "/dashboard/team",
+      "/dashboard/training",
+      "/dashboard/leaves",
+      "/dashboard/my-training",
+      "/dashboard/approvals",
+      "/dashboard/settings",
+      "/dashboard/workspace",
+      "/dashboard/access-hub",
+      "/dashboard/credentials",
+    ]
     const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
     if (!isAdmin && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
@@ -106,10 +121,12 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     return response
   }
 
-  // Add X-Content-Type-Options and X-Frame-Options to API responses (SEC-016)
+  // Add security headers to API responses (SEC-016, P11-MW-02)
   if (pathname.startsWith("/api/")) {
     response.headers.set("X-Content-Type-Options", "nosniff")
     response.headers.set("X-Frame-Options", "DENY")
+    response.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate")
+    response.headers.set("Pragma", "no-cache")
     return response
   }
 
@@ -119,6 +136,8 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
   response.headers.set("X-Content-Type-Options", "nosniff")
   // Enforce HTTPS for all subdomains for 1 year
   response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+  // XSS protection (P11-MW-06)
+  response.headers.set("X-XSS-Protection", "1; mode=block")
   // Restrict browser features that this app doesn't need
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
   // Referrer policy — send origin only on cross-origin
@@ -139,6 +158,7 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
 
 export const config = {
   matcher: [
+    "/",
     "/dashboard/:path*",
     "/portal/:path*",
     "/api/:path*",

@@ -107,8 +107,8 @@ export function safeText(value: unknown, fallback: string = ""): string {
 export function deepClone<T>(obj: T): T {
   try {
     return JSON.parse(JSON.stringify(obj)) as T;
-  } catch {
-    console.error("[utils] deepClone failed");
+  } catch (err) {
+    console.error("[utils] deepClone failed:", err);
     return {} as T;
   }
 }

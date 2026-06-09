@@ -58,6 +58,7 @@ export const metadata: Metadata = {
     description: "Project management and team collaboration platform",
     images: [{ url: "/icon-512.png", width: 512, height: 512 }],
   },
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({

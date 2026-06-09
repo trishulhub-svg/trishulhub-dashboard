@@ -63,9 +63,10 @@ function LoginForm() {
     ? rawCallbackUrl
     : "/dashboard";
 
-  function getRedirectUrl(role: string, callbackUrl: string) {
+  function getRedirectUrl(role: string | undefined, callbackUrl: string) {
     if (role === "CLIENT") {
-      return callbackUrl?.startsWith("/portal") ? callbackUrl : "/portal";
+      // CLIENT users must always go to /portal, regardless of callbackUrl (P11-AUTH-03)
+      return "/portal";
     }
     return callbackUrl || "/dashboard";
   }
@@ -151,7 +152,15 @@ function LoginForm() {
       } else {
         toast.success("Login successful!");
         setLoading(false);
-        window.location.href = callbackUrl || "/dashboard";
+        // Fetch session to determine role-based redirect (P11-AUTH-03)
+        try {
+          const sessionRes = await fetch("/api/auth/session");
+          const sessionData = await sessionRes.json();
+          const role = sessionData?.user?.role as string | undefined;
+          window.location.href = getRedirectUrl(role, callbackUrl);
+        } catch {
+          window.location.href = callbackUrl || "/dashboard";
+        }
       }
     } catch {
       toast.error("Something went wrong. Please try again.");

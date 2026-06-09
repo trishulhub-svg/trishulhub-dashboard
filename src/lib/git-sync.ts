@@ -829,6 +829,10 @@ async function gitApi(
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`https://api.github.com${path}`, opts);
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    throw new Error(`gitApi ${method} ${path} failed: ${res.status} ${errorBody}`);
+  }
   return res.json();
 }
 

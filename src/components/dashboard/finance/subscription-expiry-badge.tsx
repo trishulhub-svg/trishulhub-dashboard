@@ -2,25 +2,13 @@
 
 import { Badge } from "@/components/ui/badge";
 import { safeText } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 
 interface SubscriptionExpiryBadgeProps {
   endDate: string | null;
   status: string;
   startDate?: string | null;
   frequency?: string | null;
-}
-
-/**
- * Format a date string into a human-readable form like "15 Jun 2025".
- */
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 /**

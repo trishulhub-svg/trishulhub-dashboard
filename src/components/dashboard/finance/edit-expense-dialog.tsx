@@ -78,7 +78,7 @@ export function EditExpenseDialog({
   useEffect(() => {
     if (expense && open) {
       const dateStr = expense.date
-        ? new Date(expense.date).toISOString().split("T")[0]
+        ? expense.date.split("T")[0]
         : "";
       setForm({
         category: safeText(expense.category),
@@ -98,6 +98,11 @@ export function EditExpenseDialog({
 
     if (!form.category || !form.description || !form.amount) {
       toast.error("Category, description, and amount are required");
+      return;
+    }
+
+    if (parseFloat(form.amount) < 0) {
+      toast.error("Amount cannot be negative");
       return;
     }
 
@@ -179,6 +184,7 @@ export function EditExpenseDialog({
               <Input
                 type="number"
                 step="0.01"
+                min={0}
                 value={form.amount}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, amount: e.target.value }))

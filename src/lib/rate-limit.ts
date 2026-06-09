@@ -95,6 +95,7 @@ async function preloadFromDb(): Promise<void> {
 preloadFromDb()
 
 // ── Async persist to DB (fire-and-forget) ──
+let _persistFailCount = 0
 function persistToDb(key: string, count: number, windowStart: string, windowMs: number): void {
   ensureRateLimitTable().then(async () => {
     if (!_dbTableEnsured) return
@@ -112,8 +113,17 @@ function persistToDb(key: string, count: number, windowStart: string, windowMs: 
       await db.$executeRawUnsafe(
         'DELETE FROM "RateLimitEntry" WHERE "windowStart" < ?', cutoff
       )
-    } catch {
-      // Fail silently — in-memory cache is the primary store
+
+      // Reset failure counter on success
+      _persistFailCount = 0
+    } catch (err) {
+      _persistFailCount++
+      if (_persistFailCount === 1 || _persistFailCount % 50 === 0) {
+        console.warn(
+          `[rate-limit] persistToDb failed ${_persistFailCount} time(s) — in-memory cache is primary store:`,
+          err instanceof Error ? err.message : String(err)
+        )
+      }
     }
   })
 }

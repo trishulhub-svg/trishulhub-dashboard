@@ -126,11 +126,11 @@ export async function validateSessionToken(
       }, 5000)),
     ])
     return result
-  } catch (err: any) {
+  } catch (err: unknown) {
     // DB/network error — fail-open for availability (degraded mode).
     // Single-device enforcement is disabled until DB recovers.
     // Admins should monitor for these warnings to detect DB issues.
-    console.warn("[session] Session validation DB error — DEGRADED MODE, allowing session (fail-open):", err.message)
+    console.warn("[session] Session validation DB error — DEGRADED MODE, allowing session (fail-open):", err instanceof Error ? err.message : String(err))
     return true
   }
 }
@@ -179,13 +179,13 @@ async function doValidateSession(
  *
  * Returns the new session token.
  */
-export async function invalidateSession(userId: string): Promise<string> {
+export async function invalidateSession(userId: string): Promise<string | null> {
   const tableReady = await ensureActiveSessionTable()
   if (!tableReady) {
     console.error(
       "[session] Cannot invalidate session - table not available"
     )
-    return generateSessionToken()
+    return null
   }
 
   const newToken = generateSessionToken()
@@ -219,7 +219,7 @@ export async function removeSession(userId: string): Promise<void> {
   try {
     await db.activeSession.deleteMany({ where: { userId } })
     sessionCache.delete(userId)
-  } catch (err: any) {
-    console.warn("[session] Failed to remove session:", err.message)
+  } catch (err: unknown) {
+    console.warn("[session] Failed to remove session:", err instanceof Error ? err.message : String(err))
   }
 }

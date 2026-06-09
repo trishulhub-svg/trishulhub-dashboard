@@ -8,7 +8,7 @@ interface LoadingScreenProps {
 
 export function LoadingScreen({ message }: LoadingScreenProps) {
   return (
-    <div className="animate-loading-fade-in fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background">
+    <div role="status" aria-live="polite" aria-label="Loading application" className="animate-loading-fade-in fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background">
       {/* Subtle radial glow behind the logo */}
       <div className="pointer-events-none absolute flex flex-col items-center">
         <div className="absolute -inset-16 rounded-full bg-primary/5 blur-3xl" />

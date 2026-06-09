@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { safeText } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 
 interface SubscriptionInput {
   id: string;
@@ -12,19 +13,6 @@ interface SubscriptionInput {
 
 interface SubscriptionExpiryCheckerProps {
   subscriptions: SubscriptionInput[];
-}
-
-/**
- * Format a date to "15 Jun 2025" style.
- */
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 /**
@@ -44,6 +32,8 @@ export function SubscriptionExpiryChecker({
     // Guard against double-invocation in Strict Mode
     if (hasChecked.current) return;
     hasChecked.current = true;
+
+    if (!subscriptions.length) return;
 
     const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
@@ -112,7 +102,7 @@ export function SubscriptionExpiryChecker({
     };
 
     checkAndNotify();
-  }, []);
+  }, [subscriptions]);
 
   // This is a side-effect-only component — renders nothing
   return null;

@@ -1,6 +1,7 @@
 "use client";
 
 import { safeText, cn } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/format";
 import {
   Calendar,
   FolderOpen,
@@ -74,29 +75,7 @@ const formatCurrency = (n: number) => {
   return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 };
 
-const formatDate = (d: string) => {
-  if (!d) return "—";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-};
-
-const formatDateTime = (d: string) => {
-  if (!d) return "—";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
+const isValidUrl = (url: string) => /^https?:\/\//i.test(url);
 
 // ─── Detail Row Sub-component ───────────────────────────────────────
 function DetailRow({
@@ -236,7 +215,7 @@ export function ExpenseDetailSheet({
             value={expense.receiptUrl}
             fallback="No receipt uploaded"
             actionSlot={
-              expense.receiptUrl ? (
+              expense.receiptUrl && isValidUrl(expense.receiptUrl) ? (
                 <a
                   href={expense.receiptUrl}
                   target="_blank"
