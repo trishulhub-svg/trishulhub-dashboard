@@ -171,10 +171,20 @@ function randomBetween(min: number, max: number) {
 }
 
 export default function TrishulWorkspacePage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+
+  // Guard: ensure layout session is available before rendering
+  if (status === "loading") {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading workspace...</p>
+      </div>
+    );
+  }
+
   const userName = session?.user?.name || "User";
   const userRole = (session?.user?.role || "DEVELOPER").replace(/_/g, " ");
 

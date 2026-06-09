@@ -252,7 +252,7 @@ export default function MeetingsPage() {
       if (res.status === 401) { router.push("/login"); return; }
       if (res.ok) {
         const data = await res.json();
-        setMeetings(safeArray<Meeting>(data));
+        setMeetings(safeArray<Meeting>(data.data || data));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;

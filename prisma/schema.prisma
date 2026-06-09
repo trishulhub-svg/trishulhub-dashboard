@@ -71,16 +71,17 @@ model User {
 
 // ━━ API Keys ━━
 model ApiKey {
-  id            String   @id @default(cuid())
-  provider      String   // OPENROUTER, ZAI, GOOGLE_AI, OTHER
-  keyName       String
-  keyValue      String
-  monthlyBudget Float    @default(18.0)
-  currentSpend  Float    @default(0)
-  status        String   @default("ACTIVE") // ACTIVE, EXHAUSTED, ERROR
-  priority      Int      @default(1)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(cuid())
+  provider       String   // OPENROUTER, ZAI, GOOGLE_AI, OTHER
+  keyName        String
+  keyValue       String
+  monthlyBudget  Float    @default(18.0)
+  currentSpend   Float    @default(0)
+  status         String   @default("ACTIVE") // ACTIVE, EXHAUSTED, ERROR
+  priority       Int      @default(1)
+  assignedAgents String   @default("[]") // JSON array of agent types this key is assigned to
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   usageLogs ApiUsageLog[]
   agents   Agent[]
