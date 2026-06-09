@@ -307,6 +307,9 @@ export async function PATCH(request: NextRequest) {
               console.warn("[task-git-config] Could not decrypt git token with old key for re-encryption");
             }
           }
+        } catch {
+          // Broad catch for any error reading or decrypting the existing token
+          console.warn("[task-git-config] Could not read existing git token for re-encryption");
         }
       }
 
