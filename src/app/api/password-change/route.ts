@@ -37,11 +37,12 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordChange_userId_idx" ON "PasswordChange"("userId")`) } catch {}
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PasswordChange_expiresAt_idx" ON "PasswordChange"("expiresAt")`) } catch {}
     console.log("[password-change] PasswordChange table created successfully")
-  } catch (err: any) {
-    console.error("[password-change] Failed to create PasswordChange table:", err.message)
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[password-change] Failed to create PasswordChange table:", errMsg)
     pwTableChecked = false
     pwTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 
   try {
@@ -49,10 +50,11 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
     pwTableChecked = true
     pwTableExists = true
     return { success: true }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
     pwTableChecked = false
     pwTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 }
 

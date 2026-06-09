@@ -65,9 +65,9 @@ async function ensureParentInDb(driveParentId: string | null, userId: string): P
         }
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Non-critical: if we can't ensure parent, the create might still work
-    console.warn("[files] Could not ensure parent in DB:", err?.message)
+    console.warn("[files] Could not ensure parent in DB:", err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -135,16 +135,16 @@ async function syncDriveFolder(folderId: string | null, userId: string): Promise
           },
         })
         synced++
-      } catch (upsertErr: any) {
-        console.warn(`[files] Failed to upsert ${f.id}:`, upsertErr?.message)
+      } catch (upsertErr: unknown) {
+        console.warn(`[files] Failed to upsert ${f.id}:`, upsertErr instanceof Error ? upsertErr.message : String(upsertErr))
       }
     }
 
     // Mark sync complete with timestamp
     syncCache.set(cacheKey, { time: Date.now(), syncing: false })
     return synced
-  } catch (err: any) {
-    console.error("[files] Drive sync error:", err?.message)
+  } catch (err: unknown) {
+    console.error("[files] Drive sync error:", err instanceof Error ? err.message : String(err))
     // Reset so next request can retry
     syncCache.set(cacheKey, { time: 0, syncing: false })
     return 0
@@ -279,7 +279,7 @@ export async function GET(req: NextRequest) {
       driveConfigured: credentialStatus.configured,
     })))
   } catch (error: unknown) {
-    console.error("[files] GET error:", error instanceof Error ? error.message : error)
+    console.error("[files] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to fetch files" }, { status: 500 })
   }
 }
@@ -360,9 +360,9 @@ export async function POST(req: NextRequest) {
         if (existing) {
           return NextResponse.json(JSON.parse(JSON.stringify(existing)))
         }
-      } catch (dedupErr: any) {
+      } catch (dedupErr: unknown) {
         // Non-critical: if dedup check fails, proceed with creation
-        console.warn("[files] Dedup check error:", dedupErr?.message)
+        console.warn("[files] Dedup check error:", dedupErr instanceof Error ? dedupErr.message : String(dedupErr))
       }
 
       // Ensure parent exists in local DB to satisfy FK constraint
@@ -371,8 +371,8 @@ export async function POST(req: NextRequest) {
       let driveFolder
       try {
         driveFolder = await drive.createFolder(effectiveParentId, folderName)
-      } catch (driveErr: any) {
-        const msg = driveErr?.message || String(driveErr)
+      } catch (driveErr: unknown) {
+        const msg = driveErr instanceof Error ? driveErr.message : String(driveErr)
         console.error("[files] Drive createFolder error:", msg)
 
         // Detect common errors and provide helpful messages
@@ -469,8 +469,8 @@ export async function POST(req: NextRequest) {
     let driveFile
     try {
       driveFile = await drive.uploadFile(effectiveParentId, fileName, mimeType, buffer, description)
-    } catch (driveErr: any) {
-      const msg = driveErr?.message || String(driveErr)
+    } catch (driveErr: unknown) {
+      const msg = driveErr instanceof Error ? driveErr.message : String(driveErr)
       console.error("[files] Drive upload error:", msg)
 
       // F-004/F-005: Sanitize Drive error details for non-admin users
@@ -515,8 +515,8 @@ export async function POST(req: NextRequest) {
       })
 
       return NextResponse.json(JSON.parse(JSON.stringify(metadata)))
-    } catch (dbErr: any) {
-      console.error("[files] DB save error after Drive upload:", dbErr?.message)
+    } catch (dbErr: unknown) {
+      console.error("[files] DB save error after Drive upload:", dbErr instanceof Error ? dbErr.message : String(dbErr))
       return NextResponse.json(JSON.parse(JSON.stringify({
         id: driveFile.id,
         driveFileId: driveFile.id,

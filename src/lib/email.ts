@@ -105,9 +105,9 @@ export async function logEmailEvent(options: {
         metadata: options.metadata,
       },
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Non-blocking: if EmailLog table doesn't exist yet, just log to console
-    console.warn("[email-log] Failed to log email event:", err.message)
+    console.warn("[email-log] Failed to log email event:", err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -179,8 +179,9 @@ export async function sendEmailWithFailover(options: {
         error: result.error,
         triggeredBy: options.triggeredBy,
       })
-    } catch (err: any) {
-      console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) error: ${err.message}`)
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) error: ${errMsg}`)
       await logEmailEvent({
         to: safeTo,
         subject: safeSubject,
@@ -189,7 +190,7 @@ export async function sendEmailWithFailover(options: {
         smtpConfigId: config.id,
         smtpHost: config.host,
         method: config.isPrimary ? "primary" : "failover",
-        error: err.message,
+        error: errMsg,
         triggeredBy: options.triggeredBy,
       })
     }
@@ -283,9 +284,9 @@ async function sendViaSmtp(
 
     await transporter.close()
     return { success: true, messageId: info.messageId }
-  } catch (error: any) {
+  } catch (error: unknown) {
     try { await transporter.close() } catch {}
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

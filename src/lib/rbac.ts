@@ -9,15 +9,17 @@ export const FILE_ACCESS = {
 } as const
 export type FileAccessLevel = (typeof FILE_ACCESS)[keyof typeof FILE_ACCESS]
 
-/**
- * Check if a user is a super admin (only SUPER_ADMIN)
+/** Check if a user is a super admin (only SUPER_ADMIN).
+ * @param role - The user's role string.
+ * @returns true if the user has SUPER_ADMIN role.
  */
 export function isSuperAdmin(role: string): boolean {
   return role === "SUPER_ADMIN"
 }
 
-/**
- * Check if a user is an admin (SUPER_ADMIN or ADMIN)
+/** Check if a user is an admin (SUPER_ADMIN or ADMIN).
+ * @param role - The user's role string.
+ * @returns true if the user has SUPER_ADMIN or ADMIN role.
  */
 export function isAdmin(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
@@ -109,7 +111,7 @@ export async function getDescendantFileIds(folderId: string): Promise<string[]> 
     SELECT id FROM descendants`,
     folderId
   )
-  return rows.map((r: any) => r.id)
+  return rows.map((r: { id: string }) => r.id)
 }
 
 /**

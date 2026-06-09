@@ -97,8 +97,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(protocol);
-  } catch (error: any) {
-    console.error("[protocol] GET error:", error);
+  } catch (error: unknown) {
+    console.error("[protocol] GET error:", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -119,7 +119,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { downloadEnabled } = body;
 
     if (typeof downloadEnabled !== "boolean") {
@@ -142,8 +148,8 @@ export async function PATCH(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true, downloadEnabled });
-  } catch (error: any) {
-    console.error("[protocol] PATCH error:", error);
+  } catch (error: unknown) {
+    console.error("[protocol] PATCH error:", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -164,7 +170,13 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
-    const body = await request.json();
+    // W59: Wrap req.json() in try/catch
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
     const { fileName, fileSize, data } = body;
     let mimeType = body.mimeType;
 
@@ -220,8 +232,8 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, action: result });
-  } catch (error: any) {
-    console.error("[protocol] PUT error:", error);
+  } catch (error: unknown) {
+    console.error("[protocol] PUT error:", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -247,8 +259,8 @@ export async function DELETE(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[protocol] DELETE error:", error);
+  } catch (error: unknown) {
+    console.error("[protocol] DELETE error:", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

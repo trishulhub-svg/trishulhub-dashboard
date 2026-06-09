@@ -39,11 +39,12 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_newEmail_idx" ON "EmailVerification"("newEmail")`) } catch {}
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailVerification_expiresAt_idx" ON "EmailVerification"("expiresAt")`) } catch {}
     console.log("[email-change] EmailVerification table created successfully")
-  } catch (err: any) {
-    console.error("[email-change] Failed to create EmailVerification table:", err.message)
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[email-change] Failed to create EmailVerification table:", errMsg)
     emailTableChecked = false
     emailTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 
   // Verify the table actually works
@@ -52,10 +53,11 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
     emailTableChecked = true
     emailTableExists = true
     return { success: true }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
     emailTableChecked = false
     emailTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 }
 

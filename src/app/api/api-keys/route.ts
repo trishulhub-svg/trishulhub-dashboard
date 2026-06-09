@@ -50,9 +50,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const body = await req.json()
+    const body = await req.json().catch(() => {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    })
+    if (body instanceof NextResponse) return body
 
-    // Validate required fields
+    // Validate required field types
+    if (typeof body.keyName !== "string" || typeof body.keyValue !== "string") {
+      return NextResponse.json({ error: "Key Name and API Key Value must be strings" }, { status: 400 })
+    }
+
     if (!body.keyName || !body.keyValue) {
       return NextResponse.json({ error: "Key Name and API Key Value are required" }, { status: 400 })
     }
@@ -86,8 +93,14 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const { id, ...body } = await req.json()
-    if (!id) return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
+    let parsedBody: Record<string, any>
+    try {
+      parsedBody = await req.json() as Record<string, any>
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    const { id, ...body } = parsedBody
+    if (!id || typeof id !== "string") return NextResponse.json({ error: "API key ID is required" }, { status: 400 })
 
     // SECURITY: Whitelist allowed fields only (prevent mass assignment)
     const data: Prisma.ApiKeyUncheckedUpdateInput = {}

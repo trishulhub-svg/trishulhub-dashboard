@@ -117,8 +117,8 @@ export async function POST(req: NextRequest) {
           }
           pageToken = nextResult.nextPageToken || null
         }
-      } catch (err: any) {
-        console.error(`[files/sync] Error syncing folder ${parentDriveId}:`, err?.message)
+      } catch (err: unknown) {
+        console.error(`[files/sync] Error syncing folder ${parentDriveId}:`, err instanceof Error ? err.message : String(err))
       }
 
       return totalSynced
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
       message: `Synced ${syncedCount} files from Google Drive`,
     })
   } catch (error: unknown) {
-    console.error("[files/sync] POST error:", error instanceof Error ? error.message : error)
+    console.error("[files/sync] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to sync files" }, { status: 500 })
   }
 }

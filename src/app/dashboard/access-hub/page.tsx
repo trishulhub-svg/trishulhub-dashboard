@@ -811,7 +811,7 @@ export default function AccessHubPage() {
                 className="pr-20 font-mono text-xs bg-muted/50"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowWsToken(!showWsToken)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
                 <Tooltip>
@@ -861,7 +861,7 @@ export default function AccessHubPage() {
                 className="pr-20 font-mono text-xs bg-muted/50"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowMyCode(!showMyCode)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   {showMyCode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
                 <Tooltip>
@@ -1170,7 +1170,7 @@ export default function AccessHubPage() {
                   <div className="relative">
                     <Input id="ws-token-value" type={showWsToken ? "text" : "password"} placeholder={wsConfig?.configTokenMasked || "Enter workspace token..."} value={wsTokenForm} onChange={(e) => setWsTokenForm(e.target.value)} className="pr-20 font-mono text-xs" />
                     <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                      <button type="button" onClick={() => setShowWsToken(!showWsToken)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                      <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                         {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
                       {isAdmin && wsConfig?.configToken && (
@@ -1298,7 +1298,7 @@ export default function AccessHubPage() {
                       <Label htmlFor="git-token" className="text-xs">Access Token</Label>
                       <div className="relative">
                         <Input id="git-token" type={showToken ? "text" : "password"} placeholder={gitConfig?.tokenMasked || "ghp_xxxxxxxxxxxx"} value={gitForm.token} onChange={(e) => setGitForm((prev) => ({ ...prev, token: e.target.value }))} className="pr-10 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowToken(!showToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        <button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "Hide access token" : "Show access token"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                           {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                       </div>
@@ -1398,7 +1398,7 @@ export default function AccessHubPage() {
                       <Label htmlFor="enc-key" className="text-xs">New Encryption Key (64-char hex)</Label>
                       <div className="relative">
                         <Input id="enc-key" type={showEncKey ? "text" : "password"} placeholder="64-character hex string" value={encKeyForm} onChange={(e) => setEncKeyForm(e.target.value)} className="pr-20 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} aria-label={showEncKey ? "Hide encryption key" : "Show encryption key"} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                           {showEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                         <Tooltip>

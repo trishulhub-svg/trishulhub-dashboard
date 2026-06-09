@@ -186,8 +186,8 @@ function createAuth() {
         "https://www.googleapis.com/auth/drive.readonly",
       ],
     })
-  } catch (err: any) {
-    console.error("[google-drive] Failed to create auth client:", err?.message)
+  } catch (err: unknown) {
+    console.error("[google-drive] Failed to create auth client:", err instanceof Error ? err.message : String(err))
     // Reset so next call retries
     authClient = null
     return null
@@ -269,18 +269,18 @@ export async function listFiles(
     orderBy: "folder, name",
   }))
 
-  const files: DriveFileInfo[] = (res.data.files || []).map((f: any) => ({
-    id: f.id,
-    name: f.name,
-    mimeType: f.mimeType,
-    size: parseInt(f.size || "0", 10),
-    parents: f.parents || [],
-    trashed: f.trashed || false,
-    description: f.description || undefined,
-    thumbnailLink: f.thumbnailLink || undefined,
-    webViewLink: f.webViewLink || undefined,
-    modifiedTime: f.modifiedTime || undefined,
-    createdTime: f.createdTime || undefined,
+  const files: DriveFileInfo[] = (res.data.files || []).map((f) => ({
+    id: String(f.id),
+    name: String(f.name ?? ""),
+    mimeType: String(f.mimeType ?? ""),
+    size: parseInt(String(f.size ?? "0"), 10),
+    parents: Array.isArray(f.parents) ? f.parents.map(String) : [],
+    trashed: Boolean(f.trashed),
+    description: f.description ? String(f.description) : undefined,
+    thumbnailLink: f.thumbnailLink ? String(f.thumbnailLink) : undefined,
+    webViewLink: f.webViewLink ? String(f.webViewLink) : undefined,
+    modifiedTime: f.modifiedTime ? String(f.modifiedTime) : undefined,
+    createdTime: f.createdTime ? String(f.createdTime) : undefined,
   }))
 
   return {
@@ -313,8 +313,11 @@ export async function getFile(fileId: string): Promise<DriveFileInfo | null> {
       modifiedTime: res.data.modifiedTime || undefined,
       createdTime: res.data.createdTime || undefined,
     }
-  } catch (err: any) {
-    if (err?.code === 404) return null
+  } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err) {
+      const code = (err as Error & { code: number }).code
+      if (code === 404) return null
+    }
     throw err
   }
 }
@@ -332,7 +335,7 @@ export async function uploadFile(
 
   const parent = folderId || getRootFolderId()!
 
-  const fileMetadata: any = {
+  const fileMetadata: Record<string, unknown> = {
     name: fileName,
     parents: [parent],
   }
@@ -340,7 +343,7 @@ export async function uploadFile(
 
   const media = {
     mimeType,
-    body: buffer as any,
+    body: buffer,
   }
 
   const res = await withDriveTimeout(drive.files.create({
@@ -467,8 +470,8 @@ export async function getDownloadUrl(fileId: string): Promise<string | null> {
     }
 
     return `https://drive.google.com/uc?export=download&id=${fileId}`
-  } catch (err: any) {
-    console.error("[google-drive] Failed to get download URL:", err?.message)
+  } catch (err: unknown) {
+    console.error("[google-drive] Failed to get download URL:", err instanceof Error ? err.message : String(err))
     return null
   }
 }
@@ -494,17 +497,17 @@ export async function searchFiles(
     orderBy: "modifiedTime desc",
   })
 
-  const files: DriveFileInfo[] = (res.data.files || []).map((f: any) => ({
-    id: f.id,
-    name: f.name,
-    mimeType: f.mimeType,
-    size: parseInt(f.size || "0", 10),
-    parents: f.parents || [],
-    trashed: f.trashed || false,
-    description: f.description || undefined,
-    thumbnailLink: f.thumbnailLink || undefined,
-    webViewLink: f.webViewLink || undefined,
-    modifiedTime: f.modifiedTime || undefined,
+  const files: DriveFileInfo[] = (res.data.files || []).map((f) => ({
+    id: String(f.id),
+    name: String(f.name ?? ""),
+    mimeType: String(f.mimeType ?? ""),
+    size: parseInt(String(f.size ?? "0"), 10),
+    parents: Array.isArray(f.parents) ? f.parents.map(String) : [],
+    trashed: Boolean(f.trashed),
+    description: f.description ? String(f.description) : undefined,
+    thumbnailLink: f.thumbnailLink ? String(f.thumbnailLink) : undefined,
+    webViewLink: f.webViewLink ? String(f.webViewLink) : undefined,
+    modifiedTime: f.modifiedTime ? String(f.modifiedTime) : undefined,
   }))
 
   return {
@@ -530,8 +533,8 @@ export async function getStorageUsage(): Promise<StorageInfo> {
       usedBytes: parseInt(String(quota?.usage || "0"), 10),
       totalBytes: parseInt(String(quota?.limit || "0"), 10),
     }
-  } catch (err) {
-    console.error("[google-drive] Failed to get storage usage:", err)
+  } catch (err: unknown) {
+    console.error("[google-drive] Failed to get storage usage:", err instanceof Error ? err.message : String(err))
     return { usedBytes: 0, totalBytes: 0 }
   }
 }

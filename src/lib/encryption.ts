@@ -1,8 +1,8 @@
 import crypto from "crypto";
 
-/**
- * AES-256-GCM encryption utilities for storing sensitive data (passwords, credentials).
+/** AES-256-GCM encryption utilities for storing sensitive data (passwords, credentials).
  * The encryption key must be a 32-byte hex string from process.env.ENCRYPTION_KEY.
+ * @module encryption
  */
 
 function getKey(): Buffer {
@@ -29,16 +29,22 @@ export function encrypt(plaintext: string): { encrypted: string; iv: string; tag
   encrypted += cipher.final("base64");
   const tag = cipher.getAuthTag();
 
-  return {
+  const result = {
     encrypted,
     iv: iv.toString("base64"),
     tag: tag.toString("base64"),
   };
+  // Zero the key buffer after use to prevent sensitive data lingering in memory
+  key.fill(0);
+  iv.fill(0);
+  tag.fill(0);
+  return result;
 }
 
 /**
  * Decrypt AES-256-GCM encrypted data.
  * Takes base64-encoded encrypted data, IV, and auth tag.
+ * @returns Decrypted plaintext string.
  */
 export function decrypt(encrypted: string, iv: string, tag: string): string {
   const key = getKey();
@@ -51,5 +57,9 @@ export function decrypt(encrypted: string, iv: string, tag: string): string {
   let decrypted = decipher.update(encrypted, "base64", "utf8");
   decrypted += decipher.final("utf8");
 
+  // Zero buffers after use to prevent sensitive data lingering in memory
+  key.fill(0);
+  ivBuffer.fill(0);
+  tagBuffer.fill(0);
   return decrypted;
 }

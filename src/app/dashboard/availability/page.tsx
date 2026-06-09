@@ -298,7 +298,7 @@ export default function AvailabilityPage() {
           setDailyUserId(users[0].id);
         }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("[availability] Failed to fetch data:", err);
       setError("Failed to load data");
     } finally {
@@ -318,7 +318,7 @@ export default function AvailabilityPage() {
       } else if (res.status === 401) {
         router.push("/login");
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to fetch week schedule:", err);
     } finally {
       setWeekLoading(false);
@@ -340,7 +340,7 @@ export default function AvailabilityPage() {
       } else if (res.status === 401) {
         router.push("/login");
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to fetch daily schedule:", err);
     } finally {
       setDailyLoading(false);
@@ -940,7 +940,7 @@ export default function AvailabilityPage() {
                       {selectedDayDetail.date}
                     </CardDescription>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedDayDetail(null)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedDayDetail(null)} aria-label="Close day detail">
                     <X className="h-4 w-4" />
                   </Button>
                 </div>

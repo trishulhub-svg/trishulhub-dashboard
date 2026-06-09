@@ -55,7 +55,7 @@ async function githubGet(
   repo: string,
   path: string,
   branch: string,
-): Promise<{ ok: boolean; data?: any; error?: string }> {
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
   try {
     // W17: Validate branch name — prevent injection in URL
     if (!/^[a-zA-Z0-9._/-]+$/.test(branch)) {
@@ -77,8 +77,8 @@ async function githubGet(
     }
     const data = await response.json();
     return { ok: true, data };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -111,8 +111,8 @@ async function githubDelete(
       return { ok: false, error: errBody };
     }
     return { ok: true };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -212,8 +212,8 @@ async function githubPut(
 
     const errBody = await response.text();
     return { ok: false, status: response.status, error: errBody };
-  } catch (err: any) {
-    return { ok: false, status: 0, error: err?.message || String(err) };
+  } catch (err: unknown) {
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -234,7 +234,7 @@ export async function testGitConnection(config: {
     let token: string;
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // C8: Return generic error to caller — don't reveal crypto internals
       console.error("[git-sync] Decrypt failed:", err);
       return {
@@ -296,8 +296,8 @@ export async function testGitConnection(config: {
     console.log(`[git-sync] Connection successful: ${repoData.full_name}`);
 
     return { success: true, repoName: repoData.full_name };
-  } catch (err: any) {
-    const message = err?.message || String(err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error(`[git-sync] Connection test failed:`, message);
     return { success: false, error: message };
   }
@@ -389,7 +389,7 @@ export async function syncTasksToGit(): Promise<{
     let token: string;
     try {
       token = decrypt(config.tokenEncrypted, config.tokenIv, config.tokenTag);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errMsg = "Failed to decrypt token. Check encryption settings.";
       console.error(`[git-sync] Decrypt failed:`, err);
       await db.$executeRawUnsafe(
@@ -462,8 +462,8 @@ export async function syncTasksToGit(): Promise<{
          FROM "Project" p
          LEFT JOIN "Client" c ON p."clientId" = c.id`
       );
-    } catch (err: any) {
-      const errMsg = `Failed to query projects: ${err?.message || String(err)}`;
+    } catch (err: unknown) {
+      const errMsg = `Failed to query projects: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[git-sync] ${errMsg}`);
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -482,8 +482,8 @@ export async function syncTasksToGit(): Promise<{
          FROM "ProjectMember" pm
          LEFT JOIN "User" u ON pm."userId" = u.id`
       );
-    } catch (err: any) {
-      const errMsg = `Failed to query team members: ${err?.message || String(err)}`;
+    } catch (err: unknown) {
+      const errMsg = `Failed to query team members: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[git-sync] ${errMsg}`);
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -504,8 +504,8 @@ export async function syncTasksToGit(): Promise<{
          LEFT JOIN "User" u ON t."assignedTo" = u.id AND t."assigneeType" = 'HUMAN'
          LEFT JOIN "Agent" a ON t."assignedTo" = a.id AND t."assigneeType" = 'AI'`
       );
-    } catch (err: any) {
-      const errMsg = `Failed to query tasks: ${err?.message || String(err)}`;
+    } catch (err: unknown) {
+      const errMsg = `Failed to query tasks: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[git-sync] ${errMsg}`);
       await db.$executeRawUnsafe(
         `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR', "lastSyncError" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -779,8 +779,8 @@ export async function syncTasksToGit(): Promise<{
       );
       return { success: false, error: combinedError };
     }
-  } catch (err: any) {
-    const message = err?.message || String(err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error(`[git-sync] Unexpected error:`, message);
 
     try {
@@ -817,7 +817,7 @@ async function gitApi(
   token: string,
   path: string,
   body?: Record<string, unknown>,
-): Promise<any> {
+): Promise<Record<string, unknown>> {
   const opts: RequestInit = {
     method,
     headers: {
@@ -858,7 +858,7 @@ async function fastRepoCleanup(
 ): Promise<void> {
   try {
     // 1. Get current commit SHA
-    const ref = await gitApi("GET", token, `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+    const ref = await gitApi("GET", token, `/repos/${owner}/${repo}/git/ref/heads/${branch}`) as { object?: { sha?: string } };
     if (!ref.object?.sha) {
       console.log("[git-sync] Cannot get branch ref — skipping cleanup");
       return;
@@ -866,7 +866,7 @@ async function fastRepoCleanup(
     const commitSha = ref.object.sha;
 
     // 2. Get the commit's tree
-    const commit = await gitApi("GET", token, `/repos/${owner}/${repo}/git/commits/${commitSha}`);
+    const commit = await gitApi("GET", token, `/repos/${owner}/${repo}/git/commits/${commitSha}`) as { tree?: { sha?: string } };
     if (!commit.tree?.sha) {
       console.log("[git-sync] Cannot get commit tree — skipping cleanup");
       return;
@@ -882,7 +882,7 @@ async function fastRepoCleanup(
 
     // 4. Filter: keep only items whose top-level folder is in our keep list
     const keptItems = tree.tree.filter(
-      (item: any) => KEEP_ROOT_ITEMS.has(item.path.split("/")[0])
+      (item: Record<string, unknown>) => KEEP_ROOT_ITEMS.has(String(item.path).split("/")[0])
     );
     const removedCount = tree.tree.length - keptItems.length;
 
@@ -896,11 +896,11 @@ async function fastRepoCleanup(
     );
 
     // 5. Create new tree (WITHOUT base_tree = full replacement)
-    const treeEntries = keptItems.map((item: any) => ({
-      path: item.path,
-      mode: item.mode,
-      type: item.type,
-      sha: item.sha,
+    const treeEntries = keptItems.map((item: Record<string, unknown>) => ({
+      path: String(item.path),
+      mode: String(item.mode),
+      type: String(item.type),
+      sha: String(item.sha),
     }));
 
     const newTree = await gitApi("POST", token, `/repos/${owner}/${repo}/git/trees`, {
@@ -916,7 +916,7 @@ async function fastRepoCleanup(
       message: "chore: TrishulHub sync — cleanup repo, remove unmanaged files",
       tree: newTree.sha,
       parents: [commitSha],
-    });
+    }) as { sha?: string };
     if (!newCommit.sha) {
       console.error("[git-sync] Failed to create commit:", JSON.stringify(newCommit).slice(0, 300));
       return;
@@ -925,7 +925,7 @@ async function fastRepoCleanup(
     // 7. Update branch ref
     const updated = await gitApi("PATCH", token, `/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
       sha: newCommit.sha,
-    });
+    }) as { object?: { sha?: string } };
     if (!updated.object?.sha) {
       console.error("[git-sync] Failed to update ref:", JSON.stringify(updated).slice(0, 300));
       return;
@@ -951,7 +951,7 @@ async function fastRepoCleanup(
     if (putResult.ok) {
       console.log(`[git-sync] ✓ _sync-info.json created — repo is now managed`);
     }
-  } catch (err: any) {
-    console.error(`[git-sync] Fast cleanup error (non-fatal): ${err?.message || err}`);
+  } catch (err: unknown) {
+    console.error(`[git-sync] Fast cleanup error (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
   }
 }

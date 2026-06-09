@@ -41,8 +41,8 @@ async function cleanupOldNotifications() {
         createdAt: { lt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }, // 90 days
       },
     })
-  } catch (err) {
-    console.warn("[notifications] Cleanup failed:", err)
+  } catch (err: unknown) {
+    console.warn("[notifications] Cleanup failed:", err instanceof Error ? err.message : String(err))
   }
 }
 

@@ -587,7 +587,7 @@ export default function ApiKeysPage() {
                         <Edit2 className="h-3 w-3" />
                       </Button>
                       {(key.status === "EXHAUSTED" || key.status === "ERROR") && (
-                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleReactivateKey(key)}>
+                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleReactivateKey(key)} aria-label="Reactivate API key">
                           <RefreshCw className="h-3 w-3" />
                         </Button>
                       )}

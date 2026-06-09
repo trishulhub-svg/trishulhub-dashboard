@@ -108,7 +108,7 @@ export const createClientSchema = z.object({
 })
 
 // Named helper for update schema "at least one field" validation
-const hasAtLeastOneField = (data: Record<string, any>) => Object.values(data).some(v => v !== undefined)
+const hasAtLeastOneField = (data: Record<string, unknown>) => Object.values(data).some(v => v !== undefined)
 
 export const updateClientSchema = z.object({
   id: z.string().min(1, "Client ID is required"),

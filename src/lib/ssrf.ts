@@ -52,10 +52,7 @@ export function isPrivateIP(ip: string): boolean {
  * private IP would bypass the old check. Now we resolve DNS and verify every
  * resolved IP address.
  *
- * Blocks:
- * - Direct private IP addresses (IPv4 & IPv6)
- * - DNS localhost / .local / .internal domain names
- * - Domain names that resolve to private IP addresses (DNS rebinding protection)
+ * @returns true if the host is private and should be blocked.
  */
 export async function isPrivateHost(host: string): Promise<boolean> {
   const cleaned = host.replace(/\[|\]/g, "")
@@ -108,7 +105,8 @@ export async function isPrivateHost(host: string): Promise<boolean> {
   } catch {
     // DNS resolution failed entirely — fail CLOSED (block) for safety.
     // If we can't verify the host resolves to a public IP, we must not allow it.
-    console.warn("[ssrf] DNS resolution failed for host:", cleaned, "— blocking request (fail-closed)")
+    // DNS resolution failed — fail closed (block) for safety
+    console.error("[ssrf] DNS resolution failed for host:", cleaned, "— blocking request (fail-closed)")
     return true
   }
 

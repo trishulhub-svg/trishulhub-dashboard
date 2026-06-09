@@ -396,8 +396,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
 
   const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
-  const userRole = VALID_ROLES.includes(session?.user?.role as any)
-    ? (session?.user?.role as typeof VALID_ROLES[number])
+  const rawRole = session?.user?.role;
+  const userRole = rawRole && VALID_ROLES.includes(rawRole as typeof VALID_ROLES[number])
+    ? rawRole
     : "DEVELOPER";
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";

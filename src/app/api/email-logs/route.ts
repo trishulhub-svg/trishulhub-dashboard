@@ -41,11 +41,12 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_createdAt_idx" ON "EmailLog"("createdAt")`) } catch {}
     try { await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_triggeredBy_idx" ON "EmailLog"("triggeredBy")`) } catch {}
     console.log("[email-logs] EmailLog table created successfully")
-  } catch (err: any) {
-    console.error("[email-logs] Failed to create EmailLog table:", err.message)
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[email-logs] Failed to create EmailLog table:", errMsg)
     logTableChecked = false
     logTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 
   try {
@@ -53,10 +54,11 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
     logTableChecked = true
     logTableExists = true
     return { success: true }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
     logTableChecked = false
     logTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 }
 
@@ -96,7 +98,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(rawLimit, 500)
     const offset = rawOffset
 
-    const where: any = {}
+    const where: Record<string, string> = {}
     if (type) where.type = type
     if (status) where.status = status
 

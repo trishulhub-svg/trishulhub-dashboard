@@ -104,9 +104,6 @@ function LoginForm() {
   }
 
   if (status === "authenticated" && session) {
-    // Already authenticated — show loading while useEffect handles redirect
-    // NOTE: Do NOT call router.replace() here — navigation during render is a
-    // React anti-pattern that silently fails, causing users to get stuck.
     return <LoadingScreen message="Redirecting..." />;
   }
 
@@ -128,9 +125,10 @@ function LoginForm() {
       } else if (data.error) {
         toast.error("Setup failed: " + data.error);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error("Failed to set up database. Please try again.");
-      setSetupLogs(prev => [...prev, "Network error: " + (err.message || "Unknown")]);
+      const msg = err instanceof Error ? err.message : "Unknown";
+      setSetupLogs(prev => [...prev, "Network error: " + msg]);
     } finally {
       setSeeding(false);
     }
@@ -153,12 +151,6 @@ function LoginForm() {
       } else {
         toast.success("Login successful!");
         setLoading(false);
-        // Use full-page navigation for reliable redirect after login.
-        // router.refresh() + router.replace() chain is fragile and can silently
-        // fail when router.replace() is called during render (React anti-pattern).
-        // window.location.href forces a fresh page load where the session cookie
-        // is picked up immediately. The middleware handles role-based routing
-        // (CLIENT → /portal, others → /dashboard).
         window.location.href = callbackUrl || "/dashboard";
       }
     } catch {
@@ -168,149 +160,174 @@ function LoginForm() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-background p-6 overflow-hidden">
-      {/* Ambient background glow */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[500px] rounded-full bg-primary/[0.03] blur-3xl" />
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+    <div className="login-page-wrapper">
+      {/* Animated gradient mesh background */}
+      <div className="login-bg-mesh" aria-hidden="true">
+        <div className="login-bg-orb login-bg-orb-1" />
+        <div className="login-bg-orb login-bg-orb-2" />
+        <div className="login-bg-orb login-bg-orb-3" />
       </div>
 
-      <div className="relative w-full max-w-md space-y-6 animate-[fade-in_0.5s_ease-out]">
-        {/* Brand Header */}
-        <div className="text-center space-y-4">
-          <div className="flex flex-col items-center gap-3">
-            <div className="relative h-16 w-40">
-              <div className="absolute -inset-3 rounded-2xl bg-primary/5 blur-2xl animate-pulse" />
+      {/* Grid pattern overlay */}
+      <div className="login-grid-pattern" aria-hidden="true" />
+
+      {/* Bottom gradient fade */}
+      <div className="login-bottom-fade" aria-hidden="true" />
+
+      <div className="login-content">
+        <div className="login-card-area">
+          {/* Brand Header */}
+          <div className="login-brand animate-login-fade-up">
+            <div className="login-logo-wrap">
+              <div className="login-logo-glow" />
               <Image
                 src="/200px.png"
                 alt="TrishulHub"
                 fill
-                className="relative z-10 rounded-xl object-contain"
+                className="login-logo-img"
                 priority
-                sizes="160px"
+                sizes="140px"
               />
             </div>
-            <div>
-              <h1 className="text-4xl font-black text-primary tracking-tight">TrishulHub</h1>
-              <p className="text-sm font-semibold text-muted-foreground mt-1">Project Management Dashboard</p>
+            <div className="login-brand-text">
+              <h1 className="login-title">TrishulHub</h1>
+              <p className="login-subtitle">Project Management Dashboard</p>
             </div>
+            <p className="login-tagline animate-login-fade-up" style={{ animationDelay: '150ms' }}>
+              Sign in to manage your projects, team, and workflow
+            </p>
           </div>
-          <p className="text-muted-foreground text-xs">Sign in to manage your projects, team, and workflow</p>
-        </div>
 
-        {/* Show setup button if database is not ready */}
-        {dbReady === false && (
-          <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800">
-            <CardHeader>
-              <CardTitle className="text-orange-700 dark:text-orange-400">First Time Setup</CardTitle>
-              <CardDescription className="text-orange-600 dark:text-orange-300">
-                The database needs to be set up before you can sign in. Click the button below to create the database, tables, and default admin user automatically.
-              </CardDescription>
+          {/* Show setup button if database is not ready */}
+          {dbReady === false && (
+            <Card className="login-setup-card animate-login-scale-in" style={{ animationDelay: '200ms' }}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-orange-700 dark:text-orange-400 text-base">First Time Setup</CardTitle>
+                <CardDescription className="text-orange-600 dark:text-orange-300 text-xs">
+                  Database needs to be set up before you can sign in.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button
+                  className="w-full bg-orange-600 hover:bg-orange-700 text-white h-10 text-sm font-semibold"
+                  onClick={handleSetup}
+                  disabled={seeding}
+                >
+                  {seeding ? "Setting up..." : "Setup Database & Create Admin User"}
+                </Button>
+                <p className="text-[11px] text-orange-500 text-center">
+                  Creates database, tables, users, clients, projects, and sample data
+                </p>
+                {setupLogs.length > 0 && (
+                  <div className="mt-1 p-2 bg-white/50 dark:bg-black/20 rounded text-[11px] font-mono max-h-32 overflow-y-auto space-y-0.5">
+                    {setupLogs.map((log, i) => (
+                      <div key={i} className="text-orange-700 dark:text-orange-300">{log}</div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Session expiry notification */}
+          {sessionReason && sessionReasonMessages[sessionReason] && (
+            <Card className="login-session-card animate-login-scale-in" style={{ animationDelay: '250ms' }}>
+              <CardContent className="pt-3 pb-3 px-4">
+                <div className="flex items-start gap-2.5">
+                  {(() => {
+                    const IconComp = sessionReasonMessages[sessionReason].icon;
+                    return <IconComp className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />;
+                  })()}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+                      {sessionReasonMessages[sessionReason].title}
+                    </p>
+                    <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-0.5 leading-relaxed">
+                      {sessionReasonMessages[sessionReason].description}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Login Card */}
+          <Card className="login-main-card animate-login-scale-in" style={{ animationDelay: '300ms' }}>
+            <CardHeader className="pb-3 pt-5 px-5">
+              <CardTitle className="text-lg">Sign In</CardTitle>
+              <CardDescription className="text-xs">Enter your credentials to access the dashboard</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <Button
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white h-11 text-base font-semibold"
-                onClick={handleSetup}
-                disabled={seeding}
-              >
-                {seeding ? "Setting up database..." : "Setup Database & Create Admin User"}
-              </Button>
-              <p className="text-xs text-orange-500 text-center">
-                Creates: database, all tables, 5 users, 3 clients, 3 projects, and sample data
-              </p>
-              {setupLogs.length > 0 && (
-                <div className="mt-2 p-2 bg-white/50 dark:bg-black/20 rounded text-xs font-mono max-h-40 overflow-y-auto space-y-1">
-                  {setupLogs.map((log, i) => (
-                    <div key={i} className="text-orange-700 dark:text-orange-300">{log}</div>
-                  ))}
+            <CardContent className="px-5 pb-5">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-medium">Email</Label>
+                  <div className="login-input-wrap">
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Enter your email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="login-input h-10 text-sm"
+                    />
+                  </div>
                 </div>
-              )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-xs font-medium">Password</Label>
+                  <div className="login-input-wrap">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      data-lpignore="true"
+                      data-form-type="other"
+                      className="login-input h-10 text-sm pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="login-eye-btn"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground text-right">
+                  Contact your administrator to reset your password
+                </p>
+                <Button
+                  type="submit"
+                  className="login-submit-btn w-full h-10 text-sm font-semibold"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <span className="login-loading-wrap">
+                      <span className="login-loading-spinner" />
+                      Signing in...
+                    </span>
+                  ) : (
+                    "Sign In"
+                  )}
+                </Button>
+              </form>
             </CardContent>
           </Card>
-        )}
 
-        {/* Session expiry notification */}
-        {sessionReason && sessionReasonMessages[sessionReason] && (
-          <Card className="border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start gap-3">
-                {(() => {
-                  const IconComp = sessionReasonMessages[sessionReason].icon;
-                  return <IconComp className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />;
-                })()}
-                <div>
-                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                    {sessionReasonMessages[sessionReason].title}
-                  </p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
-                    {sessionReasonMessages[sessionReason].description}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="text-xl">Sign In</CardTitle>
-            <CardDescription className="text-sm">Enter your credentials to access the dashboard</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  className="h-11 text-base"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    className="h-11 text-base pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground text-right">
-                Contact your administrator to reset your password
-              </p>
-              <Button type="submit" className="w-full h-11 text-base font-semibold" disabled={loading}>
-                {loading ? "Signing in..." : "Sign In"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {dbReady === null && (
-          <p className="text-center text-xs text-muted-foreground">Checking database status...</p>
-        )}
+          {dbReady === null && (
+            <p className="text-center text-[11px] text-muted-foreground animate-login-fade-up" style={{ animationDelay: '400ms' }}>
+              Checking database status...
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

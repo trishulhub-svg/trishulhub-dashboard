@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
       creator,
     })))
   } catch (error: unknown) {
-    console.error("[files/permissions] GET error:", error instanceof Error ? error.message : error)
+    console.error("[files/permissions] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to fetch permissions" }, { status: 500 })
   }
 }
@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
         : "Permission granted",
     })))
   } catch (error: unknown) {
-    console.error("[files/permissions] POST error:", error instanceof Error ? error.message : error)
+    console.error("[files/permissions] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to grant permission" }, { status: 500 })
   }
 }
@@ -309,7 +309,7 @@ export async function DELETE(req: NextRequest) {
         : "Permission removed",
     })
   } catch (error: unknown) {
-    console.error("[files/permissions] DELETE error:", error instanceof Error ? error.message : error)
+    console.error("[files/permissions] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to remove permission" }, { status: 500 })
   }
 }

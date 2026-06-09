@@ -15,6 +15,11 @@
 
 import { db } from "@/lib/db"
 
+/** Safely extract error message from unknown error type */
+function getErrMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 let syncDone = false
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
@@ -394,8 +399,8 @@ export async function ensureAllTables(): Promise<void> {
   try {
     // Quick DB connectivity check
     await db.$queryRawUnsafe("SELECT 1")
-  } catch (err: any) {
-    console.error("[auto-migrate] Database connection failed:", err?.message)
+  } catch (err: unknown) {
+    console.error("[auto-migrate] Database connection failed:", getErrMsg(err))
     // Do NOT set syncDone — allow retry on next cold start
     return
   }
@@ -405,10 +410,10 @@ export async function ensureAllTables(): Promise<void> {
     for (const tableDef of CRITICAL_TABLES) {
       try {
         await db.$executeRawUnsafe(tableDef.sql)
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Table already exists or other error — non-fatal
-        if (!err?.message?.includes('already exists')) {
-          console.warn(`[auto-migrate] Table ${tableDef.name}: ${err?.message}`)
+        if (!getErrMsg(err)?.includes('already exists')) {
+          console.warn(`[auto-migrate] Table ${tableDef.name}: ${getErrMsg(err)}`)
         }
       }
     }
@@ -416,27 +421,27 @@ export async function ensureAllTables(): Promise<void> {
     // 1b. Create missing unique indexes for NotificationPreference
     try {
       await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "NotificationPreference_userId_key" ON "NotificationPreference"("userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] NotificationPreference_userId_key index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] NotificationPreference_userId_key index: ${getErrMsg(err)}`)
       }
     }
 
     // 1c. Create missing indexes for Expense table
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Expense_employeeId_idx" ON "Expense"("employeeId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Expense_employeeId_idx index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Expense_employeeId_idx index: ${getErrMsg(err)}`)
       }
     }
 
     // 1d. Create index for Invoice.sentById (finance queries)
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Invoice_sentById_idx" ON "Invoice"("sentById")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Invoice_sentById_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Invoice_sentById_idx: ${getErrMsg(err)}`)
       }
     }
 
@@ -452,8 +457,8 @@ export async function ensureAllTables(): Promise<void> {
           console.log(`[auto-migrate] Renamed Subscription.rate → Subscription.amount`)
         }
       }
-    } catch (err: any) {
-      console.warn(`[auto-migrate] Subscription column rename: ${err?.message}`)
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] Subscription column rename: ${getErrMsg(err)}`)
     }
 
     // 1e. Make Project.clientId nullable (was NOT NULL, now optional for "No client" projects)
@@ -465,37 +470,37 @@ export async function ensureAllTables(): Promise<void> {
     // 1f. Create indexes for FileMetadata
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_parentId_idx" ON "FileMetadata"("parentId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_parentId_idx index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_parentId_idx index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_createdBy_idx" ON "FileMetadata"("createdBy")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_createdBy_idx index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_createdBy_idx index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_trashed_idx" ON "FileMetadata"("trashed")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_trashed_idx index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FileMetadata_trashed_idx index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_userId_idx" ON "FilePermission"("userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_userId_idx index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_userId_idx index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "FilePermission_fileId_userId_key" ON "FilePermission"("fileId", "userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${getErrMsg(err)}`)
       }
     }
 
@@ -518,30 +523,31 @@ export async function ensureAllTables(): Promise<void> {
         await db.$executeRawUnsafe(`ALTER TABLE "_ProjectMethodToProject_new" RENAME TO "_ProjectMethodToProject"`)
         await db.$executeRawUnsafe(`COMMIT`)
         console.log(`[auto-migrate] Migrated _ProjectMethodToProject to add PRIMARY KEY`)
-      } catch (innerErr: any) {
+      } catch (innerErr: unknown) {
         await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
         // Old table doesn't exist yet (fresh DB) — new table is already correct
-        if (!innerErr?.message?.includes('no such table') && !innerErr?.message?.includes('already exists')) {
+        const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
+        if (!innerMsg.includes('no such table') && !innerMsg.includes('already exists')) {
           throw innerErr
         }
       }
-    } catch (err: any) {
-      console.warn(`[auto-migrate] _ProjectMethodToProject PRIMARY KEY migration: ${err?.message}`)
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] _ProjectMethodToProject PRIMARY KEY migration: ${getErrMsg(err)}`)
     }
 
     // Join table indexes for Project ↔ ProjectMethod
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_A_index" ON "_ProjectMethodToProject"("A")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] _ProjectMethodToProject_A_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] _ProjectMethodToProject_A_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_B_index" ON "_ProjectMethodToProject"("B")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] _ProjectMethodToProject_B_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] _ProjectMethodToProject_B_index: ${getErrMsg(err)}`)
       }
     }
 
@@ -549,257 +555,257 @@ export async function ensureAllTables(): Promise<void> {
     // Contract indexes
     try {
       await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Contract_clientId_index" ON "Contract"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Contract_clientId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Contract_clientId_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Contract_status_index" ON "Contract"("status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Contract_status_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Contract_status_index: ${getErrMsg(err)}`)
       }
     }
     // ProjectWebsite indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectWebsite_projectId_index" ON "ProjectWebsite"("projectId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${getErrMsg(err)}`)
       }
     }
     // ProjectAttachment indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectAttachment_projectId_index" ON "ProjectAttachment"("projectId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProjectAttachment_projectId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectAttachment_projectId_index: ${getErrMsg(err)}`)
       }
     }
     // ProjectCredential indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectCredential_projectId_index" ON "ProjectCredential"("projectId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProjectCredential_projectId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectCredential_projectId_index: ${getErrMsg(err)}`)
       }
     }
     // PersonalTimetableTask indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_index" ON "PersonalTimetableTask"("userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_date_index" ON "PersonalTimetableTask"("userId", "date")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_date_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_date_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_status_index" ON "PersonalTimetableTask"("userId", "status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_status_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_userId_status_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_date_index" ON "PersonalTimetableTask"("date")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_date_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] PersonalTimetableTask_date_index: ${getErrMsg(err)}`)
       }
     }
     // EmailLog indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_type_index" ON "EmailLog"("type")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] EmailLog_type_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_type_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_status_index" ON "EmailLog"("status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] EmailLog_status_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_status_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_createdAt_index" ON "EmailLog"("createdAt")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] EmailLog_createdAt_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_createdAt_index: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_triggeredBy_index" ON "EmailLog"("triggeredBy")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] EmailLog_triggeredBy_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] EmailLog_triggeredBy_index: ${getErrMsg(err)}`)
       }
     }
     // FilePermission indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_driveFileId_index" ON "FilePermission"("driveFileId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${getErrMsg(err)}`)
       }
     }
     // CRM — ClientWebsite indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_clientwebsite_clientId" ON "ClientWebsite"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_clientwebsite_clientId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_clientwebsite_clientId: ${getErrMsg(err)}`)
       }
     }
     // CRM — Lead indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_status" ON "Lead"("status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_lead_status: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_lead_status: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_clientId" ON "Lead"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_lead_clientId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_lead_clientId: ${getErrMsg(err)}`)
       }
     }
     // CRM — LeadEmail indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_leademail_leadId" ON "LeadEmail"("leadId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_leademail_leadId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_leademail_leadId: ${getErrMsg(err)}`)
       }
     }
     // CRM — Contact indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_clientId" ON "Contact"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_contact_clientId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_contact_clientId: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_leadId" ON "Contact"("leadId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_contact_leadId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_contact_leadId: ${getErrMsg(err)}`)
       }
     }
     // CRM — Deal indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_clientId" ON "Deal"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_deal_clientId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_clientId: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_stage" ON "Deal"("stage")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_deal_stage: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_stage: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_leadId" ON "Deal"("leadId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_deal_leadId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_leadId: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_expectedCloseDate" ON "Deal"("expectedCloseDate")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_deal_expectedCloseDate: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_deal_expectedCloseDate: ${getErrMsg(err)}`)
       }
     }
     // CRM — SupportTicket indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId" ON "SupportTicket"("clientId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_supportticket_clientId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_clientId: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_status" ON "SupportTicket"("status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_supportticket_status: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_status: ${getErrMsg(err)}`)
       }
     }
     // CRM — TicketMessage indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_ticketmessage_ticketId" ON "TicketMessage"("ticketId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_ticketmessage_ticketId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_ticketmessage_ticketId: ${getErrMsg(err)}`)
       }
     }
     // ProtocolOtp indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProtocolOtp_expiresAt_index" ON "ProtocolOtp"("expiresAt")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProtocolOtp_expiresAt_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProtocolOtp_expiresAt_index: ${getErrMsg(err)}`)
       }
     }
     // ProtocolRateLimit indexes
     try {
       await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ProtocolRateLimit_key_index" ON "ProtocolRateLimit"("key")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${getErrMsg(err)}`)
       }
     }
 
     // 1i. HR indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Attendance_userId_status_idx" ON "Attendance"("userId", "status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Attendance_userId_status_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Attendance_userId_status_idx: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Meeting_status_idx" ON "Meeting"("status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] Meeting_status_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] Meeting_status_idx: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MeetingAttendee_userId_idx" ON "MeetingAttendee"("userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] MeetingAttendee_userId_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] MeetingAttendee_userId_idx: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] TestAttempt_assignmentId_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TestAttempt_assignmentId_idx: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${getErrMsg(err)}`)
       }
     }
 
@@ -807,93 +813,93 @@ export async function ensureAllTables(): Promise<void> {
     // SupportTicket indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_assignedTo" ON "SupportTicket"("assignedTo")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_supportticket_assignedTo: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_assignedTo: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_priority" ON "SupportTicket"("priority")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_supportticket_priority: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_priority: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId_status" ON "SupportTicket"("clientId", "status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_supportticket_clientId_status: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_supportticket_clientId_status: ${getErrMsg(err)}`)
       }
     }
     // Notification indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notification_isRead" ON "Notification"("isRead")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_notification_isRead: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_notification_isRead: ${getErrMsg(err)}`)
       }
     }
     // NotificationPreference index
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notificationpreference_userId" ON "NotificationPreference"("userId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_notificationpreference_userId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_notificationpreference_userId: ${getErrMsg(err)}`)
       }
     }
     // Approval index
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_approval_requesterId_status" ON "Approval"("requesterId", "status")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_approval_requesterId_status: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_approval_requesterId_status: ${getErrMsg(err)}`)
       }
     }
     // ProtocolAccessLog indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_protocolId" ON "ProtocolAccessLog"("protocolId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_protocolId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_protocolId: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_userEmail" ON "ProtocolAccessLog"("userEmail")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_userEmail: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_userEmail: ${getErrMsg(err)}`)
       }
     }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_createdAt" ON "ProtocolAccessLog"("createdAt")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_createdAt: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_protocolaccesslog_createdAt: ${getErrMsg(err)}`)
       }
     }
     // AvailabilityOverride index (composite userId+date — UNIQUE already covers this, but add explicit for clarity)
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availabilityoverride_userId_date" ON "AvailabilityOverride"("userId", "date")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_availabilityoverride_userId_date: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_availabilityoverride_userId_date: ${getErrMsg(err)}`)
       }
     }
     // Availability index (composite userId+dayOfWeek)
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availability_userId_dayOfWeek" ON "Availability"("userId", "dayOfWeek")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${getErrMsg(err)}`)
       }
     }
     // MeetingAttendee index (meetingId)
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_meetingattendee_meetingId" ON "MeetingAttendee"("meetingId")`)
-    } catch (err: any) {
-      if (!err?.message?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_meetingattendee_meetingId: ${err?.message}`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] idx_meetingattendee_meetingId: ${getErrMsg(err)}`)
       }
     }
 
@@ -903,8 +909,8 @@ export async function ensureAllTables(): Promise<void> {
         `UPDATE Invoice SET total = (subtotal + tax + COALESCE(gst, 0)) WHERE ABS(total - (subtotal + tax + COALESCE(gst, 0))) > 0.01 AND total IS NOT NULL`
       )
       console.log("[auto-migrate] Fixed invoice totals where total !== subtotal + tax + gst")
-    } catch (err: any) {
-      console.warn("[auto-migrate] Invoice total fix migration:", err?.message)
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] Invoice total fix migration:", getErrMsg(err))
     }
 
     // 2. Add missing columns to existing tables
@@ -916,8 +922,8 @@ export async function ensureAllTables(): Promise<void> {
       try {
         await db.$executeRawUnsafe(colDef.sql)
         console.log(`[auto-migrate] Added column ${colDef.column} to ${colDef.table}`)
-      } catch (err: any) {
-        const msg = err?.message || ""
+      } catch (err: unknown) {
+        const msg = getErrMsg(err) || ""
         // "duplicate column name" = column already exists, expected and OK
         // "no such table" = table doesn't exist yet, will be created on next cold start
         if (!msg.includes("duplicate column") && !msg.includes("no such table")) {
@@ -928,8 +934,8 @@ export async function ensureAllTables(): Promise<void> {
 
     // Mark as done ONLY after all migrations succeed
     syncDone = true
-  } catch (err: any) {
-    console.error("[auto-migrate] Schema check error (non-fatal):", err?.message)
+  } catch (err: unknown) {
+    console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))
   }
 }
 

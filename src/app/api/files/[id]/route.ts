@@ -49,7 +49,7 @@ export async function GET(
 
     return NextResponse.json(JSON.parse(JSON.stringify(file)))
   } catch (error: unknown) {
-    console.error("[files/[id]] GET error:", error instanceof Error ? error.message : error)
+    console.error("[files/[id]] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to fetch file" }, { status: 500 })
   }
 }
@@ -145,7 +145,7 @@ export async function PUT(
 
     return NextResponse.json(JSON.parse(JSON.stringify(updated)))
   } catch (error: unknown) {
-    console.error("[files/[id]] PUT error:", error instanceof Error ? error.message : error)
+    console.error("[files/[id]] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to update file" }, { status: 500 })
   }
 }
@@ -219,7 +219,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[files/[id]] DELETE error:", error instanceof Error ? error.message : error)
+    console.error("[files/[id]] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to delete file" }, { status: 500 })
   }
 }

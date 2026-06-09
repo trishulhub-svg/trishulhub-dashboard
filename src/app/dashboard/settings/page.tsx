@@ -800,7 +800,6 @@ export default function SettingsPage() {
         setSmtpEditId(null);
         setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
       } else {
-          console.warn("[settings] SMTP save failed");
         toast.error(`${data.error || "Failed to save SMTP config"}`, { duration: 8000 });
       }
     } catch (err: unknown) {
