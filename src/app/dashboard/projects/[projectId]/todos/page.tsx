@@ -17,7 +17,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
+import { cn, safeText, safeDate, deepSanitize, extractStr } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Todos Page: Clean, minimal task list view for DEVELOPERS.
@@ -43,16 +43,6 @@ const taskStatusColors: Record<string, string> = {
   IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300",
   DONE: "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300",
 };
-
-// TODO: Extract to @/lib/utils.ts
-// ── Safe extractors ──
-function extractStr(obj: unknown, key: string, fallback = ""): string {
-  if (!obj || typeof obj !== "object") return fallback;
-  const val = (obj as Record<string, unknown>)[key];
-  if (typeof val === "string") return val;
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
-  return fallback;
-}
 
 type FilterTab = "ALL" | "TODO" | "IN_PROGRESS" | "REVIEW" | "AWAITING_APPROVAL" | "DONE";
 

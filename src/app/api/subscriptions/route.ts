@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     const where: Prisma.SubscriptionWhereInput = {}
     if (status) where.status = status
 
-    const [subscriptions, total] = await Promise.all([
+    const [subscriptions, total, activeSubscriptions] = await Promise.all([
       db.subscription.findMany({
         where,
         include: { project: { select: { id: true, name: true } } },
@@ -65,6 +65,11 @@ export async function GET(req: NextRequest) {
         take: limit,
       }),
       db.subscription.count({ where }),
+      // P11-INTEG-05: Fetch ALL active subscriptions for accurate totalMonthlyCost (not just current page)
+      db.subscription.findMany({
+        where: { status: "ACTIVE" },
+        select: { amount: true, exchangeRate: true, currency: true, frequency: true },
+      }),
     ])
 
     // Compute monthly INR for each subscription using stored exchangeRate
@@ -73,10 +78,9 @@ export async function GET(req: NextRequest) {
       monthlyINR: getMonthlyINR(sub.amount as number, (sub.exchangeRate as number) || DEFAULT_EXCHANGE_RATES[sub.currency] || 1, sub.frequency),
     }))
 
-    // Compute total monthly cost of active subscriptions
-    const totalMonthlyCost = enriched
-      .filter((s) => s.status === "ACTIVE")
-      .reduce((sum, s) => sum + s.monthlyINR, 0)
+    // Compute total monthly cost of ALL active subscriptions (not just current page)
+    const totalMonthlyCost = activeSubscriptions
+      .reduce((sum, s) => sum + getMonthlyINR(s.amount as number, (s.exchangeRate as number) || DEFAULT_EXCHANGE_RATES[s.currency] || 1, s.frequency), 0)
 
     return NextResponse.json({ subscriptions: enriched, totalMonthlyCost, total, page, limit, totalPages: Math.ceil(total / limit) })
     } catch (error: unknown) {

@@ -26,7 +26,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { TASK_COLUMNS } from "@/lib/types";
-import { safeText, safeNumber, safeDate, deepSanitize, cn } from "@/lib/utils";
+import { safeText, safeNumber, safeDate, deepSanitize, cn, extractStr, extractNum, extractNestedStr } from "@/lib/utils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BULLETPROOF v9: Redesigned layout — compact stats row, glassmorphism,
@@ -82,33 +82,6 @@ const priorityBorderColors: Record<string, string> = {
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
-
-// TODO: Extract to @/lib/utils.ts
-// ── Safe extractors: guarantee primitive return type ──
-function extractStr(obj: unknown, key: string, fallback = ""): string {
-  if (!obj || typeof obj !== "object") return fallback;
-  const val = (obj as Record<string, unknown>)[key];
-  if (typeof val === "string") return val;
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
-  return fallback;
-}
-
-function extractNum(obj: unknown, key: string, fallback = 0): number {
-  if (!obj || typeof obj !== "object") return fallback;
-  const val = (obj as Record<string, unknown>)[key];
-  if (typeof val === "number" && !isNaN(val)) return val;
-  const n = Number(val);
-  return isNaN(n) ? fallback : n;
-}
-
-function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (!current || typeof current !== "object") return fallback;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return typeof current === "string" ? current : (typeof current === "number" || typeof current === "boolean" ? String(current) : fallback);
-}
 
 function getProgressColor(progress: number) {
   if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";

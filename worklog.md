@@ -2815,3 +2815,88 @@ Task: Fix 6 warning-level issues from Phase 11 audit (lib + session modules)
 - Replaced `catch (err: any)` with `catch (err: unknown)` in 4 locations
 - Added `err instanceof Error ? err.message : String(err)` type narrowing wherever `err.message` was accessed
 - No runtime behavior change — only improved type safety
+
+---
+---
+
+# Phase 11 Info-Level Fixes
+
+**Task ID:** P11-info-fixes
+**Date:** 2025-06-XX
+**Scope:** Code deduplication, transaction safety, pagination correctness across finance, projects, and portal modules
+
+---
+
+## FIX 1: Unused useState in overview-section.tsx — ALREADY FIXED
+**File:** `src/components/dashboard/finance/overview-section.tsx`
+**Status:** Verified — `useState` was already removed from the React import (only `import React from "react"` remains). No change needed.
+
+---
+
+## FIX 2: Extract `extractStr`/`extractNestedStr`/`extractNum` to `@/lib/utils.ts` (P11-QY-14)
+**Problem:** Three files had duplicated local `extractStr`/`extractNestedStr`/`extractNum` helper functions with TODO comments to extract to `@/lib/utils.ts`.
+
+**Shared functions added to `src/lib/utils.ts`:**
+- `extractStr(obj: unknown, key: string, fallback?: string): string`
+- `extractNestedStr(obj: unknown, path: string[], fallback?: string): string`
+- `extractNum(obj: unknown, key: string, fallback?: number): number`
+
+**Files updated (local definitions removed, imports added):**
+1. `src/app/dashboard/projects/[projectId]/todos/page.tsx` — removed local `extractStr`, imported from utils
+2. `src/app/dashboard/projects/todos/page.tsx` — removed local `extractStr` + `extractNestedStr`, imported from utils
+3. `src/app/dashboard/projects/[projectId]/page.tsx` — removed local `extractStr` + `extractNum` + `extractNestedStr`, imported from utils
+
+---
+
+## FIX 3: Extract `DealWithDates`/`serializeDealDates` to `@/lib/serializers.ts` (P11-INFO-01)
+**Problem:** Identical `DealWithDates` interface and `serializeDealDates` function in two deal API routes.
+
+**New file created:** `src/lib/serializers.ts`
+- Exports `DealWithDates` interface and `serializeDealDates` function
+
+**Files updated:**
+1. `src/app/api/deals/route.ts` — removed local definitions, imported from `@/lib/serializers`
+2. `src/app/api/deals/[id]/route.ts` — removed local definitions (including TODO comment), imported from `@/lib/serializers`; also cleaned up `as unknown as DealWithDates` → `as DealWithDates` casts
+
+---
+
+## FIX 4: Invoice PATCH wrapped in `db.$transaction()` (P11-INTEG-04)
+**File:** `src/app/api/invoices/route.ts`
+**Problem:** Double-fetch of `existing` invoice (once for status validation, once for total recompute) created a TOCTOU race condition.
+
+**Fix:** Wrapped all DB operations (fetch + validate + recompute + update) in a single `db.$transaction()`. Used a sentinel-based pattern (`{ kind: TX_ERR, code }`) to propagate validation errors from within the transaction without throwing, avoiding TypeScript union type issues.
+
+---
+
+## FIX 5: Subscription `totalMonthlyCost` counts ALL active subscriptions (P11-INTEG-05)
+**File:** `src/app/api/subscriptions/route.ts`
+**Problem:** `totalMonthlyCost` was computed from the paginated `enriched` array (only current page's subscriptions), so it was wrong when there were multiple pages of active subscriptions.
+
+**Fix:** Added a third parallel query to fetch ALL active subscriptions (with only `select: { amount, exchangeRate, currency, frequency }`) and compute the total from those instead of the paginated results.
+
+---
+
+## FIX 6: Extract `PaginatedResponse`/`unwrapResponse` to `@/lib/api-helpers.ts` (P11-CQ-01)
+**Problem:** Identical `PaginatedResponse` interface and `unwrapResponse` function duplicated across 4 portal files.
+
+**New file created:** `src/lib/api-helpers.ts`
+- Exports `PaginatedResponse<T>` interface, `unwrapResponse<T>()`, and `extractArray<T>()`
+
+**Files updated (local definitions removed, imports added):**
+1. `src/app/portal/invoices/page.tsx` — removed local interface + function, imported `unwrapResponse`
+2. `src/app/portal/page.tsx` — removed local interface + function, imported `unwrapResponse`
+3. `src/app/portal/support/page.tsx` — removed local interface + function, imported `unwrapResponse`
+4. `src/app/portal/projects/[projectId]/page.tsx` — removed local interface + `extractArray` function, imported both
+
+---
+
+## Verification
+
+```bash
+cd /home/z/my-project && npx tsc --noEmit
+# → ZERO errors
+```
+
+## Files Changed (12 files total)
+- **New files (3):** `src/lib/serializers.ts`, `src/lib/api-helpers.ts`
+- **Modified (9):** `src/lib/utils.ts`, `src/app/dashboard/projects/[projectId]/todos/page.tsx`, `src/app/dashboard/projects/todos/page.tsx`, `src/app/dashboard/projects/[projectId]/page.tsx`, `src/app/api/deals/route.ts`, `src/app/api/deals/[id]/route.ts`, `src/app/api/invoices/route.ts`, `src/app/api/subscriptions/route.ts`, `src/app/portal/invoices/page.tsx`, `src/app/portal/page.tsx`, `src/app/portal/support/page.tsx`, `src/app/portal/projects/[projectId]/page.tsx`

@@ -35,7 +35,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { cn, safeText, safeDate, deepSanitize } from "@/lib/utils";
+import { cn, safeText, safeDate, deepSanitize, extractStr, extractNestedStr } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 
 // TODO: Extract sub-components to separate files
@@ -91,25 +91,6 @@ const animationStyles = `
   animation: searchGlow 1.5s ease-in-out infinite;
 }
 `;
-
-// TODO: Extract to @/lib/utils.ts
-// ── Safe extractors ──
-function extractStr(obj: unknown, key: string, fallback = ""): string {
-  if (!obj || typeof obj !== "object") return fallback;
-  const val = (obj as Record<string, unknown>)[key];
-  if (typeof val === "string") return val;
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
-  return fallback;
-}
-
-function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (!current || typeof current !== "object") return fallback;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return typeof current === "string" ? current : fallback;
-}
 
 // ── Color maps ──
 const trainingStatusColors: Record<string, string> = {

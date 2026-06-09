@@ -221,36 +221,6 @@ export async function PATCH(req: NextRequest) {
     if (data.subtotal !== undefined && data.subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
     if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
 
-    // Fetch existing invoice for status transition validation
-    const existing = await db.invoice.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-    }
-
-    // Validate status transitions
-    if (data.status) {
-      const validTransitions: Record<string, string[]> = {
-        DRAFT: ["SENT", "OVERDUE"],
-        SENT: ["PAID", "OVERDUE", "DRAFT"],
-        OVERDUE: ["PAID", "SENT", "DRAFT"],
-        PAID: [], // No transitions from PAID (locked)
-      }
-      const currentStatus = existing.status
-      const allowed = validTransitions[currentStatus] || []
-      if (!allowed.includes(data.status)) {
-        return NextResponse.json({ error: `Cannot change status from ${currentStatus} to ${data.status}` }, { status: 400 })
-      }
-    }
-
-    // Guard: paymentStatus PAID requires status PAID
-    if (data.paymentStatus === "PAID" && data.status !== "PAID" && existing.status !== "PAID") {
-      return NextResponse.json({ error: "Cannot set payment to PAID when invoice status is not PAID" }, { status: 400 })
-    }
-    // M-FIN-4: Block setting paymentStatus to UNPAID when invoice status is PAID
-    if (data.paymentStatus === "UNPAID" && (data.status === "PAID" || existing.status === "PAID")) {
-      return NextResponse.json({ error: "Cannot set payment to UNPAID when invoice status is PAID" }, { status: 400 })
-    }
-
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
     // Record<string, any> used for dynamic field loop assignment — intentional
     const sanitizedData: Record<string, any> = {}
@@ -271,17 +241,6 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Recompute total from subtotal + tax + gst to ensure consistency
-    const bodyFields = body as Record<string, unknown>
-    const needsRecompute = ["subtotal", "tax", "gst", "gstPercent"].some(f => bodyFields[f] !== undefined);
-    if (needsRecompute || bodyFields.total !== undefined) {
-      const existing = await db.invoice.findUnique({ where: { id } });
-      const sub = (sanitizedData.subtotal ?? existing?.subtotal ?? 0);
-      const taxVal = (sanitizedData.tax ?? existing?.tax ?? 0);
-      const gstVal = (sanitizedData.gst ?? existing?.gst ?? 0);
-      sanitizedData.total = sub + taxVal + gstVal;
-    }
-
     // If marking as PAID, set paidAt automatically
     if (data.status === "PAID" && !data.paidAt) {
       sanitizedData.paidAt = new Date()
@@ -291,12 +250,75 @@ export async function PATCH(req: NextRequest) {
       sanitizedData.paymentStatus = "PAID"
     }
 
-    const invoice = await db.invoice.update({
-      where: { id },
-      data: sanitizedData,
-      include: { client: true, project: true },
+    // P11-INTEG-04: Wrap all DB operations in a transaction to prevent TOCTOU races
+    // Use a sentinel to distinguish validation errors from the successful invoice result
+    const TX_ERR = Symbol("TX_ERR")
+    const result = await db.$transaction(async (tx) => {
+      // Fetch existing invoice for status transition validation & total recompute
+      const existing = await tx.invoice.findUnique({ where: { id } })
+      if (!existing) {
+        return { kind: TX_ERR, code: "NOT_FOUND" as const }
+      }
+
+      // Validate status transitions
+      if (data.status) {
+        const validTransitions: Record<string, string[]> = {
+          DRAFT: ["SENT", "OVERDUE"],
+          SENT: ["PAID", "OVERDUE", "DRAFT"],
+          OVERDUE: ["PAID", "SENT", "DRAFT"],
+          PAID: [], // No transitions from PAID (locked)
+        }
+        const currentStatus = existing.status
+        const allowed = validTransitions[currentStatus] || []
+        if (!allowed.includes(data.status)) {
+          return { kind: TX_ERR, code: "INVALID_TRANSITION" as const, from: currentStatus, to: data.status }
+        }
+      }
+
+      // Guard: paymentStatus PAID requires status PAID
+      if (data.paymentStatus === "PAID" && data.status !== "PAID" && existing.status !== "PAID") {
+        return { kind: TX_ERR, code: "PAID_STATUS_MISMATCH" as const }
+      }
+      // M-FIN-4: Block setting paymentStatus to UNPAID when invoice status is PAID
+      if (data.paymentStatus === "UNPAID" && (data.status === "PAID" || existing.status === "PAID")) {
+        return { kind: TX_ERR, code: "UNPAID_PAID_BLOCKED" as const }
+      }
+
+      // Recompute total from subtotal + tax + gst to ensure consistency
+      const bodyFields = body as Record<string, unknown>
+      const needsRecompute = ["subtotal", "tax", "gst", "gstPercent"].some(f => bodyFields[f] !== undefined)
+      if (needsRecompute || bodyFields.total !== undefined) {
+        const sub = (sanitizedData.subtotal ?? existing.subtotal ?? 0)
+        const taxVal = (sanitizedData.tax ?? existing.tax ?? 0)
+        const gstVal = (sanitizedData.gst ?? existing.gst ?? 0)
+        sanitizedData.total = sub + taxVal + gstVal
+      }
+
+      const invoice = await tx.invoice.update({
+        where: { id },
+        data: sanitizedData,
+        include: { client: true, project: true },
+      })
+      return { kind: Symbol("OK"), invoice }
     })
-    return NextResponse.json(invoice)
+
+    // Handle transaction-internal validation errors
+    if (result.kind === TX_ERR) {
+      if (result.code === "NOT_FOUND") {
+        return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+      }
+      if (result.code === "INVALID_TRANSITION") {
+        return NextResponse.json({ error: `Cannot change status from ${result.from} to ${result.to}` }, { status: 400 })
+      }
+      if (result.code === "PAID_STATUS_MISMATCH") {
+        return NextResponse.json({ error: "Cannot set payment to PAID when invoice status is not PAID" }, { status: 400 })
+      }
+      if (result.code === "UNPAID_PAID_BLOCKED") {
+        return NextResponse.json({ error: "Cannot set payment to UNPAID when invoice status is PAID" }, { status: 400 })
+      }
+    }
+
+    return NextResponse.json(result.invoice)
   } catch (error: unknown) {
     console.error("[invoices] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Invoice update failed" }, { status: 500 })

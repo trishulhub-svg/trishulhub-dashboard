@@ -9,16 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { safeText, deepClone, safeNumber, safeDate } from "@/lib/utils";
-
-/** Paginated API response shape */
-interface PaginatedResponse<T> {
-  data?: T[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-  tasks?: T[];
-}
+import { extractArray } from "@/lib/api-helpers";
 
 const taskStatusColors: Record<string, string> = {
   TODO: "bg-gray-200 text-gray-800",
@@ -35,15 +26,6 @@ const projectStatusColors: Record<string, string> = {
   DEPLOYED: "bg-cyan-100 text-cyan-800",
   COMPLETED: "bg-green-100 text-green-800",
 };
-
-/** Extract array from various API response shapes */
-function extractArray<T>(data: unknown): T[] {
-  if (Array.isArray(data)) return data;
-  const resp = data as PaginatedResponse<T>;
-  if (Array.isArray(resp?.data)) return resp.data;
-  if (Array.isArray(resp?.tasks)) return resp.tasks;
-  return [];
-}
 
 export default function PortalProjectDetailPage() {
   const params = useParams();

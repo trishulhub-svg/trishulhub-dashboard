@@ -127,6 +127,46 @@ export function safeNumber(value: unknown, fallback: number = 0): number {
 }
 
 /**
+ * Safely extract a string value from an unknown object by key.
+ * Returns fallback if obj is null/undefined/not-an-object or key is not a string.
+ */
+export function extractStr(obj: unknown, key: string, fallback = ""): string {
+  if (!obj || typeof obj !== "object") return fallback;
+  const val = (obj as Record<string, unknown>)[key];
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  return fallback;
+}
+
+/**
+ * Safely extract a nested string value from an unknown object by path (array of keys).
+ */
+export function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
+  let current: unknown = obj;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return fallback;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string"
+    ? current
+    : (typeof current === "number" || typeof current === "boolean")
+      ? String(current)
+      : fallback;
+}
+
+/**
+ * Safely extract a number value from an unknown object by key.
+ * Returns fallback if obj is null/undefined/not-an-object or key is not a valid number.
+ */
+export function extractNum(obj: unknown, key: string, fallback = 0): number {
+  if (!obj || typeof obj !== "object") return fallback;
+  const val = (obj as Record<string, unknown>)[key];
+  if (typeof val === "number" && !isNaN(val)) return val;
+  const n = Number(val);
+  return isNaN(n) ? fallback : n;
+}
+
+/**
  * Safe date formatting. Accepts any value and returns a formatted date string.
  * Returns fallback if the value can't be parsed as a date.
  */

@@ -8,23 +8,8 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
-
-// Helper: serialize Date objects in deal data to ISO strings for JSON responses
-interface DealWithDates {
-  expectedCloseDate?: string | Date | null
-  actualCloseDate?: string | Date | null
-  createdAt?: string | Date | null
-  updatedAt?: string | Date | null
-  [key: string]: unknown
-}
-function serializeDealDates(d: DealWithDates) {
-  if (!d) return d
-  if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
-  if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
-  if (d.createdAt instanceof Date) d.createdAt = d.createdAt.toISOString()
-  if (d.updatedAt instanceof Date) d.updatedAt = d.updatedAt.toISOString()
-  return d
-}
+import { serializeDealDates } from "@/lib/serializers"
+import type { DealWithDates } from "@/lib/serializers"
 
 // ━━ Shared constants ━━
 const VALID_STAGES = ["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"] as const
@@ -120,7 +105,7 @@ export async function GET(req: NextRequest) {
         db.deal.count({ where }),
       ])
 
-      const serialized = deals.map((d) => serializeDealDates(d as unknown as DealWithDates))
+      const serialized = deals.map((d) => serializeDealDates(d as DealWithDates))
       return NextResponse.json(deepSanitize({
         data: serialized,
         total,
@@ -229,7 +214,7 @@ export async function POST(req: NextRequest) {
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)), { status: 201 })
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)), { status: 201 })
     } catch (error: unknown) {
       console.error("[deals] POST error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }

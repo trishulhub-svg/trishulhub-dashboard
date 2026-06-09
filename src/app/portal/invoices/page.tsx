@@ -6,22 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-
-/** Paginated API response shape */
-interface PaginatedResponse<T> {
-  data?: T[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-}
-
-/** Unwrap paginated { data: [...] } or plain array response */
-function unwrapResponse<T>(raw: unknown): T[] {
-  if (Array.isArray(raw)) return raw;
-  const resp = raw as PaginatedResponse<T>;
-  return Array.isArray(resp?.data) ? resp.data : [];
-}
+import { unwrapResponse } from "@/lib/api-helpers";
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800",

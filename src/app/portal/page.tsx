@@ -6,22 +6,7 @@ import { FolderKanban, FileText, HeadphonesIcon, DollarSign, AlertCircle } from 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-
-/** Paginated API response shape */
-interface PaginatedResponse<T> {
-  data?: T[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-}
-
-/** Unwrap paginated { data: [...] } or plain array response */
-function unwrapResponse<T>(raw: unknown): T[] {
-  if (Array.isArray(raw)) return raw;
-  const resp = raw as PaginatedResponse<T>;
-  return Array.isArray(resp?.data) ? resp.data : [];
-}
+import { unwrapResponse } from "@/lib/api-helpers";
 
 export default function PortalDashboard() {
   const router = useRouter();

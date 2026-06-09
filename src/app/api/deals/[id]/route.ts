@@ -7,24 +7,8 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
-
-// TODO: Extract to @/lib/serializers.ts (shared with deals/route.ts)
-// Helper: serialize Date objects in deal data to ISO strings for JSON responses
-interface DealWithDates {
-  expectedCloseDate?: string | Date | null
-  actualCloseDate?: string | Date | null
-  createdAt?: string | Date | null
-  updatedAt?: string | Date | null
-  [key: string]: unknown
-}
-function serializeDealDates(d: DealWithDates) {
-  if (!d) return d
-  if (d.expectedCloseDate instanceof Date) d.expectedCloseDate = d.expectedCloseDate.toISOString()
-  if (d.actualCloseDate instanceof Date) d.actualCloseDate = d.actualCloseDate.toISOString()
-  if (d.createdAt instanceof Date) d.createdAt = d.createdAt.toISOString()
-  if (d.updatedAt instanceof Date) d.updatedAt = d.updatedAt.toISOString()
-  return d
-}
+import { serializeDealDates } from "@/lib/serializers"
+import type { DealWithDates } from "@/lib/serializers"
 
 // TODO: Extract VALID_STAGES to @/lib/constants.ts (shared with deals/route.ts)
 // ━━ Shared constants ━━
@@ -69,7 +53,7 @@ export async function GET(
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
       }
 
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)))
     } catch (error: unknown) {
       console.error("[deals/[id]] GET error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to load deal details" }, { status: 500 })
@@ -179,7 +163,7 @@ export async function PATCH(
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)))
     } catch (error: unknown) {
       console.error("[deals/[id]] PATCH error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }

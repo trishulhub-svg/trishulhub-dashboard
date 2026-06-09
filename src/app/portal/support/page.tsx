@@ -16,22 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-
-/** Paginated API response shape */
-interface PaginatedResponse<T> {
-  data?: T[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-}
-
-/** Unwrap paginated { data: [...] } or plain array response */
-function unwrapResponse<T>(raw: unknown): T[] {
-  if (Array.isArray(raw)) return raw;
-  const resp = raw as PaginatedResponse<T>;
-  return Array.isArray(resp?.data) ? resp.data : [];
-}
+import { unwrapResponse } from "@/lib/api-helpers";
 
 const ticketStatusColors: Record<string, string> = {
   OPEN: "bg-blue-100 text-blue-800",
