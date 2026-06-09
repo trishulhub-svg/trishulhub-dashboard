@@ -104,13 +104,13 @@ export async function PUT(req: NextRequest) {
 
     // SECURITY: Whitelist allowed fields only (prevent mass assignment)
     const data: Prisma.ApiKeyUncheckedUpdateInput = {}
-    if (body.keyName !== undefined) data.keyName = body.keyName
-    if (body.keyValue !== undefined) data.keyValue = body.keyValue
-    if (body.provider !== undefined) data.provider = body.provider
-    if (body.monthlyBudget !== undefined) data.monthlyBudget = body.monthlyBudget
-    if (body.status !== undefined) data.status = body.status
-    if (body.priority !== undefined) data.priority = body.priority
-    if (body.currentSpend !== undefined && session.user.role === "SUPER_ADMIN") data.currentSpend = body.currentSpend
+    if (body.keyName !== undefined && body.keyName !== null) data.keyName = body.keyName as string
+    if (body.keyValue !== undefined && body.keyValue !== null) data.keyValue = body.keyValue as string
+    if (body.provider !== undefined && body.provider !== null) data.provider = body.provider as string
+    if (body.monthlyBudget !== undefined && body.monthlyBudget !== null) data.monthlyBudget = body.monthlyBudget as number
+    if (body.status !== undefined && body.status !== null) data.status = body.status as string
+    if (body.priority !== undefined && body.priority !== null) data.priority = body.priority as number
+    if (body.currentSpend !== undefined && body.currentSpend !== null && session.user.role === "SUPER_ADMIN") data.currentSpend = body.currentSpend as number
 
     const key = await db.apiKey.update({ where: { id }, data })
     // SECURITY: Always mask key values in PUT response (consistent with GET)

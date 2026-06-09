@@ -662,7 +662,7 @@ export async function PATCH(req: NextRequest) {
       // SECURITY: Set approvedBy ONLY when status actually changes
       const updatePayload: Prisma.LeaveRequestUncheckedUpdateInput = { feedback: sanitizedFeedback }
       if (data.status && data.status !== "PENDING") {
-        updatePayload.status = data.status
+        updatePayload.status = data.status as string
         updatePayload.approvedBy = session.user.id
       }
 
