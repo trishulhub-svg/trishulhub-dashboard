@@ -64,6 +64,7 @@ model User {
   filePermissions    FilePermission[]     @relation("FilePermissionUser")
   agentAccess        UserAgentAccess[]
   scheduledTasks    ScheduledTask[]
+  agentConversations AgentConversation[]
 
   @@map("User")
 }
@@ -110,6 +111,7 @@ model Agent {
   autonomyConfig  AgentAutonomyConfig?
   activityLogs    AgentActivityLog[]
   autonomousPrompts AgentAutonomousPrompt[]
+  conversations    AgentConversation[]
 }
 
 // ━━ Agent Role Configuration ━━
@@ -253,6 +255,21 @@ model AgentActivityLog {
 
   @@index([agentId, createdAt])
   @@index([configId, createdAt])
+}
+
+// ━━ Agent Conversations (Legacy - kept for migration) ━━
+model AgentConversation {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  title     String?
+  messages  String   @default("[]") // JSON array of messages
+  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 // ━━ User-Agent Access (RBAC) ━━
