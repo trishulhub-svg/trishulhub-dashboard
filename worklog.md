@@ -2900,3 +2900,242 @@ cd /home/z/my-project && npx tsc --noEmit
 ## Files Changed (12 files total)
 - **New files (3):** `src/lib/serializers.ts`, `src/lib/api-helpers.ts`
 - **Modified (9):** `src/lib/utils.ts`, `src/app/dashboard/projects/[projectId]/todos/page.tsx`, `src/app/dashboard/projects/todos/page.tsx`, `src/app/dashboard/projects/[projectId]/page.tsx`, `src/app/api/deals/route.ts`, `src/app/api/deals/[id]/route.ts`, `src/app/api/invoices/route.ts`, `src/app/api/subscriptions/route.ts`, `src/app/portal/invoices/page.tsx`, `src/app/portal/page.tsx`, `src/app/portal/support/page.tsx`, `src/app/portal/projects/[projectId]/page.tsx`
+
+---
+Task ID: 10-items-explain
+Agent: Main Agent
+Task: Save all explanation items from the 10-item request for future reference
+
+## Explanations Reference Document
+**Date: 2026-06-10**
+
+The following 7 explanation items were produced during the 10-item task batch.
+When the user asks for these explanations, refer to this section.
+
+---
+
+### ITEM 2: CSP Report-Only → Enforcement Transition
+
+**Current State:** `src/middleware.ts` lines 145-155 sets `Content-Security-Policy-Report-Only` with `unsafe-eval` and `unsafe-inline` for scripts. This logs violations but doesn't block them. No `report-uri` or `report-to` endpoint exists, so violation reports are silently lost.
+
+**Transition Path (step-by-step):**
+1. **Add a report-uri endpoint** — Create `/api/csp-report` POST endpoint that logs violations to a file or database. Without this, you're flying blind during report-only mode.
+2. **Deploy Report-Only for 2-4 weeks** in production. Analyze violation patterns from the endpoint.
+3. **Remove `unsafe-eval`** — Audit the codebase for `eval()`, `new Function()`, and inline script strings. Remove or refactor them. This is the easiest directive to tighten.
+4. **Remove `unsafe-inline` for scripts** — Move all inline `<script>` tags to external `.js` files, or use a CSP nonce approach. With Next.js, the easiest path is nonces:
+   - Generate a random nonce per request in middleware
+   - Set `script-src 'nonce-{nonce}'` in the CSP header
+   - Use `<Script nonce={nonce}>` in Next.js pages
+5. **For styles, use nonce approach** since Tailwind generates many runtime inline styles. Alternatively, use `style-src 'unsafe-inline'` while tightening `script-src` first.
+6. **Change header name** from `Content-Security-Policy-Report-Only` to `Content-Security-Policy`. Start by enforcing only `frame-ancestors 'none'` and `connect-src`, then expand.
+7. **Roll out incrementally** — Start with a percentage of traffic using A/B testing or feature flags.
+
+**Risk:** The biggest risk is blocking legitimate scripts. Test thoroughly in staging first.
+
+---
+
+### ITEM 3: process.env.ENCRYPTION_KEY Mutation Elimination
+
+**Status: ✅ ALREADY FIXED (as part of Item 4)**
+
+**Problem:** `process.env.ENCRYPTION_KEY` was being mutated in `task-git-config/route.ts` (4 locations) and `git-sync.ts` (1 location). The pattern was:
+```typescript
+process.env.ENCRYPTION_KEY = config.encryptionKey; // from DB
+```
+This is dangerous in serverless (Vercel) because concurrent requests share the same `process` object — a race condition where Request A's key could be used by Request B.
+
+**Fix Applied:** Added `encryptWithKey(plaintext, keyHex)` and `decryptWithKey(encrypted, iv, tag, keyHex)` to `src/lib/encryption.ts`. These accept an explicit key parameter instead of reading from `process.env.ENCRYPTION_KEY`. All mutation points in `task-git-config/route.ts` and `git-sync.ts` were replaced with calls to these new functions.
+
+**Commits:** `73af377` (fix: eliminate inline crypto & as any casts)
+
+---
+
+### ITEM 5: Splitting 5 Massive Components (1500-2000+ lines)
+
+**The 5 Largest Files:**
+1. `src/lib/ai/agent-tools.ts` — 4,047 lines
+2. `src/app/dashboard/files/page.tsx` — 2,480 lines
+3. `src/app/dashboard/clients/page.tsx` — 2,294 lines
+4. `src/app/dashboard/projects/page.tsx` — 2,282 lines
+5. `src/app/dashboard/settings/page.tsx` — 2,203 lines
+
+**Strategy for Each:**
+
+**agent-tools.ts (4,047 lines):**
+- Extract tool executor functions into domain-specific files: `tools/crm-tools.ts`, `tools/finance-tools.ts`, `tools/hr-tools.ts`, `tools/content-tools.ts`, `tools/project-tools.ts`, `tools/system-tools.ts`
+- Keep only the dispatch switch and shared utilities in the main file
+- Each tool file exports its executor functions with proper TypeScript types
+
+**Dashboard pages (2000-2500 lines each):**
+- Extract filter sections into `components/{page}/filters.tsx`
+- Extract table/grid views into `components/{page}/table.tsx`
+- Extract form modals (add/edit dialogs) into `components/{page}/dialogs.tsx`
+- Extract detail drawers/panels into `components/{page}/detail-panel.tsx`
+- Extract stat cards into `components/{page}/stat-cards.tsx`
+- Each extracted component should be self-contained with its own props interface
+
+**Recommended execution order:**
+1. `settings/page.tsx` — most self-contained sections, easiest to split
+2. `clients/page.tsx` — clear separation between list, detail, and form
+3. `projects/page.tsx` — complex but well-structured (kanban + list + detail)
+4. `files/page.tsx` — moderate complexity
+5. `agent-tools.ts` — largest but purely functional, lowest risk
+
+**Pattern:** Use React composition over prop drilling. Define narrow prop interfaces for each extracted component.
+
+---
+
+### ITEM 6: ensure-protocol-tables.ts DROP+CREATE → ALTER TABLE Migration
+
+**Current State:** `src/lib/ensure-protocol-tables.ts` (332 lines) uses a destructive pattern:
+1. Check if table exists
+2. If exists, check if columns match expected schema
+3. If columns don't match → `DROP TABLE` + `CREATE TABLE` (DATA LOSS!)
+4. For additive changes, uses `ALTER TABLE ADD COLUMN`
+
+**7 tables managed:** ProtocolVersion, ProtocolInvite, ProtocolAccessLog, UserProtocolAccess, TaskGitConfig, WorkspaceConfig, UserCode
+
+**Migration Strategy:**
+1. **Replace DROP+CREATE with ALTER TABLE ADD COLUMN** for additive changes — this is already the pattern in `auto-migrate.ts`
+2. **For column type changes:** Use SQLite's safe pattern:
+   - `CREATE TABLE temp AS SELECT ...` (with renamed/dropped columns)
+   - `DROP TABLE old`
+   - `ALTER TABLE temp RENAME TO old`
+3. **For column renames:** `ALTER TABLE RENAME COLUMN old TO new` (SQLite 3.25+, supported by Turso)
+4. **Use migration version tracking** — Add a `SchemaVersion` table with a version number. The `ensured` boolean flag is insufficient for incremental migrations
+5. **Consolidate** `ensure-protocol-tables.ts` into `auto-migrate.ts` — having two separate migration systems creates confusion and potential conflicts
+
+**Priority:** Medium — the current system works but risks data loss when schema changes are needed.
+
+---
+
+### ITEM 7: 30 window.location.href → router.push SPA Fix
+
+**Current State:** 31 occurrences across 12 files. The majority are `if (res.status === 401) { window.location.href = "/login" }` patterns in fetch query functions.
+
+**Distribution:**
+- `use-session-manager.ts` — 3 (session timeout/kick/error fallbacks)
+- `projects/page.tsx` — 5 (handle401 + inline 401 checks)
+- `projects/todos/page.tsx` — 7 (inline 401 checks in queryFns)
+- `projects/[projectId]/page.tsx` — 6 (same pattern)
+- `projects/[projectId]/todos/page.tsx` — 3 (same pattern)
+- `login/page.tsx` — 2 (post-login redirect)
+- `error.tsx` — 1 ("Go Home" button)
+- `page.tsx` — 1 (loading fallback)
+- `finance/error.tsx` — 1 (error page)
+- `animation-spec/page.tsx` — 1 (navigation)
+
+**Fix Strategy:**
+1. **Create a shared `useFetchWithAuth()` hook** that wraps `fetch()` and:
+   - Automatically handles 401 responses with `router.push("/login")`
+   - Provides typed response handling
+   - Eliminates the need for inline `if (res.status === 401)` checks in every queryFn
+2. **In `use-session-manager.ts`:** Replace with `router.push("/login?reason=timeout")` etc.
+3. **In login page:** Use `router.push(callbackUrl || "/dashboard")` after successful auth.
+4. **In error pages:** Use `router.push("/")` for "Go Home" buttons.
+5. **Keep `window.location.href` ONLY** for:
+   - The initial login page redirect (where a full navigation is desirable after auth state changes)
+   - External URLs (if any)
+6. **The `handle401` helper** in project pages can be extracted into a shared utility.
+
+**Impact:** Eliminates full page reloads → faster, smoother SPA navigation. Users won't see a white flash on 401 responses.
+
+---
+
+### ITEM 9: Redis Rate Limiting for Serverless
+
+**Current State:** `src/lib/rate-limit.ts` (259 lines) uses:
+- **In-memory `Map<string, { count, resetAt }>`** as hot cache (per-instance)
+- **SQLite `RateLimitEntry` table** as persistence across cold starts
+- **Background cleanup** every 5 minutes
+- **14 specialized rate limiters** (meetingRateLimit, rsvpRateLimit, etc.)
+
+**Should you switch to Redis?**
+
+**Current approach is adequate for your scale.** Here's why:
+- The SQLite backing store handles cross-instance persistence on Vercel
+- The in-memory Map handles hot-path performance within a single function invocation
+- Cold starts reset the Map, but the DB backing store immediately reloads limits
+- Rate limiting doesn't need sub-millisecond latency — the SQLite check takes <5ms
+
+**When to upgrade to Redis:**
+1. If you experience cold-start latency issues from SQLite rate limit checks
+2. If you need shared rate limiting across multiple applications/services
+3. If you need sliding window rate limiting (current is fixed window)
+4. If rate limit checks become a bottleneck (>1000 requests/second)
+
+**If upgrading:**
+- Use **Upstash Redis** — edge-compatible, no cold start, designed for Vercel
+- Install `@upstash/redis` (serverless HTTP client, no TCP connection needed)
+- Replace the `Map` cache with `INCR` + `EXPIRE` commands
+- Keep the existing API surface (`rateLimit(key, limit, windowMs)`)
+- The 14 specialized rate limiters don't need changes — they call the same core function
+
+**Cost:** Upstash free tier: 10K commands/day, 256MB storage. Should be sufficient.
+
+---
+
+### ITEM 10: PDF.js Worker Local Bundling
+
+**Current State:** `src/components/training/pdf-viewer-inner.tsx` line 12:
+```typescript
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+```
+
+**Security Risk:** The worker is loaded from a CDN (`unpkg.com`) **without Subresource Integrity (SRI)**. An attacker who compromises the CDN could inject malicious code into the worker.
+
+**Fix Options (in order of preference):**
+
+**Option A: Copy to public directory (simplest)**
+1. Copy `node_modules/pdfjs-dist/build/pdf.worker.min.mjs` to `public/pdf.worker.min.mjs`
+2. Change the line to: `pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"`
+3. The worker (~800KB) will be served from your own domain with proper caching headers
+4. Add a postinstall script to automate the copy: `"scripts": { "postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/" }`
+
+**Option B: Next.js webpack alias**
+```js
+// next.config.ts
+webpack(config) {
+  config.resolve.alias['pdfjs-dist/build/pdf.worker.min.mjs'] = 
+    new URL('./public/pdf.worker.min.mjs', import.meta.url).href
+  return config
+}
+```
+
+**Option C: Inline worker with URL loader**
+```js
+// next.config.ts
+webpack(config) {
+  config.module.rules.push({
+    test: /pdf\.worker\.min\.mjs$/,
+    type: 'asset/resource',
+  })
+  return config
+}
+```
+
+**Benefits of local bundling:**
+- Eliminates external network dependency (works offline)
+- Enables SRI verification (same-origin = automatic trust)
+- Faster loading (no DNS lookup + CDN latency)
+- No CDN outage risk
+
+**Priority:** Medium-High (security issue with CDN without SRI)
+
+---
+
+## Summary of 10-Item Batch
+
+| # | Item | Type | Status | Commit |
+|---|------|------|--------|--------|
+| 1 | Audit Trail System (PDF Export) | BUILD | ✅ Done | `5d3f9b6` |
+| 2 | CSP Report-Only → Enforcement | EXPLAIN | ✅ Saved | See above |
+| 3 | ENCRYPTION_KEY Mutation | EXPLAIN+FIX | ✅ Fixed in Item 4 | `73af377` |
+| 4 | Inline SMTP Encryption → encryption.ts | FIX | ✅ Done | `73af377` |
+| 5 | 5 Massive Components Splitting | EXPLAIN | ✅ Saved | See above |
+| 6 | ensure-protocol-tables DROP+CREATE | EXPLAIN | ✅ Saved | See above |
+| 7 | window.location.href → router.push | EXPLAIN | ✅ Saved | See above |
+| 8 | 75 as any Casts Elimination | FIX | ✅ Done | `73af377` |
+| 9 | Redis Rate Limiting | EXPLAIN | ✅ Saved | See above |
+| 10 | PDF.js Worker Local Bundling | EXPLAIN | ✅ Saved | See above |
+
