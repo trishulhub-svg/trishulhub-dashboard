@@ -235,6 +235,7 @@ export const authOptions: NextAuthOptions = {
         session.user.email = (token.email as string) ?? session.user.email
         session.user.role = token.role
         session.user.id = token.id
+        session.user.department = token.department
       }
 
       // Pass session errors to client for handling
