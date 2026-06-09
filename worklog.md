@@ -3159,3 +3159,23 @@ Stage Summary:
 - Workspace nav fixed: 5 sidebar items synced with middleware permissions
 - Meetings visibility fixed: robust query pattern replaces fragile OR+relation filter
 - Commit: 7c4cd98 pushed to main
+---
+Task ID: 2
+Agent: Main Agent
+Task: Comprehensive Turbopack type-check error fix — all route files in one commit
+
+Work Log:
+- Analyzed pattern of 10 consecutive Vercel build failures caused by Turbopack TS checker catching errors that local tsc misses
+- Confirmed local tsc --noEmit passes clean with strict flags but Turbopack is stricter
+- Cannot run next build locally (OOM/Bus error even with 8GB on 4-core machine)
+- Used Explore agents to audit ALL 89 route.ts files for potential type issues
+- Found and fixed: password-reset/route.ts triggeredBy null→undefined
+- Found and fixed: 5 unsafe as casts on Prisma objects (deals, deals/[id], time-tracking, clients/[id], team)
+- All 6 files changed with targeted type-safety fixes
+- Pushed commit ba7667a
+
+Stage Summary:
+- Root cause: Turbopack's TS checker is fundamentally stricter than tsc — catches null-vs-undefined, unsafe as casts, etc.
+- Fixed 7 type issues across 6 files in one commit
+- Previous 10 commits' fixes verified still intact
+- If more errors appear, remaining potential issues identified: 43 catch(error:any) instances, 30+ any annotations
