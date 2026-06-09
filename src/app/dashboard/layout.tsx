@@ -119,24 +119,24 @@ const navGroups: NavGroup[] = [
   {
     label: "HR & People",
     items: [
-      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
   {
     label: "Learning",
     items: [
       { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
   {
     label: "System",
     items: [
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
-      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
 ];

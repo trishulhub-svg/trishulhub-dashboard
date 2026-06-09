@@ -69,31 +69,74 @@ export async function GET(req: NextRequest) {
       where.date = { gte: today }
     }
 
-    // W55: Role-based access — for non-admins, incorporate projectId/organizerId into the OR clause
+    // W55: Role-based access — for non-admins, fetch meetings where user is organizer OR attendee
+    // Using separate queries to avoid fragile OR + relation filter pattern with SQLite
+    const includeOpts = {
+      organizer: { select: { id: true, name: true, email: true, avatar: true } },
+      project: { select: { id: true, name: true } },
+      attendees: {
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      },
+    }
+
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
-      const projectFilter = projectId ? { projectId } : {}
-      where.OR = [
-        { organizerId: userId, ...projectFilter },
-        { attendees: { some: { userId } }, ...projectFilter },
-      ]
-      // For non-admins, only apply organizerId if it matches the user or is already in the OR
-      // Remove top-level organizerId/projectId for non-admins since they're now in the OR clause
+      // Remove top-level organizerId/projectId since we'll use them per-query
       delete where.organizerId
       delete where.projectId
+
+      const projectFilter = projectId ? { projectId } : {}
+      const skip = (page - 1) * pageSize
+
+      // Fetch meetings organized by user
+      const [organizedMeetings, organizedCount] = await Promise.all([
+        db.meeting.findMany({
+          where: { ...where, organizerId: userId, ...projectFilter },
+          include: includeOpts,
+          orderBy: [{ date: "asc" }, { startTime: "asc" }],
+        }),
+        db.meeting.count({ where: { ...where, organizerId: userId, ...projectFilter } }),
+      ])
+
+      // Fetch meetings where user is an attendee (via relation filter)
+      const [attendedMeetings, attendedCount] = await Promise.all([
+        db.meeting.findMany({
+          where: { ...where, attendees: { some: { userId } }, ...projectFilter },
+          include: includeOpts,
+          orderBy: [{ date: "asc" }, { startTime: "asc" }],
+        }),
+        db.meeting.count({ where: { ...where, attendees: { some: { userId } }, ...projectFilter } }),
+      ])
+
+      // Merge and deduplicate by meeting ID
+      const seen = new Set<string>()
+      const mergedMeetings: typeof organizedMeetings = []
+      for (const m of organizedMeetings) {
+        if (!seen.has(m.id)) { seen.add(m.id); mergedMeetings.push(m) }
+      }
+      for (const m of attendedMeetings) {
+        if (!seen.has(m.id)) { seen.add(m.id); mergedMeetings.push(m) }
+      }
+
+      // Sort combined results
+      mergedMeetings.sort((a, b) => {
+        const dc = new Date(a.date).getTime() - new Date(b.date).getTime()
+        return dc !== 0 ? dc : a.startTime.localeCompare(b.startTime)
+      })
+
+      const total = organizedCount + attendedCount
+
+      return NextResponse.json({
+        data: mergedMeetings.slice(skip, skip + pageSize),
+        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      })
     }
 
     const [meetings, total] = await Promise.all([
       db.meeting.findMany({
         where,
-        include: {
-          organizer: { select: { id: true, name: true, email: true, avatar: true } },
-          project: { select: { id: true, name: true } },
-          attendees: {
-            include: {
-              user: { select: { id: true, name: true, email: true, avatar: true } },
-            },
-          },
-        },
+        include: includeOpts,
         orderBy: [{ date: "asc" }, { startTime: "asc" }],
         take: pageSize,
         skip: (page - 1) * pageSize,

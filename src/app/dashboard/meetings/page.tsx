@@ -253,6 +253,12 @@ export default function MeetingsPage() {
       if (res.ok) {
         const data = await res.json();
         setMeetings(safeArray<Meeting>(data.data || data));
+      } else {
+        // Show error for non-ok responses (500, 429, etc.)
+        try {
+          const errData = await res.json();
+          console.error("[meetings] API error:", errData);
+        } catch { /* ignore parse error */ }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;

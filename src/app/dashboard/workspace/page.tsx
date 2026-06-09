@@ -254,8 +254,14 @@ export default function TrishulWorkspacePage() {
 
   /* ── Handlers ── */
   const handleCredentials = useCallback(() => {
-    router.push("/dashboard/access-hub");
-  }, [router]);
+    const role = session?.user?.role;
+    if (role === "SUPER_ADMIN" || role === "ADMIN") {
+      router.push("/dashboard/access-hub");
+    } else {
+      // Access Hub is admin-only — show guidance message
+      window.alert("Access Hub is available for admins only. Please contact your administrator for workspace credentials.");
+    }
+  }, [router, session]);
 
   /* ── Time-based greeting ── */
   const [greeting, setGreeting] = useState("Good evening");
