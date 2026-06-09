@@ -312,7 +312,7 @@ export async function GET(req: NextRequest) {
       records.sort((a, b) => {
         const dateCompare = new Date(b.date as string).getTime() - new Date(a.date as string).getTime()
         if (dateCompare !== 0) return dateCompare
-        return String((a.user as Record<string, unknown>)?.name).localeCompare(String((b.user as Record<string, unknown>)?.name))
+        return String((a.user as unknown as Record<string, unknown>)?.name).localeCompare(String((b.user as unknown as Record<string, unknown>)?.name))
       })
 
       // Limit to 500 records

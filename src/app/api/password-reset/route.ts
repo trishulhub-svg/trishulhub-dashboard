@@ -305,7 +305,7 @@ export async function PUT(req: NextRequest) {
       subject: "Password Reset Completed",
       type: "RESET_LINK",
       status: "SENT",
-      triggeredBy: resetRecord.triggeredBy,
+      triggeredBy: resetRecord.triggeredBy ?? undefined,
       metadata: JSON.stringify({ action: "password_reset_via_link", userId: user.id }),
     })
 

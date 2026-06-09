@@ -25,7 +25,7 @@ async function fetchAdminActiveEntries(): Promise<TimeEntryWithUser[]> {
     orderBy: { clockIn: "desc" },
     take: 200,
   })
-  return allActive as TimeEntryWithUser[]
+  return allActive as unknown as TimeEntryWithUser[]
 }
 
 /**

@@ -137,7 +137,7 @@ export async function GET(
 
     const client = await db.client.findUnique({
       where: { id },
-      include: includeObj as Prisma.ClientInclude,
+      include: includeObj as unknown as Prisma.ClientInclude,
     })
 
     if (!client) {

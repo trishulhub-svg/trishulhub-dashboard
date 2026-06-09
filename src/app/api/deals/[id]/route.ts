@@ -53,7 +53,7 @@ export async function GET(
         return NextResponse.json({ error: "Deal not found" }, { status: 404 })
       }
 
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
     } catch (error: unknown) {
       console.error("[deals/[id]] GET error:", error instanceof Error ? error.message : error)
       return NextResponse.json({ error: "Failed to load deal details" }, { status: 500 })
@@ -163,7 +163,7 @@ export async function PATCH(
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)))
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)))
     } catch (error: unknown) {
       console.error("[deals/[id]] PATCH error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }

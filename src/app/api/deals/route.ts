@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
         db.deal.count({ where }),
       ])
 
-      const serialized = deals.map((d) => serializeDealDates(d as DealWithDates))
+      const serialized = deals.map((d) => serializeDealDates(d as unknown as DealWithDates))
       return NextResponse.json(deepSanitize({
         data: serialized,
         total,
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
           assignedTo: { select: { id: true, name: true } },
         },
       })
-      return NextResponse.json(deepSanitize(serializeDealDates(deal as DealWithDates)), { status: 201 })
+      return NextResponse.json(deepSanitize(serializeDealDates(deal as unknown as DealWithDates)), { status: 201 })
     } catch (error: unknown) {
       console.error("[deals] POST error:", error instanceof Error ? error.message : error)
       const prismaError = error as { code?: string }
