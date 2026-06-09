@@ -37,8 +37,7 @@ export async function GET(req: NextRequest) {
         department: { in: accessibleDepts },
       },
       _count: true,
-      orderBy: { _count: { sort: "desc" } },
-    })
+    }).then(results => results.sort((a, b) => b._count - a._count))
 
     // Count per action type
     const actionCounts = await db.auditLog.groupBy({
@@ -47,8 +46,7 @@ export async function GET(req: NextRequest) {
         department: { in: accessibleDepts },
       },
       _count: true,
-      orderBy: { _count: { sort: "desc" } },
-    })
+    }).then(results => results.sort((a, b) => b._count - a._count))
 
     // Total entries
     const total = await db.auditLog.count({
