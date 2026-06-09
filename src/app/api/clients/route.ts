@@ -236,8 +236,8 @@ export async function GET(req: NextRequest) {
         invoices: invoiceCount,
       },
     }))
-  } catch (error: any) {
-    console.error("[clients] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[clients] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to load clients" }, { status: 500 })
   }
 }
@@ -328,10 +328,11 @@ export async function POST(req: NextRequest) {
       })
     })
     return NextResponse.json(deepSanitize(client), { status: 201 })
-  } catch (error: any) {
-    console.error("[clients] POST error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[clients] POST error:", error instanceof Error ? error.message : String(error))
     // Safety net for Prisma unique constraint error
-    if (error?.code === "P2002" || error?.code === "DUPLICATE_EMAIL") {
+    const errorCode = (error as { code?: string }).code
+    if (errorCode === "P2002" || errorCode === "DUPLICATE_EMAIL") {
       return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
     }
     return NextResponse.json({ error: "Failed to create client" }, { status: 500 })

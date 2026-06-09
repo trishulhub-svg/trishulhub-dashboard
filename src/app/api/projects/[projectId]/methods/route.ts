@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
     const methods = await db.$queryRawUnsafe(
       `SELECT pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = ? ORDER BY pm."name"`,
       id
-    ) as Array<{ id: string; name: string }>
+    ) as unknown as Array<{ id: string; name: string }>
 
     return NextResponse.json(methods)
   } catch (error: unknown) {
@@ -69,7 +69,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
       const existingMethods = await db.$queryRawUnsafe(
         `SELECT "id" FROM "ProjectMethod" WHERE "id" IN (${placeholders})`,
         ...validIds
-      ) as Array<{ id: string }>
+      ) as unknown as Array<{ id: string }>
       const existingIdSet = new Set(existingMethods.map((m) => m.id))
       const invalidIds = validIds.filter((m) => !existingIdSet.has(m))
       if (invalidIds.length > 0) {

@@ -93,9 +93,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    let parsedBody: Record<string, any>
+    let parsedBody: Record<string, unknown>
     try {
-      parsedBody = await req.json() as Record<string, any>
+      parsedBody = await req.json() as Record<string, unknown>
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }

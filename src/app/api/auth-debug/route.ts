@@ -84,8 +84,8 @@ export async function POST(request: Request) {
       },
     })
 
-  } catch (error: any) {
-    console.error("[auth-debug] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[auth-debug] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({
       error: "An error occurred during auth check",
     }, { status: 500 })
@@ -122,9 +122,9 @@ export async function GET() {
     const { db } = await import("@/lib/db")
     userCount = await db.user.count()
     dbStatus = "CONNECTED"
-  } catch (err: any) {
+  } catch (err: unknown) {
     dbStatus = "ERROR"
-    console.error("[auth-debug] DB error:", err.message)
+    console.error("[auth-debug] DB error:", err instanceof Error ? err.message : String(err))
   }
 
   return NextResponse.json({

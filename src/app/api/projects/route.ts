@@ -124,15 +124,16 @@ export async function GET(req: NextRequest) {
     try {
       const assignments = await db.$queryRawUnsafe(
         `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id"`
-      ) as Array<{ projectId: string; id: string; name: string }>
+      ) as unknown as Array<{ projectId: string; id: string; name: string }>
       for (const a of assignments) {
         if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
         methodsMap[a.projectId].push({ id: a.id, name: a.name })
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Join table may not exist yet — non-fatal
-      if (!err?.message?.includes('no such table')) {
-        console.warn('[projects] Failed to fetch project methods:', err?.message)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      if (!errMsg.includes('no such table')) {
+        console.warn('[projects] Failed to fetch project methods:', errMsg)
       }
     }
 
@@ -155,8 +156,8 @@ export async function GET(req: NextRequest) {
 
     // I1: Targeted Date serialization
     return NextResponse.json(serializeProjects(projectsWithMethods))
-  } catch (error: any) {
-    console.error("[projects] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[projects] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to load projects" }, { status: 500 })
   }
 }
@@ -224,8 +225,8 @@ export async function POST(req: NextRequest) {
     syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
     // I1: Targeted Date serialization
     return NextResponse.json(serializeProjectDates(project), { status: 201 })
-  } catch (error: any) {
-    console.error("[projects] POST error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[projects] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to create project" }, { status: 500 })
   }
 }
@@ -302,8 +303,8 @@ export async function PUT(req: NextRequest) {
     const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
     // I1: Targeted Date serialization
     return NextResponse.json(serializeProjectDates(project))
-  } catch (error: any) {
-    console.error("[projects] PUT error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[projects] PUT error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 })
   }
 }
@@ -360,8 +361,8 @@ export async function DELETE(req: NextRequest) {
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[projects] DELETE error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[projects] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

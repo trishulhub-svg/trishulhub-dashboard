@@ -164,8 +164,8 @@ export async function GET(
     }
 
     return NextResponse.json(deepSanitize(serializeClientDetail({ ...client, portalUser, revenue })))
-  } catch (error: any) {
-    console.error("[clients/[id]] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[clients/[id]] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to load client details" }, { status: 500 })
   }
 }
@@ -271,16 +271,16 @@ export async function PATCH(
       })
     })
     return NextResponse.json(deepSanitize(serializeClientDetail(client)))
-  } catch (updateErr: any) {
-    console.error("[clients/[id]] PATCH update error:", updateErr?.message)
+  } catch (updateErr: unknown) {
+    console.error("[clients/[id]] PATCH update error:", updateErr instanceof Error ? updateErr.message : String(updateErr))
     // Check for Prisma unique constraint error (duplicate email)
-    if (updateErr?.code === "P2002") {
+    if ((updateErr as { code?: string }).code === "P2002") {
       return NextResponse.json({ error: "A client with this email already exists" }, { status: 409 })
     }
     return NextResponse.json({ error: "Client not found or update failed" }, { status: 404 })
   }
-  } catch (error: any) {
-    console.error("[clients/[id]] PATCH error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[clients/[id]] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to update client" }, { status: 500 })
   }
 }
@@ -320,8 +320,8 @@ export async function DELETE(
       data: { status: "CHURNED" },
     })
     return NextResponse.json({ success: true, client: deepSanitize(serializeClientDetail(client)) })
-  } catch (error: any) {
-    console.error("[clients/[id]] DELETE error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[clients/[id]] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to deactivate client" }, { status: 500 })
   }
 }

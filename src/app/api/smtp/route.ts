@@ -59,8 +59,8 @@ export async function GET() {
     }))
 
     return NextResponse.json(masked)
-  } catch (error: any) {
-    console.error("[smtp] Error:", error.message)
+  } catch (error: unknown) {
+    console.error("[smtp] Error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
 }
@@ -193,11 +193,11 @@ export async function POST(req: NextRequest) {
 
     console.log("[smtp] POST: SMTP config created successfully:", config.id)
     return NextResponse.json(config, { status: 201 })
-  } catch (error: any) {
-    console.error("[smtp] Error:", error.message)
+  } catch (error: unknown) {
+    console.error("[smtp] Error:", error instanceof Error ? error.message : String(error))
     // C8: Generic error message — don't leak internal details
     let errorMsg = "Failed to process SMTP configuration"
-    if (error.code === "P2002") {
+    if ((error as { code?: string }).code === "P2002") {
       errorMsg = "An SMTP config with these details already exists"
     }
     return NextResponse.json({ error: errorMsg }, { status: 500 })
@@ -313,8 +313,8 @@ export async function PATCH(req: NextRequest) {
     })
 
     return NextResponse.json(config)
-  } catch (error: any) {
-    console.error("[smtp] Error:", error.message)
+  } catch (error: unknown) {
+    console.error("[smtp] Error:", error instanceof Error ? error.message : String(error))
     // C8: Generic error message — don't leak internal details
     return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
@@ -358,8 +358,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[smtp] Error:", error.message)
+  } catch (error: unknown) {
+    console.error("[smtp] Error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to process SMTP configuration" }, { status: 500 })
   }
 }
@@ -378,9 +378,9 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     tablesChecked = true
     tablesExist = true
     return { success: true }
-  } catch (initialErr: any) {
+  } catch (initialErr: unknown) {
     // Table doesn't exist - create it
-    console.log("[smtp] SmtpConfig table not found, auto-creating...", initialErr.message)
+    console.log("[smtp] SmtpConfig table not found, auto-creating...", initialErr instanceof Error ? initialErr.message : String(initialErr))
   }
 
   // Try creating tables with raw SQL
@@ -406,8 +406,8 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     `)
     smtpTableCreated = true
     console.log("[smtp] SmtpConfig table created successfully")
-  } catch (err: any) {
-    console.error("[smtp] Failed to create SmtpConfig table:", err.message)
+  } catch (err: unknown) {
+    console.error("[smtp] Failed to create SmtpConfig table:", err instanceof Error ? err.message : String(err))
     return { success: false, error: "Failed to create SmtpConfig table" }
   }
 
@@ -427,8 +427,8 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     `)
     emailTableCreated = true
     console.log("[smtp] EmailVerification table created successfully")
-  } catch (err: any) {
-    console.error("[smtp] Failed to create EmailVerification table:", err.message)
+  } catch (err: unknown) {
+    console.error("[smtp] Failed to create EmailVerification table:", err instanceof Error ? err.message : String(err))
     // SmtpConfig is the critical one - EmailVerification is non-blocking
   }
 
@@ -446,8 +446,8 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     tablesExist = true
     console.log("[smtp] Tables verified and ready")
     return { success: true }
-  } catch (verifyErr: any) {
-    console.error("[smtp] Table verification failed after creation:", verifyErr.message)
+  } catch (verifyErr: unknown) {
+    console.error("[smtp] Table verification failed after creation:", verifyErr instanceof Error ? verifyErr.message : String(verifyErr))
     tablesChecked = false
     tablesExist = false
     return { success: false, error: "Table verification failed" }

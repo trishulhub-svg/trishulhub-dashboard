@@ -22,7 +22,7 @@ export async function GET() {
     // Avoids Prisma trying to SELECT "updatedAt" which may not exist on older deployments.
     const methods = await db.$queryRawUnsafe(
       `SELECT "id", "name" FROM "ProjectMethod" ORDER BY "name" ASC`
-    ) as Array<{ id: string; name: string }>
+    ) as unknown as Array<{ id: string; name: string }>
 
     return NextResponse.json(methods)
   } catch (error: unknown) {

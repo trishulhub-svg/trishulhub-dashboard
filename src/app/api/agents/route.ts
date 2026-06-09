@@ -112,8 +112,8 @@ export async function GET(req: NextRequest) {
 
     // ZAI FIX #310: JSON round-trip to strip any non-serializable values
     return NextResponse.json(JSON.parse(JSON.stringify(agents)))
-  } catch (error: any) {
-    console.error("[agents] GET error:", error.message); return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[agents] GET error:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined); return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
   }
 }
 
@@ -197,8 +197,8 @@ export async function PATCH(req: NextRequest) {
     })
 
     return NextResponse.json(JSON.parse(JSON.stringify(updated)))
-  } catch (error: any) {
-    console.error("[agents] PATCH error:", error.message, error.stack)
+  } catch (error: unknown) {
+    console.error("[agents] PATCH error:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined)
     return NextResponse.json({ error: "Failed to update agent" }, { status: 500 })
   }
 }

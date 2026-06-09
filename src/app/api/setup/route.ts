@@ -65,7 +65,7 @@ export async function GET() {
       return NextResponse.json({ status: "already_setup", message: "Database is ready" })
     }
     return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded" })
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Only return generic info publicly - no env var details
     return NextResponse.json({ status: "needs_setup", message: "Database not accessible" })
   }
@@ -111,8 +111,8 @@ export async function PATCH() {
           await db.$executeRawUnsafe(migration.sql)
           logs.push(`Added column ${migration.column} to ${migration.table}`)
         }
-      } catch (err: any) {
-        console.error(`[setup] Migration ${migration.column} failed:`, err.message)
+      } catch (err: unknown) {
+        console.error(`[setup] Migration ${migration.column} failed:`, err instanceof Error ? err.message : String(err))
         logs.push(`Migration ${migration.column}: Migration failed — check server logs`)
       }
     }
@@ -255,8 +255,8 @@ export async function PATCH() {
           }
           logs.push(`Created table ${table.name}`)
         }
-      } catch (err: any) {
-        console.error(`[setup] Table ${table.name} creation failed:`, err.message)
+      } catch (err: unknown) {
+        console.error(`[setup] Table ${table.name} creation failed:`, err instanceof Error ? err.message : String(err))
         logs.push(`Table ${table.name}: Migration failed — check server logs`)
       }
     }
@@ -280,8 +280,8 @@ export async function PATCH() {
     }
 
     return NextResponse.json({ status: "success", logs })
-  } catch (error: any) {
-    console.error("[setup] PATCH error:", error.message); return NextResponse.json({ status: "error", error: "Migration failed", logs }, { status: 500 })
+  } catch (error: unknown) {
+    console.error("[setup] PATCH error:", error instanceof Error ? error.message : String(error)); return NextResponse.json({ status: "error", error: "Migration failed", logs }, { status: 500 })
   }
 }
 
@@ -425,7 +425,7 @@ export async function POST(req: NextRequest) {
       logs
     })
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json({
       status: "error",
       error: "Setup failed",

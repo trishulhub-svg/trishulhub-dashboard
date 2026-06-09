@@ -51,8 +51,8 @@ export async function GET() {
     }
 
     return NextResponse.json(result)
-  } catch (error: any) {
-    console.error("[tasks/counts] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[tasks/counts] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

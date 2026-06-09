@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check authentication for full metadata
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
     const isAuthenticated = !!token;
 
     // If download requested, return binary stream (requires auth)
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -159,7 +159,7 @@ export async function PATCH(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -243,7 +243,7 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     await ensureProtocolTables();
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
     if (!token || token.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

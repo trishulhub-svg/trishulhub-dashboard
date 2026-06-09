@@ -62,14 +62,14 @@ export async function POST(req: NextRequest) {
       await transporter.verify()
       await transporter.close()
       return NextResponse.json({ success: true, message: "SMTP connection successful!" })
-    } catch (error: any) {
+    } catch (error: unknown) {
       try { await transporter.close() } catch {}
       // C9: Sanitize error — don't expose server banners or internal details
-      console.error("[smtp-test] Connection failed:", error.message)
+      console.error("[smtp-test] Connection failed:", error instanceof Error ? error.message : String(error))
       return NextResponse.json({ success: false, error: "Connection failed. Check host and port settings." })
     }
-  } catch (error: any) {
-    console.error("[smtp-test] Error:", error.message)
+  } catch (error: unknown) {
+    console.error("[smtp-test] Error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

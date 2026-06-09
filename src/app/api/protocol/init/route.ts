@@ -15,7 +15,7 @@ import { JwtToken, getTokenUserId } from "@/types/jwt";
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

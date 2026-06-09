@@ -13,7 +13,7 @@ import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 // ── Helper: ensure only SUPER_ADMIN ──
 async function requireSuperAdmin(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
   if (!token || token.role !== "SUPER_ADMIN") {
     return null;
   }

@@ -178,8 +178,9 @@ async function executeSingleTask(taskId: string, executionSource: string): Promi
     console.log(`[cron] Task ${task.id} completed successfully [source: ${executionSource}]`)
 
     return { success: true, result: agentResult.finalResponse }
-  } catch (error: any) {
-    console.error(`[cron] Task ${task.id} failed [source: ${executionSource}]:`, error.message)
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error(`[cron] Task ${task.id} failed [source: ${executionSource}]:`, errorMsg)
 
     // W25: Retry tracking with exponential backoff, max 3 retries
     // Parse failure count from result field (stores JSON when retry tracking is active)
@@ -203,7 +204,7 @@ async function executeSingleTask(taskId: string, executionSource: string): Promi
           status: "FAILED",
           result: JSON.stringify({
             failureCount,
-            lastError: error.message,
+            lastError: errorMsg,
             message: `Task permanently failed after ${MAX_TASK_RETRIES} retries. Manual intervention required.`,
           }),
         },
@@ -221,7 +222,7 @@ async function executeSingleTask(taskId: string, executionSource: string): Promi
           dueDate: nextDue,
           result: JSON.stringify({
             failureCount,
-            lastError: error.message,
+            lastError: errorMsg,
             message: `Auto-execution failed (attempt ${failureCount}/${MAX_TASK_RETRIES}). Retrying at ${nextDue.toISOString()}.`,
           }),
         },
@@ -303,7 +304,7 @@ export async function GET(req: NextRequest) {
     // Manual UI trigger — session-authenticated admin
     const executionSource = `manual:${session.user.id}`
     return await handleCronExecution(req, true, executionSource)
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[cron/execute-tasks] GET error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
@@ -325,7 +326,7 @@ export async function POST(req: NextRequest) {
     }
 
     return await handleCronExecution(req, false, "cron")
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[cron/execute-tasks] POST error:", error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }

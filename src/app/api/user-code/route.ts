@@ -12,7 +12,7 @@ import { JwtToken, getTokenUserId } from "@/types/jwt";
 
 /** Helper: require any authenticated user */
 async function requireAuth(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as JwtToken;
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET }) as unknown as JwtToken;
   if (!token) return null;
   return token;
 }

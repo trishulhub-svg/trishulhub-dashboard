@@ -127,8 +127,8 @@ export async function POST() {
       leads: 5,
       invoices: 2,
     })
-  } catch (error: any) {
-    console.error("[seed] POST error:", error.message)
+  } catch (error: unknown) {
+    console.error("[seed] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

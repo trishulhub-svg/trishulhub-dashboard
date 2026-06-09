@@ -37,7 +37,7 @@ export async function POST() {
     diagnostics.database = "connected"
     diagnostics.totalUsers = totalUsers
     return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics })
-  } catch (error: any) {
+  } catch (error: unknown) {
     diagnostics.database = "disconnected"
     diagnostics.error = "Database connection failed"
     return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics }, { status: 503 })

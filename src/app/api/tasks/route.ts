@@ -229,8 +229,8 @@ export async function GET(req: NextRequest) {
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
   }))
   return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
-  } catch (error: any) {
-    console.error("[tasks] GET error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[tasks] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -372,8 +372,8 @@ export async function POST(req: NextRequest) {
   }
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
   return NextResponse.json(serializeTask(task), { status: 201 })
-  } catch (error: any) {
-    console.error("[tasks] POST error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[tasks] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -662,8 +662,8 @@ export async function PATCH(req: NextRequest) {
     syncTasksToGit().catch(() => {})
   }
   return NextResponse.json(serializeTask(updatedTask))
-  } catch (error: any) {
-    console.error("[tasks] PATCH error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[tasks] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
@@ -719,8 +719,8 @@ export async function DELETE(req: NextRequest) {
     syncTasksToGit().catch(() => {})
   }
   return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error("[tasks] DELETE error:", error?.message)
+  } catch (error: unknown) {
+    console.error("[tasks] DELETE error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }
