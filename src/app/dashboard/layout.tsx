@@ -40,6 +40,7 @@ import {
   ClipboardCheck,
   HardDrive,
   KeyRound,
+  ScrollText,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -134,8 +135,9 @@ const navGroups: NavGroup[] = [
   {
     label: "System",
     items: [
+      { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
-      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
