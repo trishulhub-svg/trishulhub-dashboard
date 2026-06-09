@@ -375,7 +375,7 @@ export default function AuditTrailPage() {
             </CardContent>
           </Card>
 
-          {(Object.entries(AUDIT_DEPARTMENTS) as [string, { label: string; pages: string[] }][]).map(([key, dept]) => {
+          {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => {
             const Icon = iconMap[DEPARTMENT_ICONS[key]] || Settings
             const count = deptCounts[key] || 0
             const isSelected = selectedDept === key
