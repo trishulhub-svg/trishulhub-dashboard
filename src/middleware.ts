@@ -90,7 +90,6 @@ export async function middleware(request: NextRequest) {
       "/dashboard/my-training",
       "/dashboard/approvals",
       "/dashboard/settings",
-      "/dashboard/workspace",
       "/dashboard/access-hub",
       "/dashboard/credentials",
     ]
