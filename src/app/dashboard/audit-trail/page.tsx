@@ -19,6 +19,7 @@ import {
   Loader2,
   FileText,
   Calendar,
+  AlertTriangle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -50,7 +51,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { AUDIT_DEPARTMENTS, ACTION_COLORS, STATUS_COLORS, DEPARTMENT_ICONS, DEPARTMENT_COLORS, type AuditDepartment } from "@/lib/audit-log"
 import { formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import dynamic from "next/dynamic"
 
 // Icons mapping
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -64,20 +64,20 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 interface AuditLogEntry {
   id: string
   userId: string
-  userName: string
-  userRole: string
+  userName: string | null
+  userRole: string | null
   userDepartment: string | null
   department: string
   page: string
-  action: string
+  action: string | null
   entityType: string | null
   entityId: string | null
-  description: string
+  description: string | null
   oldValue: string | null
   newValue: string | null
   ipAddress: string | null
   userAgent: string | null
-  status: string
+  status: string | null
   metadata: string | null
   createdAt: string
 }
@@ -96,7 +96,7 @@ interface StatsData {
   recentActivity: { id: string; department: string; page: string; action: string; description: string; userName: string; createdAt: string }[]
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return "N/A"
   const date = new Date(dateStr)
   if (isNaN(date.getTime())) return "N/A"
@@ -113,6 +113,18 @@ function formatRelativeTime(dateStr: string): string {
   return formatDateTime(dateStr)
 }
 
+/** Safe helper: extract initials from a potentially null user name */
+function getInitials(userName: string | null | undefined): string {
+  if (!userName) return "?"
+  return userName.split(" ").filter(Boolean).map(n => n[0] || "").join("").toUpperCase().slice(0, 2) || "?"
+}
+
+/** Safe helper: format role for display */
+function formatRole(role: string | null | undefined): string {
+  if (!role) return "—"
+  return role.replace(/_/g, " ")
+}
+
 export default function AuditTrailPage() {
   const { data: session, status: sessionStatus } = useSession()
   const [logs, setLogs] = useState<AuditLogEntry[]>([])
@@ -120,7 +132,7 @@ export default function AuditTrailPage() {
   const [selectedDept, setSelectedDept] = useState<string>("")
   const [search, setSearch] = useState("")
   const [actionFilter, setActionFilter] = useState<string>("")
-  const [statusFilter, setStatusFilter] = useState<string>("")
+  const [statusFilter, setStatusFilter] = useState<string>("ALL")
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -129,6 +141,7 @@ export default function AuditTrailPage() {
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d")
   const [hasMore, setHasMore] = useState(false)
   const [total, setTotal] = useState(0)
+  const [error, setError] = useState<string | null>(null)
   const userRole = session?.user?.role || "DEVELOPER"
 
   const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
@@ -144,6 +157,8 @@ export default function AuditTrailPage() {
         if (res.ok) {
           const data = await res.json()
           setStats(data)
+        } else {
+          console.error("[audit-trail] Stats API returned:", res.status)
         }
       } catch (err) {
         console.error("Failed to fetch audit stats:", err)
@@ -159,12 +174,13 @@ export default function AuditTrailPage() {
   // Fetch logs
   const fetchLogs = useCallback(async (cursor?: string) => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams()
       if (selectedDept) params.set("department", selectedDept)
       if (search) params.set("search", search)
       if (actionFilter) params.set("action", actionFilter)
-      if (statusFilter) params.set("status", statusFilter)
+      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       if (cursor) params.set("cursor", cursor)
       params.set("limit", "50")
 
@@ -179,8 +195,11 @@ export default function AuditTrailPage() {
         setNextCursor(data.nextCursor)
         setHasMore(!!data.nextCursor)
         setTotal(data.total)
+      } else {
+        setError(`Failed to load logs (HTTP ${res.status})`)
       }
     } catch (err) {
+      setError("Network error — check your connection and try again.")
       console.error("Failed to fetch audit logs:", err)
     } finally {
       setLoading(false)
@@ -209,8 +228,8 @@ export default function AuditTrailPage() {
 
   // Stats cards
   const mostActiveDept = useMemo(() => {
-    if (!stats?.departmentCounts?.length) return "—"
-    return stats.departmentCounts[0]?.department || "—"
+    if (!stats?.departmentCounts?.length) return ""
+    return stats.departmentCounts[0]?.department || ""
   }, [stats])
 
   const mostCommonAction = useMemo(() => {
@@ -301,6 +320,7 @@ export default function AuditTrailPage() {
   if (!session) return null
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -320,19 +340,19 @@ export default function AuditTrailPage() {
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Entries</p>
-                <p className="text-2xl font-bold tabular-nums">{stats?.total?.toLocaleString() || 0}</p>
+                <p className="text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Today</p>
-                <p className="text-2xl font-bold tabular-nums">{stats?.todayCount?.toLocaleString() || 0}</p>
+                <p className="text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Most Active Dept</p>
-                <p className="text-2xl font-bold capitalize">{AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept}</p>
+                <p className="text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
               </CardContent>
             </Card>
             <Card>
@@ -369,7 +389,7 @@ export default function AuditTrailPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold">All Departments</p>
-                  <p className="text-xs text-muted-foreground">{stats?.total?.toLocaleString() || 0} entries</p>
+                  <p className="text-xs text-muted-foreground">{(stats?.total ?? 0).toLocaleString()} entries</p>
                 </div>
               </div>
             </CardContent>
@@ -447,7 +467,7 @@ export default function AuditTrailPage() {
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All</SelectItem>
+                      <SelectItem value="ALL">All</SelectItem>
                       <SelectItem value="SUCCESS">Success</SelectItem>
                       <SelectItem value="FAILURE">Failure</SelectItem>
                     </SelectContent>
@@ -469,6 +489,22 @@ export default function AuditTrailPage() {
             </CardContent>
           </Card>
 
+          {/* Error Display */}
+          {error && (
+            <Card className="border-red-200 dark:border-red-900/50">
+              <CardContent className="p-4 flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Error loading audit logs</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => fetchLogs()}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Results Info */}
           <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
             <span>
@@ -478,7 +514,7 @@ export default function AuditTrailPage() {
                 <>
                   {total.toLocaleString()} entries found
                   {selectedDept && (
-                    <> in <span className="font-medium text-foreground capitalize">{AUDIT_DEPARTMENTS[selectedDept as AuditDepartment]?.label}</span></>
+                    <> in <span className="font-medium text-foreground capitalize">{AUDIT_DEPARTMENTS[selectedDept as AuditDepartment]?.label || selectedDept}</span></>
                   )}
                 </>
               )}
@@ -531,50 +567,48 @@ export default function AuditTrailPage() {
                       logs.map((log) => (
                         <TableRow key={log.id} className="hover:bg-muted/50">
                           <TableCell className="text-xs">
-                            <TooltipProvider>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-                              </TooltipContent>
-                            </TooltipProvider>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+                            </TooltipContent>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Avatar className="h-7 w-7">
                                 <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
-                                  {log.userName.split(" ").filter(Boolean).map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                                  {getInitials(log.userName)}
                                 </AvatarFallback>
                               </Avatar>
                               <div className="min-w-0">
-                                <p className="text-xs font-medium truncate max-w-[120px]">{log.userName}</p>
-                                <p className="text-[10px] text-muted-foreground">{log.userRole.replace("_", " ")}</p>
+                                <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
+                                <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
                             <Badge
                               variant="secondary"
-                              className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action] || ACTION_COLORS.CONFIG_CHANGE)}
+                              className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
                             >
-                              {log.action}
+                              {log.action || "—"}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description}>
-                              {log.description}
+                            <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
+                              {log.description || "—"}
                             </p>
                           </TableCell>
                           <TableCell>
-                            <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page}</p>
+                            <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
                           </TableCell>
                           <TableCell>
                             <Badge
                               variant="outline"
-                              className={cn("text-[10px]", STATUS_COLORS[log.status] || "")}
+                              className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
                             >
-                              {log.status}
+                              {log.status || "—"}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -616,5 +650,6 @@ export default function AuditTrailPage() {
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }
