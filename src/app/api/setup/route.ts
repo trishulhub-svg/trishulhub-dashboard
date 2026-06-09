@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import crypto from "crypto"
+import { rateLimit } from "@/lib/rate-limit"
 
 /** SECURITY: Allowlist of table names from the Prisma schema.
  *  Any table name used in $queryRawUnsafe MUST be validated against this list
@@ -111,7 +112,8 @@ export async function PATCH() {
           logs.push(`Added column ${migration.column} to ${migration.table}`)
         }
       } catch (err: any) {
-        logs.push(`Migration ${migration.column}: ${err.message || 'already exists'}`)
+        console.error(`[setup] Migration ${migration.column} failed:`, err.message)
+        logs.push(`Migration ${migration.column}: Migration failed — check server logs`)
       }
     }
 
@@ -254,7 +256,8 @@ export async function PATCH() {
           logs.push(`Created table ${table.name}`)
         }
       } catch (err: any) {
-        logs.push(`Table ${table.name}: ${err.message || 'already exists'}`)
+        console.error(`[setup] Table ${table.name} creation failed:`, err.message)
+        logs.push(`Table ${table.name}: Migration failed — check server logs`)
       }
     }
 
@@ -284,6 +287,13 @@ export async function PATCH() {
 
 export async function POST(req: NextRequest) {
   const logs: string[] = []
+
+  // P11-RL-01: IP-based rate limiting — 5 requests per 60 seconds
+  const ip = req.headers.get("x-forwarded-for") || "unknown"
+  const rl = rateLimit(`setup-post:${ip}`, 5, 60000)
+  if (!rl.success) {
+    return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
+  }
 
   try {
     // Step 1: Check if already seeded

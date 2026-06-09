@@ -121,7 +121,7 @@ export default function PortalInvoicesPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="font-bold">₹{inv.total.toLocaleString("en-IN")}</span>
+                      <span className="font-bold">₹{Number(inv.total || 0).toLocaleString("en-IN")}</span>
                       <Badge className={`text-[10px] ${invoiceStatusColors[inv.status] || ""}`}>{inv.status}</Badge>
                     </div>
                   </div>
@@ -129,7 +129,7 @@ export default function PortalInvoicesPage() {
                     {items.map((item, i) => (
                       <div key={i} className="flex justify-between py-0.5">
                         <span>{item.description}</span>
-                        <span>₹{item.amount.toLocaleString("en-IN")}</span>
+                        <span>₹{Number(item.amount || 0).toLocaleString("en-IN")}</span>
                       </div>
                     ))}
                   </div>

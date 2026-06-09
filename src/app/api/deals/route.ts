@@ -28,7 +28,7 @@ function serializeDealDates(d: DealWithDates) {
 
 // ━━ Shared constants ━━
 const VALID_STAGES = ["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"] as const
-const VALID_CURRENCIES = ["USD", "GBP", "INR"] as const
+const VALID_CURRENCIES = ["INR", "USD", "GBP", "EUR"] as const
 
 // GET /api/deals - List deals with pagination, search, filter, sort
 export async function GET(req: NextRequest) {

@@ -57,6 +57,12 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can manage SMTP settings" }, { status: 403 })
     }
 
+    // N-004: Rate limit — 30 requests per minute for SMTP reads
+    const rl = rateLimit(`smtp-read-${session.user.id}`, 30, 60000)
+    if (!rl.success) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 })
+    }
+
     // Auto-migrate: ensure SmtpConfig table exists
     const migrateResult = await ensureTablesExist()
     if (!migrateResult.success) {
@@ -438,7 +444,7 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     console.log("[smtp] SmtpConfig table created successfully")
   } catch (err: any) {
     console.error("[smtp] Failed to create SmtpConfig table:", err.message)
-    return { success: false, error: `Failed to create SmtpConfig: ${err.message}` }
+    return { success: false, error: "Failed to create SmtpConfig table" }
   }
 
   try {
@@ -480,6 +486,6 @@ async function ensureTablesExist(): Promise<{ success: boolean; error?: string }
     console.error("[smtp] Table verification failed after creation:", verifyErr.message)
     tablesChecked = false
     tablesExist = false
-    return { success: false, error: `Table creation may have failed: ${verifyErr.message}` }
+    return { success: false, error: "Table verification failed" }
   }
 }

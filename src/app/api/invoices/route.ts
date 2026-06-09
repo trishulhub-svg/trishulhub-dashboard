@@ -344,10 +344,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Invoice ID is required" }, { status: 400 })
     }
 
-    // Allow deleting any invoice (not just DRAFT)
     const existing = await db.invoice.findUnique({ where: { id: invoiceId } })
     if (!existing) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+    }
+
+    // P11-SEC-01: Block deletion of PAID invoices — financial records must be preserved
+    if (existing.status === "PAID") {
+      return NextResponse.json({ error: "Cannot delete a paid invoice. Financial records must be preserved." }, { status: 403 })
     }
 
     await db.invoice.delete({ where: { id: invoiceId } })

@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard, FolderKanban, FileText, HeadphonesIcon,
   LogOut, Menu,
@@ -22,15 +22,15 @@ const portalNav = [
   { title: "Support", href: "/portal/support", icon: HeadphonesIcon },
 ];
 
-function NavItems({ pathname, onNavigate }: { pathname: string; onNavigate: (href: string) => void }) {
+function NavItems({ pathname, onNavigate, onNavClick }: { pathname: string; onNavigate: (href: string) => void; onNavClick?: () => void }) {
   return (
-    <nav className="space-y-1">
+    <nav className="space-y-1" aria-label="Portal navigation">
       {portalNav.map((item) => {
         const isActive = pathname === item.href;
         return (
           <button
             key={item.href}
-            onClick={() => onNavigate(item.href)}
+            onClick={() => { onNavigate(item.href); onNavClick?.(); }}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors w-full text-left",
               isActive
@@ -52,6 +52,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const { data: session, status } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -103,7 +104,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-30 border-b bg-card">
         <div className="flex items-center justify-between h-14 px-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-4">
-            <Sheet>
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
                   <Menu className="h-5 w-5" />
@@ -120,7 +121,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   />
                   <span className="font-bold text-primary">TrishulHub</span>
                 </div>
-                <NavItems pathname={pathname} onNavigate={handleNavigate} />
+                <NavItems pathname={pathname} onNavigate={handleNavigate} onNavClick={() => setSheetOpen(false)} />
               </SheetContent>
             </Sheet>
             <div className="flex items-center gap-2">

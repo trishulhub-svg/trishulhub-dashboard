@@ -54,15 +54,6 @@ function extractStr(obj: unknown, key: string, fallback = ""): string {
   return fallback;
 }
 
-function extractNestedStr(obj: unknown, path: string[], fallback = ""): string {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (!current || typeof current !== "object") return fallback;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return typeof current === "string" ? current : (typeof current === "number" || typeof current === "boolean" ? String(current) : fallback);
-}
-
 type FilterTab = "ALL" | "TODO" | "IN_PROGRESS" | "REVIEW" | "AWAITING_APPROVAL" | "DONE";
 
 const FILTER_TABS: { key: FilterTab; label: string; count?: number }[] = [

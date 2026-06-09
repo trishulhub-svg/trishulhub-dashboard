@@ -36,9 +36,11 @@ export async function POST(request: Request) {
     }
 
     const { db } = await import("@/lib/db")
+    // P11-SEC-07: Two-step approach — do NOT load password hash into the user object
+    // that might get logged or returned. First fetch user WITHOUT password.
     const user = await db.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true, role: true, isActive: true, password: true },
+      select: { id: true, email: true, name: true, role: true, isActive: true },
     })
 
     if (!user) {
@@ -50,10 +52,17 @@ export async function POST(request: Request) {
     }
 
     // SEC-012: Do NOT expose any portion of the password hash — only indicate status
-    const hasPassword = !!user.password && user.password.length > 0
+    // Second query: fetch password ONLY for credential verification
+    const pwRecord = await db.user.findUnique({
+      where: { email },
+      select: { password: true },
+    })
+    const hashedPassword = pwRecord?.password
+
+    const hasPassword = !!hashedPassword && hashedPassword.length > 0
 
     const bcrypt = await import("bcryptjs")
-    const passwordValid = await bcrypt.compare(password, user.password)
+    const passwordValid = hasPassword ? await bcrypt.compare(password, hashedPassword!) : false
 
     if (!passwordValid) {
       return NextResponse.json({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw, ArrowLeft } from "lucide-react";
 
@@ -11,6 +12,8 @@ export default function DashboardError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error("[DashboardError]", error.message, error.stack);
   }, [error]);
@@ -43,7 +46,7 @@ export default function DashboardError({
           <Button onClick={reset} className="gap-2">
             <RefreshCw className="h-4 w-4" /> Try Again
           </Button>
-          <Button variant="outline" onClick={() => (window.location.href = "/dashboard")} className="gap-2">
+          <Button variant="outline" onClick={() => router.push("/dashboard")} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Dashboard
           </Button>
         </div>

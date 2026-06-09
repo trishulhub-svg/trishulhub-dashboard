@@ -44,7 +44,7 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
     console.error("[email-change] Failed to create EmailVerification table:", errMsg)
     emailTableChecked = false
     emailTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize email verification table" }
   }
 
   // Verify the table actually works
@@ -55,9 +55,10 @@ async function ensureEmailTableExists(): Promise<{ success: boolean; error?: str
     return { success: true }
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[email-change] EmailVerification table verification failed:", errMsg)
     emailTableChecked = false
     emailTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize email verification table" }
   }
 }
 
@@ -178,7 +179,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: unknown) {
     console.error("[email-change] POST error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Email change failed" }, { status: 500 })
   }
 }
 
@@ -293,6 +294,6 @@ export async function PUT(req: NextRequest) {
     })
   } catch (error: unknown) {
     console.error("[email-change] PUT error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Email change failed" }, { status: 500 })
   }
 }

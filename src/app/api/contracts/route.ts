@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/contracts - Create contract (with optional AI generation)
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -245,6 +246,10 @@ ${sanitizedTemplate ? "IMPORTANT: Base the structure and clauses on the provided
   }
 
   return NextResponse.json(deepSanitize(contract), { status: 201 })
+  } catch (error: unknown) {
+    console.error("[contracts] POST error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to create contract" }, { status: 500 })
+  }
 }
 
 // PATCH /api/contracts - Update contract

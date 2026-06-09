@@ -23,17 +23,16 @@ export async function GET() {
 
 // POST /api/health - Authenticated diagnostics (SUPER_ADMIN only)
 export async function POST() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  const userRole = session.user.role
-  if (userRole !== "SUPER_ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
   const diagnostics: Record<string, any> = {}
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userRole = session.user.role
+    if (userRole !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
     const totalUsers = await db.user.count()
     diagnostics.database = "connected"
     diagnostics.totalUsers = totalUsers

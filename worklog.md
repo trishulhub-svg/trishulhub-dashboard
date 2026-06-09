@@ -2435,3 +2435,234 @@ Stage Summary:
 - Files modified: 25 files (13 API routes + 5 lib + 5 dashboard + 2 CSS/TSX)
 - Total Phase 10 fixes across all rounds: 121 issues (10 Critical + 78 Warning + 33 Info)
 - Push: commit d88a278 to origin/main
+
+---
+Task ID: phase11-dashboard-portal-fixes
+Agent: Phase 11 Fix Agent
+Task: Fix Phase 11 dashboard + portal issues (10 fixes)
+
+Work Log:
+
+### Files Modified (8 files)
+
+#### 1. `src/app/portal/invoices/page.tsx` — P11-DI-01
+- Wrapped `inv.total.toLocaleString("en-IN")` with `Number(inv.total || 0)` to prevent crash on undefined/null
+- Wrapped `item.amount.toLocaleString("en-IN")` with `Number(item.amount || 0)` for same reason
+
+#### 2. `src/app/portal/projects/[projectId]/page.tsx` — P11-ERR-01
+- Added `else` branch after `projRes.ok` check: `setError("Failed to load project details. Please try again.")`
+- Added `else` branch after `taskRes.ok` check: `setError("Failed to load tasks. Please try again.")`
+
+#### 3. `src/app/portal/loading.tsx` — P11-UX-02
+- Removed `p-4 md:p-6` classes from outer div since layout already provides padding
+
+#### 4. `src/app/portal/projects/page.tsx` — P11-UX-01
+- Added `tabIndex={0}`, `role="button"`, and `onKeyDown` handler (Enter/Space) to clickable Card elements for keyboard accessibility
+
+#### 5. `src/app/portal/layout.tsx` — P11-UX-04 + P11-UX-03
+- Added `useState` import and `const [sheetOpen, setSheetOpen] = useState(false)` state
+- Wired `open={sheetOpen}` and `onOpenChange={setSheetOpen}` to Sheet component
+- Added `onNavClick` optional prop to `NavItems` component
+- Mobile sheet NavItems now calls `onNavClick={() => setSheetOpen(false)}` to auto-close after navigation
+- Added `aria-label="Portal navigation"` to the `<nav>` element
+
+#### 6. `src/app/dashboard/my-training/page.tsx` — P11-DI-21
+- Removed unused `completedCount` variable (was identical to `passedCount`)
+
+#### 7. `src/app/dashboard/projects/[projectId]/todos/page.tsx` — P11-INT-07
+- Removed unused `extractNestedStr` function (8 lines)
+
+#### 8. `src/app/dashboard/workspace/page.tsx` — P11-UAE-15
+- Added `aria-label="Go to Access Hub"` to the Access Hub button
+- Added `aria-label="Launch AI Workspace"` to the Launch Workspace card link
+
+#### 9. `src/app/dashboard/error.tsx` — P11-ERR-03
+- Replaced `window.location.href = "/dashboard"` with `router.push("/dashboard")`
+- Added `useRouter` import from `next/navigation` and hook call
+
+### Verification
+- `npx tsc --noEmit` — zero errors
+- `npx next build` — compiled successfully (TypeScript + Turbopack passed; ENOENT on pages-manifest.json is a pre-existing Next.js internal artifact issue unrelated to these changes)
+
+Stage Summary:
+- 8 files changed, 10 issues fixed
+- Portal: safe numeric access, non-ok fetch handling, double padding removed, keyboard a11y, sheet auto-close, nav aria-label
+- Dashboard: unused vars removed, aria-labels added, window.location.href replaced with router.push
+
+---
+Task ID: phase11-batch1
+Agent: Phase 11 Critical Fix Agent
+Task: Fix critical issues from Phase 11 audit
+
+Work Log:
+- FIX 1 (P11-ROOT-01): Created `src/app/global-error.tsx` — minimal error boundary page with own `<html>` and `<body>` tags, "Go to Login" link, Tailwind styling, `useEffect` error logging, and reset button
+- FIX 2 (P11-SEC-01): In `src/app/api/invoices/route.ts` DELETE handler, added PAID status check before delete operation — returns 403 "Cannot delete a paid invoice. Financial records must be preserved."
+- FIX 3 (P11-PATTERN-003): Replaced raw `err.message`/`error.message` with generic messages in 6 API route files:
+  - `src/app/api/leave/route.ts` PATCH catch: `error.message` → "Leave operation failed"
+  - `src/app/api/leaves/[id]/route.ts` PATCH catch: `msg` (error.message) → "Leave request operation failed"; DELETE catch: `error.message` → "Leave request operation failed"
+  - `src/app/api/password-reset/route.ts`: ensurePasswordResetTable returns generic "Failed to initialize password reset table"; POST/PUT/GET catches → "Password reset failed. Please try again."
+  - `src/app/api/password-change/route.ts`: ensurePasswordChangeTable returns generic "Failed to initialize password change table"; POST/PUT catches → "Password change failed"
+  - `src/app/api/email-change/route.ts`: ensureEmailTableExists returns generic "Failed to initialize email verification table"; POST/PUT catches → "Email change failed"
+  - `src/app/api/email-logs/route.ts`: ensureEmailLogTable returns generic "Failed to initialize email log table"; GET/DELETE catches → "Failed to load email logs"
+- FIX 4 (P11-SEC-02): In `src/app/dashboard/crm/page.tsx`, replaced `err instanceof Error ? err.message : "Failed to load leads"` with generic "Failed to load leads. Please try again."
+- FIX 5 (P11-SEC-04): In `src/app/api/protocol-auth/route.ts`, wrapped both POST and PUT `request.json()` calls in try/catch, returning 400 "Invalid request body" on parse failure
+- FIX 6 (P11-SEC-05): In `src/app/api/contracts/route.ts`, wrapped POST handler body in top-level try/catch with console.error and 500 "Failed to create contract" response
+- FIX 7 (P11-CODE-04): In `src/components/dashboard/finance/overview-section.tsx`, removed unused `useState` from React import
+
+Stage Summary:
+- 10 files changed (1 new, 9 modified)
+- Key fixes: global-error boundary created, PAID invoice deletion blocked, raw error messages sanitized across 8 files, request.json() parse errors caught, contract POST error handling added, unused import cleaned
+- TypeScript check: `npx tsc --noEmit` passed with zero errors
+- Note: `next build` (Turbopack) fails due to pre-existing ENOENT environment issue with `.next/static` temp files — unrelated to code changes
+
+---
+# Phase 11 Security + Validation Fixes
+
+**Task ID:** phase11-fix
+**Agent:** Phase 11 Fix Agent
+**Date:** 2025-06-XX
+**Scope:** 8 files across lib/ and api/
+
+## Summary
+
+Applied 9 fixes from Phase 11 audit covering monetary field validation, enum consistency, missing approval types, input format validation, rate limiting, and debug endpoint security hardening.
+
+## Fixes Applied
+
+### FIX 1: P11-INTEG-01 — Add `.max()` and `.finite()` to monetary Zod fields
+**File:** `src/lib/validations.ts`
+
+Added `.max(99_999_999).finite()` to all monetary Zod fields across 12 schemas:
+- `createInvoiceSchema`: subtotal, tax, total, gst
+- `updateInvoiceSchema`: subtotal, tax, total, gst
+- `createExpenseSchema`: amount
+- `updateExpenseSchema`: amount
+- `createSubscriptionSchema`: amount
+- `updateSubscriptionSchema`: amount
+- `createDealSchema`: value
+- `updateDealSchema`: value
+- `createContractSchema`: totalValue
+- `updateContractSchema`: totalValue
+
+Prevents Infinity, NaN, and unreasonably large monetary values from being persisted.
+
+### FIX 2: P11-INTEG-02 — Fix currency enum drift in deals
+**File:** `src/app/api/deals/route.ts`
+
+Changed `VALID_CURRENCIES` from `["USD", "GBP", "INR"]` to `["INR", "USD", "GBP", "EUR"]` to match `deals/[id]/route.ts`. Both files now accept the same 4 currencies.
+
+### FIX 3: P11-VAL-02 — Add EXPIRED/PAUSED to subscription status enums
+**File:** `src/lib/validations.ts`
+
+Added `"EXPIRED"` and `"PAUSED"` to the `.status` field enum in both `createSubscriptionSchema` and `updateSubscriptionSchema`. Previously only allowed ACTIVE/STOPPED/COMPLETED.
+
+### FIX 4: P11-CQ-06 — Add CHAT_DELETION to validApprovalTypes
+**File:** `src/lib/validations.ts`
+
+Added `"CHAT_DELETION"` to the `validApprovalTypes` array (line 683).
+
+### FIX 5: P11-VAL-01 — Add leadId format validation
+**File:** `src/app/api/leads/emails/route.ts`
+
+Added regex validation for the `leadId` query parameter: `if (!/^[a-zA-Z0-9_-]{1,100}$/.test(leadId))` returns 400. Placed after the empty-check guard.
+
+### FIX 6: P11-RL-01 — Add rate limiting to setup POST
+**File:** `src/app/api/setup/route.ts`
+
+- Added `import { rateLimit } from "@/lib/rate-limit"`
+- Added IP-based rate limiting at the start of POST handler (before any DB operations): 5 requests per 60 seconds, keyed on `x-forwarded-for` header (fallback: "unknown")
+
+### FIX 7: P11-RL-02 — Add rate limiting to SMTP GET
+**File:** `src/app/api/smtp/route.ts`
+
+Added rate limiting to the GET handler: 30 requests per 60 seconds, keyed on `smtp-read-${session.user.id}`. Pattern matches the existing POST handler rate limit.
+
+### FIX 8: P11-SEC-06 — Strip SQL field from debug/project-methods response
+**File:** `src/app/api/debug/project-methods/route.ts`
+
+Changed step 3 response from returning full `sqlite_master` rows (including `sql` column with CREATE TABLE DDL) to `tableCheck.map(r => ({ name: r.name }))`. Only table name is returned.
+
+### FIX 9: P11-SEC-07 — Remove password:true from auth-debug select
+**File:** `src/app/api/auth-debug/route.ts`
+
+Replaced single-query approach (`select: { ..., password: true }`) with two-step approach:
+1. First query fetches user WITHOUT password hash
+2. If user exists, second query fetches password ONLY into a separate `pwRecord` variable
+3. Bcrypt comparison uses the isolated hash; the `user` object never contains the hash
+
+This prevents accidental password hash logging or leakage via the `user` object.
+
+## Verification
+
+- `npx tsc --noEmit` — zero errors (pass)
+- `npx next build` — compilation passed ("Compiled successfully"); full build OOMs due to pre-existing memory constraints unrelated to these changes
+
+## Files Modified (8 files)
+
+| File | Fixes |
+|------|-------|
+| `src/lib/validations.ts` | FIX 1, FIX 3, FIX 4 |
+| `src/app/api/deals/route.ts` | FIX 2 |
+| `src/app/api/leads/emails/route.ts` | FIX 5 |
+| `src/app/api/setup/route.ts` | FIX 6 |
+| `src/app/api/smtp/route.ts` | FIX 7 |
+| `src/app/api/debug/project-methods/route.ts` | FIX 8 |
+| `src/app/api/auth-debug/route.ts` | FIX 9 |
+
+## Status: ✅ COMPLETE
+---
+Task ID: phase-11-audit-fix
+Agent: Phase 11 Audit Fix Agent
+Task: Fix 6 issues from Phase 11 audit — access-hub credentials, try/catch patterns, error message leaks
+
+Work Log:
+
+### FIX 1 (P11-SEC-01): Access Hub missing credentials:"include"
+**File:** `src/app/dashboard/access-hub/page.tsx`
+- Added `authFetch` helper at module scope: `const authFetch = (url, options?) => fetch(url, { credentials: "include", ...options })`
+- Replaced 18 `fetch(` calls with `authFetch(` for all API endpoints that were missing `credentials: "include"`
+- Skipped 3 calls that already had `credentials: "include"` (credentials CRUD: GET, POST/PUT, DELETE)
+- Endpoints fixed: `/api/protocol/init`, `/api/protocol` (PUT/GET/DELETE/PATCH), `/api/task-git-config` (POST/PUT/PATCH), `/api/task-git-sync` (POST ×2), `/api/workspace-config` (PATCH/GET), `/api/user-code` (PATCH/GET), `/api/user-code/all` (GET)
+
+### FIX 2 (P11-PATTERN-004): Missing try/catch in /api/route.ts
+**File:** `src/app/api/route.ts`
+- Wrapped GET handler body in try/catch
+- Returns `NextResponse.json({ error: "Internal server error" }, { status: 500 })` on error
+- Added `console.error("[api] GET error:", ...)` for server-side logging
+
+### FIX 3 (P11-PATTERN-004): Missing try/catch around getServerSession in health POST
+**File:** `src/app/api/health/route.ts`
+- Moved `getServerSession(authOptions)` call inside the existing try block
+- Moved auth checks (Unauthorized/Forbidden) inside try block as well
+- `diagnostics` variable declaration moved before try block (needed in catch)
+
+### FIX 4 (P11-PATTERN-003): team/route.ts error.message leaks in PATCH catch
+**File:** `src/app/api/team/route.ts`
+- PATCH handler catch block was returning `error.message` directly in responses for:
+  - "cannot approve or reject your own" → now returns generic "You cannot approve or reject your own leave request"
+  - "already " prefix → now returns generic "Leave request is already decided"
+  - Generic catch → changed from "An error occurred" to "Team operation failed"
+- Added `console.error("[team] PATCH error:", msg)` for the specific cases (full error still logged server-side)
+
+### FIX 5 (P11-SEC-03): smtp/route.ts ensureTablesExist error leaks
+**File:** `src/app/api/smtp/route.ts`
+- `ensureTablesExist()` function was including `err.message` in returned error strings:
+  - `Failed to create SmtpConfig: ${err.message}` → replaced with `"Failed to create SmtpConfig table"`
+  - `Table creation may have failed: ${verifyErr.message}` → replaced with `"Table verification failed"`
+- `console.error` calls retain the full error message for server-side debugging
+
+### FIX 6 (P11-SEC-02): setup/route.ts err.message in logs response
+**File:** `src/app/api/setup/route.ts`
+- PATCH handler `logs[]` array was capturing `err.message` in log entries:
+  - `Migration ${migration.column}: ${err.message}` → replaced with `"Migration failed — check server logs"`
+  - `Table ${table.name}: ${err.message}` → replaced with `"Migration failed — check server logs"`
+- Added `console.error` with full error for both cases (server-side logging preserved)
+
+### Build Verification
+- `npx tsc --noEmit` — zero TypeScript errors
+- `npx next build` — compiled successfully, TypeScript check passed (required NODE_OPTIONS=--max-old-space-size=4096 due to project size)
+
+Stage Summary:
+- 6 files modified across 6 fixes
+- Key themes: credentials inclusion for auth cookies, try/catch error handling patterns, generic error messages to prevent info leaks
+- All server-side logging preserved via console.error

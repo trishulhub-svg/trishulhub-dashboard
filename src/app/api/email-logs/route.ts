@@ -46,7 +46,7 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
     console.error("[email-logs] Failed to create EmailLog table:", errMsg)
     logTableChecked = false
     logTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize email log table" }
   }
 
   try {
@@ -56,9 +56,10 @@ async function ensureEmailLogTable(): Promise<{ success: boolean; error?: string
     return { success: true }
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[email-logs] EmailLog table verification failed:", errMsg)
     logTableChecked = false
     logTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize email log table" }
   }
 }
 
@@ -115,7 +116,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ logs, total })
   } catch (error: unknown) {
     console.error("[email-logs] GET error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load email logs" }, { status: 500 })
   }
 }
 
@@ -155,6 +156,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, deleted: result.count })
   } catch (error: unknown) {
     console.error("[email-logs] DELETE error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load email logs" }, { status: 500 })
   }
 }

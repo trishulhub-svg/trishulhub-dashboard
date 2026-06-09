@@ -78,11 +78,15 @@ export default function PortalProjectDetailPage() {
           if (projArr.length > 0) raw = projArr[0];
         }
         if (raw) setProject(deepClone(raw as Record<string, unknown>));
+      } else {
+        setError("Failed to load project details. Please try again.");
       }
       if (taskRes.ok) {
         const taskData = await taskRes.json();
         const raw = extractArray<Record<string, unknown>>(taskData);
         setTasks(deepClone<Record<string, unknown>[]>(raw));
+      } else {
+        setError("Failed to load tasks. Please try again.");
       }
     } catch (err) {
       console.error("[portal/project-detail] Failed to load data:", err);

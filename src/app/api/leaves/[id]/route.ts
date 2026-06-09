@@ -108,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         const status = msg.includes("Only admins") && !msg.includes("approve or reject") && !msg.includes("approve your own")
           ? 403
           : (msg.includes("Cannot update") || msg.includes("Rejected leaves") ? 400 : 403)
-        return NextResponse.json({ error: msg }, { status })
+        return NextResponse.json({ error: "Leave request operation failed" }, { status })
       }
     }
     console.error("[leaves] PATCH Error:", error)
@@ -153,7 +153,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes("can only delete your own")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return NextResponse.json({ error: "Leave request operation failed" }, { status: 403 })
     }
     console.error("[leaves] DELETE Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

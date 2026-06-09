@@ -40,6 +40,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "leadId query parameter is required" }, { status: 400 })
     }
 
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(leadId)) return NextResponse.json({ error: "Invalid lead ID format" }, { status: 400 })
+
     // Pagination params
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)

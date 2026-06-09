@@ -634,6 +634,7 @@ export default function TrishulWorkspacePage() {
                     onClick={handleCredentials}
                     className={`ws-btn-ghost ws-btn-ghost--${mode}`}
                     type="button"
+                    aria-label="Go to Access Hub"
                   >
                     <KeyRound size={15} />
                     <span>Access Hub</span>
@@ -867,6 +868,7 @@ export default function TrishulWorkspacePage() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ws-start-card-inner"
+                aria-label="Launch AI Workspace"
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>

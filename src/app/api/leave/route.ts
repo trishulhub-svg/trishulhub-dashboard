@@ -220,7 +220,7 @@ export async function PATCH(req: NextRequest) {
   } catch (error: unknown) {
     if (error instanceof Error && (error.message.includes("Cannot approve your own") || error.message.includes("already been processed"))) {
       const status = error.message.includes("Cannot approve") ? 403 : 400
-      return NextResponse.json({ error: error.message }, { status })
+      return NextResponse.json({ error: "Leave operation failed" }, { status })
     }
     console.error("[leave] PATCH Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -477,7 +477,7 @@ export default function CRMPage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Failed to load leads");
+      setError("Failed to load leads. Please try again.");
     } finally {
       setLoading(false);
     }

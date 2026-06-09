@@ -798,15 +798,17 @@ export async function PATCH(req: NextRequest) {
     if (error instanceof Error) {
       const msg = error.message
       if (msg.includes("cannot approve or reject your own")) {
-        return NextResponse.json({ error: msg }, { status: 403 })
+        console.error("[team] PATCH error:", msg)
+        return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
       }
       if (msg.includes("already ")) {
-        return NextResponse.json({ error: msg }, { status: 400 })
+        console.error("[team] PATCH error:", msg)
+        return NextResponse.json({ error: "Leave request is already decided" }, { status: 400 })
       }
     }
     // [T2] Fixed error: any → error: unknown
     console.error("[team] PATCH error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Team operation failed" }, { status: 500 })
   }
 }
 

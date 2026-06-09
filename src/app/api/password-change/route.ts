@@ -42,7 +42,7 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
     console.error("[password-change] Failed to create PasswordChange table:", errMsg)
     pwTableChecked = false
     pwTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize password change table" }
   }
 
   try {
@@ -52,9 +52,10 @@ async function ensurePasswordChangeTable(): Promise<{ success: boolean; error?: 
     return { success: true }
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    console.error("[password-change] PasswordChange table verification failed:", errMsg)
     pwTableChecked = false
     pwTableExists = false
-    return { success: false, error: errMsg }
+    return { success: false, error: "Failed to initialize password change table" }
   }
 }
 
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: unknown) {
     console.error("[password-change] POST error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Password change failed" }, { status: 500 })
   }
 }
 
@@ -278,6 +279,6 @@ export async function PUT(req: NextRequest) {
     })
   } catch (error: unknown) {
     console.error("[password-change] PUT error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Password change failed" }, { status: 500 })
   }
 }

@@ -65,7 +65,7 @@ async function ensurePasswordResetTable(): Promise<{ success: boolean; error?: s
     console.error("[password-reset] Failed to create PasswordReset table:", err.message)
     resetTableChecked = false
     resetTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: "Failed to initialize password reset table" }
   }
 
   try {
@@ -74,9 +74,10 @@ async function ensurePasswordResetTable(): Promise<{ success: boolean; error?: s
     resetTableExists = true
     return { success: true }
   } catch (err: any) {
+    console.error("[password-reset] PasswordReset table verification failed:", err.message)
     resetTableChecked = false
     resetTableExists = false
-    return { success: false, error: err.message }
+    return { success: false, error: "Failed to initialize password reset table" }
   }
 }
 
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   } catch (error: any) {
     console.error("[password-reset] POST error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Password reset failed. Please try again." }, { status: 500 })
   }
 }
 
@@ -312,7 +313,7 @@ export async function PUT(req: NextRequest) {
     })
   } catch (error: any) {
     console.error("[password-reset] PUT error:", error.message)
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    return NextResponse.json({ error: "Password reset failed. Please try again." }, { status: 500 })
   }
 }
 
@@ -359,6 +360,6 @@ export async function GET(req: NextRequest) {
     })
   } catch (error: any) {
     console.error("[password-reset] GET error:", error.message)
-    return NextResponse.json({ valid: false, error: "An error occurred" })
+    return NextResponse.json({ valid: false, error: "Password reset failed. Please try again." })
   }
 }

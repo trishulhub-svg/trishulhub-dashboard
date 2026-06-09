@@ -87,6 +87,9 @@ export default function PortalProjectsPage() {
                 key={pId}
                 className="cursor-pointer hover:shadow-md transition-shadow"
                 onClick={() => router.push(`/portal/projects/${pId}`)}
+                tabIndex={0}
+                role="button"
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/portal/projects/${pId}`); } }}
               >
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between">

@@ -27,6 +27,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { safeText, safeDate, safeArray, cn } from "@/lib/utils";
+
+const authFetch = (url: string, options?: RequestInit) => fetch(url, { credentials: "include", ...options });
 import {
   Select,
   SelectContent,
@@ -208,7 +210,7 @@ export default function AccessHubPage() {
   useEffect(() => {
     if (status !== "authenticated") return;
     let cancelled = false;
-    fetch("/api/protocol/init")
+    authFetch("/api/protocol/init")
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
@@ -300,7 +302,7 @@ export default function AccessHubPage() {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""));
-      const res = await fetch("/api/protocol", {
+      const res = await authFetch("/api/protocol", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: file.name, fileSize: file.size, mimeType: file.type || "application/pdf", data: base64 }),
@@ -319,7 +321,7 @@ export default function AccessHubPage() {
   const handleDownload = useCallback(async () => {
     if (!protocol) return;
     try {
-      const res = await fetch("/api/protocol?download=true");
+      const res = await authFetch("/api/protocol?download=true");
       if (res.ok) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -343,7 +345,7 @@ export default function AccessHubPage() {
   const confirmDeleteProtocol = async () => {
     setDeleteProtocolDialogOpen(false);
     try {
-      const res = await fetch("/api/protocol", { method: "DELETE" });
+      const res = await authFetch("/api/protocol", { method: "DELETE" });
       if (res.ok) { toast.success("Protocol PDF deleted"); setProtocol(null); }
       else { toast.error("Failed to delete"); }
     } catch { toast.error("Failed to delete"); }
@@ -351,7 +353,7 @@ export default function AccessHubPage() {
 
   const handleToggleDownload = async () => {
     try {
-      const res = await fetch("/api/protocol", {
+      const res = await authFetch("/api/protocol", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ downloadEnabled: !downloadEnabled }),
@@ -372,7 +374,7 @@ export default function AccessHubPage() {
     if (!gitForm.token.trim()) { toast.error("Access token is required"); return; }
     setGitSaving(true);
     try {
-      const res = await fetch("/api/task-git-config", {
+      const res = await authFetch("/api/task-git-config", {
         method: gitConfig ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoUrl: gitForm.repoUrl.trim(), token: gitForm.token, isEnabled: gitConfig?.isEnabled ?? false }),
@@ -390,7 +392,7 @@ export default function AccessHubPage() {
     if (!gitConfig) return;
     const newValue = !gitConfig.isEnabled;
     try {
-      const res = await fetch("/api/task-git-config", {
+      const res = await authFetch("/api/task-git-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isEnabled: newValue }),
@@ -400,7 +402,7 @@ export default function AccessHubPage() {
         toast.success(newValue ? "Auto-sync enabled — syncing now..." : "Auto-sync disabled");
         if (newValue) {
           setGitSyncing(true);
-          fetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } })
+          authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } })
             .then(async (syncRes) => {
               setGitSyncing(false);
               if (syncRes.ok) {
@@ -419,7 +421,7 @@ export default function AccessHubPage() {
   const handleManualSync = async () => {
     setGitSyncing(true);
     try {
-      const res = await fetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } });
+      const res = await authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } });
       if (res.ok) {
         const data = await res.json();
         setGitSyncing(false);
@@ -446,7 +448,7 @@ export default function AccessHubPage() {
     }
     setEncKeySaving(true);
     try {
-      const res = await fetch("/api/task-git-config", {
+      const res = await authFetch("/api/task-git-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ encryptionKey: key }),
@@ -479,7 +481,7 @@ export default function AccessHubPage() {
       const body: Record<string, string> = {};
       if (wsTokenForm.trim()) body.configToken = wsTokenForm.trim();
       if (wsLabelForm.trim()) body.configTokenLabel = wsLabelForm.trim();
-      const res = await fetch("/api/workspace-config", {
+      const res = await authFetch("/api/workspace-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -515,7 +517,7 @@ export default function AccessHubPage() {
     if (!setCodeTarget || !setCodeValue.trim()) { toast.error("Code is required"); return; }
     setSetCodeSaving(true);
     try {
-      const res = await fetch("/api/user-code", {
+      const res = await authFetch("/api/user-code", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: setCodeTarget.userId, code: setCodeValue.trim() }),
@@ -618,7 +620,7 @@ export default function AccessHubPage() {
 
   const refetchProtocol = useCallback(async () => {
     try {
-      const res = await fetch("/api/protocol");
+      const res = await authFetch("/api/protocol");
       if (res.ok) {
         const data = await res.json();
         if (data?.id) { setProtocol(data); setDownloadEnabled(data.downloadEnabled !== false); }
@@ -630,7 +632,7 @@ export default function AccessHubPage() {
   const refetchGitConfig = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
-      const res = await fetch("/api/task-git-config");
+      const res = await authFetch("/api/task-git-config");
       if (res.ok) {
         const data = await res.json();
         setGitConfig(data);
@@ -642,7 +644,7 @@ export default function AccessHubPage() {
 
   const refetchWsConfig = useCallback(async () => {
     try {
-      const res = await fetch("/api/workspace-config");
+      const res = await authFetch("/api/workspace-config");
       if (res.ok) { const data = await res.json(); setWsConfig(data); if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel); }
     } catch { /* silent */ }
   }, []);
@@ -651,7 +653,7 @@ export default function AccessHubPage() {
     if (!isSuperAdmin) return;
     setUserCodesLoading(true);
     try {
-      const res = await fetch("/api/user-code/all");
+      const res = await authFetch("/api/user-code/all");
       if (res.ok) { const data = await res.json(); setAllUserCodes(data.userCodes || []); }
     } catch { /* silent */ }
     setUserCodesLoading(false);
@@ -659,7 +661,7 @@ export default function AccessHubPage() {
 
   const refetchMyUserCode = useCallback(async () => {
     try {
-      const res = await fetch("/api/user-code");
+      const res = await authFetch("/api/user-code");
       if (res.ok) setMyUserCode(await res.json());
     } catch { /* silent */ }
   }, []);

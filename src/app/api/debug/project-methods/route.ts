@@ -45,7 +45,7 @@ export async function GET() {
     const tableCheck = await db.$queryRawUnsafe(
       `SELECT name, sql FROM sqlite_master WHERE type='table' AND name='ProjectMethod'`
     ) as Array<{ name: string; sql: string }>
-    results.push({ step: "3_table_exists", status: tableCheck.length > 0 ? "OK" : "FAIL", data: tableCheck })
+    results.push({ step: "3_table_exists", status: tableCheck.length > 0 ? "OK" : "FAIL", data: tableCheck.map(r => ({ name: r.name })) })
   } catch (e: unknown) {
     results.push({ step: "3_table_exists", status: "ERROR", detail: e instanceof Error ? e.message : String(e) })
   }
