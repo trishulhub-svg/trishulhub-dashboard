@@ -76,4 +76,4 @@ worklog.md
 # Nested repo copies (not submodules)
 trishulhub-dash-repo/
 trishulhub-dashboard/
-trishulhub-repo/
+trishulhub-repo/core
