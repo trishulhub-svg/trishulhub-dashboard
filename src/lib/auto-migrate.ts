@@ -483,8 +483,6 @@ export async function ensureAllTables(): Promise<void> {
     // will be handled by a future explicit migration.
     // The nullable change is non-blocking — Prisma handles null values at the ORM level.
 
-    }
-
     // 1g. Migrate _ProjectMethodToProject to add PRIMARY KEY for existing DBs
     // SQLite doesn't support ALTER TABLE ADD PRIMARY KEY, so we recreate the table
     // Wrapped in a transaction for atomicity (L13)
