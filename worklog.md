@@ -1,26 +1,22 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Build Lark 2-way task sync system for TrishulHub
+Task: Lark Event Subscription guidance + Push code to GitHub + Fix and improve task system
 
 Work Log:
-- Created `/src/lib/lark/` directory with 5 core library files: types.ts, auth.ts, client.ts, sync.ts, webhook.ts
-- Added 3 new tables to auto-migrate.ts: LarkUserMapping, LarkTaskMapping, LarkSyncLog (with indexes)
-- Created 4 API routes: /api/lark/settings, /api/lark/users, /api/lark/webhook, /api/lark/sync
-- Modified /api/tasks/route.ts to trigger Lark sync on task create, update, and delete (fire-and-forget)
-- Added Lark Integration settings card to Access Hub page (app ID, app secret, encrypt key, enable/disable toggle, connection test)
-- Created Lark User Mapping page at /dashboard/lark/users (auto-match by email, manual unmap, stats)
-- Created global Task Board page at /dashboard/tasks (Kanban board for all tasks across projects)
-- Updated navigation: separated "Tasks" into its own nav group with "My Todos" and "Task Board" items
-- Updated middleware to protect /dashboard/lark/* as admin-only
-- Added Lark icons (Bird, Kanban) to layout imports
+- Analyzed user's Lark developer console screenshot (1010) - confirmed Event Subscription page is on "Not configured" state
+- Provided step-by-step guide for configuring Request URL and subscribing to 4 task events
+- Discovered ~2764 lines of Lark integration code from previous session was never committed/pushed
+- Committed all existing Lark code (commit d84c3b6) and pushed to GitHub
+- Fixed Task API GET to include larkTaskId from LarkTaskMapping join (both admin and non-admin paths)
+- Fixed notification links from /dashboard/projects/todos to /dashboard/tasks (4 instances)
+- Rewrote Task Board UI page with: user dropdown for assignee, edit task dialog, delete task button, deadline date picker, created by/created at display
+- TypeScript check passed with zero errors
+- Committed and pushed improvements (commit 446173b)
 
 Stage Summary:
-- Full Lark 2-way task sync infrastructure built and wired
-- User mapping via email auto-match (LarkUserMapping table)
-- Task status mapping: 5 TrishulHub statuses → 3 Lark statuses (TODO/IN_PROGRESS/DONE)
-- Task priority mapping: 4 levels → 3 Lark levels (NORMAL/HIGH/URGENT)
-- Webhook handler for receiving Lark events (task created/updated/deleted/completed)
-- Project-based task list auto-creation in Lark (one task list per project)
-- Lark settings stored encrypted in AppSetting table
-- User needs to: (1) enable API scopes in Lark Developer Console, (2) save credentials in Access Hub, (3) auto-match users, (4) configure webhook URL
+- Vercel deployment triggered from 2 commits pushed to GitHub
+- Full Lark 2-way task sync system is now deployed: API client, webhook, user mapping, sync engine
+- Task Board at /dashboard/tasks has professional Kanban UI with full CRUD
+- User can now configure Lark webhook URL after Vercel deployment completes
+- Key files: src/lib/lark/*, src/app/api/lark/*, src/app/dashboard/tasks/page.tsx, src/app/dashboard/lark/users/page.tsx
