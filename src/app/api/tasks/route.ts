@@ -7,6 +7,9 @@ import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
+import { syncTaskToLark } from "@/lib/lark/sync"
+import { syncTaskUpdateToLark } from "@/lib/lark/sync"
+import { syncTaskDeleteToLark } from "@/lib/lark/sync"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -370,6 +373,16 @@ export async function POST(req: NextRequest) {
   if (data.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync new task to Lark (fire-and-forget)
+  syncTaskToLark(task.id, {
+    title: task.title,
+    description: task.description || undefined,
+    status: task.status,
+    priority: task.priority,
+    assignedTo: task.assignedTo || undefined,
+    projectId: task.projectId || undefined,
+    deadline: task.deadline || undefined,
+  }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
   return NextResponse.json(serializeTask(task), { status: 201 })
   } catch (error: unknown) {
@@ -661,6 +674,17 @@ export async function PATCH(req: NextRequest) {
   if (updatedTask.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync task update to Lark (fire-and-forget)
+  const larkUpdateData: { title?: string; description?: string; status?: string; priority?: string; assignedTo?: string; deadline?: string | Date | null } = {}
+  if (data.title) larkUpdateData.title = String(data.title)
+  if (data.description !== undefined) larkUpdateData.description = (data.description as string | null) ?? undefined
+  if (data.status) larkUpdateData.status = String(data.status)
+  if (data.priority) larkUpdateData.priority = String(data.priority)
+  if (data.assignedTo !== undefined) larkUpdateData.assignedTo = (data.assignedTo as string) || undefined
+  if (data.deadline !== undefined) larkUpdateData.deadline = data.deadline as Date | null | undefined
+  if (Object.keys(larkUpdateData).length > 0) {
+    syncTaskUpdateToLark(id, larkUpdateData, userId).catch((err) => console.error("[tasks] Lark update sync error:", err))
+  }
   return NextResponse.json(serializeTask(updatedTask))
   } catch (error: unknown) {
     console.error("[tasks] PATCH error:", error instanceof Error ? error.message : String(error))
@@ -718,6 +742,8 @@ export async function DELETE(req: NextRequest) {
   if (existingTask.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync task deletion to Lark (fire-and-forget)
+  syncTaskDeleteToLark(id, userId).catch((err) => console.error("[tasks] Lark delete sync error:", err))
   return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[tasks] DELETE error:", error instanceof Error ? error.message : String(error))

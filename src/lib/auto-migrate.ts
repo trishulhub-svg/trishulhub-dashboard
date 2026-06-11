@@ -399,6 +399,50 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
   },
+  // ━━ Lark Integration Tables ━━
+  {
+    name: "LarkUserMapping",
+    sql: `CREATE TABLE IF NOT EXISTS "LarkUserMapping" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "larkOpenId" TEXT NOT NULL,
+      "larkName" TEXT NOT NULL DEFAULT '',
+      "larkEmail" TEXT NOT NULL DEFAULT '',
+      "matchedBy" TEXT NOT NULL DEFAULT 'manual',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE("userId"),
+      UNIQUE("larkOpenId")
+    )`
+  },
+  {
+    name: "LarkTaskMapping",
+    sql: `CREATE TABLE IF NOT EXISTS "LarkTaskMapping" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "taskId" TEXT NOT NULL,
+      "larkTaskId" TEXT NOT NULL,
+      "larkTaskListId" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE("taskId"),
+      UNIQUE("larkTaskId")
+    )`
+  },
+  {
+    name: "LarkSyncLog",
+    sql: `CREATE TABLE IF NOT EXISTS "LarkSyncLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "direction" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "status" TEXT NOT NULL,
+      "taskId" TEXT,
+      "larkTaskId" TEXT,
+      "larkTaskListId" TEXT,
+      "projectId" TEXT,
+      "userId" TEXT,
+      "error" TEXT,
+      "metadata" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
 ]
 
 /**
@@ -1027,6 +1071,64 @@ export async function ensureAllTables(): Promise<void> {
     }
 
     // Mark as done ONLY after all migrations succeed
+    // Lark integration indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_userId_index" ON "LarkUserMapping"("userId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkUserMapping_userId_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_larkOpenId_index" ON "LarkUserMapping"("larkOpenId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkUserMapping_larkOpenId_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_taskId_index" ON "LarkTaskMapping"("taskId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkTaskMapping_taskId_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_larkTaskId_index" ON "LarkTaskMapping"("larkTaskId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkTaskMapping_larkTaskId_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_direction_index" ON "LarkSyncLog"("direction")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkSyncLog_direction_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_status_index" ON "LarkSyncLog"("status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkSyncLog_status_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_createdAt_index" ON "LarkSyncLog"("createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkSyncLog_createdAt_index: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_taskId_index" ON "LarkSyncLog"("taskId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] LarkSyncLog_taskId_index: ${getErrMsg(err)}`)
+      }
+    }
+
     syncDone = true
   } catch (err: unknown) {
     console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))

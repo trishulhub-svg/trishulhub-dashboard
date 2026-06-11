@@ -10,6 +10,7 @@ import {
   Copy, Check, KeyRound, UserCog, Info,
   Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
   Plus, Edit3, Globe, Search, Key,
+  Bird, Link2, Unlink, ArrowRightLeft, Zap, UserCheck, XCircle, CircleDot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -164,6 +165,17 @@ export default function AccessHubPage() {
   const [hasCredEncKey, setHasCredEncKey] = useState(false);
   const [credEncKeyMasked, setCredEncKeyMasked] = useState("");
 
+  // ── Lark Integration state ──
+  const [larkConfig, setLarkConfig] = useState<{
+    configured: boolean; enabled: boolean; connected: boolean; error?: string;
+    appId: string; encryptKey: string; taskLists: Array<{ id: string; name: string }>;
+  } | null>(null);
+  const [larkForm, setLarkForm] = useState({ appId: "", appSecret: "", encryptKey: "" });
+  const [larkSaving, setLarkSaving] = useState(false);
+  const [larkToggling, setLarkToggling] = useState(false);
+  const [showLarkSecret, setShowLarkSecret] = useState(false);
+  const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
+
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
   const [wsTokenForm, setWsTokenForm] = useState("");
@@ -239,6 +251,7 @@ export default function AccessHubPage() {
         }
         if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
         fetchCredEncKeyStatus();
+        fetchLarkConfig();
       })
       .catch(() => { /* silent */ })
       .finally(() => { if (!cancelled) setProtocolLoading(false); });
@@ -519,6 +532,63 @@ export default function AccessHubPage() {
         setCredEncKeyMasked(data.maskedKey || "");
       }
     } catch { /* silent */ }
+  };
+
+  // ── Lark Integration handlers ──
+  const fetchLarkConfig = async () => {
+    try {
+      const res = await fetch("/api/lark/settings", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setLarkConfig(data);
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleSaveLarkConfig = async () => {
+    setLarkSaving(true);
+    try {
+      const res = await fetch("/api/lark/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ...larkForm, testConnection: true }),
+      });
+      if (res.ok) {
+        toast.success("Lark connected successfully");
+        await fetchLarkConfig();
+        setLarkForm(f => ({ ...f, appSecret: "" }));
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to connect");
+      }
+    } catch {
+      toast.error("Connection failed");
+    } finally {
+      setLarkSaving(false);
+    }
+  };
+
+  const handleLarkToggle = async (enabled: boolean) => {
+    setLarkToggling(true);
+    try {
+      const res = await fetch("/api/lark/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) {
+        toast.success(enabled ? "Lark sync enabled" : "Lark sync disabled");
+        await fetchLarkConfig();
+      } else {
+        toast.error("Failed to toggle");
+      }
+    } catch {
+      toast.error("Failed to toggle");
+    } finally {
+      setLarkToggling(false);
+    }
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -1527,6 +1597,122 @@ export default function AccessHubPage() {
                       <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
                         {credEncKeySaving ? "Saving..." : "Save Key"}
                       </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* ━━ Lark Integration ━━ */}
+                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                          <Bird className="h-4 w-4 text-blue-500" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-sm">Lark (Feishu) Integration</CardTitle>
+                          <CardDescription className="text-[11px]">2-way task sync with Lark</CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {larkConfig?.connected && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>}
+                        <Switch
+                          checked={larkConfig?.enabled ?? false}
+                          onCheckedChange={handleLarkToggle}
+                          disabled={larkToggling || !larkConfig?.configured}
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {larkConfig?.connected ? null : larkConfig?.configured ? (
+                      <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        <span>Connection failed — check App ID and Secret</span>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">App ID</Label>
+                        <Input
+                          placeholder="cli_xxxxxxxxxxxxx"
+                          value={larkForm.appId}
+                          onChange={(e) => setLarkForm(f => ({ ...f, appId: e.target.value }))}
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">App Secret</Label>
+                        <Input
+                          type={showLarkSecret ? "text" : "password"}
+                          placeholder="••••••••••••••••"
+                          value={larkForm.appSecret}
+                          onChange={(e) => setLarkForm(f => ({ ...f, appSecret: e.target.value }))}
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Webhook Encrypt Key (optional — for signature verification)</Label>
+                      <Input
+                        type={showLarkEncrypt ? "text" : "password"}
+                        placeholder="Optional — for webhook signature verification"
+                        value={larkForm.encryptKey}
+                        onChange={(e) => setLarkForm(f => ({ ...f, encryptKey: e.target.value }))}
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={handleSaveLarkConfig}
+                        disabled={larkSaving || !larkForm.appId.trim() || !larkForm.appSecret.trim()}
+                        className="h-8 text-xs"
+                      >
+                        {larkSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+                        Save & Test
+                      </Button>
+                      {larkConfig?.configured && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowLarkSecret(!showLarkSecret)}
+                          className="h-8 text-xs"
+                        >
+                          {showLarkSecret ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                          Secret
+                        </Button>
+                      )}
+                    </div>
+
+                    {larkConfig?.taskLists && larkConfig.taskLists.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <p className="text-[11px] text-muted-foreground font-medium">Lark Task Lists ({larkConfig.taskLists.length})</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {larkConfig.taskLists.map((tl: { id: string; name: string }) => (
+                            <Badge key={tl.id} variant="secondary" className="text-[10px] font-normal">
+                              {tl.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick links */}
+                    <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+                      <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+                        <Globe className="h-3 w-3" /> Lark Developer Console
+                      </a>
+                      <span className="text-border">|</span>
+                      <button
+                        onClick={() => router.push("/dashboard/lark/users")}
+                        className="flex items-center gap-1 hover:text-primary transition-colors"
+                      >
+                        <UserCheck className="h-3 w-3" /> User Mapping
+                      </button>
                     </div>
                   </CardContent>
                 </Card>

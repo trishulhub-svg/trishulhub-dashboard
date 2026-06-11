@@ -40,6 +40,8 @@ import {
   ClipboardCheck,
   KeyRound,
   ScrollText,
+  Kanban,
+  Bird,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -101,8 +103,14 @@ const navGroups: NavGroup[] = [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "My Todos", href: "/dashboard/projects/todos", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
+    ],
+  },
+  {
+    label: "Tasks",
+    items: [
+      { title: "My Todos", href: "/dashboard/projects/todos", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Task Board", href: "/dashboard/tasks", icon: Kanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {

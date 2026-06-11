@@ -91,6 +91,7 @@ export async function middleware(request: NextRequest) {
       "/dashboard/approvals",
       "/dashboard/settings",
       "/dashboard/credentials",
+      "/dashboard/lark",
     ]
     const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
