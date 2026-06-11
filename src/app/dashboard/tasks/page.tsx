@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   Kanban, Plus, Search, Filter, Loader2, Calendar, Bot, User, Clock,
   ShieldCheck, ArrowRight, MessageSquare, Phone, ArrowUpCircle, UserPlus,
-  Building2,
+  Building2, Trash2, Pencil, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,8 +19,18 @@ import {
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn, safeText, safeDate, deepSanitize, extractStr } from "@/lib/utils";
+
+// ── Types ──
+interface TeamUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department: string | null;
+}
 
 // ── Status constants (match project board exactly) ──
 const TASK_COLUMNS = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"] as const;
@@ -82,7 +92,7 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
 
 // ── Helpers ──
 function getInitials(name: string): string {
-  return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  return name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -94,6 +104,7 @@ export default function GlobalTaskBoardPage() {
   // ── State ──
   const [tasks, setTasks] = useState<Record<string, unknown>[]>([]);
   const [projects, setProjects] = useState<Record<string, unknown>[]>([]);
+  const [users, setUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -102,7 +113,11 @@ export default function GlobalTaskBoardPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [editSaving, setEditSaving] = useState(false);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
   // ── Derived ──
   const userRole = session?.user?.role || "DEVELOPER";
@@ -116,6 +131,9 @@ export default function GlobalTaskBoardPage() {
       extractStr(p, "name", "Unknown"),
     ])
   );
+
+  // ── User name lookup map ──
+  const userNameMap = new Map<string, string>(users.map((u) => [u.id, u.name]));
 
   // ── Fetch tasks ──
   const fetchTasks = useCallback(async () => {
@@ -177,11 +195,28 @@ export default function GlobalTaskBoardPage() {
     }
   }, []);
 
+  // ── Fetch users (for assignee dropdown) ──
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/team?type=users", { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (!res.ok) return;
+      const raw = deepSanitize(await res.json());
+      const list = Array.isArray(raw) ? raw : [];
+      setUsers(list as TeamUser[]);
+    } catch {
+      // Silent fail
+    }
+  }, []);
+
   useEffect(() => {
     if (sessionStatus === "loading") return;
     fetchTasks();
-    if (isAdminUser) fetchProjects();
-  }, [sessionStatus, fetchTasks, fetchProjects, isAdminUser]);
+    if (isAdminUser) {
+      fetchProjects();
+      fetchUsers();
+    }
+  }, [sessionStatus, fetchTasks, fetchProjects, fetchUsers, isAdminUser]);
 
   // ── Client-side search filter ──
   const filteredTasks = search.trim()
@@ -219,15 +254,16 @@ export default function GlobalTaskBoardPage() {
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const data = {
+    const data: Record<string, unknown> = {
       title: String(form.get("title") || ""),
-      description: String(form.get("description") || ""),
+      description: String(form.get("description") || "") || undefined,
       priority: String(form.get("priority") || "MEDIUM"),
       category: String(form.get("category") || "GENERAL"),
       projectId: String(form.get("projectId") || "") || undefined,
       assignedTo: String(form.get("assignedTo") || "") || undefined,
+      deadline: String(form.get("deadline") || "") || undefined,
     };
-    if (!data.title.trim()) { toast.error("Title is required"); return; }
+    if (!data.title) { toast.error("Title is required"); return; }
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -246,6 +282,82 @@ export default function GlobalTaskBoardPage() {
       }
     } catch {
       toast.error("Failed to create task");
+    }
+  };
+
+  // ── Edit task handlers ──
+  const openEditDialog = (task: Record<string, unknown>) => {
+    setEditForm({
+      id: extractStr(task, "id", ""),
+      title: extractStr(task, "title", ""),
+      description: extractStr(task, "description", ""),
+      priority: extractStr(task, "priority", "MEDIUM"),
+      category: extractStr(task, "category", "GENERAL"),
+      assignedTo: extractStr(task, "assignedTo", ""),
+      projectId: extractStr(task, "projectId", ""),
+      deadline: extractStr(task, "deadline", "") ? extractStr(task, "deadline", "").split("T")[0] : "",
+    });
+    setEditOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!editForm.id) return;
+    setEditSaving(true);
+    const data: Record<string, unknown> = {
+      id: editForm.id,
+      title: editForm.title,
+      description: editForm.description || undefined,
+      priority: editForm.priority,
+      category: editForm.category,
+      assignedTo: editForm.assignedTo || undefined,
+      projectId: editForm.projectId || undefined,
+      deadline: editForm.deadline ? new Date(editForm.deadline).toISOString() : null,
+    };
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        toast.success("Task updated");
+        setEditOpen(false);
+        setTaskDetailOpen(false);
+        fetchTasks();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to update task");
+      }
+    } catch {
+      toast.error("Failed to update task");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // ── Delete task handler ──
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm("Are you sure you want to delete this task? This action cannot be undone.")) return;
+    setDeletingTaskId(taskId);
+    try {
+      const res = await fetch(`/api/tasks?id=${taskId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Task deleted");
+        setTaskDetailOpen(false);
+        setSelectedTask(null);
+        fetchTasks();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to delete task");
+      }
+    } catch {
+      toast.error("Failed to delete task");
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 
@@ -367,9 +479,24 @@ export default function GlobalTaskBoardPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">Assigned To (ID)</label>
-                    <Input name="assignedTo" className="h-8 text-sm" placeholder="User ID..." />
+                    <label className="text-xs font-medium">Assigned To</label>
+                    <select
+                      name="assignedTo"
+                      defaultValue=""
+                      className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+                    >
+                      <option value="">Unassigned</option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} {u.department ? `(${u.department})` : ""}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Deadline</label>
+                  <Input name="deadline" type="date" className="h-8 text-sm" />
                 </div>
                 <div className="flex justify-end gap-2 pt-1">
                   <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(false)}>
@@ -682,9 +809,38 @@ export default function GlobalTaskBoardPage() {
       <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>
         <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              {safeText(selectedTask ? extractStr(selectedTask, "title", "Untitled") : "Task Detail")}
-            </DialogTitle>
+            <div className="flex items-center justify-between pr-6">
+              <DialogTitle className="text-base font-bold truncate pr-4">
+                {safeText(selectedTask ? extractStr(selectedTask, "title", "Untitled") : "Task Detail")}
+              </DialogTitle>
+              {isAdminUser && selectedTask && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={() => { setTaskDetailOpen(false); openEditDialog(selectedTask); }}
+                    title="Edit task"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDeleteTask(extractStr(selectedTask, "id", ""))}
+                    disabled={deletingTaskId === extractStr(selectedTask, "id", "")}
+                    title="Delete task"
+                  >
+                    {deletingTaskId === extractStr(selectedTask, "id", "") ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
           </DialogHeader>
           {selectedTask && (
             <ScrollArea className="max-h-[60vh]">
@@ -693,7 +849,7 @@ export default function GlobalTaskBoardPage() {
                 {extractStr(selectedTask, "description", "") && (
                   <div>
                     <p className="text-xs text-muted-foreground mb-1 font-medium">Description</p>
-                    <p className="text-sm leading-relaxed">
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
                       {safeText(extractStr(selectedTask, "description", ""))}
                     </p>
                   </div>
@@ -754,6 +910,18 @@ export default function GlobalTaskBoardPage() {
                       {projectNameMap.get(extractStr(selectedTask, "projectId", "")) || "No project"}
                     </span>
                   </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Created By</p>
+                    <span className="text-xs">
+                      {safeText(extractStr(selectedTask, "createdByName", "") || "Unknown")}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Created</p>
+                    <span className="text-xs">
+                      {extractStr(selectedTask, "createdAt", "") ? safeDate(extractStr(selectedTask, "createdAt", "")) : "—"}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Lark indicator */}
@@ -794,6 +962,118 @@ export default function GlobalTaskBoardPage() {
               </div>
             </ScrollArea>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════ Edit Task Dialog ═══════ */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Pencil className="h-4 w-4" /> Edit Task
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Title *</label>
+              <Input
+                value={editForm.title || ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                className="h-8 text-sm"
+                placeholder="Task title..."
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Description</label>
+              <Input
+                value={editForm.description || ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                className="h-8 text-sm"
+                placeholder="Optional details..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Priority</label>
+                <select
+                  value={editForm.priority || "MEDIUM"}
+                  onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value }))}
+                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+                >
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Category</label>
+                <select
+                  value={editForm.category || "GENERAL"}
+                  onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
+                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+                >
+                  <option value="GENERAL">General</option>
+                  <option value="MEETING">Meeting</option>
+                  <option value="FOLLOW_UP">Follow Up</option>
+                  <option value="UPGRADE">Upgrade</option>
+                  <option value="CUSTOMER">Customer</option>
+                  <option value="INTERNAL">Internal</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Project</label>
+                <select
+                  value={editForm.projectId || ""}
+                  onChange={(e) => setEditForm((f) => ({ ...f, projectId: e.target.value }))}
+                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+                >
+                  <option value="">No project</option>
+                  {projects.map((p) => (
+                    <option key={extractStr(p, "id", "")} value={extractStr(p, "id", "")}>
+                      {safeText(extractStr(p, "name", "Unknown"))}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Assigned To</label>
+                <select
+                  value={editForm.assignedTo || ""}
+                  onChange={(e) => setEditForm((f) => ({ ...f, assignedTo: e.target.value }))}
+                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+                >
+                  <option value="">Unassigned</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} {u.department ? `(${u.department})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Deadline</label>
+              <Input
+                type="date"
+                value={editForm.deadline || ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, deadline: e.target.value }))}
+                className="h-8 text-sm"
+              />
+            </div>
+            <Separator />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleEditSave} disabled={editSaving || !editForm.title?.trim()}>
+                {editSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
+                Save Changes
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

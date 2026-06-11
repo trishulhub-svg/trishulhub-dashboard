@@ -36,6 +36,22 @@ function serializeTask(t: any) {
   }
 }
 
+// ── Helper: fetch Lark task IDs for a batch of tasks ──
+async function getLarkTaskIds(taskIds: string[]): Promise<Record<string, string>> {
+  if (taskIds.length === 0) return {}
+  try {
+    const rows = await db.$queryRawUnsafe<Array<{ taskId: string; larkTaskId: string }>>(
+      'SELECT "taskId", "larkTaskId" FROM "LarkTaskMapping" WHERE "taskId" IN (?)',
+      taskIds
+    )
+    const map: Record<string, string> = {}
+    for (const r of rows) map[r.taskId] = r.larkTaskId
+    return map
+  } catch {
+    return {}
+  }
+}
+
 // ── Helper: check if assignee is on approved leave during task period ──
 async function checkAssigneeLeave(db: any, userId: string, deadline: Date): Promise<{ name: string; leaveType: string; startDate: Date; endDate: Date } | null> {
   const leave = await db.leave.findFirst({
@@ -136,11 +152,15 @@ export async function GET(req: NextRequest) {
       for (const u of users) userMap[u.id] = u.name
     }
 
+    // Fetch Lark task IDs for all returned tasks
+    const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+
     const enriched = tasks.map(t => ({
       ...serializeTask(t),
       assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
       approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
       createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+      larkTaskId: larkIds[t.id] || null,
     }))
     return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   }
@@ -225,11 +245,15 @@ export async function GET(req: NextRequest) {
     for (const u of users) userMap[u.id] = u.name
   }
 
+  // Fetch Lark task IDs for all returned tasks
+  const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+
   const enriched = tasks.map(t => ({
     ...serializeTask(t),
     assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
     approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+    larkTaskId: larkIds[t.id] || null,
   }))
   return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   } catch (error: unknown) {
@@ -365,7 +389,7 @@ export async function POST(req: NextRequest) {
       "New Task Assigned",
       `You have been assigned a new task: ${String(body.title)}${deadlineStr}`,
       "TASK",
-      "/dashboard/projects/todos"
+      "/dashboard/tasks"
     )
   }
 
@@ -603,7 +627,7 @@ export async function PATCH(req: NextRequest) {
       "Task Reassigned to You",
       `Task "${existingTask.title}" has been reassigned to you`,
       "TASK",
-      "/dashboard/projects/todos"
+      "/dashboard/tasks"
     )
   }
 
