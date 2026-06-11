@@ -38,7 +38,6 @@ import {
   BookOpen,
   CalendarRange,
   ClipboardCheck,
-  HardDrive,
   KeyRound,
   ScrollText,
 } from "lucide-react";
@@ -94,8 +93,6 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Files", href: "/dashboard/files", icon: HardDrive, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-
     ],
   },
   {

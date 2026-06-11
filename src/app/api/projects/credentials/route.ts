@@ -63,8 +63,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(decrypted)
   } catch (error: unknown) {
-    console.error("[credentials] GET error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to load credentials" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credentials] GET error:", msg)
+    return NextResponse.json({ error: `Failed to load credentials: ${msg.slice(0, 120)}` }, { status: 500 })
   }
 }
 
@@ -113,8 +114,11 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json({ id: credential.id, title: credential.title, username: credential.username }, { status: 201 })
   } catch (error: unknown) {
-    console.error("[credentials] POST error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to create credential" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credentials] POST error:", msg)
+    // Return specific error so the admin can diagnose
+    const detail = msg.length > 120 ? msg.slice(0, 120) + "..." : msg
+    return NextResponse.json({ error: `Failed to create credential: ${detail}` }, { status: 500 })
   }
 }
 
@@ -167,8 +171,9 @@ export async function PATCH(req: NextRequest) {
     })
     return NextResponse.json({ id: credential.id, title: credential.title, username: credential.username })
   } catch (error: unknown) {
-    console.error("[credentials] PATCH error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to update credential" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credentials] PATCH error:", msg)
+    return NextResponse.json({ error: `Failed to update credential: ${msg.slice(0, 120)}` }, { status: 500 })
   }
 }
 
@@ -199,7 +204,8 @@ export async function DELETE(req: NextRequest) {
     await db.projectCredential.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[credentials] DELETE error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to delete credential" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credentials] DELETE error:", msg)
+    return NextResponse.json({ error: `Failed to delete credential: ${msg.slice(0, 120)}` }, { status: 500 })
   }
 }

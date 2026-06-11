@@ -123,13 +123,15 @@ export async function ensureTimetableTables(): Promise<void> {
   }
 }
 
-// ── Auto-migration: Create ProjectCredential table if it doesn't exist ──
-// Added because prisma db push is not run during Vercel build.
+// ── Auto-migration: Ensure ProjectCredential table exists with correct schema ──
+// prisma db push is NOT run during Vercel build, so we must create tables manually.
+// Handles: table missing, table exists with missing columns (schema drift).
 let _projectCredentialEnsured = false
 
 export async function ensureProjectCredentialTable(): Promise<void> {
   if (_projectCredentialEnsured) return
   try {
+    // Step 1: Create table if missing
     await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "ProjectCredential" (
         "id" TEXT NOT NULL PRIMARY KEY,
@@ -143,17 +145,35 @@ export async function ensureProjectCredentialTable(): Promise<void> {
         "updatedAt" DATETIME NOT NULL
       );
     `)
+    // Step 2: Add any missing columns (handles schema drift from older versions)
+    const columns = [
+      ['iv', 'TEXT NOT NULL DEFAULT ""'],
+      ['tag', 'TEXT NOT NULL DEFAULT ""'],
+      ['password', 'TEXT NOT NULL DEFAULT ""'],
+      ['username', 'TEXT NOT NULL DEFAULT ""'],
+      ['title', 'TEXT NOT NULL DEFAULT ""'],
+      ['projectId', 'TEXT NOT NULL DEFAULT ""'],
+      ['createdAt', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP'],
+      ['updatedAt', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP'],
+    ]
+    for (const [col, def] of columns) {
+      try {
+        await db.$executeRawUnsafe(`ALTER TABLE "ProjectCredential" ADD COLUMN "${col}" ${def};`)
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : String(e)
+        // "duplicate column name" is expected — column already exists
+        if (!m.includes('duplicate column')) {
+          console.error(`[db] Failed to add column ${col} to ProjectCredential:`, m)
+        }
+      }
+    }
+    // Step 3: Create index
     await db.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "idx_ProjectCredential_projectId" ON "ProjectCredential"("projectId");
     `)
     _projectCredentialEnsured = true
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    if (msg.includes('already exists')) {
-      _projectCredentialEnsured = true
-    } else {
-      console.error('[db] Failed to ensure ProjectCredential table:', msg)
-    }
+    console.error('[db] Failed to ensure ProjectCredential table:', error instanceof Error ? error.message : error)
   }
 }
 
