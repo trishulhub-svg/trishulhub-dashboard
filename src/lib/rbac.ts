@@ -1,4 +1,6 @@
 
+import { db } from "@/lib/db"
+
 /** Check if a user is a super admin (only SUPER_ADMIN).
  * @param role - The user's role string.
  * @returns true if the user has SUPER_ADMIN role.
