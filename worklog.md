@@ -3240,3 +3240,23 @@ Stage Summary:
 - 5 data tables covering model audit, feasibility summary, proposed DB models, webhook routing, and risk assessment
 - Key findings: Tasks (feasible, medium risk), Meetings (highly feasible, low risk), Leave (feasible with caveats, high risk), Announcements (not feasible - module doesnt exist), Comments (partial - module doesnt exist)
 
+---
+Task ID: 1
+Agent: Main
+Task: Fix "Add Credential" button error on /dashboard/projects
+
+Work Log:
+- Explored all credential-related code: page.tsx (handleAddCredential), API route (GET/POST/PATCH/DELETE), encryption.ts, rbac.ts
+- Discovered root cause: deployed code in trishulhub-dash-repo had `Record<string, unknown>` as Prisma update data type in PATCH handler (line 124)
+- Turbopack TS checker (stricter than local tsc) catches this type mismatch, preventing the ENTIRE route file from compiling on Vercel
+- Since the route file fails to compile, ALL handlers (GET/POST/PATCH/DELETE) return errors — "Add Credential" POST gets 500/404
+- Fixed by replacing `Record<string, unknown>` with `Prisma.ProjectCredentialUncheckedUpdateInput`
+- Also added: full try/catch wrappers on all 4 handlers, verifyProjectAccess() helper, input sanitization, console.error logging
+- Resolved git rebase conflict (remote already had partial fix from previous session push)
+- Pushed commit 23f148a to GitHub → Vercel auto-deploy triggered
+
+Stage Summary:
+- Root cause: Turbopack type error on `Record<string, unknown>` → Prisma `.update()` data param blocked entire route compilation
+- Fix: `Prisma.ProjectCredentialUncheckedUpdateInput` + full try/catch + verifyProjectAccess
+- Pushed to: trishulhub-svg/trishulhub-dashboard (commit 23f148a)
+- Vercel will auto-deploy from this push
