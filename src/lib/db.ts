@@ -123,6 +123,100 @@ export async function ensureTimetableTables(): Promise<void> {
   }
 }
 
+// ── Auto-migration: Create ProjectCredential table if it doesn't exist ──
+// Added because prisma db push is not run during Vercel build.
+let _projectCredentialEnsured = false
+
+export async function ensureProjectCredentialTable(): Promise<void> {
+  if (_projectCredentialEnsured) return
+  try {
+    await db.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ProjectCredential" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "title" TEXT NOT NULL,
+        "username" TEXT NOT NULL,
+        "password" TEXT NOT NULL,
+        "iv" TEXT NOT NULL,
+        "tag" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL
+      );
+    `)
+    await db.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "idx_ProjectCredential_projectId" ON "ProjectCredential"("projectId");
+    `)
+    _projectCredentialEnsured = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('already exists')) {
+      _projectCredentialEnsured = true
+    } else {
+      console.error('[db] Failed to ensure ProjectCredential table:', msg)
+    }
+  }
+}
+
+// ── Auto-migration: Create ProjectAttachment table if it doesn't exist ──
+let _projectAttachmentEnsured = false
+
+export async function ensureProjectAttachmentTable(): Promise<void> {
+  if (_projectAttachmentEnsured) return
+  try {
+    await db.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ProjectAttachment" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "fileName" TEXT NOT NULL,
+        "fileData" TEXT NOT NULL,
+        "fileSize" INTEGER NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `)
+    await db.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "idx_ProjectAttachment_projectId" ON "ProjectAttachment"("projectId");
+    `)
+    _projectAttachmentEnsured = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('already exists')) {
+      _projectAttachmentEnsured = true
+    } else {
+      console.error('[db] Failed to ensure ProjectAttachment table:', msg)
+    }
+  }
+}
+
+// ── Auto-migration: Create ProjectWebsite table if it doesn't exist ──
+let _projectWebsiteEnsured = false
+
+export async function ensureProjectWebsiteTable(): Promise<void> {
+  if (_projectWebsiteEnsured) return
+  try {
+    await db.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ProjectWebsite" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "url" TEXT NOT NULL,
+        "label" TEXT,
+        "isPrimary" BOOLEAN NOT NULL DEFAULT 0,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "projectId" TEXT NOT NULL
+      );
+    `)
+    await db.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "idx_ProjectWebsite_projectId" ON "ProjectWebsite"("projectId");
+    `)
+    _projectWebsiteEnsured = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('already exists')) {
+      _projectWebsiteEnsured = true
+    } else {
+      console.error('[db] Failed to ensure ProjectWebsite table:', msg)
+    }
+  }
+}
+
 // Graceful shutdown — only in long-running processes, not serverless/Vercel
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
   process.on('beforeExit', async () => {

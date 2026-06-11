@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { db, ensureProjectCredentialTable } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -25,6 +25,7 @@ async function verifyProjectAccess(userId: string, userRole: string, projectId: 
 // GET /api/projects/credentials — List credentials for a project
 export async function GET(req: NextRequest) {
   try {
+    await ensureProjectCredentialTable()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
 // POST /api/projects/credentials — Create a new credential
 export async function POST(req: NextRequest) {
   try {
+    await ensureProjectCredentialTable()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
