@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { isAdmin } from "@/lib/rbac"
 import { getAppSetting, setAppSetting } from "@/lib/db"
 import { getCredentialKey } from "@/lib/encryption"
+import { ensureAllTables } from "@/lib/auto-migrate"
 
 const SETTING_KEY = "credentialEncryptionKey"
 
@@ -13,6 +14,11 @@ export async function GET() {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+
+    // Ensure DB tables exist before querying
+    await ensureAllTables().catch((err) => {
+      console.error("[credential-key] ensureAllTables failed:", err instanceof Error ? err.message : err)
+    })
 
     const dbKey = await getAppSetting(SETTING_KEY)
     const hasEnvKey = !!(process.env.CREDENTIAL_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY)
@@ -32,6 +38,7 @@ export async function GET() {
     })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credential-key] GET error:", msg)
     return NextResponse.json({ error: msg.slice(0, 120) }, { status: 500 })
   }
 }
@@ -42,6 +49,11 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+
+    // Ensure DB tables exist before writing
+    await ensureAllTables().catch((err) => {
+      console.error("[credential-key] ensureAllTables failed:", err instanceof Error ? err.message : err)
+    })
 
     let body: { key?: string }
     try {
@@ -69,6 +81,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true, message: "Credential encryption key saved" })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
+    console.error("[credential-key] PATCH error:", msg)
     return NextResponse.json({ error: `Failed to save key: ${msg.slice(0, 120)}` }, { status: 500 })
   }
 }

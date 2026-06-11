@@ -252,6 +252,7 @@ export async function ensureAppSettingTable(): Promise<void> {
       _appSettingEnsured = true
     } else {
       console.error('[db] Failed to ensure AppSetting table:', msg)
+      // Don't set flag — allow retry on next call
     }
   }
 }
@@ -267,12 +268,29 @@ export async function getAppSetting(key: string): Promise<string> {
   }
 }
 
-/** Set a setting value in the AppSetting table (upsert). */
+/** Set a setting value in the AppSetting table (upsert).
+ * Uses DELETE + INSERT as a reliable fallback for Turso/libsql compatibility.
+ */
 export async function setAppSetting(key: string, value: string): Promise<void> {
   await ensureAppSettingTable()
+
+  // Strategy 1: Try SQLite UPSERT syntax first
+  try {
+    await db.$executeRawUnsafe(
+      'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT("key") DO UPDATE SET "value" = ?, "updatedAt" = CURRENT_TIMESTAMP',
+      key, value, value
+    )
+    return
+  } catch (upsertErr) {
+    const upsertMsg = upsertErr instanceof Error ? upsertErr.message : String(upsertErr)
+    console.warn('[db] UPSERT failed, falling back to DELETE+INSERT:', upsertMsg)
+  }
+
+  // Strategy 2: Fallback — delete then insert (safe for all SQLite-compatible drivers)
+  await db.$executeRawUnsafe('DELETE FROM "AppSetting" WHERE "key" = ?', key)
   await db.$executeRawUnsafe(
-    'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT("key") DO UPDATE SET "value" = ?, "updatedAt" = CURRENT_TIMESTAMP',
-    key, value, value
+    'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP)',
+    key, value
   )
 }
 
