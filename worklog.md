@@ -3260,3 +3260,24 @@ Stage Summary:
 - Fix: `Prisma.ProjectCredentialUncheckedUpdateInput` + full try/catch + verifyProjectAccess
 - Pushed to: trishulhub-svg/trishulhub-dashboard (commit 23f148a)
 - Vercel will auto-deploy from this push
+---
+Task ID: 2
+Agent: Main
+Task: Fix credentials issue - table missing in Turso production DB
+
+Work Log:
+- First fix (23f148a): Replaced Record<string, unknown> with Prisma type in PATCH handler — resolved Turbopack build error
+- User reported issue persists after deploy
+- Tested live endpoint: curl returns 401 (route exists, not 404) — Turbopack fix worked
+- Investigated runtime cause: checked ENCRYPTION_KEY, schema, migrations
+- Discovered root cause: Vercel build runs `prisma generate` only, never `prisma db push`
+- ProjectCredential table has ZERO migrations in prisma/migrations/ — table never created in Turso
+- Same issue for ProjectAttachment and ProjectWebsite (also zero migrations)
+- Added auto-migration functions to db.ts following existing ensureTimetableTables() pattern
+- Called ensureProjectCredentialTable() in GET and POST handlers of credentials route
+
+Stage Summary:
+- Root cause: ProjectCredential table did not exist in Turso production database
+- Fix: Auto-migration (CREATE TABLE IF NOT EXISTS) in db.ts + called from route handlers
+- Also added auto-migrations for ProjectAttachment and ProjectWebsite (same dialog, same issue)
+- Pushed commit 40ebf5b to GitHub → Vercel auto-deploy triggered
