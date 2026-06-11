@@ -3281,3 +3281,19 @@ Stage Summary:
 - Fix: Auto-migration (CREATE TABLE IF NOT EXISTS) in db.ts + called from route handlers
 - Also added auto-migrations for ProjectAttachment and ProjectWebsite (same dialog, same issue)
 - Pushed commit 40ebf5b to GitHub → Vercel auto-deploy triggered
+---
+Task ID: 3
+Agent: Main
+Task: Fix credentials (3rd attempt) + remove Files section + answer attachments question
+
+Work Log:
+- Credentials 3rd fix: Rewrote auto-migration to handle both missing tables AND schema drift via ALTER TABLE ADD COLUMN with duplicate-column error handling
+- Changed all error responses from generic to specific (includes actual error message) for diagnosis
+- Removed entire Files section: deleted 8 files (~4630 lines), removed from schema.prisma, rbac.ts, auto-migrate.ts, layout.tsx
+- Answered user's question: attachments stored as base64 in ProjectAttachment table in Turso SQLite
+
+Stage Summary:
+- Pushed commit 3c18954 to GitHub
+- Error responses now include actual error details for faster diagnosis
+- Files feature completely removed from codebase
+- Attachments storage explained: base64 in SQLite (suitable for small files only)
