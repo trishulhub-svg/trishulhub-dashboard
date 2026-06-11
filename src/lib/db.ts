@@ -237,6 +237,45 @@ export async function ensureProjectWebsiteTable(): Promise<void> {
   }
 }
 
+// ── AppSetting helpers (key-value store for system settings) ──
+
+let _appSettingEnsured = false
+
+export async function ensureAppSettingTable(): Promise<void> {
+  if (_appSettingEnsured) return
+  try {
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "AppSetting" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL DEFAULT '', "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`)
+    _appSettingEnsured = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('already exists')) {
+      _appSettingEnsured = true
+    } else {
+      console.error('[db] Failed to ensure AppSetting table:', msg)
+    }
+  }
+}
+
+/** Get a setting value from the AppSetting table. Returns empty string if not found. */
+export async function getAppSetting(key: string): Promise<string> {
+  try {
+    await ensureAppSettingTable()
+    const row = await db.$queryRawUnsafe<Array<{ value: string }>>('SELECT value FROM "AppSetting" WHERE "key" = ?', key)
+    return row.length > 0 ? row[0].value : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Set a setting value in the AppSetting table (upsert). */
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  await ensureAppSettingTable()
+  await db.$executeRawUnsafe(
+    'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT("key") DO UPDATE SET "value" = ?, "updatedAt" = CURRENT_TIMESTAMP',
+    key, value, value
+  )
+}
+
 // Graceful shutdown — only in long-running processes, not serverless/Vercel
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
   process.on('beforeExit', async () => {

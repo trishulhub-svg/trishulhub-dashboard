@@ -9,7 +9,7 @@ import {
   Shield, Ban, Save, Eye, EyeOff,
   Copy, Check, KeyRound, UserCog, Info,
   Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
-  Plus, Edit3, Globe, Search,
+  Plus, Edit3, Globe, Search, Key,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -157,6 +157,13 @@ export default function AccessHubPage() {
   const [encKeySaving, setEncKeySaving] = useState(false);
   const [hasEncryptionKey, setHasEncryptionKey] = useState(false);
 
+  // ── Credential encryption key state ──
+  const [credEncKeyForm, setCredEncKeyForm] = useState("");
+  const [showCredEncKey, setShowCredEncKey] = useState(false);
+  const [credEncKeySaving, setCredEncKeySaving] = useState(false);
+  const [hasCredEncKey, setHasCredEncKey] = useState(false);
+  const [credEncKeyMasked, setCredEncKeyMasked] = useState("");
+
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
   const [wsTokenForm, setWsTokenForm] = useState("");
@@ -231,6 +238,7 @@ export default function AccessHubPage() {
           setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
         }
         if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
+        fetchCredEncKeyStatus();
       })
       .catch(() => { /* silent */ })
       .finally(() => { if (!cancelled) setProtocolLoading(false); });
@@ -471,6 +479,49 @@ export default function AccessHubPage() {
   };
 
   /* ═══════════════════════════════════════════════════════════════
+     CREDENTIAL ENCRYPTION KEY HANDLERS
+     ═══════════════════════════════════════════════════════════════ */
+
+  const handleSaveCredEncKey = async () => {
+    if (!credEncKeyForm.trim()) return;
+    if (!/^[0-9a-fA-F]{64}$/.test(credEncKeyForm.trim())) {
+      toast.error("Key must be exactly 64 hex characters");
+      return;
+    }
+    setCredEncKeySaving(true);
+    try {
+      const res = await fetch("/api/settings/credential-key", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ key: credEncKeyForm.trim() }),
+      });
+      if (res.ok) {
+        toast.success("Credential encryption key saved");
+        setCredEncKeyForm("");
+        fetchCredEncKeyStatus();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to save key");
+      }
+    } catch {
+      toast.error("Failed to save key");
+    }
+    setCredEncKeySaving(false);
+  };
+
+  const fetchCredEncKeyStatus = async () => {
+    try {
+      const res = await fetch("/api/settings/credential-key", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setHasCredEncKey(data.hasKey);
+        setCredEncKeyMasked(data.maskedKey || "");
+      }
+    } catch { /* silent */ }
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
      WORKSPACE TOKEN HANDLERS
      ═══════════════════════════════════════════════════════════════ */
 
@@ -640,6 +691,7 @@ export default function AccessHubPage() {
         setGitForm({ repoUrl: data.repoUrl || "", token: "" });
       }
     } catch { /* silent */ }
+    fetchCredEncKeyStatus();
   }, [isSuperAdmin]);
 
   const refetchWsConfig = useCallback(async () => {
@@ -1418,6 +1470,64 @@ export default function AccessHubPage() {
                       {encKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
                       Save Key
                     </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Credential Encryption Key — for project credentials (separate from SMTP/Git) */}
+                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Key className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm">Credential Encryption Key</CardTitle>
+                      </div>
+                      <Badge variant={hasCredEncKey ? "default" : "secondary"} className={hasCredEncKey ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}>
+                        {hasCredEncKey ? "Configured" : "Not set"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground">Separate key for encrypting project credentials (logins, passwords). Independent from the main encryption key used for SMTP and Git sync.</p>
+                    {credEncKeyMasked && (
+                      <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-xs font-mono text-muted-foreground">
+                        <span>{credEncKeyMasked}</span>
+                        <span className="text-[10px]">(stored in database)</span>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type={showCredEncKey ? "text" : "password"}
+                          placeholder="Paste 64-char hex key or generate below"
+                          value={credEncKeyForm}
+                          onChange={(e) => setCredEncKeyForm(e.target.value)}
+                          className="h-8 text-xs font-mono pr-16"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowCredEncKey(!showCredEncKey)}
+                        >
+                          {showCredEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            const bytes = new Uint8Array(32);
+                            crypto.getRandomValues(bytes);
+                            setCredEncKeyForm(Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""));
+                            setShowCredEncKey(true);
+                          }}
+                          title="Generate random key"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
+                        {credEncKeySaving ? "Saving..." : "Save Key"}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </>

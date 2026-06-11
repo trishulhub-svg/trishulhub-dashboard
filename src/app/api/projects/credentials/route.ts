@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db, ensureProjectCredentialTable } from "@/lib/db"
+import { db, ensureProjectCredentialTable, getAppSetting } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { encrypt, decrypt } from "@/lib/encryption"
+import { encryptCredential, decryptCredential } from "@/lib/encryption"
+
+/** Load the credential encryption key from DB (or empty string if not set) */
+async function loadCredDbKey(): Promise<string> {
+  try { return await getAppSetting("credentialEncryptionKey") } catch { return "" }
+}
 
 // Helper: verify the user has access to a given project.
 // ADMIN/SUPER_ADMIN always pass. CLIENT must own the project. DEVELOPER must be a member.
@@ -45,6 +50,7 @@ export async function GET(req: NextRequest) {
     const project = await db.project.findUnique({ where: { id: projectId } })
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
+    const dbKey = await loadCredDbKey()
     const credentials = await db.projectCredential.findMany({
       where: { projectId },
       select: { id: true, title: true, username: true, password: true, iv: true, tag: true, createdAt: true, updatedAt: true },
@@ -54,7 +60,7 @@ export async function GET(req: NextRequest) {
     // Decrypt passwords before sending to client
     const decrypted = credentials.map((cred) => {
       try {
-        const password = decrypt(cred.password, cred.iv, cred.tag)
+        const password = decryptCredential(cred.password, cred.iv, cred.tag, dbKey || undefined)
         return { ...cred, password, iv: undefined, tag: undefined }
       } catch {
         return { ...cred, password: "[DECRYPTION ERROR]", iv: undefined, tag: undefined }
@@ -101,7 +107,8 @@ export async function POST(req: NextRequest) {
     const project = await db.project.findUnique({ where: { id: projectId } })
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
-    const encrypted = encrypt(sanitizedPassword)
+    const dbKey = await loadCredDbKey()
+    const encrypted = encryptCredential(sanitizedPassword, dbKey || undefined)
     const credential = await db.projectCredential.create({
       data: {
         projectId,
@@ -159,7 +166,8 @@ export async function PATCH(req: NextRequest) {
     if (body.title) data.title = body.title.trim().slice(0, 200)
     if (body.username) data.username = body.username.trim().slice(0, 500)
     if (body.password) {
-      const encrypted = encrypt(body.password.trim().slice(0, 1000))
+      const dbKey = await loadCredDbKey()
+      const encrypted = encryptCredential(body.password.trim().slice(0, 1000), dbKey || undefined)
       data.password = encrypted.encrypted
       data.iv = encrypted.iv
       data.tag = encrypted.tag

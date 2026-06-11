@@ -1416,6 +1416,13 @@ model AuditLog {
   @@index([userId, createdAt])
 }
 
+// ━━ System Settings ━━
+model AppSetting {
+  key       String   @id
+  value     String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
 // TODO: Phase 7 — Missing HR Models to implement:
 // - Department model (id, name, headId, budget, createdAt, updatedAt) with @@map("Department")
 // - LeaveBalance model (id, userId, leaveType, totalDays, usedDays, remainingDays, year, @@unique([userId, leaveType, year]))

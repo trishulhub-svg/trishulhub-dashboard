@@ -64,6 +64,10 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
   },
   {
+    name: "AppSetting",
+    sql: `CREATE TABLE IF NOT EXISTS "AppSetting" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL DEFAULT '', "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+  },
+  {
     name: "ProtocolVersion",
     sql: `CREATE TABLE IF NOT EXISTS "ProtocolVersion" ("id" TEXT NOT NULL PRIMARY KEY, "version" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL DEFAULT 'Trishul Protocol', "content" TEXT NOT NULL DEFAULT '', "stageDescriptions" TEXT NOT NULL DEFAULT '[]', "agentSkills" TEXT NOT NULL DEFAULT '[]', "isActive" BOOLEAN NOT NULL DEFAULT 1, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
   },
