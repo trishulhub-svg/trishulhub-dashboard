@@ -48,74 +48,74 @@
    ══════════════════════════════════════════════════════════════ */
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.985 0.002 195);
-  --foreground: oklch(0.145 0.005 200);
+  --background: oklch(0.985 0.002 185);
+  --foreground: oklch(0.145 0.005 190);
   --card: oklch(1 0 0 / 78%);
-  --card-foreground: oklch(0.145 0.005 200);
+  --card-foreground: oklch(0.145 0.005 190);
   --popover: oklch(1 0 0 / 82%);
-  --popover-foreground: oklch(0.145 0.005 200);
-  --primary: oklch(0.55 0.12 165);
+  --popover-foreground: oklch(0.145 0.005 190);
+  --primary: oklch(0.55 0.12 148);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.955 0.015 190);
   --secondary-foreground: oklch(0.25 0.02 190);
   --muted: oklch(0.96 0.005 190);
-  --muted-foreground: oklch(0.48 0.01 200);
+  --muted-foreground: oklch(0.48 0.01 190);
   --accent: oklch(0.94 0.02 190);
   --accent-foreground: oklch(0.25 0.04 190);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.88 0.008 190);
   --input: oklch(0.88 0.008 190);
-  --ring: oklch(0.55 0.12 165);
-  --chart-1: oklch(0.55 0.15 165);
+  --ring: oklch(0.55 0.12 148);
+  --chart-1: oklch(0.55 0.15 148);
   --chart-2: oklch(0.6 0.15 145);
   --chart-3: oklch(0.5 0.15 260);
   --chart-4: oklch(0.65 0.14 180);
   --chart-5: oklch(0.6 0.18 330);
   --sidebar: oklch(0.97 0.004 190);
-  --sidebar-foreground: oklch(0.145 0.005 200);
-  --sidebar-primary: oklch(0.55 0.12 165);
+  --sidebar-foreground: oklch(0.145 0.005 190);
+  --sidebar-primary: oklch(0.55 0.12 148);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.93 0.018 190);
   --sidebar-accent-foreground: oklch(0.25 0.04 190);
   --sidebar-border: oklch(0.89 0.01 190);
-  --sidebar-ring: oklch(0.55 0.12 165);
+  --sidebar-ring: oklch(0.55 0.12 148);
 }
 
 /* ══════════════════════════════════════════════════════════════
    DARK MODE — Deeper green-blue, softer glow
    ══════════════════════════════════════════════════════════════ */
 .dark {
-  --background: oklch(0.13 0.006 200);
-  --foreground: oklch(0.985 0.002 195);
-  --card: oklch(0.18 0.006 195 / 75%);
-  --card-foreground: oklch(0.985 0.002 195);
-  --popover: oklch(0.18 0.006 195 / 80%);
-  --popover-foreground: oklch(0.985 0.002 195);
-  --primary: oklch(0.65 0.1 165);
-  --primary-foreground: oklch(0.13 0.005 200);
-  --secondary: oklch(0.25 0.015 195);
-  --secondary-foreground: oklch(0.985 0.002 195);
-  --muted: oklch(0.25 0.008 195);
-  --muted-foreground: oklch(0.65 0.01 195);
-  --accent: oklch(0.28 0.02 195);
-  --accent-foreground: oklch(0.985 0.002 195);
+  --background: oklch(0.13 0.006 190);
+  --foreground: oklch(0.985 0.002 185);
+  --card: oklch(0.18 0.006 185 / 75%);
+  --card-foreground: oklch(0.985 0.002 185);
+  --popover: oklch(0.18 0.006 185 / 80%);
+  --popover-foreground: oklch(0.985 0.002 185);
+  --primary: oklch(0.65 0.1 148);
+  --primary-foreground: oklch(0.13 0.005 190);
+  --secondary: oklch(0.25 0.015 185);
+  --secondary-foreground: oklch(0.985 0.002 185);
+  --muted: oklch(0.25 0.008 185);
+  --muted-foreground: oklch(0.65 0.01 185);
+  --accent: oklch(0.28 0.02 185);
+  --accent-foreground: oklch(0.985 0.002 185);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.65 0.1 165);
-  --chart-1: oklch(0.65 0.14 165);
+  --ring: oklch(0.65 0.1 148);
+  --chart-1: oklch(0.65 0.14 148);
   --chart-2: oklch(0.7 0.15 145);
   --chart-3: oklch(0.6 0.15 260);
   --chart-4: oklch(0.75 0.13 180);
   --chart-5: oklch(0.7 0.18 330);
-  --sidebar: oklch(0.15 0.008 195);
-  --sidebar-foreground: oklch(0.985 0.002 195);
-  --sidebar-primary: oklch(0.65 0.1 165);
-  --sidebar-primary-foreground: oklch(0.13 0.005 200);
-  --sidebar-accent: oklch(0.25 0.02 195);
-  --sidebar-accent-foreground: oklch(0.985 0.002 195);
+  --sidebar: oklch(0.15 0.008 185);
+  --sidebar-foreground: oklch(0.985 0.002 185);
+  --sidebar-primary: oklch(0.65 0.1 148);
+  --sidebar-primary-foreground: oklch(0.13 0.005 190);
+  --sidebar-accent: oklch(0.25 0.02 185);
+  --sidebar-accent-foreground: oklch(0.985 0.002 185);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.65 0.1 165);
+  --sidebar-ring: oklch(0.65 0.1 148);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -128,7 +128,7 @@
   --card-foreground: oklch(0.22 0.02 60);
   --popover: oklch(0.97 0.012 75 / 82%);
   --popover-foreground: oklch(0.22 0.02 60);
-  --primary: oklch(0.52 0.1 175);
+  --primary: oklch(0.52 0.1 158);
   --primary-foreground: oklch(0.97 0.01 75);
   --secondary: oklch(0.88 0.025 75);
   --secondary-foreground: oklch(0.30 0.03 60);
@@ -139,20 +139,20 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.82 0.018 75);
   --input: oklch(0.84 0.018 75);
-  --ring: oklch(0.52 0.1 175);
-  --chart-1: oklch(0.52 0.12 175);
+  --ring: oklch(0.52 0.1 158);
+  --chart-1: oklch(0.52 0.12 158);
   --chart-2: oklch(0.62 0.14 145);
   --chart-3: oklch(0.48 0.12 260);
   --chart-4: oklch(0.68 0.12 80);
   --chart-5: oklch(0.62 0.16 330);
   --sidebar: oklch(0.93 0.018 75);
   --sidebar-foreground: oklch(0.22 0.02 60);
-  --sidebar-primary: oklch(0.52 0.1 175);
+  --sidebar-primary: oklch(0.52 0.1 158);
   --sidebar-primary-foreground: oklch(0.97 0.01 75);
   --sidebar-accent: oklch(0.88 0.03 75);
   --sidebar-accent-foreground: oklch(0.30 0.04 60);
   --sidebar-border: oklch(0.82 0.018 75);
-  --sidebar-ring: oklch(0.52 0.1 175);
+  --sidebar-ring: oklch(0.52 0.1 158);
 }
 
 /* Blue light scrollbar override */
@@ -164,24 +164,24 @@
    BRAND GRADIENT — Green → Blue (TrishulHub logo colors)
    ══════════════════════════════════════════════════════════════ */
 :root {
-  --brand-gradient: linear-gradient(135deg, oklch(0.72 0.19 145), oklch(0.58 0.12 195));
-  --brand-gradient-hover: linear-gradient(135deg, oklch(0.67 0.2 145), oklch(0.53 0.13 195));
-  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.72 0.06 145 / 15%), oklch(0.58 0.04 195 / 15%));
-  --brand-blue: oklch(0.58 0.12 195);
+  --brand-gradient: linear-gradient(135deg, oklch(0.72 0.19 145), oklch(0.58 0.12 185));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.67 0.2 145), oklch(0.53 0.13 185));
+  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.72 0.06 145 / 15%), oklch(0.58 0.04 185 / 15%));
+  --brand-blue: oklch(0.58 0.12 185);
   --brand-green: oklch(0.72 0.19 145);
 }
 .dark {
-  --brand-gradient: linear-gradient(135deg, oklch(0.72 0.14 145), oklch(0.63 0.1 195));
-  --brand-gradient-hover: linear-gradient(135deg, oklch(0.67 0.15 145), oklch(0.58 0.11 195));
-  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.72 0.05 145 / 12%), oklch(0.63 0.04 195 / 12%));
-  --brand-blue: oklch(0.63 0.1 195);
+  --brand-gradient: linear-gradient(135deg, oklch(0.72 0.14 145), oklch(0.63 0.1 185));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.67 0.15 145), oklch(0.58 0.11 185));
+  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.72 0.05 145 / 12%), oklch(0.63 0.04 185 / 12%));
+  --brand-blue: oklch(0.63 0.1 185);
   --brand-green: oklch(0.72 0.14 145);
 }
 .bluelight {
-  --brand-gradient: linear-gradient(135deg, oklch(0.65 0.12 145), oklch(0.55 0.08 195));
-  --brand-gradient-hover: linear-gradient(135deg, oklch(0.6 0.13 145), oklch(0.5 0.09 195));
-  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.65 0.04 145 / 12%), oklch(0.55 0.03 195 / 12%));
-  --brand-blue: oklch(0.55 0.08 195);
+  --brand-gradient: linear-gradient(135deg, oklch(0.65 0.12 145), oklch(0.55 0.08 185));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.6 0.13 145), oklch(0.5 0.09 185));
+  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.65 0.04 145 / 12%), oklch(0.55 0.03 185 / 12%));
+  --brand-blue: oklch(0.55 0.08 185);
   --brand-green: oklch(0.65 0.12 145);
 }
 
@@ -209,7 +209,7 @@
     inset 0 -1px 0 oklch(0 0 0 / 3%);
 }
 .dark .liquid-glass {
-  background: oklch(0.2 0.005 195 / 55%);
+  background: oklch(0.2 0.005 185 / 55%);
   backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
   -webkit-backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
   border: 1px solid oklch(1 0 0 / 10%);
@@ -232,7 +232,7 @@
 
 /* ── Glass sidebar ── */
 .liquid-glass-sidebar {
-  background: oklch(0.98 0.003 195 / 82%);
+  background: oklch(0.98 0.003 185 / 82%);
   backdrop-filter: blur(32px) saturate(1.5) brightness(1.01);
   -webkit-backdrop-filter: blur(32px) saturate(1.5) brightness(1.01);
   border-right: 1px solid oklch(1 0 0 / 30%);
@@ -242,7 +242,7 @@
     inset -1px 0 0 oklch(1 0 0 / 20%);
 }
 .dark .liquid-glass-sidebar {
-  background: oklch(0.14 0.006 195 / 82%);
+  background: oklch(0.14 0.006 185 / 82%);
   backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
   -webkit-backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
   border-right: 1px solid oklch(1 0 0 / 8%);
@@ -268,7 +268,7 @@
     inset 0 1px 0 oklch(1 0 0 / 55%);
 }
 .dark .liquid-glass-card {
-  background: oklch(0.18 0.005 195 / 68%);
+  background: oklch(0.18 0.005 185 / 68%);
   border: 1px solid oklch(1 0 0 / 10%);
   box-shadow:
     0 0 0 0.5px oklch(1 0 0 / 5%),
@@ -395,7 +395,7 @@ select {
     inset 0 1px 0 oklch(1 0 0 / 50%);
 }
 .dark .glass-topbar {
-  background: oklch(0.14 0.005 195 / 75%);
+  background: oklch(0.14 0.005 185 / 75%);
   backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
   -webkit-backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
   border-bottom: 1px solid oklch(1 0 0 / 7%);
@@ -477,15 +477,15 @@ table tbody tr:hover {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0.01 195);
+  background: oklch(0.7 0.01 185);
   border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0.01 195);
+  background: oklch(0.5 0.01 185);
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: oklch(0.4 0.01 195);
+  background: oklch(0.4 0.01 185);
 }
 
 /* ScrollArea viewport safety */
@@ -571,7 +571,7 @@ table tbody tr:hover {
   top: -12%;
   left: 50%;
   transform: translateX(-50%);
-  background: oklch(0.58 0.12 165 / 0.10);
+  background: oklch(0.58 0.12 185 / 0.10);
   animation: login-orb-float 12s ease-in-out infinite;
 }
 
@@ -609,7 +609,7 @@ table tbody tr:hover {
   inset: 0;
   pointer-events: none;
   opacity: 0.25;
-  background-image: radial-gradient(oklch(0.5 0.01 195 / 0.12) 1px, transparent 1px);
+  background-image: radial-gradient(oklch(0.5 0.01 185 / 0.12) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -716,7 +716,7 @@ table tbody tr:hover {
 }
 
 .login-main-card:hover {
-  border-color: oklch(0.58 0.1 165 / 0.25);
+  border-color: oklch(0.58 0.1 148 / 0.25);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 4%),
     0 2px 8px oklch(0 0 0 / 3%),
@@ -740,7 +740,7 @@ table tbody tr:hover {
   background: oklch(1 0 0 / 70%);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid oklch(0.58 0.08 165 / 30%);
+  border: 1px solid oklch(0.58 0.08 148 / 30%);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 3%),
     0 4px 16px oklch(0 0 0 / 3%),
@@ -764,10 +764,10 @@ table tbody tr:hover {
 }
 
 .login-input:focus {
-  border-color: oklch(0.58 0.12 165 / 0.5) !important;
+  border-color: oklch(0.58 0.12 148 / 0.5) !important;
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 3%),
-    0 0 0 3px oklch(0.58 0.12 165 / 0.12),
+    0 0 0 3px oklch(0.58 0.12 148 / 0.12),
     inset 0 1px 0 oklch(1 0 0 / 50%) !important;
   background: oklch(1 0 0 / 80%) !important;
 }
@@ -790,7 +790,7 @@ table tbody tr:hover {
   border: 1px solid oklch(1 0 0 / 20%);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
-    0 2px 8px oklch(0.58 0.12 165 / 0.2),
+    0 2px 8px oklch(0.58 0.12 148 / 0.2),
     inset 0 1px 0 oklch(1 0 0 / 25%);
   transition: all 0.25s ease;
 }
@@ -799,7 +799,7 @@ table tbody tr:hover {
   background: var(--brand-gradient-hover) !important;
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
-    0 4px 16px oklch(0.58 0.12 165 / 0.3),
+    0 4px 16px oklch(0.58 0.12 148 / 0.3),
     0 8px 32px oklch(0.72 0.19 145 / 0.15),
     inset 0 1px 0 oklch(1 0 0 / 30%);
   transform: translateY(-1px);
@@ -809,7 +809,7 @@ table tbody tr:hover {
   transform: translateY(0);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
-    0 1px 4px oklch(0.58 0.12 165 / 0.2),
+    0 1px 4px oklch(0.58 0.12 148 / 0.2),
     inset 0 1px 0 oklch(1 0 0 / 20%);
 }
 
@@ -879,7 +879,7 @@ table tbody tr:hover {
 
 /* ── Dark mode login adjustments ── */
 .dark .login-bg-orb-1 {
-  background: oklch(0.63 0.1 165 / 0.07);
+  background: oklch(0.63 0.1 185 / 0.07);
 }
 
 .dark .login-bg-orb-2 {
@@ -892,11 +892,11 @@ table tbody tr:hover {
 
 .dark .login-grid-pattern {
   opacity: 0.12;
-  background-image: radial-gradient(oklch(0.8 0.01 195 / 0.08) 1px, transparent 1px);
+  background-image: radial-gradient(oklch(0.8 0.01 185 / 0.08) 1px, transparent 1px);
 }
 
 .dark .login-main-card {
-  background: oklch(0.18 0.005 195 / 68%);
+  background: oklch(0.18 0.005 185 / 68%);
   backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
   -webkit-backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
   border-color: oklch(1 0 0 / 10%);
@@ -908,7 +908,7 @@ table tbody tr:hover {
 }
 
 .dark .login-main-card:hover {
-  border-color: oklch(0.63 0.1 165 / 0.2);
+  border-color: oklch(0.63 0.1 148 / 0.2);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 6%),
     0 2px 8px oklch(0 0 0 / 12%),
@@ -917,7 +917,7 @@ table tbody tr:hover {
 }
 
 .dark .login-input {
-  background: oklch(0.15 0.005 195 / 70%) !important;
+  background: oklch(0.15 0.005 185 / 70%) !important;
   border-color: oklch(1 0 0 / 10%) !important;
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
@@ -925,31 +925,31 @@ table tbody tr:hover {
 }
 
 .dark .login-input:focus {
-  border-color: oklch(0.63 0.1 165 / 0.4) !important;
+  border-color: oklch(0.63 0.1 148 / 0.4) !important;
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
-    0 0 0 3px oklch(0.63 0.1 165 / 0.12),
+    0 0 0 3px oklch(0.63 0.1 148 / 0.12),
     inset 0 1px 0 oklch(1 0 0 / 6%) !important;
-  background: oklch(0.15 0.005 195 / 85%) !important;
+  background: oklch(0.15 0.005 185 / 85%) !important;
 }
 
 .dark .login-submit-btn {
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 8%),
-    0 2px 8px oklch(0.63 0.1 165 / 0.15),
+    0 2px 8px oklch(0.63 0.1 148 / 0.15),
     inset 0 1px 0 oklch(1 0 0 / 10%);
 }
 
 .dark .login-submit-btn:hover:not(:disabled) {
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 8%),
-    0 4px 16px oklch(0.63 0.1 165 / 0.25),
+    0 4px 16px oklch(0.63 0.1 148 / 0.25),
     0 8px 32px oklch(0.72 0.14 145 / 0.12),
     inset 0 1px 0 oklch(1 0 0 / 12%);
 }
 
 .dark .login-setup-card {
-  background: oklch(0.18 0.005 195 / 65%);
+  background: oklch(0.18 0.005 185 / 65%);
   border-color: oklch(0.75 0.06 60 / 25%);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
@@ -958,8 +958,8 @@ table tbody tr:hover {
 }
 
 .dark .login-session-card {
-  background: oklch(0.18 0.005 195 / 65%);
-  border-color: oklch(0.58 0.08 165 / 20%);
+  background: oklch(0.18 0.005 185 / 65%);
+  border-color: oklch(0.58 0.08 148 / 20%);
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 5%),
     0 4px 16px oklch(0 0 0 / 10%),
@@ -968,7 +968,7 @@ table tbody tr:hover {
 
 /* ── Blue light mode login adjustments ── */
 .bluelight .login-bg-orb-1 {
-  background: oklch(0.55 0.08 175 / 0.06);
+  background: oklch(0.55 0.08 185 / 0.06);
 }
 
 .bluelight .login-bg-orb-2 {
@@ -991,14 +991,14 @@ table tbody tr:hover {
 .bluelight .login-submit-btn {
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 4%),
-    0 2px 8px oklch(0.55 0.08 175 / 0.15),
+    0 2px 8px oklch(0.55 0.08 158 / 0.15),
     inset 0 1px 0 oklch(1 0 0 / 20%);
 }
 
 .bluelight .login-submit-btn:hover:not(:disabled) {
   box-shadow:
     0 0 0 0.5px oklch(0 0 0 / 4%),
-    0 4px 16px oklch(0.55 0.08 175 / 0.25),
+    0 4px 16px oklch(0.55 0.08 158 / 0.25),
     inset 0 1px 0 oklch(1 0 0 / 25%);
 }
 

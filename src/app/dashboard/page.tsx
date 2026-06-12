@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import {
   Rocket, DollarSign, FolderKanban, TrendingUp, AlertCircle,
   Clock, ArrowRight, Plus, Send, Shield,
-  ClipboardList,
+  ClipboardList, IndianRupee, Wallet, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [earnings, setEarnings] = useState<{ totalINR: number; totalGBP: number; entries: Array<{ id: string; description: string; amount: number; date: string; paymentRef: string | null }> } | null>(null);
+  const [showEarningsDetail, setShowEarningsDetail] = useState(false);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -53,6 +55,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboard();
+    // Fetch earnings/salary data
+    fetch("/api/earnings", { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setEarnings(d); })
+      .catch(() => {});
   }, [fetchDashboard]);
 
   // SECURITY FIX: Removed auto-seed that could unintentionally seed the database.
@@ -294,6 +301,61 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Earnings / Salary Card ── */}
+      {earnings && (
+        <Card className="liquid-glass-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-emerald-500" /> My Earnings
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowEarningsDetail(!showEarningsDetail)}
+                className="h-7 text-xs gap-1"
+              >
+                {showEarningsDetail ? "Hide" : "Details"}
+                <ChevronDown className={cn("h-3 w-3 transition-transform", showEarningsDetail && "rotate-180")} />
+              </Button>
+            </div>
+            <CardDescription>Total salary disbursed to date</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4 mb-1">
+              <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                <IndianRupee className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">₹{earnings.totalINR.toLocaleString("en-IN")}</p>
+                <p className="text-xs text-muted-foreground">≈ £{earnings.totalGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })} GBP</p>
+              </div>
+            </div>
+            {earnings.entries.length > 0 && (
+              <p className="text-[11px] text-muted-foreground mt-2">
+                {earnings.entries.length} salary {earnings.entries.length === 1 ? "entry" : "entries"} recorded
+              </p>
+            )}
+            {showEarningsDetail && earnings.entries.length > 0 && (
+              <div className="mt-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                {earnings.entries.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-background/50 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{safeText(entry.description, "Salary")}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {safeDate(entry.date)}
+                        {entry.paymentRef ? ` · Ref: ${safeText(entry.paymentRef, "")}` : ""}
+                      </p>
+                    </div>
+                    <p className="font-semibold shrink-0 ml-3">₹{safeNumber(entry.amount).toLocaleString("en-IN")}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* Active Projects */}

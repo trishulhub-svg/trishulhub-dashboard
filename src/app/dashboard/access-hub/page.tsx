@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   FileText, Upload, Download, Trash2, Loader2,
@@ -132,8 +132,18 @@ const LABEL_COLORS: Record<string, string> = {
    ═══════════════════════════════════════════════════════════════ */
 
 export default function AccessHubPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+      <AccessHubContent />
+    </Suspense>
+  );
+}
+
+function AccessHubContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab") || "credentials";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,6 +232,14 @@ export default function AccessHubPage() {
   const [formNotes, setFormNotes] = useState("");
   const [formTargetUserId, setFormTargetUserId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Lark User Mapping state ──
+  const [larkUsers, setLarkUsers] = useState<Array<{ open_id: string; name: string; email?: string }>>([]);
+  const [larkUsersLoading, setLarkUsersLoading] = useState(false);
+  const [larkUsersError, setLarkUsersError] = useState("");
+  const [larkMappings, setLarkMappings] = useState<Record<string, string>>({});
+  const [larkMappingsLoading, setLarkMappingsLoading] = useState(false);
+  const [larkMappingsSaving, setLarkMappingsSaving] = useState(false);
 
   /* ═══════════════════════════════════════════════════════════════
      DATA FETCHING
@@ -1045,17 +1063,21 @@ export default function AccessHubPage() {
       />
 
       {isAdmin ? (
-        <Tabs defaultValue="credentials" className="space-y-6">
+        <Tabs value={urlTab} className="space-y-6">
           <TabsList className="bg-muted/50 w-full sm:w-auto">
-            <TabsTrigger value="credentials" className="gap-1.5">
+            <TabsTrigger value="credentials" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
               <KeyRound className="h-3.5 w-3.5" />
               Credentials
             </TabsTrigger>
-            <TabsTrigger value="protocol" className="gap-1.5">
+            <TabsTrigger value="protocol" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
               <FileText className="h-3.5 w-3.5" />
               Protocol &amp; Resources
             </TabsTrigger>
-            <TabsTrigger value="system" className="gap-1.5">
+            <TabsTrigger value="lark-users" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
+              <Bird className="h-3.5 w-3.5" />
+              User Mapping
+            </TabsTrigger>
+            <TabsTrigger value="system" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
               <Settings className="h-3.5 w-3.5" />
               System Config
             </TabsTrigger>
@@ -1402,7 +1424,126 @@ export default function AccessHubPage() {
             </Card>
           </TabsContent>
 
-          {/* ═══════════ TAB 3: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
+          {/* ═══════════ TAB 3: USER MAPPING (Lark) ═══════════ */}
+          <TabsContent value="lark-users" className="space-y-5 mt-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Bird className="h-4 w-4" /> Lark User Mapping
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      Match TrishulHub users with their Lark accounts for task sync
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        setLarkUsersLoading(true);
+                        setLarkUsersError("");
+                        try {
+                          const res = await fetch("/api/lark/users", { credentials: "include" });
+                          const data = await res.json();
+                          if (data.users) setLarkUsers(data.users);
+                          if (data.error) setLarkUsersError(data.error);
+                          if (data.mappings) setLarkMappings(data.mappings);
+                        } catch { setLarkUsersError("Failed to fetch Lark users"); }
+                        finally { setLarkUsersLoading(false); }
+                      }}
+                      disabled={larkUsersLoading}
+                      className="h-8 text-xs"
+                    >
+                      {larkUsersLoading ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+                      Refresh Lark Users
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        setLarkMappingsSaving(true);
+                        try {
+                          const res = await fetch("/api/lark/users", {
+                            method: "POST",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ mappings: larkMappings }),
+                          });
+                          const data = await res.json();
+                          if (data.success) toast.success("User mappings saved successfully");
+                          else toast.error(data.error || "Failed to save mappings");
+                        } catch { toast.error("Failed to save mappings"); }
+                        finally { setLarkMappingsSaving(false); }
+                      }}
+                      disabled={larkMappingsSaving}
+                      className="h-8 text-xs"
+                    >
+                      {larkMappingsSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+                      Save Mappings
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {larkUsersError && (
+                  <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/10 dark:border-yellow-800/30">
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300">{larkUsersError}</p>
+                  </div>
+                )}
+                {larkUsers.length === 0 && !larkUsersLoading && !larkUsersError && (
+                  <div className="text-center py-8">
+                    <Bird className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="text-sm text-muted-foreground">No Lark users loaded yet.</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Click "Refresh Lark Users" to fetch from Lark API.</p>
+                  </div>
+                )}
+                {larkUsers.length > 0 && allUsers.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+                      Lark Users ({larkUsers.length}) — map each to a TrishulHub user
+                    </p>
+                    <div className="grid gap-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+                      {larkUsers.map((lu) => (
+                        <div key={lu.open_id} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-primary">{lu.name?.[0] || "?"}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{lu.name}</p>
+                            {lu.email && <p className="text-[11px] text-muted-foreground truncate">{lu.email}</p>}
+                          </div>
+                          <Select
+                            value={larkMappings[lu.open_id] || ""}
+                            onValueChange={(val) => setLarkMappings(m => ({ ...m, [lu.open_id]: val }))}
+                          >
+                            <SelectTrigger className="w-[160px] h-8 text-xs">
+                              <SelectValue placeholder="Not mapped" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">Not mapped</SelectItem>
+                              {allUsers.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {larkUsersLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span className="ml-2 text-sm text-muted-foreground">Fetching Lark users...</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
           <TabsContent value="system" className="space-y-5 mt-2">
             {!isSuperAdmin ? (
               <Card>
@@ -1744,7 +1885,7 @@ export default function AccessHubPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium">Map Users & Enable Sync</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Go to <button onClick={() => router.push("/dashboard/lark/users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> to match TrishulHub users with their Lark accounts.
+                                Go to <button onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")} className="text-primary hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
                                 Then toggle the switch above to <b>Enable</b> 2-way sync.
                               </p>
                             </div>
@@ -1833,7 +1974,7 @@ export default function AccessHubPage() {
                       </a>
                       <span className="text-border">|</span>
                       <button
-                        onClick={() => router.push("/dashboard/lark/users")}
+                        onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}
                         className="flex items-center gap-1 hover:text-primary transition-colors"
                       >
                         <UserCheck className="h-3 w-3" /> User Mapping
