@@ -38,14 +38,15 @@ export async function GET(req: NextRequest) {
 
     // Try to get Lark users for auto-matching
     let larkUsers: Array<{ open_id: string; name: string; email?: string }> = []
+    let larkError: string | null = null
     try {
       const token = await getLarkToken()
       if (token) {
         const fetched = await getAllUsers()
         larkUsers = fetched.map((u) => ({ open_id: u.open_id, name: u.name, email: u.email }))
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      larkError = err instanceof Error ? err.message : "Failed to fetch Lark users"
     }
 
     // Build response with mapping status
@@ -68,7 +69,11 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ users: result, totalLarkUsers: larkUsers.length })
+    return NextResponse.json({
+      users: result,
+      totalLarkUsers: larkUsers.length,
+      larkError: larkUsers.length === 0 ? (larkError || "No Lark users found — check if contact:contact.base:readonly scope is enabled") : null,
+    })
   } catch (err) {
     console.error("[lark/users] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

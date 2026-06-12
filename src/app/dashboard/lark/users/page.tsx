@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 interface LarkUser {
   id: string;
@@ -46,6 +47,10 @@ export default function LarkUserMappingPage() {
         const data = await res.json();
         setUsers(data.users || []);
         setTotalLarkUsers(data.totalLarkUsers || 0);
+        if (data.larkError) {
+          setSyncResult(data.larkError);
+          setTimeout(() => setSyncResult(null), 10000);
+        }
       }
     } catch {
       // silent
@@ -176,7 +181,12 @@ export default function LarkUserMappingPage() {
       </div>
 
       {syncResult && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 text-sm text-blue-700 dark:text-blue-300">
+        <div className={cn(
+          "flex items-center gap-2 p-3 rounded-lg text-sm",
+          syncResult.includes("scope") || syncResult.includes("contact:")
+            ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+            : "bg-blue-500/10 text-blue-700 dark:text-blue-300"
+        )}>
           <AlertCircle className="h-4 w-4 shrink-0" />
           {syncResult}
         </div>

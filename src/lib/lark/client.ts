@@ -283,13 +283,15 @@ export async function getAllUsers(): Promise<LarkUser[]> {
   let pageToken = ""
 
   do {
-    const url = pageToken
-      ? `/contact/v3/users?page_size=50&page_token=${pageToken}`
-      : `/contact/v3/users?page_size=50`
+    const params = new URLSearchParams({ page_size: "50", user_id_type: "open_id" })
+    if (pageToken) params.set("page_token", pageToken)
 
-    const res = await larkFetch(url)
+    const res = await larkFetch(`/contact/v3/users?${params.toString()}`)
 
-    if (res.code !== 0) break
+    if (res.code !== 0) {
+      console.error("[lark/client] getAllUsers failed:", res.code, res.msg)
+      break
+    }
 
     const items = (res.data?.items as LarkUser[]) || []
     users.push(...items)
