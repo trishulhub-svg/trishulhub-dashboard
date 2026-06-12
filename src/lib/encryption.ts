@@ -144,3 +144,67 @@ export function decryptSmtpPassword(encrypted: string): string {
   // This shouldn't normally happen for SMTP, but handle gracefully
   throw new Error("Unsupported encryption format for SMTP password");
 }
+
+// ━━ Project Credential Encryption (separate key from SMTP/Git) ━━
+
+/**
+ * Get the credential encryption key.
+ * Priority: explicit dbKey param > CREDENTIAL_ENCRYPTION_KEY env > ENCRYPTION_KEY env
+ * @throws Error if no valid key is found
+ */
+export function getCredentialKey(dbKey?: string): Buffer {
+  // 1. DB-stored key (from AppSetting table, managed via Access Hub)
+  if (dbKey && dbKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(dbKey)) {
+    return Buffer.from(dbKey, "hex");
+  }
+  // 2. Dedicated env var (optional, set in Vercel)
+  const credEnvKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
+  if (credEnvKey && credEnvKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(credEnvKey)) {
+    return Buffer.from(credEnvKey, "hex");
+  }
+  // 3. Fallback to general ENCRYPTION_KEY
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(envKey)) {
+    return Buffer.from(envKey, "hex");
+  }
+  throw new Error(
+    "No credential encryption key configured. " +
+    "Go to Access Hub → System Config → set the Credential Encryption Key."
+  );
+}
+
+/**
+ * Encrypt a project credential password.
+ * Uses a separate key from SMTP/Git encryption.
+ */
+export function encryptCredential(plaintext: string, dbKey?: string): { encrypted: string; iv: string; tag: string } {
+  const key = getCredentialKey(dbKey);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  let encrypted = cipher.update(plaintext, "utf8", "base64");
+  encrypted += cipher.final("base64");
+  const tag = cipher.getAuthTag();
+  const result = { encrypted, iv: iv.toString("base64"), tag: tag.toString("base64") };
+  key.fill(0);
+  iv.fill(0);
+  tag.fill(0);
+  return result;
+}
+
+/**
+ * Decrypt a project credential password.
+ * Uses a separate key from SMTP/Git encryption.
+ */
+export function decryptCredential(encrypted: string, iv: string, tag: string, dbKey?: string): string {
+  const key = getCredentialKey(dbKey);
+  const ivBuffer = Buffer.from(iv, "base64");
+  const tagBuffer = Buffer.from(tag, "base64");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, ivBuffer);
+  decipher.setAuthTag(tagBuffer);
+  let decrypted = decipher.update(encrypted, "base64", "utf8");
+  decrypted += decipher.final("utf8");
+  key.fill(0);
+  ivBuffer.fill(0);
+  tagBuffer.fill(0);
+  return decrypted;
+}

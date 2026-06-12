@@ -9,7 +9,9 @@ import {
   Shield, Ban, Save, Eye, EyeOff,
   Copy, Check, KeyRound, UserCog, Info,
   Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
-  Plus, Edit3, Globe, Search,
+  Plus, Edit3, Globe, Search, Key,
+  Bird, Link2, Unlink, ArrowRightLeft, Zap, UserCheck, XCircle, CircleDot,
+  ChevronDown, ChevronRight, Lightbulb, CheckCircle2 as CheckCircleIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -157,6 +159,25 @@ export default function AccessHubPage() {
   const [encKeySaving, setEncKeySaving] = useState(false);
   const [hasEncryptionKey, setHasEncryptionKey] = useState(false);
 
+  // ── Credential encryption key state ──
+  const [credEncKeyForm, setCredEncKeyForm] = useState("");
+  const [showCredEncKey, setShowCredEncKey] = useState(false);
+  const [credEncKeySaving, setCredEncKeySaving] = useState(false);
+  const [hasCredEncKey, setHasCredEncKey] = useState(false);
+  const [credEncKeyMasked, setCredEncKeyMasked] = useState("");
+
+  // ── Lark Integration state ──
+  const [larkConfig, setLarkConfig] = useState<{
+    configured: boolean; enabled: boolean; connected: boolean; error?: string;
+    appId: string; encryptKey: string; taskLists: Array<{ id: string; name: string }>;
+  } | null>(null);
+  const [larkForm, setLarkForm] = useState({ appId: "", appSecret: "", encryptKey: "" });
+  const [larkSaving, setLarkSaving] = useState(false);
+  const [larkToggling, setLarkToggling] = useState(false);
+  const [showLarkSecret, setShowLarkSecret] = useState(false);
+  const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
+  const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
+
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
   const [wsTokenForm, setWsTokenForm] = useState("");
@@ -231,6 +252,8 @@ export default function AccessHubPage() {
           setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
         }
         if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
+        fetchCredEncKeyStatus();
+        fetchLarkConfig();
       })
       .catch(() => { /* silent */ })
       .finally(() => { if (!cancelled) setProtocolLoading(false); });
@@ -471,6 +494,106 @@ export default function AccessHubPage() {
   };
 
   /* ═══════════════════════════════════════════════════════════════
+     CREDENTIAL ENCRYPTION KEY HANDLERS
+     ═══════════════════════════════════════════════════════════════ */
+
+  const handleSaveCredEncKey = async () => {
+    if (!credEncKeyForm.trim()) return;
+    if (!/^[0-9a-fA-F]{64}$/.test(credEncKeyForm.trim())) {
+      toast.error("Key must be exactly 64 hex characters");
+      return;
+    }
+    setCredEncKeySaving(true);
+    try {
+      const res = await fetch("/api/settings/credential-key", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ key: credEncKeyForm.trim() }),
+      });
+      if (res.ok) {
+        toast.success("Credential encryption key saved");
+        setCredEncKeyForm("");
+        fetchCredEncKeyStatus();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to save key");
+      }
+    } catch {
+      toast.error("Failed to save key");
+    }
+    setCredEncKeySaving(false);
+  };
+
+  const fetchCredEncKeyStatus = async () => {
+    try {
+      const res = await fetch("/api/settings/credential-key", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setHasCredEncKey(data.hasKey);
+        setCredEncKeyMasked(data.maskedKey || "");
+      }
+    } catch { /* silent */ }
+  };
+
+  // ── Lark Integration handlers ──
+  const fetchLarkConfig = async () => {
+    try {
+      const res = await fetch("/api/lark/settings", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setLarkConfig(data);
+      }
+    } catch { /* silent */ }
+  };
+
+  const handleSaveLarkConfig = async () => {
+    setLarkSaving(true);
+    try {
+      const res = await fetch("/api/lark/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ...larkForm, testConnection: true }),
+      });
+      if (res.ok) {
+        toast.success("Lark connected successfully");
+        await fetchLarkConfig();
+        setLarkForm(f => ({ ...f, appSecret: "" }));
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to connect");
+      }
+    } catch {
+      toast.error("Connection failed");
+    } finally {
+      setLarkSaving(false);
+    }
+  };
+
+  const handleLarkToggle = async (enabled: boolean) => {
+    setLarkToggling(true);
+    try {
+      const res = await fetch("/api/lark/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) {
+        toast.success(enabled ? "Lark sync enabled" : "Lark sync disabled");
+        await fetchLarkConfig();
+      } else {
+        toast.error("Failed to toggle");
+      }
+    } catch {
+      toast.error("Failed to toggle");
+    } finally {
+      setLarkToggling(false);
+    }
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
      WORKSPACE TOKEN HANDLERS
      ═══════════════════════════════════════════════════════════════ */
 
@@ -640,6 +763,7 @@ export default function AccessHubPage() {
         setGitForm({ repoUrl: data.repoUrl || "", token: "" });
       }
     } catch { /* silent */ }
+    fetchCredEncKeyStatus();
   }, [isSuperAdmin]);
 
   const refetchWsConfig = useCallback(async () => {
@@ -1418,6 +1542,286 @@ export default function AccessHubPage() {
                       {encKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
                       Save Key
                     </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Credential Encryption Key — for project credentials (separate from SMTP/Git) */}
+                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Key className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm">Credential Encryption Key</CardTitle>
+                      </div>
+                      <Badge variant={hasCredEncKey ? "default" : "secondary"} className={hasCredEncKey ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}>
+                        {hasCredEncKey ? "Configured" : "Not set"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground">Separate key for encrypting project credentials (logins, passwords). Independent from the main encryption key used for SMTP and Git sync.</p>
+                    {credEncKeyMasked && (
+                      <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-xs font-mono text-muted-foreground">
+                        <span>{credEncKeyMasked}</span>
+                        <span className="text-[10px]">(stored in database)</span>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type={showCredEncKey ? "text" : "password"}
+                          placeholder="Paste 64-char hex key or generate below"
+                          value={credEncKeyForm}
+                          onChange={(e) => setCredEncKeyForm(e.target.value)}
+                          className="h-8 text-xs font-mono pr-16"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowCredEncKey(!showCredEncKey)}
+                        >
+                          {showCredEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            const bytes = new Uint8Array(32);
+                            crypto.getRandomValues(bytes);
+                            setCredEncKeyForm(Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""));
+                            setShowCredEncKey(true);
+                          }}
+                          title="Generate random key"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
+                        {credEncKeySaving ? "Saving..." : "Save Key"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* ━━ Lark Integration ━━ */}
+                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                          <Bird className="h-4 w-4 text-blue-500" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-sm">Lark (Feishu) Integration</CardTitle>
+                          <CardDescription className="text-[11px]">2-way task sync with Lark</CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {larkConfig?.connected && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>}
+                        <Switch
+                          checked={larkConfig?.enabled ?? false}
+                          onCheckedChange={handleLarkToggle}
+                          disabled={larkToggling || !larkConfig?.configured}
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {larkConfig?.connected ? null : larkConfig?.configured ? (
+                      <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        <span>Connection failed — check App ID and Secret</span>
+                      </div>
+                    ) : null}
+
+                    {/* ── Setup Guide (collapsible) ── */}
+                    <div className="rounded-lg border border-blue-200/60 dark:border-blue-500/20 bg-blue-50/50 dark:bg-blue-500/5 overflow-hidden">
+                      <button
+                        onClick={() => setLarkSetupExpanded(!larkSetupExpanded)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-blue-100/50 dark:hover:bg-blue-500/10 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Lightbulb className="h-3.5 w-3.5 text-blue-500" />
+                          <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Setup Guide — 4 Steps to Connect</span>
+                        </div>
+                        {larkSetupExpanded ? <ChevronDown className="h-3.5 w-3.5 text-blue-500" /> : <ChevronRight className="h-3.5 w-3.5 text-blue-500" />}
+                      </button>
+
+                      {larkSetupExpanded && (
+                        <div className="px-3 pb-3 space-y-2.5">
+                          {/* Step 1 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-emerald-500 text-white" : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                            )}>
+                              {larkConfig?.connected ? <Check className="h-3 w-3" /> : "1"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Save App ID & Secret</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Paste your Lark App ID and App Secret below, then click <b>Save & Test</b>. This verifies the connection to Lark.
+                              </p>
+                              {!larkConfig?.connected && (
+                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                                  Find these in: Lark Developer Console → your app → Credentials
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Step 2 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              2
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Configure Webhook in Lark</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                In Lark Developer Console → <b>Events & Callbacks</b>, select <b>"Send notifications to developer's server"</b> (second option).
+                              </p>
+                              <div className="mt-1.5 px-2 py-1.5 rounded bg-background/80 border border-border/50 text-[11px] font-mono break-all">
+                                Request URL: <span className="text-blue-600 dark:text-blue-400 font-semibold">https://trishulhub.com/api/lark/webhook</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                Leave <b>Encryption Strategy</b> as "No encryption" (default). Do NOT enable encrypt key unless needed.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Step 3 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              3
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Add the 4 Event Subscriptions</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                After the URL is verified, add these 4 events in the same page under "Event Subscription":
+                              </p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {["task.task.created", "task.task.updated", "task.task.deleted", "task.task.completed"].map((evt) => (
+                                  <Badge key={evt} variant="secondary" className="text-[10px] font-mono">{evt}</Badge>
+                                ))}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                Path: Event Subscription → Add Event → search "task" → select each of the 4 above
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Step 4 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              4
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Map Users & Enable Sync</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Go to <button onClick={() => router.push("/dashboard/lark/users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> to match TrishulHub users with their Lark accounts.
+                                Then toggle the switch above to <b>Enable</b> 2-way sync.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Credentials Form ── */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">App ID</Label>
+                        <Input
+                          placeholder="cli_xxxxxxxxxxxxx"
+                          value={larkForm.appId}
+                          onChange={(e) => setLarkForm(f => ({ ...f, appId: e.target.value }))}
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">App Secret</Label>
+                        <Input
+                          type={showLarkSecret ? "text" : "password"}
+                          placeholder="••••••••••••••••"
+                          value={larkForm.appSecret}
+                          onChange={(e) => setLarkForm(f => ({ ...f, appSecret: e.target.value }))}
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Webhook Encrypt Key
+                        <span className="ml-1 text-[10px] text-muted-foreground/60">(leave empty unless using encryption in Lark)</span>
+                      </Label>
+                      <Input
+                        type={showLarkEncrypt ? "text" : "password"}
+                        placeholder="Leave empty — use 'No encryption' in Lark"
+                        value={larkForm.encryptKey}
+                        onChange={(e) => setLarkForm(f => ({ ...f, encryptKey: e.target.value }))}
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={handleSaveLarkConfig}
+                        disabled={larkSaving || !larkForm.appId.trim() || !larkForm.appSecret.trim()}
+                        className="h-8 text-xs"
+                      >
+                        {larkSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+                        Save & Test
+                      </Button>
+                      {larkConfig?.configured && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowLarkSecret(!showLarkSecret)}
+                          className="h-8 text-xs"
+                        >
+                          {showLarkSecret ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                          Secret
+                        </Button>
+                      )}
+                    </div>
+
+                    {larkConfig?.taskLists && larkConfig.taskLists.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <p className="text-[11px] text-muted-foreground font-medium">Lark Task Lists ({larkConfig.taskLists.length})</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {larkConfig.taskLists.map((tl: { id: string; name: string }) => (
+                            <Badge key={tl.id} variant="secondary" className="text-[10px] font-normal">
+                              {tl.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick links */}
+                    <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+                      <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+                        <Globe className="h-3 w-3" /> Lark Developer Console
+                      </a>
+                      <span className="text-border">|</span>
+                      <button
+                        onClick={() => router.push("/dashboard/lark/users")}
+                        className="flex items-center gap-1 hover:text-primary transition-colors"
+                      >
+                        <UserCheck className="h-3 w-3" /> User Mapping
+                      </button>
+                    </div>
                   </CardContent>
                 </Card>
               </>

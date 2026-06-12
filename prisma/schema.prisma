@@ -61,7 +61,6 @@ model User {
   userCredentials     UserCredential[]
   linkedClients        Client[]            @relation("ClientLinkedUser")
   notificationPreferences NotificationPreference?
-  filePermissions    FilePermission[]     @relation("FilePermissionUser")
   agentAccess        UserAgentAccess[]
   scheduledTasks    ScheduledTask[]
   agentConversations AgentConversation[]
@@ -1360,50 +1359,6 @@ model Contract {
   @@map("Contract")
 }
 
-// ━━ File Management (Google Drive Backend) ━━
-model FileMetadata {
-  id              String   @id @default(cuid())
-  driveFileId     String   @unique           // Google Drive file ID
-  name            String                     // File/folder name
-  mimeType        String                     // Google Drive MIME type
-  size            Int      @default(0)       // File size in bytes
-  parentId        String?                     // Parent folder driveFileId (null = root)
-  parentMetadata  FileMetadata? @relation("FolderChildren", fields: [parentId], references: [driveFileId], onDelete: Restrict, onUpdate: Restrict)
-  children        FileMetadata[]  @relation("FolderChildren")
-  trashed         Boolean  @default(false)    // Matches Drive trash state
-  starred         Boolean  @default(false)  // User-starred (bookmarked)
-  description     String?                    // File description
-  thumbnailLink   String?                    // Drive thumbnail URL
-  webViewLink     String?                    // Drive web view URL
-  createdBy       String                     // userId who uploaded/created the record
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  permissions     FilePermission[]
-
-  @@index([parentId])
-  @@index([createdBy])
-  @@index([trashed])
-  @@index([mimeType])
-}
-
-model FilePermission {
-  id              String   @id @default(cuid())
-  fileId          String                     // FileMetadata.id (cuid)
-  driveFileId     String                     // Google Drive file ID
-  userId          String                     // User who has access
-  accessLevel     String   @default("VIEW")  // VIEW, EDIT, ADMIN
-  grantedBy       String?                    // userId who granted access
-  createdAt       DateTime @default(now())
-
-  file            FileMetadata @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  user            User             @relation("FilePermissionUser", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([fileId, userId])
-  @@index([userId])
-  @@index([driveFileId])
-}
-
 // ━━ Protocol OTP (serverless-safe OTP storage) ━━
 model ProtocolOtp {
   id        String   @id @default(cuid())
@@ -1459,6 +1414,13 @@ model AuditLog {
   @@index([department, page])
   @@index([department, action])
   @@index([userId, createdAt])
+}
+
+// ━━ System Settings ━━
+model AppSetting {
+  key       String   @id
+  value     String   @default("")
+  updatedAt DateTime @updatedAt
 }
 
 // TODO: Phase 7 — Missing HR Models to implement:

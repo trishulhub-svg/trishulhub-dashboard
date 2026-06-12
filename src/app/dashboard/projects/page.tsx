@@ -12,7 +12,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
-  Paperclip, Key, Eye, EyeOff, Copy, Download, Upload, X, Activity, CheckCircle2,
+  Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
   LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
   Settings, Check, ChevronDown, ChevronUp,
 } from "lucide-react";
@@ -99,11 +99,6 @@ interface CredentialForm {
   password: string;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function getProgressColor(progress: number) {
   if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
@@ -869,16 +864,13 @@ export default function ProjectsPage() {
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
-  // Feature 3: Attachments & Credentials state
-  const [attachments, setAttachments] = useState<{ id: string; fileName: string; fileSize: number; createdAt: string }[]>([]);
+  // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
   const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [editingCredId, setEditingCredId] = useState<string | null>(null);
   const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
-  const [uploadingFile, setUploadingFile] = useState(false);
   const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
-  const [deleteAttachmentId, setDeleteAttachmentId] = useState<string | null>(null);
   const [passwordChanged, setPasswordChanged] = useState(false);
 
   // Feature 4: Project Methods management state
@@ -1048,19 +1040,6 @@ export default function ProjectsPage() {
       return true;
     }
     return false;
-  }, []);
-
-  // ━━ Fetch attachments for a project ━━
-  const fetchAttachments = useCallback(async (projectId: string) => {
-    try {
-      const res = await fetch(`/api/projects/attachments?projectId=${projectId}`, { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setAttachments(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      // silently fail
-    }
   }, []);
 
   // ━━ Fetch credentials for a project ━━
@@ -1239,7 +1218,6 @@ export default function ProjectsPage() {
     e.stopPropagation();
     setEditProject(project);
     setEditOpen(true);
-    fetchAttachments(safeText(project.id, ""));
     fetchCredentials(safeText(project.id, ""));
     fetchProjectAssignedMethods(safeText(project.id, ""));
     setShowPasswords({});
@@ -1289,85 +1267,6 @@ export default function ProjectsPage() {
       staleTime: 30 * 1000,
     });
   }, [queryClient]);
-
-  // ━━ File upload handler ━━
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!editProject || !e.target.files?.length) return;
-    const file = e.target.files[0];
-    if (file.type !== "application/pdf") {
-      toast.error("Only PDF files are allowed");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File size must be under 10MB");
-      return;
-    }
-
-    setUploadingFile(true);
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(",")[1];
-        const res = await fetch("/api/projects/attachments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            projectId: editProject.id,
-            fileName: file.name,
-            fileData: base64,
-            fileSize: file.size,
-          }),
-        });
-        if (res.ok) {
-          toast.success("File uploaded");
-          fetchAttachments(safeText(editProject.id, ""));
-        } else {
-          const data = await res.json().catch(() => ({}));
-          toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to upload");
-        }
-        setUploadingFile(false);
-      };
-      reader.readAsDataURL(file);
-    } catch {
-      toast.error("Failed to read file");
-      setUploadingFile(false);
-    }
-    e.target.value = "";
-  };
-
-  const handleDeleteAttachment = async (attachmentId: string) => {
-    try {
-      const res = await fetch(`/api/projects/attachments?id=${attachmentId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Attachment removed");
-        if (editProject) fetchAttachments(safeText(editProject.id, ""));
-      }
-    } catch {
-      toast.error("Failed to delete attachment");
-    }
-  };
-
-  const handleDownloadAttachment = async (attachmentId: string) => {
-    try {
-      const res = await fetch(`/api/projects/attachments?id=${attachmentId}`, {
-        method: "PUT",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const link = document.createElement("a");
-        link.href = `data:application/pdf;base64,${data.fileData}`;
-        link.download = data.fileName;
-        link.click();
-      }
-    } catch {
-      toast.error("Failed to download");
-    }
-  };
 
   // ━━ Credential handlers ━━
   const handleAddCredential = async () => {
@@ -1812,15 +1711,12 @@ export default function ProjectsPage() {
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, attachments, credentials, and methods.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, credentials, and methods.</DialogDescription></DialogHeader>
           {editProject && (
             <Tabs defaultValue="details">
-              <TabsList className="grid w-full grid-cols-4 bg-muted/50 p-1">
+              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
                 <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Pencil className="h-3 w-3" /> Details
-                </TabsTrigger>
-                <TabsTrigger value="attachments" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
-                  <Paperclip className="h-3 w-3" /> Attachments
                 </TabsTrigger>
                 <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Key className="h-3 w-3" /> Credentials
@@ -1932,44 +1828,6 @@ export default function ProjectsPage() {
                       <Button type="submit" className="flex-1">Save Changes</Button>
                     </div>
                   </form>
-                </div>
-              </TabsContent>
-
-              {/* Attachments Tab */}
-              <TabsContent value="attachments">
-                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                      <Paperclip className="h-3.5 w-3.5" /> Project Files
-                    </h3>
-                    <label className="cursor-pointer">
-                      <div className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium">
-                        {uploadingFile ? "Uploading..." : <><Upload className="h-3.5 w-3.5" /> Upload PDF</>}
-                      </div>
-                      <input type="file" accept="application/pdf" className="hidden" onChange={handleFileUpload} disabled={uploadingFile} />
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">Upload PDF files for this project (max 10MB)</p>
-                  <div className="max-h-64 overflow-y-auto space-y-2">
-                    {attachments.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-6">No attachments yet</p>
-                    )}
-                    {attachments.map((att) => (
-                      <div key={att.id} className="flex items-center gap-2 p-2.5 border rounded-lg bg-white/40 dark:bg-white/[0.02]">
-                        <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{att.fileName}</p>
-                          <p className="text-[11px] text-muted-foreground">{formatFileSize(att.fileSize)}</p>
-                        </div>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => handleDownloadAttachment(att.id)} title="Download" aria-label="Download attachment">
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteAttachmentId(att.id)} title="Delete" aria-label="Delete attachment">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </TabsContent>
 
@@ -2237,24 +2095,6 @@ export default function ProjectsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCredential} className="bg-red-600 hover:bg-red-700">
               Delete Credential
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ━━━━ Attachment Delete Confirmation ━━━━ */}
-      <AlertDialog open={!!deleteAttachmentId} onOpenChange={() => setDeleteAttachmentId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Attachment</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete this attachment. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteAttachmentId) { handleDeleteAttachment(deleteAttachmentId); setDeleteAttachmentId(null); } }} className="bg-red-600 hover:bg-red-700">
-              Delete Attachment
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

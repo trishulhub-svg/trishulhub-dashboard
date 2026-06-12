@@ -7,6 +7,9 @@ import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
+import { syncTaskToLark } from "@/lib/lark/sync"
+import { syncTaskUpdateToLark } from "@/lib/lark/sync"
+import { syncTaskDeleteToLark } from "@/lib/lark/sync"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -30,6 +33,22 @@ function serializeTask(t: any) {
     deadline: t.deadline?.toISOString() ?? null,
     completedAt: t.completedAt?.toISOString() ?? null,
     approvedAt: t.approvedAt?.toISOString() ?? null,
+  }
+}
+
+// ── Helper: fetch Lark task IDs for a batch of tasks ──
+async function getLarkTaskIds(taskIds: string[]): Promise<Record<string, string>> {
+  if (taskIds.length === 0) return {}
+  try {
+    const rows = await db.$queryRawUnsafe<Array<{ taskId: string; larkTaskId: string }>>(
+      'SELECT "taskId", "larkTaskId" FROM "LarkTaskMapping" WHERE "taskId" IN (?)',
+      taskIds
+    )
+    const map: Record<string, string> = {}
+    for (const r of rows) map[r.taskId] = r.larkTaskId
+    return map
+  } catch {
+    return {}
   }
 }
 
@@ -133,11 +152,15 @@ export async function GET(req: NextRequest) {
       for (const u of users) userMap[u.id] = u.name
     }
 
+    // Fetch Lark task IDs for all returned tasks
+    const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+
     const enriched = tasks.map(t => ({
       ...serializeTask(t),
       assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
       approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
       createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+      larkTaskId: larkIds[t.id] || null,
     }))
     return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   }
@@ -222,11 +245,15 @@ export async function GET(req: NextRequest) {
     for (const u of users) userMap[u.id] = u.name
   }
 
+  // Fetch Lark task IDs for all returned tasks
+  const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+
   const enriched = tasks.map(t => ({
     ...serializeTask(t),
     assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
     approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+    larkTaskId: larkIds[t.id] || null,
   }))
   return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   } catch (error: unknown) {
@@ -362,7 +389,7 @@ export async function POST(req: NextRequest) {
       "New Task Assigned",
       `You have been assigned a new task: ${String(body.title)}${deadlineStr}`,
       "TASK",
-      "/dashboard/projects/todos"
+      "/dashboard/tasks"
     )
   }
 
@@ -370,6 +397,16 @@ export async function POST(req: NextRequest) {
   if (data.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync new task to Lark (fire-and-forget)
+  syncTaskToLark(task.id, {
+    title: task.title,
+    description: task.description || undefined,
+    status: task.status,
+    priority: task.priority,
+    assignedTo: task.assignedTo || undefined,
+    projectId: task.projectId || undefined,
+    deadline: task.deadline || undefined,
+  }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
   return NextResponse.json(serializeTask(task), { status: 201 })
   } catch (error: unknown) {
@@ -590,7 +627,7 @@ export async function PATCH(req: NextRequest) {
       "Task Reassigned to You",
       `Task "${existingTask.title}" has been reassigned to you`,
       "TASK",
-      "/dashboard/projects/todos"
+      "/dashboard/tasks"
     )
   }
 
@@ -661,6 +698,17 @@ export async function PATCH(req: NextRequest) {
   if (updatedTask.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync task update to Lark (fire-and-forget)
+  const larkUpdateData: { title?: string; description?: string; status?: string; priority?: string; assignedTo?: string; deadline?: string | Date | null } = {}
+  if (data.title) larkUpdateData.title = String(data.title)
+  if (data.description !== undefined) larkUpdateData.description = (data.description as string | null) ?? undefined
+  if (data.status) larkUpdateData.status = String(data.status)
+  if (data.priority) larkUpdateData.priority = String(data.priority)
+  if (data.assignedTo !== undefined) larkUpdateData.assignedTo = (data.assignedTo as string) || undefined
+  if (data.deadline !== undefined) larkUpdateData.deadline = data.deadline as Date | null | undefined
+  if (Object.keys(larkUpdateData).length > 0) {
+    syncTaskUpdateToLark(id, larkUpdateData, userId).catch((err) => console.error("[tasks] Lark update sync error:", err))
+  }
   return NextResponse.json(serializeTask(updatedTask))
   } catch (error: unknown) {
     console.error("[tasks] PATCH error:", error instanceof Error ? error.message : String(error))
@@ -718,6 +766,8 @@ export async function DELETE(req: NextRequest) {
   if (existingTask.projectId) {
     syncTasksToGit().catch(() => {})
   }
+  // Background: sync task deletion to Lark (fire-and-forget)
+  syncTaskDeleteToLark(id, userId).catch((err) => console.error("[tasks] Lark delete sync error:", err))
   return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[tasks] DELETE error:", error instanceof Error ? error.message : String(error))

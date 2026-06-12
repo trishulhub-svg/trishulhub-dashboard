@@ -1,13 +1,5 @@
-import { db } from "@/lib/db"
 
-// ── File Access Levels ──
-export const FILE_ACCESS = {
-  OWNER: "OWNER",   // Creator of the file — full control
-  ADMIN: "ADMIN",   // Can manage permissions + edit
-  EDIT: "EDIT",     // Can edit content, rename, move
-  VIEW: "VIEW",     // Can only view/download
-} as const
-export type FileAccessLevel = (typeof FILE_ACCESS)[keyof typeof FILE_ACCESS]
+import { db } from "@/lib/db"
 
 /** Check if a user is a super admin (only SUPER_ADMIN).
  * @param role - The user's role string.
@@ -23,95 +15,6 @@ export function isSuperAdmin(role: string): boolean {
  */
 export function isAdmin(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
-}
-
-/**
- * Get the effective file access level for a user.
- * Super Admin always gets ADMIN. File creator gets OWNER.
- * Otherwise, checks FilePermission table. Checks parent folders if no direct permission.
- */
-export async function getFileAccessLevel(
-  fileId: string,
-  userId: string,
-  role: string,
-  _depth: number = 0
-): Promise<FileAccessLevel | null> {
-  // Admin (SUPER_ADMIN and ADMIN) has ADMIN on everything
-  if (isAdmin(role)) return FILE_ACCESS.ADMIN
-
-  // Max recursion depth for folder traversal
-  if (_depth > 10) return null
-
-  const file = await db.fileMetadata.findUnique({
-    where: { id: fileId },
-    select: { createdBy: true, parentId: true },
-  })
-
-  if (!file) return null
-
-  // Creator is always OWNER
-  if (file.createdBy === userId) return FILE_ACCESS.OWNER
-
-  // Check direct permission on this file
-  const perm = await db.filePermission.findUnique({
-    where: { fileId_userId: { fileId, userId } },
-    select: { accessLevel: true },
-  })
-
-  if (perm) return perm.accessLevel as FileAccessLevel
-
-  // Check parent folder permission (inheritance)
-  if (file.parentId) {
-    return getFileAccessLevel(file.parentId, userId, role, _depth + 1)
-  }
-
-  return null
-}
-
-/**
- * Check if a user can perform a specific action on a file.
- * Actions: view, download, edit, delete, manage_permissions
- */
-export async function canPerformFileAction(
-  fileId: string,
-  userId: string,
-  role: string,
-  action: "view" | "download" | "edit" | "delete" | "manage_permissions"
-): Promise<boolean> {
-  const access = await getFileAccessLevel(fileId, userId, role)
-  if (!access) return false
-
-  switch (action) {
-    case "view":
-    case "download":
-      return access === FILE_ACCESS.OWNER || access === FILE_ACCESS.ADMIN || access === FILE_ACCESS.EDIT || access === FILE_ACCESS.VIEW
-    case "edit":
-      return access === FILE_ACCESS.OWNER || access === FILE_ACCESS.ADMIN || access === FILE_ACCESS.EDIT
-    case "delete":
-      return access === FILE_ACCESS.OWNER || access === FILE_ACCESS.ADMIN
-    case "manage_permissions":
-      return access === FILE_ACCESS.OWNER || access === FILE_ACCESS.ADMIN
-    default:
-      return false
-  }
-}
-
-/**
- * Get all descendant file IDs under a folder (recursive).
- * Uses a recursive CTE for a single-query traversal.
- * Returns an array of FileMetadata.id values.
- */
-export async function getDescendantFileIds(folderId: string): Promise<string[]> {
-  const rows: Array<{ id: string }> = await db.$queryRawUnsafe(
-    `WITH RECURSIVE descendants AS (
-      SELECT id FROM "FileMetadata" WHERE "parentId" = ?
-      UNION ALL
-      SELECT f.id FROM "FileMetadata" f JOIN descendants d ON f."parentId" = d.id
-    )
-    SELECT id FROM descendants`,
-    folderId
-  )
-  return rows.map((r: { id: string }) => r.id)
 }
 
 /**
