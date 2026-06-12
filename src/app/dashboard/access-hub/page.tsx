@@ -694,27 +694,19 @@ export default function AccessHubPage() {
     setManualMapDialogOpen(true);
     setLarkMapLoading(true);
     try {
-      // Fetch the full list of Lark users from the API
-      const res = await fetch("/api/lark/users", { credentials: "include" });
+      // Fetch the full list of ALL Lark users from the API
+      const res = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        // Extract unique Lark users from the results
-        const larkMap = new Map<string, LarkUserForMapping>();
-        for (const u of (data.users || []) as LarkUserMapping[]) {
-          if (u.larkOpenId && !larkMap.has(u.larkOpenId)) {
-            larkMap.set(u.larkOpenId, { open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
-          }
-        }
-        // Also try to get from totalLarkUsers by calling with a flag
-        // The API returns user mappings with larkOpenId for suggested matches
-        // For the full Lark directory, we need to get all unique entries
-        const allLark: LarkUserForMapping[] = [];
-        for (const u of (data.users || []) as LarkUserMapping[]) {
-          if (u.larkOpenId) {
-            allLark.push({ open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
-          }
-        }
+        const allLark: LarkUserForMapping[] = (data.allLarkUsers || []).map((lu: { open_id: string; name: string; email?: string }) => ({
+          open_id: lu.open_id,
+          name: lu.name || "",
+          email: lu.email || undefined,
+        }));
         setAllLarkUsersForMap(allLark);
+        if (data.larkError) {
+          toast.warning(data.larkError);
+        }
       }
     } catch {
       toast.error("Failed to load Lark users");
@@ -729,16 +721,19 @@ export default function AccessHubPage() {
     setEditMapDialogOpen(true);
     setLarkMapLoading(true);
     try {
-      const res = await fetch("/api/lark/users", { credentials: "include" });
+      // Fetch the full list of ALL Lark users from the API
+      const res = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        const allLark: LarkUserForMapping[] = [];
-        for (const u of (data.users || []) as LarkUserMapping[]) {
-          if (u.larkOpenId) {
-            allLark.push({ open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
-          }
-        }
+        const allLark: LarkUserForMapping[] = (data.allLarkUsers || []).map((lu: { open_id: string; name: string; email?: string }) => ({
+          open_id: lu.open_id,
+          name: lu.name || "",
+          email: lu.email || undefined,
+        }));
         setAllLarkUsersForMap(allLark);
+        if (data.larkError) {
+          toast.warning(data.larkError);
+        }
       }
     } catch {
       toast.error("Failed to load Lark users");

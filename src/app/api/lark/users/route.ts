@@ -61,10 +61,33 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const autoMatch = searchParams.get("autoMatch") === "true"
+    const allLarkUsersParam = searchParams.get("allLarkUsers") === "true"
 
     // If autoMatch=true, run auto-matching first
     if (autoMatch) {
       await performAutoMatch()
+    }
+
+    // Get Lark users (with caching)
+    const { users: larkUsers, error: larkError } = await getCachedLarkUsers()
+
+    // Build error/warning messages for the caller
+    let responseLarkError: string | null = null
+    if (larkError) {
+      responseLarkError = larkError
+    } else if (larkUsers.length === 0) {
+      responseLarkError = "No Lark users found — check if contact:contact.base:readonly scope is enabled in Lark app settings."
+    } else if (!larkUsers.some((lu) => lu.email)) {
+      responseLarkError = "Lark users found but none have email addresses. Enable contact:contact.base:readonly scope in Lark app settings to retrieve email fields."
+    }
+
+    // If allLarkUsers=true, return the full Lark users list directly
+    if (allLarkUsersParam) {
+      return NextResponse.json({
+        allLarkUsers: larkUsers,
+        totalLarkUsers: larkUsers.length,
+        larkError: responseLarkError,
+      })
     }
 
     // Get all active non-CLIENT users
@@ -80,9 +103,6 @@ export async function GET(req: NextRequest) {
     )
 
     const mappingMap = new Map(mappings.map((m) => [m.userId, m]))
-
-    // Get Lark users (with caching)
-    const { users: larkUsers, error: larkError } = await getCachedLarkUsers()
 
     // Build response with mapping status
     const result = users.map((user) => {
@@ -115,7 +135,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       users: result,
       totalLarkUsers: larkUsers.length,
-      larkError: larkUsers.length === 0 ? (larkError || "No Lark users found — check if contact:contact.base:readonly scope is enabled") : null,
+      larkError: responseLarkError,
     })
   } catch (err) {
     console.error("[lark/users] GET error:", err)

@@ -19,6 +19,7 @@ import {
   Loader2,
   FileText,
   AlertTriangle,
+  Calendar,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -230,6 +231,17 @@ export default function AuditTrailPage() {
     return () => clearInterval(interval)
   }, [session, sessionStatus])
 
+  // Date range filter helper (used by fetchLogs and export)
+  const getDateRange = useCallback(() => {
+    const now = new Date()
+    switch (dateRange) {
+      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      default: return ""
+    }
+  }, [dateRange])
+
   // Fetch logs
   const fetchLogs = useCallback(async (cursor?: string) => {
     setLoading(true)
@@ -241,6 +253,8 @@ export default function AuditTrailPage() {
       if (actionFilter) params.set("action", actionFilter)
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       if (cursor) params.set("cursor", cursor)
+      const startDate = getDateRange()
+      if (startDate) params.set("startDate", startDate)
       params.set("limit", "50")
 
       const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
@@ -264,14 +278,14 @@ export default function AuditTrailPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedDept, search, actionFilter, statusFilter])
+  }, [selectedDept, search, actionFilter, statusFilter, getDateRange])
 
   // Initial fetch when filters change (not cursor-based)
   useEffect(() => {
     setNextCursor(null)
     setLogs([])
     fetchLogs()
-  }, [selectedDept, search, actionFilter, statusFilter, fetchLogs])
+  }, [selectedDept, search, actionFilter, statusFilter, dateRange, fetchLogs])
 
   const loadMore = () => {
     if (nextCursor) fetchLogs(nextCursor)
@@ -305,17 +319,6 @@ export default function AuditTrailPage() {
     if (total === 0) return "—"
     return `${Math.round(((success?.count || 0) / total) * 100)}%`
   }, [stats])
-
-  // Date range filter for export
-  const getDateRange = useCallback(() => {
-    const now = new Date()
-    switch (dateRange) {
-      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
-      default: return ""
-    }
-  }, [dateRange])
 
   const exportCsv = async () => {
     setExporting(true)
@@ -531,6 +534,18 @@ export default function AuditTrailPage() {
                       <SelectItem value="ALL">All</SelectItem>
                       <SelectItem value="SUCCESS">Success</SelectItem>
                       <SelectItem value="FAILURE">Failure</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+                    <SelectTrigger className="w-[100px] h-10">
+                      <Calendar className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7d">7 days</SelectItem>
+                      <SelectItem value="30d">30 days</SelectItem>
+                      <SelectItem value="90d">90 days</SelectItem>
+                      <SelectItem value="all">All time</SelectItem>
                     </SelectContent>
                   </Select>
                   {isExportVisible && (
