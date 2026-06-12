@@ -11,6 +11,7 @@ import {
   Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
   Plus, Edit3, Globe, Search, Key,
   Bird, Link2, Unlink, ArrowRightLeft, Zap, UserCheck, XCircle, CircleDot,
+  ChevronDown, ChevronRight, Lightbulb, CheckCircle2 as CheckCircleIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -175,6 +176,7 @@ export default function AccessHubPage() {
   const [larkToggling, setLarkToggling] = useState(false);
   const [showLarkSecret, setShowLarkSecret] = useState(false);
   const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
+  const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
 
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
@@ -1632,6 +1634,109 @@ export default function AccessHubPage() {
                       </div>
                     ) : null}
 
+                    {/* ── Setup Guide (collapsible) ── */}
+                    <div className="rounded-lg border border-blue-200/60 dark:border-blue-500/20 bg-blue-50/50 dark:bg-blue-500/5 overflow-hidden">
+                      <button
+                        onClick={() => setLarkSetupExpanded(!larkSetupExpanded)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-blue-100/50 dark:hover:bg-blue-500/10 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Lightbulb className="h-3.5 w-3.5 text-blue-500" />
+                          <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Setup Guide — 4 Steps to Connect</span>
+                        </div>
+                        {larkSetupExpanded ? <ChevronDown className="h-3.5 w-3.5 text-blue-500" /> : <ChevronRight className="h-3.5 w-3.5 text-blue-500" />}
+                      </button>
+
+                      {larkSetupExpanded && (
+                        <div className="px-3 pb-3 space-y-2.5">
+                          {/* Step 1 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-emerald-500 text-white" : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                            )}>
+                              {larkConfig?.connected ? <Check className="h-3 w-3" /> : "1"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Save App ID & Secret</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Paste your Lark App ID and App Secret below, then click <b>Save & Test</b>. This verifies the connection to Lark.
+                              </p>
+                              {!larkConfig?.connected && (
+                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                                  Find these in: Lark Developer Console → your app → Credentials
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Step 2 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              2
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Configure Webhook in Lark</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                In Lark Developer Console → <b>Events & Callbacks</b>, select <b>"Send notifications to developer's server"</b> (second option).
+                              </p>
+                              <div className="mt-1.5 px-2 py-1.5 rounded bg-background/80 border border-border/50 text-[11px] font-mono break-all">
+                                Request URL: <span className="text-blue-600 dark:text-blue-400 font-semibold">https://trishulhub.com/api/lark/webhook</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                Leave <b>Encryption Strategy</b> as "No encryption" (default). Do NOT enable encrypt key unless needed.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Step 3 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              3
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Add the 4 Event Subscriptions</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                After the URL is verified, add these 4 events in the same page under "Event Subscription":
+                              </p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {["task.task.created", "task.task.updated", "task.task.deleted", "task.task.completed"].map((evt) => (
+                                  <Badge key={evt} variant="secondary" className="text-[10px] font-mono">{evt}</Badge>
+                                ))}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                Path: Event Subscription → Add Event → search "task" → select each of the 4 above
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Step 4 */}
+                          <div className="flex gap-2.5">
+                            <div className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+                            )}>
+                              4
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium">Map Users & Enable Sync</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Go to <button onClick={() => router.push("/dashboard/lark/users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> to match TrishulHub users with their Lark accounts.
+                                Then toggle the switch above to <b>Enable</b> 2-way sync.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Credentials Form ── */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <Label className="text-[11px] text-muted-foreground">App ID</Label>
@@ -1655,10 +1760,13 @@ export default function AccessHubPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground">Webhook Encrypt Key (optional — for signature verification)</Label>
+                      <Label className="text-[11px] text-muted-foreground">
+                        Webhook Encrypt Key
+                        <span className="ml-1 text-[10px] text-muted-foreground/60">(leave empty unless using encryption in Lark)</span>
+                      </Label>
                       <Input
                         type={showLarkEncrypt ? "text" : "password"}
-                        placeholder="Optional — for webhook signature verification"
+                        placeholder="Leave empty — use 'No encryption' in Lark"
                         value={larkForm.encryptKey}
                         onChange={(e) => setLarkForm(f => ({ ...f, encryptKey: e.target.value }))}
                         className="h-8 text-xs font-mono"

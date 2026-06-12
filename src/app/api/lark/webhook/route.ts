@@ -11,13 +11,30 @@ export async function POST(req: NextRequest) {
   try {
     await ensureAllTables()
 
+    const rawBody = await req.text()
+
+    // Parse payload early — needed for challenge AND event processing
+    let payload: LarkWebhookPayload
+    try {
+      payload = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ code: 1, msg: "Invalid JSON" })
+    }
+
+    // ━━ Handle URL verification challenge FIRST (before any config checks) ━━
+    // Lark sends this when you first add the webhook URL.
+    // It must respond regardless of whether Lark sync is enabled.
+    if (payload.type === "url_verification" && payload.challenge) {
+      console.log("[lark/webhook] URL verification challenge received — responding")
+      return NextResponse.json({ challenge: payload.challenge })
+    }
+
+    // For actual events, check if Lark sync is enabled
     const config = await getLarkConfig()
     if (!config?.enabled) {
       console.warn("[lark/webhook] Received event but Lark sync is disabled")
       return NextResponse.json({ code: 0 })
     }
-
-    const rawBody = await req.text()
 
     // Verify signature if encrypt key is configured
     const signature = req.headers.get("X-Lark-Signature") || ""
@@ -27,19 +44,6 @@ export async function POST(req: NextRequest) {
         console.warn("[lark/webhook] Invalid signature")
         return NextResponse.json({ code: 1, msg: "Invalid signature" })
       }
-    }
-
-    let payload: LarkWebhookPayload
-    try {
-      payload = JSON.parse(rawBody)
-    } catch {
-      return NextResponse.json({ code: 1, msg: "Invalid JSON" })
-    }
-
-    // Handle URL verification challenge
-    if (payload.type === "url_verification" && payload.challenge) {
-      console.log("[lark/webhook] URL verification challenge received")
-      return NextResponse.json({ challenge: payload.challenge })
     }
 
     // Process the webhook event
