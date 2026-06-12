@@ -1701,17 +1701,15 @@ export default function AccessHubPage() {
                               3
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-medium">Add the 4 Event Subscriptions</p>
+                              <p className="text-xs font-medium">Add the Event Subscription</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                After the URL is verified, add these 4 events in the same page under "Event Subscription":
+                                After the URL is verified, add this event under "Event Subscription":
                               </p>
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {["task.task.created", "task.task.updated", "task.task.deleted", "task.task.completed"].map((evt) => (
-                                  <Badge key={evt} variant="secondary" className="text-[10px] font-mono">{evt}</Badge>
-                                ))}
+                                <Badge variant="secondary" className="text-[10px] font-mono">task.task.updated_v1</Badge>
                               </div>
                               <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                Path: Event Subscription → Add Event → search "task" → select each of the 4 above
+                                Path: Event Subscription → Add Event → search "task.task.updated" → select the V1 version
                               </p>
                             </div>
                           </div>

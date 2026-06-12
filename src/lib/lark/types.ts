@@ -116,12 +116,9 @@ export const PRIORITY_FROM_LARK: Record<string, string> = {
   urgent: "URGENT",
 }
 
-/** Webhook event types */
+/** Webhook event types (Lark free tier only provides updated_v1) */
 export type LarkWebhookEvent =
-  | "task.task.created"
-  | "task.task.updated"
-  | "task.task.deleted"
-  | "task.task.completed"
+  | "task.task.updated_v1"
 
 /** Webhook event payload (outer wrapper) */
 export interface LarkWebhookPayload {
