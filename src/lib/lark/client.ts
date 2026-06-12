@@ -296,6 +296,14 @@ export async function getAllUsers(): Promise<LarkUser[]> {
     const items = (res.data?.items as LarkUser[]) || []
     users.push(...items)
 
+    // Log first call details for debugging
+    if (!pageToken) {
+      console.log("[lark/client] getAllUsers: first page returned", items.length, "users, has_more:", !!res.data?.page_token, "total:", res.data?.total)
+      if (items.length > 0) {
+        console.log("[lark/client] getAllUsers: first user sample:", JSON.stringify({ name: items[0].name, email: items[0].email, open_id: items[0].open_id }))
+      }
+    }
+
     pageToken = (res.data?.page_token as string) || ""
   } while (pageToken)
 

@@ -8,7 +8,7 @@ import {
   Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
   GraduationCap, ExternalLink, ListTodo, MoreHorizontal, Trash2,
   Flag, UserCircle, Users, CheckCircle, ChevronDown, ChevronRight,
-  CircleCheckBig, Filter, Plus, X, UserPlus,
+  CircleCheckBig, Check, Filter, Plus, X, UserPlus,
   MessageSquare, Phone, ArrowUpCircle, Building2, LayoutGrid,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -244,7 +244,8 @@ function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
   const deadline = extractStr(task, "deadline", "");
   const category = extractStr(task, "category", "GENERAL");
   const isAwaiting = status === "AWAITING_APPROVAL";
-  const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting;
+  const isDone = status === "DONE";
+  const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting && !isDone;
   const isToggling = togglingId === taskId;
   const priorityDot = priorityDotColors[priority] || "bg-gray-400";
   const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
@@ -256,7 +257,7 @@ function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
         "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
         "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
         priorityBorder,
-        isAwaiting && "opacity-60",
+        isDone && "opacity-50", isAwaiting && "opacity-60",
         "animate-slide-up",
       )}
       style={{ animationDelay: `${index * 50}ms` }}
@@ -269,15 +270,17 @@ function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
           "shrink-0 h-[18px] w-[18px] rounded border-2 flex items-center justify-center",
           "transition-all duration-200 hover:scale-110",
           isToggling && "animate-pulse",
+          isDone && "border-green-500 bg-green-500",
           isAwaiting && "cursor-default",
-          !isAwaiting && "hover:border-primary/60 hover:bg-primary/5",
-          "border-gray-300 dark:border-gray-600",
+          !isDone && !isAwaiting && "hover:border-primary/60 hover:bg-primary/5",
+          !isDone && "border-gray-300 dark:border-gray-600",
         )}
       >
+        {isDone && <Check className="h-3 w-3 text-white" />}
         {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
       </button>
       <div className="flex-1 min-w-0">
-        <p className={cn("text-sm leading-snug", isAwaiting && "line-through text-muted-foreground/70", !isAwaiting && "font-medium")}>
+        <p className={cn("text-sm leading-snug", (isDone || isAwaiting) && "line-through text-muted-foreground/70", !isDone && !isAwaiting && "font-medium")}>
           {safeText(title)}
         </p>
       </div>
@@ -1216,15 +1219,37 @@ export default function GlobalTodosPage() {
   // ── Actions ──
 
   const handleToggleDone = useCallback(async (taskId: string) => {
+    // Find the current task to determine valid next status
+    const task = [...myTasksData].find((t: unknown) => extractStr(t, "id", "") === taskId);
+    const currentStatus = task ? extractStr(task, "status", "TODO") : "TODO";
+
+    // Valid transition chain: TODO → IN_PROGRESS → REVIEW → AWAITING_APPROVAL → DONE
+    const NEXT_STATUS: Record<string, string | null> = {
+      TODO: "IN_PROGRESS",
+      IN_PROGRESS: "REVIEW",
+      REVIEW: "AWAITING_APPROVAL",
+      AWAITING_APPROVAL: "DONE",
+      DONE: null,
+    };
+
+    const nextStatus = NEXT_STATUS[currentStatus];
+    if (!nextStatus) return; // Already DONE — no action
+
+    const STATUS_LABELS: Record<string, string> = {
+      IN_PROGRESS: "Task moved to In Progress",
+      REVIEW: "Task moved to Review",
+      AWAITING_APPROVAL: "Task submitted for approval",
+      DONE: "Task completed",
+    };
+
     setTogglingId(taskId);
     try {
       const res = await fetch("/api/tasks", {
         method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ id: taskId, status: "DONE" }),
+        body: JSON.stringify({ id: taskId, status: nextStatus }),
       });
       if (res.ok) {
-        const updated = await res.json().catch(() => null);
-        toast.success(updated?.status === "AWAITING_APPROVAL" ? "Task submitted for approval" : "Task completed");
+        toast.success(STATUS_LABELS[nextStatus] || "Task updated");
         queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
       } else {
         if (handle401(res)) return;
@@ -1232,7 +1257,7 @@ export default function GlobalTodosPage() {
         toast.error(err?.error || "Failed to update task");
       }
     } catch { toast.error("Failed to update task"); } finally { setTogglingId(null); }
-  }, [queryClient, handle401]);
+  }, [myTasksData, queryClient, handle401]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     try {

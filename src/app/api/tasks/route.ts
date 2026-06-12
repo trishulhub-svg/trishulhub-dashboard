@@ -209,15 +209,11 @@ export async function GET(req: NextRequest) {
   }
 
   // C20: Visibility filter in Prisma where clause
-  // Non-admin can only see tasks assigned to them, created by them,
-  // or in projects they're a member of
+  // Non-admin can only see tasks assigned to them or created by them
   const visibilityOr: Prisma.TaskWhereInput[] = [
     { assignedTo: userId },
     { createdBy: userId },
   ]
-  if (assignedProjectIds && assignedProjectIds.length > 0) {
-    visibilityOr.push({ projectId: { in: assignedProjectIds } })
-  }
 
   const where: Prisma.TaskWhereInput = {
     AND: [

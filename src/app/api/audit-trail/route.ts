@@ -89,9 +89,9 @@ export async function GET(req: NextRequest) {
     // Status filter
     if (status) where.status = status
 
-    // Cursor-based pagination
+    // Cursor-based pagination — merge with existing date filter
     const cursorFilter: Prisma.AuditLogWhereInput = cursor
-      ? { ...where, createdAt: { lt: new Date(cursor) } }
+      ? { ...where, createdAt: { ...(where.createdAt as Prisma.DateTimeFilter | undefined), lt: new Date(cursor) } }
       : where
 
     // Fetch data
