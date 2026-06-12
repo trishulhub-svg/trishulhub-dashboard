@@ -828,6 +828,8 @@ export default function ProjectsPage() {
       return deepSanitize(raw) as unknown[];
     },
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -841,6 +843,8 @@ export default function ProjectsPage() {
       return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
     },
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -855,6 +859,8 @@ export default function ProjectsPage() {
       return data as Record<string, number>;
     },
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 

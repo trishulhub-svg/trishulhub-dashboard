@@ -24,6 +24,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -117,6 +118,27 @@ interface UserOption {
   role: string;
 }
 
+interface LarkUserMapping {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department: string | null;
+  larkMapped: boolean;
+  larkOpenId: string | null;
+  larkName: string | null;
+  larkEmail: string | null;
+  matchedBy: string | null;
+  autoMatchAvailable: boolean;
+  matchMethod: string | null;
+}
+
+interface LarkUserForMapping {
+  open_id: string;
+  name: string;
+  email?: string;
+}
+
 const LABEL_COLORS: Record<string, string> = {
   Workspace: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
   Email: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -177,6 +199,22 @@ export default function AccessHubPage() {
   const [showLarkSecret, setShowLarkSecret] = useState(false);
   const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
   const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
+
+  // ── Lark User Mapping state ──
+  const [activeTab, setActiveTab] = useState("credentials");
+  const [larkUsers, setLarkUsers] = useState<LarkUserMapping[]>([]);
+  const [totalLarkUsers, setTotalLarkUsers] = useState(0);
+  const [larkUsersLoading, setLarkUsersLoading] = useState(false);
+  const [larkAutoMatching, setLarkAutoMatching] = useState(false);
+  const [larkUserSearch, setLarkUserSearch] = useState("");
+  const [larkUsersFetched, setLarkUsersFetched] = useState(false);
+  const [manualMapDialogOpen, setManualMapDialogOpen] = useState(false);
+  const [editMapDialogOpen, setEditMapDialogOpen] = useState(false);
+  const [mapTargetUser, setMapTargetUser] = useState<LarkUserMapping | null>(null);
+  const [allLarkUsersForMap, setAllLarkUsersForMap] = useState<LarkUserForMapping[]>([]);
+  const [larkMapSearch, setLarkMapSearch] = useState("");
+  const [larkMapSaving, setLarkMapSaving] = useState(false);
+  const [larkMapLoading, setLarkMapLoading] = useState(false);
 
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
@@ -592,6 +630,171 @@ export default function AccessHubPage() {
       setLarkToggling(false);
     }
   };
+
+  // ── Lark User Mapping handlers ──
+  const fetchLarkUsers = useCallback(async () => {
+    setLarkUsersLoading(true);
+    try {
+      const res = await fetch("/api/lark/users", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setLarkUsers(data.users || []);
+        setTotalLarkUsers(data.totalLarkUsers || 0);
+        setLarkUsersFetched(true);
+        if (data.larkError) {
+          toast.error(data.larkError);
+        }
+      }
+    } catch {
+      // silent
+    } finally {
+      setLarkUsersLoading(false);
+    }
+  }, []);
+
+  const handleLarkAutoMatch = async () => {
+    setLarkAutoMatching(true);
+    try {
+      const res = await fetch("/api/lark/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ autoMatch: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Auto-matched ${data.matched} user(s) out of ${data.total}`);
+        await fetchLarkUsers();
+      }
+    } catch {
+      toast.error("Auto-match failed");
+    } finally {
+      setLarkAutoMatching(false);
+    }
+  };
+
+  const handleLarkUnmap = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/lark/users?userId=${userId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Mapping removed");
+        await fetchLarkUsers();
+      }
+    } catch {
+      toast.error("Failed to remove mapping");
+    }
+  };
+
+  const handleOpenManualMap = async (user: LarkUserMapping) => {
+    setMapTargetUser(user);
+    setLarkMapSearch("");
+    setManualMapDialogOpen(true);
+    setLarkMapLoading(true);
+    try {
+      // Fetch the full list of Lark users from the API
+      const res = await fetch("/api/lark/users", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        // Extract unique Lark users from the results
+        const larkMap = new Map<string, LarkUserForMapping>();
+        for (const u of (data.users || []) as LarkUserMapping[]) {
+          if (u.larkOpenId && !larkMap.has(u.larkOpenId)) {
+            larkMap.set(u.larkOpenId, { open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
+          }
+        }
+        // Also try to get from totalLarkUsers by calling with a flag
+        // The API returns user mappings with larkOpenId for suggested matches
+        // For the full Lark directory, we need to get all unique entries
+        const allLark: LarkUserForMapping[] = [];
+        for (const u of (data.users || []) as LarkUserMapping[]) {
+          if (u.larkOpenId) {
+            allLark.push({ open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
+          }
+        }
+        setAllLarkUsersForMap(allLark);
+      }
+    } catch {
+      toast.error("Failed to load Lark users");
+    } finally {
+      setLarkMapLoading(false);
+    }
+  };
+
+  const handleOpenEditMap = async (user: LarkUserMapping) => {
+    setMapTargetUser(user);
+    setLarkMapSearch("");
+    setEditMapDialogOpen(true);
+    setLarkMapLoading(true);
+    try {
+      const res = await fetch("/api/lark/users", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const allLark: LarkUserForMapping[] = [];
+        for (const u of (data.users || []) as LarkUserMapping[]) {
+          if (u.larkOpenId) {
+            allLark.push({ open_id: u.larkOpenId, name: u.larkName || "", email: u.larkEmail || undefined });
+          }
+        }
+        setAllLarkUsersForMap(allLark);
+      }
+    } catch {
+      toast.error("Failed to load Lark users");
+    } finally {
+      setLarkMapLoading(false);
+    }
+  };
+
+  const handleSaveManualMap = async (larkUser: LarkUserForMapping) => {
+    if (!mapTargetUser) return;
+    setLarkMapSaving(true);
+    try {
+      const res = await fetch("/api/lark/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userId: mapTargetUser.id,
+          larkOpenId: larkUser.open_id,
+          larkName: larkUser.name,
+          larkEmail: larkUser.email || "",
+          matchedBy: "manual",
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Mapped ${mapTargetUser.name} to ${larkUser.name}`);
+        setManualMapDialogOpen(false);
+        setEditMapDialogOpen(false);
+        await fetchLarkUsers();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to save mapping");
+      }
+    } catch {
+      toast.error("Failed to save mapping");
+    } finally {
+      setLarkMapSaving(false);
+    }
+  };
+
+  // Fetch lark users when the lark-users tab is activated
+  useEffect(() => {
+    if (activeTab === "lark-users" && !larkUsersFetched) {
+      fetchLarkUsers();
+    }
+  }, [activeTab, larkUsersFetched, fetchLarkUsers]);
+
+  // Check URL param on mount for ?tab=lark-users
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") === "lark-users") {
+        setActiveTab("lark-users");
+      }
+    }
+  }, []);
 
   /* ═══════════════════════════════════════════════════════════════
      WORKSPACE TOKEN HANDLERS
@@ -1026,7 +1229,7 @@ export default function AccessHubPage() {
       />
 
       {isAdmin ? (
-        <Tabs defaultValue="credentials" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-muted/50 w-full sm:w-auto">
             <TabsTrigger value="credentials" className="gap-1.5">
               <KeyRound className="h-3.5 w-3.5" />
@@ -1035,6 +1238,10 @@ export default function AccessHubPage() {
             <TabsTrigger value="protocol" className="gap-1.5">
               <FileText className="h-3.5 w-3.5" />
               Protocol &amp; Resources
+            </TabsTrigger>
+            <TabsTrigger value="lark-users" className="gap-1.5">
+              <Bird className="h-3.5 w-3.5" />
+              User Mapping
             </TabsTrigger>
             <TabsTrigger value="system" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" />
@@ -1383,7 +1590,209 @@ export default function AccessHubPage() {
             </Card>
           </TabsContent>
 
-          {/* ═══════════ TAB 3: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
+          {/* ═══════════ TAB 3: LARK USER MAPPING ═══════════ */}
+          <TabsContent value="lark-users" className="space-y-5 mt-2">
+            {(() => {
+              const mappedCount = larkUsers.filter((u) => u.larkMapped).length;
+              const unmatchedWithAuto = larkUsers.filter((u) => !u.larkMapped && u.autoMatchAvailable).length;
+              const filteredLarkUsers = larkUsers.filter(
+                (u) =>
+                  u.name.toLowerCase().includes(larkUserSearch.toLowerCase()) ||
+                  u.email.toLowerCase().includes(larkUserSearch.toLowerCase())
+              );
+
+              return (
+                <>
+                  {/* Auto-match banner */}
+                  {larkUsersFetched && !larkUsersLoading && unmatchedWithAuto > 0 && (
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Zap className="h-4 w-4 text-blue-500 shrink-0" />
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
+                          <b>{unmatchedWithAuto} user(s)</b> can be auto-matched by email or name.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleLarkAutoMatch}
+                        disabled={larkAutoMatching}
+                        className="h-8 text-xs bg-blue-600 hover:bg-blue-700 shrink-0"
+                      >
+                        {larkAutoMatching ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Zap className="h-3 w-3 mr-1.5" />}
+                        Auto-Match All
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl">
+                      <CardContent className="pt-4 pb-4 px-4">
+                        <p className="text-[11px] text-muted-foreground font-medium">TrishulHub Users</p>
+                        <p className="text-xl font-bold">{larkUsers.length}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl">
+                      <CardContent className="pt-4 pb-4 px-4">
+                        <p className="text-[11px] text-muted-foreground font-medium">Lark Users Found</p>
+                        <p className="text-xl font-bold">{totalLarkUsers}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl">
+                      <CardContent className="pt-4 pb-4 px-4">
+                        <p className="text-[11px] text-muted-foreground font-medium">Mapped</p>
+                        <p className="text-xl font-bold text-emerald-600">{mappedCount}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl">
+                      <CardContent className="pt-4 pb-4 px-4">
+                        <p className="text-[11px] text-muted-foreground font-medium">Unmapped</p>
+                        <p className="text-xl font-bold text-amber-600">{larkUsers.length - mappedCount}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Header: Auto-Match + Refresh + Search */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setLarkUsersFetched(false); fetchLarkUsers(); }}
+                      disabled={larkUsersLoading}
+                      className="h-8 text-xs"
+                    >
+                      <RefreshCw className={cn("h-3 w-3 mr-1.5", larkUsersLoading && "animate-spin")} />
+                      Refresh
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleLarkAutoMatch}
+                      disabled={larkAutoMatching || unmatchedWithAuto === 0}
+                      className="h-8 text-xs bg-blue-600 hover:bg-blue-700"
+                    >
+                      {larkAutoMatching ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Zap className="h-3 w-3 mr-1.5" />}
+                      Auto-Match{unmatchedWithAuto > 0 ? ` (${unmatchedWithAuto})` : ""}
+                    </Button>
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by name or email..."
+                        value={larkUserSearch}
+                        onChange={(e) => setLarkUserSearch(e.target.value)}
+                        className="pl-9 h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* User List */}
+                  <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        User Mappings
+                      </CardTitle>
+                      <CardDescription className="text-[11px]">
+                        Map TrishulHub users to Lark users for task assignment sync. Users are matched by email or name.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-1">
+                      {larkUsersLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : filteredLarkUsers.length === 0 ? (
+                        <div className="text-center py-8 text-sm text-muted-foreground">
+                          No users found
+                        </div>
+                      ) : (
+                        filteredLarkUsers.map((user) => (
+                          <div
+                            key={user.id}
+                            className="flex items-center justify-between p-2.5 rounded-lg hover:bg-accent/50 transition-colors group"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <Avatar className="h-8 w-8">
+                                <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                                  {user.name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium truncate">{user.name}</p>
+                                  <Badge variant="secondary" className="text-[10px] h-4">{user.role.replace("_", " ")}</Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {user.larkMapped ? (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenEditMap(user)}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                                  >
+                                    <Link2 className="h-3 w-3 text-emerald-600" />
+                                    <div className="text-right">
+                                      <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">{user.larkName}</p>
+                                      <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70">{user.matchedBy === "email_auto" ? "Email" : user.matchedBy === "name_auto" ? "Name" : "Manual"}</p>
+                                    </div>
+                                  </button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                                    onClick={() => handleLarkUnmap(user.id)}
+                                    title="Unmap"
+                                  >
+                                    <Unlink className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              ) : user.autoMatchAvailable ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-600 bg-amber-500/5">
+                                    <Zap className="h-2.5 w-2.5 mr-1" />
+                                    Can auto-match
+                                  </Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2"
+                                    onClick={() => handleOpenManualMap(user)}
+                                  >
+                                    <Link2 className="h-2.5 w-2.5 mr-1" />
+                                    Match
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="secondary" className="text-[10px] text-muted-foreground">
+                                    <XCircle className="h-2.5 w-2.5 mr-1" />
+                                    No match
+                                  </Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2"
+                                    onClick={() => handleOpenManualMap(user)}
+                                  >
+                                    <Plus className="h-2.5 w-2.5 mr-1" />
+                                    Manual Map
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              );
+            })()}
+          </TabsContent>
+
+          {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
           <TabsContent value="system" className="space-y-5 mt-2">
             {!isSuperAdmin ? (
               <Card>
@@ -1725,7 +2134,7 @@ export default function AccessHubPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium">Map Users & Enable Sync</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Go to <button onClick={() => router.push("/dashboard/lark/users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> to match TrishulHub users with their Lark accounts.
+                                Go to the <button onClick={() => setActiveTab("lark-users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
                                 Then toggle the switch above to <b>Enable</b> 2-way sync.
                               </p>
                             </div>
@@ -1814,10 +2223,17 @@ export default function AccessHubPage() {
                       </a>
                       <span className="text-border">|</span>
                       <button
-                        onClick={() => router.push("/dashboard/lark/users")}
+                        onClick={() => setActiveTab("lark-users")}
                         className="flex items-center gap-1 hover:text-primary transition-colors"
                       >
                         <UserCheck className="h-3 w-3" /> User Mapping
+                      </button>
+                      <span className="text-border">|</span>
+                      <button
+                        onClick={() => setActiveTab("lark-users")}
+                        className="flex items-center gap-1 hover:text-primary transition-colors font-medium text-blue-600 dark:text-blue-400"
+                      >
+                        <Users className="h-3 w-3" /> Manage Users
                       </button>
                     </div>
                   </CardContent>
@@ -2071,6 +2487,155 @@ export default function AccessHubPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Manual Map Lark User Dialog ── */}
+      <Dialog open={manualMapDialogOpen} onOpenChange={setManualMapDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bird className="h-4 w-4 text-blue-500" />
+              Map User to Lark
+            </DialogTitle>
+            <DialogDescription>
+              Select a Lark user to map to <b>{mapTargetUser?.name}</b> ({mapTargetUser?.email})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search Lark users by name or email..."
+                value={larkMapSearch}
+                onChange={(e) => setLarkMapSearch(e.target.value)}
+                className="pl-9 h-9 text-sm"
+              />
+            </div>
+            <ScrollArea className="h-[300px] rounded-md border">
+              {larkMapLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="p-2 space-y-1">
+                  {allLarkUsersForMap
+                    .filter((lu) =>
+                      !larkMapSearch ||
+                      lu.name.toLowerCase().includes(larkMapSearch.toLowerCase()) ||
+                      (lu.email && lu.email.toLowerCase().includes(larkMapSearch.toLowerCase()))
+                    )
+                    .map((lu) => (
+                      <button
+                        key={lu.open_id}
+                        onClick={() => handleSaveManualMap(lu)}
+                        disabled={larkMapSaving}
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-accent/50 transition-colors text-left disabled:opacity-50"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{lu.name}</p>
+                          {lu.email && <p className="text-xs text-muted-foreground truncate">{lu.email}</p>}
+                        </div>
+                        <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0 ml-2" />
+                      </button>
+                    ))
+                  }
+                  {allLarkUsersForMap.filter((lu) =>
+                    !larkMapSearch ||
+                    lu.name.toLowerCase().includes(larkMapSearch.toLowerCase()) ||
+                    (lu.email && lu.email.toLowerCase().includes(larkMapSearch.toLowerCase()))
+                  ).length === 0 && (
+                    <div className="text-center py-8 text-sm text-muted-foreground">
+                      No Lark users found. Make sure Lark is connected and has users.
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualMapDialogOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Lark Mapping Dialog ── */}
+      <Dialog open={editMapDialogOpen} onOpenChange={setEditMapDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit3 className="h-4 w-4 text-blue-500" />
+              Edit Lark Mapping
+            </DialogTitle>
+            <DialogDescription>
+              Currently mapped to <b>{mapTargetUser?.larkName}</b>. Select a different Lark user or unmap below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search Lark users by name or email..."
+                value={larkMapSearch}
+                onChange={(e) => setLarkMapSearch(e.target.value)}
+                className="pl-9 h-9 text-sm"
+              />
+            </div>
+            <ScrollArea className="h-[300px] rounded-md border">
+              {larkMapLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="p-2 space-y-1">
+                  {allLarkUsersForMap
+                    .filter((lu) =>
+                      !larkMapSearch ||
+                      lu.name.toLowerCase().includes(larkMapSearch.toLowerCase()) ||
+                      (lu.email && lu.email.toLowerCase().includes(larkMapSearch.toLowerCase()))
+                    )
+                    .map((lu) => (
+                      <button
+                        key={lu.open_id}
+                        onClick={() => handleSaveManualMap(lu)}
+                        disabled={larkMapSaving}
+                        className={cn(
+                          "w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-accent/50 transition-colors text-left disabled:opacity-50",
+                          lu.open_id === mapTargetUser?.larkOpenId && "bg-emerald-500/10 border border-emerald-500/20"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{lu.name}</p>
+                          {lu.email && <p className="text-xs text-muted-foreground truncate">{lu.email}</p>}
+                        </div>
+                        {lu.open_id === mapTargetUser?.larkOpenId ? (
+                          <Badge className="text-[10px] bg-emerald-500/10 text-emerald-600">Current</Badge>
+                        ) : (
+                          <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0 ml-2" />
+                        )}
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+            </ScrollArea>
+            <Button
+              variant="outline"
+              className="w-full text-destructive hover:text-destructive"
+              onClick={() => {
+                if (mapTargetUser) {
+                  handleLarkUnmap(mapTargetUser.id);
+                  setEditMapDialogOpen(false);
+                }
+              }}
+            >
+              <Unlink className="h-3.5 w-3.5 mr-1.5" />
+              Remove Mapping
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditMapDialogOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

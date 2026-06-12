@@ -18,7 +18,6 @@ import {
   RotateCcw,
   Loader2,
   FileText,
-  Calendar,
   AlertTriangle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -125,6 +124,64 @@ function formatRole(role: string | null | undefined): string {
   return role.replace(/_/g, " ")
 }
 
+/**
+ * Local error boundary for the Audit Trail page.
+ * Catches render-time errors so they show a useful message
+ * instead of the generic DashboardError boundary.
+ */
+class AuditTrailErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("[AuditTrailErrorBoundary]", error.message, info.componentStack)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[40vh] flex items-center justify-center p-6">
+          <Card className="max-w-md w-full border-red-200 dark:border-red-900/50">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex justify-center">
+                <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <AlertTriangle className="h-7 w-7 text-red-600 dark:text-red-400" />
+                </div>
+              </div>
+              <div className="text-center space-y-2">
+                <h2 className="text-lg font-bold">Audit Trail Error</h2>
+                <p className="text-sm text-muted-foreground">
+                  Something went wrong loading the audit trail. This is likely a data or rendering issue.
+                </p>
+                <details className="text-left">
+                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                    Error details
+                  </summary>
+                  <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
+                    {this.state.error?.message || "Unknown error"}
+                  </pre>
+                </details>
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Button onClick={() => this.setState({ hasError: false, error: null })}>
+                  <RotateCcw className="h-4 w-4 mr-2" /> Try Again
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function AuditTrailPage() {
   const { data: session, status: sessionStatus } = useSession()
   const [logs, setLogs] = useState<AuditLogEntry[]>([])
@@ -159,9 +216,11 @@ export default function AuditTrailPage() {
           setStats(data)
         } else {
           console.error("[audit-trail] Stats API returned:", res.status)
+          // Stats failure is non-fatal — just log, don't block the page
         }
       } catch (err) {
         console.error("Failed to fetch audit stats:", err)
+        // Stats failure is non-fatal — page still works without stats cards
       } finally {
         setStatsLoading(false)
       }
@@ -187,14 +246,15 @@ export default function AuditTrailPage() {
       const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
+        const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
         if (cursor) {
-          setLogs(prev => [...prev, ...data.data])
+          setLogs(prev => [...prev, ...items])
         } else {
-          setLogs(data.data)
+          setLogs(items)
         }
-        setNextCursor(data.nextCursor)
-        setHasMore(!!data.nextCursor)
-        setTotal(data.total)
+        setNextCursor(data?.nextCursor ?? null)
+        setHasMore(!!data?.nextCursor)
+        setTotal(typeof data?.total === "number" ? data.total : 0)
       } else {
         setError(`Failed to load logs (HTTP ${res.status})`)
       }
@@ -320,6 +380,7 @@ export default function AuditTrailPage() {
   if (!session) return null
 
   return (
+    <AuditTrailErrorBoundary>
     <TooltipProvider>
     <div className="space-y-6">
       {/* Stats Cards */}
@@ -567,12 +628,14 @@ export default function AuditTrailPage() {
                       logs.map((log) => (
                         <TableRow key={log.id} className="hover:bg-muted/50">
                           <TableCell className="text-xs">
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-                            </TooltipContent>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -651,5 +714,6 @@ export default function AuditTrailPage() {
       </div>
     </div>
     </TooltipProvider>
+    </AuditTrailErrorBoundary>
   )
 }

@@ -134,6 +134,9 @@ export default function ProjectDetailPage() {
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressTrackRef = useRef<HTMLDivElement>(null);
+  const dragValueRef = useRef<number>(0);
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
 
   // ── React Query: Project data with caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
@@ -153,6 +156,8 @@ export default function ProjectDetailPage() {
     },
     enabled: !!projectId,
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -168,6 +173,8 @@ export default function ProjectDetailPage() {
     },
     enabled: !!projectId,
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -183,6 +190,8 @@ export default function ProjectDetailPage() {
     },
     enabled: !!projectId,
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -197,6 +206,8 @@ export default function ProjectDetailPage() {
     },
     enabled: isAdminUser,
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -213,6 +224,8 @@ export default function ProjectDetailPage() {
     },
     enabled: !!projectId && isAdminUser,
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -469,28 +482,65 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Progress pill */}
+        {/* Progress pill — draggable for admins */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
           <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
-          <Progress value={safeNumber(projectProgress)} className={cn("h-1.5 w-16 rounded-full", getProgressColor(projectProgress))} />
-          {isAdminUser ? (
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={safeNumber(projectProgress)}
-              onChange={(e) => {
-                const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-                progressTimerRef.current = setTimeout(() => {
-                  handleUpdateProject({ progress: val });
-                }, 500);
-              }}
-              className="h-5 w-11 text-[10px] text-center font-bold p-0 border-0 shadow-none focus-visible:ring-0"
-            />
-          ) : (
-            <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
-          )}
+          {(() => {
+            const displayProgress = dragProgress !== null ? dragProgress : safeNumber(projectProgress);
+            const fillColor = displayProgress < 30 ? "bg-red-500" : displayProgress < 70 ? "bg-amber-500" : "bg-emerald-500";
+            const handleShadow = displayProgress < 30 ? "shadow-red-500/30" : displayProgress < 70 ? "shadow-amber-500/30" : "shadow-emerald-500/30";
+            const cursorClass = isAdminUser ? "cursor-pointer" : "cursor-default";
+            return (
+              <div className="flex items-center gap-1.5">
+                <div
+                  ref={progressTrackRef}
+                  className={cn("relative h-2 w-24 rounded-full bg-black/10 dark:bg-white/10 select-none", cursorClass)}
+                  onMouseDown={isAdminUser ? (e) => {
+                    e.preventDefault();
+                    const getVal = (ev: MouseEvent | React.MouseEvent) => {
+                      if (!progressTrackRef.current) return 0;
+                      const rect = progressTrackRef.current.getBoundingClientRect();
+                      const x = Math.max(0, Math.min(ev.clientX - rect.left, rect.width));
+                      return Math.round((x / rect.width) * 100);
+                    };
+                    const val = getVal(e);
+                    dragValueRef.current = val;
+                    setDragProgress(val);
+                    const handleMove = (ev: MouseEvent) => {
+                      const v = getVal(ev);
+                      dragValueRef.current = v;
+                      setDragProgress(v);
+                    };
+                    const handleUp = () => {
+                      document.removeEventListener("mousemove", handleMove);
+                      document.removeEventListener("mouseup", handleUp);
+                      const finalVal = dragValueRef.current;
+                      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+                      progressTimerRef.current = setTimeout(() => {
+                        handleUpdateProject({ progress: finalVal });
+                      }, 500);
+                      setDragProgress(null);
+                    };
+                    document.addEventListener("mousemove", handleMove);
+                    document.addEventListener("mouseup", handleUp);
+                  } : undefined}
+                >
+                  <div className={cn("absolute inset-y-0 left-0 rounded-full transition-[width] duration-75", fillColor, handleShadow)} style={{ width: `${displayProgress}%` }} />
+                  {isAdminUser && (
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 shadow-md transition-[left] duration-75 pointer-events-none"
+                      style={{ left: `calc(${displayProgress}% - 6px)`, backgroundColor: displayProgress < 30 ? "#ef4444" : displayProgress < 70 ? "#f59e0b" : "#10b981" }}
+                    />
+                  )}
+                </div>
+                {isAdminUser ? (
+                  <span className={cn("text-[11px] font-bold tabular-nums w-7 text-right", progressColorClass)}>{displayProgress}%</span>
+                ) : (
+                  <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{displayProgress}%</span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Budget pill (admin only) */}
