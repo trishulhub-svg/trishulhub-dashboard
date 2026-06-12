@@ -754,7 +754,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 border-b border-border bg-card flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
+        <header className="h-14 sm:h-16 glass-topbar flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
