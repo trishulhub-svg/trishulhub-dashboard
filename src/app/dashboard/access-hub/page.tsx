@@ -205,6 +205,12 @@ export default function AccessHubPage() {
   const initialTab = searchParams.get("tab") || "credentials";
   const [activeTab, setActiveTab] = useState(initialTab);
 
+  // When sidebar navigates (soft navigation), sync the URL ?tab= to state
+  useEffect(() => {
+    const tab = searchParams.get("tab") || "credentials";
+    setActiveTab(tab);
+  }, [searchParams]);
+
   // Sync tab to URL so sidebar highlighting stays correct
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
@@ -792,16 +798,6 @@ export default function AccessHubPage() {
       fetchLarkUsers();
     }
   }, [activeTab, larkUsersFetched, fetchLarkUsers]);
-
-  // Check URL param on mount for ?tab=lark-users
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("tab") === "lark-users") {
-        setActiveTab("lark-users");
-      }
-    }
-  }, []);
 
   /* ═══════════════════════════════════════════════════════════════
      WORKSPACE TOKEN HANDLERS
