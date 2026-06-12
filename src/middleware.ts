@@ -4,7 +4,7 @@ import { getToken } from "next-auth/jwt"
 
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
 // /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol"]
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol", "/api/lark/webhook"]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
