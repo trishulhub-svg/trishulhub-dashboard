@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   FileText, Upload, Download, Trash2, Loader2,
@@ -201,7 +201,15 @@ export default function AccessHubPage() {
   const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
 
   // ── Lark User Mapping state ──
-  const [activeTab, setActiveTab] = useState("credentials");
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") || "credentials";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Sync tab to URL so sidebar highlighting stays correct
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveTab(tab);
+    router.replace(`/dashboard/access-hub?tab=${tab}`, { scroll: false });
+  }, [router]);
   const [larkUsers, setLarkUsers] = useState<LarkUserMapping[]>([]);
   const [totalLarkUsers, setTotalLarkUsers] = useState(0);
   const [larkUsersLoading, setLarkUsersLoading] = useState(false);
@@ -1228,7 +1236,7 @@ export default function AccessHubPage() {
       />
 
       {isAdmin ? (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
           <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto">
             <div className="flex w-full sm:w-auto">
             <TabsTrigger value="credentials" className="gap-1.5">
@@ -2135,7 +2143,7 @@ export default function AccessHubPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium">Map Users & Enable Sync</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Go to the <button onClick={() => setActiveTab("lark-users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
+                                Go to the <button onClick={() => handleTabChange("lark-users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
                                 Then toggle the switch above to <b>Enable</b> 2-way sync.
                               </p>
                             </div>
@@ -2224,14 +2232,14 @@ export default function AccessHubPage() {
                       </a>
                       <span className="text-border">|</span>
                       <button
-                        onClick={() => setActiveTab("lark-users")}
+                        onClick={() => handleTabChange("lark-users")}
                         className="flex items-center gap-1 hover:text-primary transition-colors"
                       >
                         <UserCheck className="h-3 w-3" /> User Mapping
                       </button>
                       <span className="text-border">|</span>
                       <button
-                        onClick={() => setActiveTab("lark-users")}
+                        onClick={() => handleTabChange("lark-users")}
                         className="flex items-center gap-1 hover:text-primary transition-colors font-medium text-blue-600 dark:text-blue-400"
                       >
                         <Users className="h-3 w-3" /> Manage Users
