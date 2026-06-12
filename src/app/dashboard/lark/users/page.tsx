@@ -262,7 +262,7 @@ export default function LarkUserMappingPage() {
                   ) : user.autoMatchAvailable ? (
                     <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-600 bg-amber-500/5">
                       <Zap className="h-2.5 w-2.5 mr-1" />
-                      {user.matchMethod === "name_auto" ? "Name match" : "Can auto-match"}
+                      Can auto-match
                     </Badge>
                   ) : (
                     <Badge variant="secondary" className="text-[10px] text-muted-foreground">
