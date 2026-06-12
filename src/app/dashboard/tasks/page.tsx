@@ -143,10 +143,8 @@ export default function GlobalTaskBoardPage() {
       params.set("page", "1");
       params.set("limit", "100");
 
-      // Non-admin only sees their own tasks
-      if (!isAdminUser) {
-        params.set("assignedTo", "current");
-      }
+      // Developers see all tasks in their assigned projects (handled server-side by RBAC)
+      // No forced assignedTo filter — the API uses getAssignedProjectIds
 
       // Apply filters
       if (statusFilter !== "ALL") params.set("status", statusFilter);
@@ -212,8 +210,9 @@ export default function GlobalTaskBoardPage() {
   useEffect(() => {
     if (sessionStatus === "loading") return;
     fetchTasks();
+    // All users need project list for filtering; only admins need user list
+    fetchProjects();
     if (isAdminUser) {
-      fetchProjects();
       fetchUsers();
     }
   }, [sessionStatus, fetchTasks, fetchProjects, fetchUsers, isAdminUser]);
@@ -786,7 +785,7 @@ export default function GlobalTaskBoardPage() {
       <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground/70">
         <span>
           {String(filteredTasks.length)} tasks across {String(TASK_COLUMNS.length)} columns
-          {!isAdminUser && " (your tasks only)"}
+          {!isAdminUser && " (your project tasks)"}
         </span>
         {filteredTasks.length > 0 && (
           <div className="flex items-center gap-2">

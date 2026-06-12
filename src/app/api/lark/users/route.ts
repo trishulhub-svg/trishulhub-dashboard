@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
       if (larkUsers.length === 0) {
         larkError = "No Lark users found. Make sure the contact API is enabled and the app has the required permissions."
       } else if (larkUsers.length === 1) {
-        larkWarning = "Only 1 Lark user found (likely the app creator). On Lark free tier, only the app creator may be visible. Other team members need to be invited through the Lark admin console with proper contact permissions."
+        larkWarning = "Only 1 Lark user found (likely the app creator). On Lark free tier, you must set the app's contact data permission scope to 'All users'. Go to Lark Developer Console > your app > Permissions > Contact Data Permission Scope, and change it from 'App creator only' to 'All employees'. Then publish a new version."
       } else if (!larkUsers.some((lu) => lu.email)) {
         larkWarning = "Lark users found but without email addresses. Name-based matching is available. To enable email matching, enable the contact:contact.base:readonly scope in your Lark app settings."
       }
