@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { getLarkConfig, saveLarkConfig, validateLarkConfig, getLarkToken } from "@/lib/lark/auth"
 import { getTaskLists } from "@/lib/lark/client"
 import type { LarkConfig } from "@/lib/lark/types"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 // GET — Fetch current Lark config (masked secrets) + connection status
 export async function GET(req: NextRequest) {
@@ -105,6 +106,13 @@ export async function POST(req: NextRequest) {
     // Save config
     await saveLarkConfig(config)
 
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+      entityType: "lark-integration",
+      description: buildDescription("CONFIG_CHANGE", "Lark integration settings"),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({
       success: true,
       message: testConnection ? "Lark connection verified and settings saved" : "Lark settings saved",
@@ -137,6 +145,13 @@ export async function PATCH(req: NextRequest) {
 
     await saveLarkConfig({ ...existing, enabled })
 
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+      entityType: "lark-integration",
+      description: buildDescription("CONFIG_CHANGE", `Lark sync ${enabled ? "enabled" : "disabled"}`),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({
       success: true,
       message: enabled ? "Lark sync enabled" : "Lark sync disabled",

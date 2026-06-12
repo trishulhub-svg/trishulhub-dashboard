@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Bird, Link2, Unlink, UserCheck, Loader2, Zap,
-  CheckCircle2, XCircle, AlertCircle, Search, RefreshCw, ArrowRightLeft, Users,
+  CheckCircle2, XCircle, AlertCircle, Search, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -37,7 +37,6 @@ export default function LarkUserMappingPage() {
   const [loading, setLoading] = useState(true);
   const [autoMatching, setAutoMatching] = useState(false);
   const [search, setSearch] = useState("");
-  const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
@@ -102,28 +101,6 @@ export default function LarkUserMappingPage() {
     }
   };
 
-  const handleManualSync = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/lark/sync", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSyncResult(data.message);
-      } else {
-        setSyncResult("Sync failed");
-      }
-    } catch {
-      setSyncResult("Sync failed — check Lark connection");
-    } finally {
-      setSyncing(false);
-      setTimeout(() => setSyncResult(null), 8000);
-    }
-  };
-
   const filteredUsers = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -158,16 +135,6 @@ export default function LarkUserMappingPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleManualSync}
-            disabled={syncing}
-            className="h-8 text-xs"
-          >
-            {syncing ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ArrowRightLeft className="h-3 w-3 mr-1.5" />}
-            Sync Tasks
-          </Button>
           <Button
             size="sm"
             onClick={handleAutoMatch}
@@ -279,7 +246,7 @@ export default function LarkUserMappingPage() {
                         <Link2 className="h-3 w-3 text-emerald-600" />
                         <div className="text-right">
                           <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">{user.larkName}</p>
-                          <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70">{user.matchedBy === "email_auto" ? "Auto" : "Manual"}</p>
+                          <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70">{user.matchedBy === "email_auto" ? "Email" : user.matchedBy === "name_auto" ? "Name" : "Manual"}</p>
                         </div>
                       </div>
                       <Button
@@ -295,7 +262,7 @@ export default function LarkUserMappingPage() {
                   ) : user.autoMatchAvailable ? (
                     <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-600 bg-amber-500/5">
                       <Zap className="h-2.5 w-2.5 mr-1" />
-                      Can auto-match
+                      {user.matchMethod === "name_auto" ? "Name match" : "Can auto-match"}
                     </Badge>
                   ) : (
                     <Badge variant="secondary" className="text-[10px] text-muted-foreground">

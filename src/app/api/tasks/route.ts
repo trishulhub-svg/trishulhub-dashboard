@@ -10,6 +10,7 @@ import { syncTasksToGit } from "@/lib/git-sync"
 import { syncTaskToLark } from "@/lib/lark/sync"
 import { syncTaskUpdateToLark } from "@/lib/lark/sync"
 import { syncTaskDeleteToLark } from "@/lib/lark/sync"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -162,6 +163,12 @@ export async function GET(req: NextRequest) {
       createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
       larkTaskId: larkIds[t.id] || null,
     }))
+    void logAudit({
+      userId, userName: session.user.name || "unknown", userRole,
+      department: "TEAM_WORK", page: "tasks", action: "READ",
+      description: buildDescription("READ", "tasks"),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   }
 
@@ -255,6 +262,12 @@ export async function GET(req: NextRequest) {
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
     larkTaskId: larkIds[t.id] || null,
   }))
+  void logAudit({
+    userId, userName: session.user.name || "unknown", userRole,
+    department: "TEAM_WORK", page: "tasks", action: "READ",
+    description: buildDescription("READ", "tasks"),
+    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+  })
   return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   } catch (error: unknown) {
     console.error("[tasks] GET error:", error instanceof Error ? error.message : String(error))
@@ -408,6 +421,13 @@ export async function POST(req: NextRequest) {
     deadline: task.deadline || undefined,
   }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
+  void logAudit({
+    userId, userName: session.user.name || "unknown", userRole,
+    department: "TEAM_WORK", page: "tasks", action: "CREATE",
+    entityType: "task", entityId: task.id,
+    description: buildDescription("CREATE", "task", task.title),
+    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+  })
   return NextResponse.json(serializeTask(task), { status: 201 })
   } catch (error: unknown) {
     console.error("[tasks] POST error:", error instanceof Error ? error.message : String(error))

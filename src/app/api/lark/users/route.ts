@@ -52,7 +52,14 @@ export async function GET(req: NextRequest) {
     // Build response with mapping status
     const result = users.map((user) => {
       const mapping = mappingMap.get(user.id)
-      const larkUser = larkUsers.find((lu) => lu.email?.toLowerCase() === user.email.toLowerCase())
+
+      // Try email match first, then name match as fallback
+      const larkUserByEmail = larkUsers.find((lu) => lu.email?.toLowerCase() === user.email?.toLowerCase())
+      const larkUserByName = !larkUserByEmail && user.name
+        ? larkUsers.find((lu) => lu.name?.toLowerCase() === user.name.toLowerCase())
+        : null
+      const larkUser = larkUserByEmail || larkUserByName
+      const matchMethod = larkUserByEmail ? "email_auto" : larkUserByName ? "name_auto" : null
 
       return {
         id: user.id,
@@ -61,11 +68,12 @@ export async function GET(req: NextRequest) {
         role: user.role,
         department: user.department,
         larkMapped: !!mapping,
-        larkOpenId: mapping?.larkOpenId || null,
+        larkOpenId: mapping?.larkOpenId || larkUser?.open_id || null,
         larkName: mapping?.larkName || larkUser?.name || null,
-        larkEmail: mapping?.larkEmail || larkUser?.email || null,
-        matchedBy: mapping?.matchedBy || null,
+        larkEmail: mapping?.larkEmail || larkUserByEmail?.email || null,
+        matchedBy: mapping?.matchedBy || matchMethod,
         autoMatchAvailable: !mapping && !!larkUser,
+        matchMethod: matchMethod || null, // tells UI how the match was found
       }
     })
 
@@ -160,32 +168,39 @@ export async function PATCH(req: NextRequest) {
 
     // Get all Lark users
     const larkUsers = await getAllUsers()
+
+    // Build lookup maps: email → Lark user, name → Lark user
     const larkByEmail = new Map<string, { open_id: string; name: string; email?: string }>()
+    const larkByName = new Map<string, { open_id: string; name: string; email?: string }>()
     for (const lu of larkUsers) {
-      if (lu.email) {
-        larkByEmail.set(lu.email.toLowerCase(), lu)
-      }
+      if (lu.email) larkByEmail.set(lu.email.toLowerCase(), lu)
+      if (lu.name) larkByName.set(lu.name.toLowerCase(), lu)
     }
 
     let matched = 0
     for (const user of users) {
       if (mappedUserIds.has(user.id)) continue
-      if (!user.email) continue
 
-      const larkUser = larkByEmail.get(user.email.toLowerCase())
-      if (larkUser) {
-        await db.$executeRawUnsafe(
-          `INSERT OR IGNORE INTO "LarkUserMapping" ("id", "userId", "larkOpenId", "larkName", "larkEmail", "matchedBy", "createdAt")
-           VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-          `map_${user.id}_${Date.now()}`,
-          user.id,
-          larkUser.open_id,
-          larkUser.name || "",
-          larkUser.email || "",
-          "email_auto"
-        )
-        matched++
+      // Try email first, then name as fallback
+      let larkUser = user.email ? larkByEmail.get(user.email.toLowerCase()) : null
+      let matchBy = "email_auto"
+      if (!larkUser && user.name) {
+        larkUser = larkByName.get(user.name.toLowerCase())
+        matchBy = "name_auto"
       }
+      if (!larkUser) continue
+
+      await db.$executeRawUnsafe(
+        `INSERT OR IGNORE INTO "LarkUserMapping" ("id", "userId", "larkOpenId", "larkName", "larkEmail", "matchedBy", "createdAt")
+         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        `map_${user.id}_${Date.now()}`,
+        user.id,
+        larkUser.open_id,
+        larkUser.name || "",
+        larkUser.email || "",
+        matchBy
+      )
+      matched++
     }
 
     return NextResponse.json({ success: true, matched, total: users.length })
