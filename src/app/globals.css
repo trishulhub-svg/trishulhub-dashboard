@@ -51,7 +51,7 @@
   --card-foreground: oklch(0.145 0.005 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0.005 0);
-  --primary: oklch(0.55 0.2 25);
+  --primary: oklch(0.55 0.1 235);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.965 0.01 25);
   --secondary-foreground: oklch(0.25 0.02 25);
@@ -62,7 +62,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.91 0.005 0);
   --input: oklch(0.91 0.005 0);
-  --ring: oklch(0.55 0.2 25);
+  --ring: oklch(0.55 0.1 235);
   --chart-1: oklch(0.55 0.2 25);
   --chart-2: oklch(0.6 0.15 145);
   --chart-3: oklch(0.5 0.18 270);
@@ -85,7 +85,7 @@
   --card-foreground: oklch(0.985 0.002 0);
   --popover: oklch(0.18 0.005 0);
   --popover-foreground: oklch(0.985 0.002 0);
-  --primary: oklch(0.65 0.2 25);
+  --primary: oklch(0.65 0.1 235);
   --primary-foreground: oklch(0.13 0.005 0);
   --secondary: oklch(0.25 0.02 25);
   --secondary-foreground: oklch(0.985 0.002 0);
@@ -150,6 +150,96 @@
 /* Blue light scrollbar override */
 .bluelight .custom-scrollbar::-webkit-scrollbar-thumb {
   background: oklch(0.65 0.03 75);
+}
+
+/* ── Brand Gradient ── */
+/* Gradient from brand blue (#1889CC) to brand green (#5ACB38) */
+/* Used for accents, decorative elements, and primary backgrounds */
+:root {
+  --brand-gradient: linear-gradient(135deg, oklch(0.58 0.12 240), oklch(0.72 0.19 145));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.53 0.13 240), oklch(0.67 0.2 145));
+}
+.dark {
+  --brand-gradient: linear-gradient(135deg, oklch(0.63 0.11 240), oklch(0.72 0.16 145));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.58 0.12 240), oklch(0.67 0.17 145));
+}
+.bluelight {
+  --brand-gradient: linear-gradient(135deg, oklch(0.6 0.1 220), oklch(0.7 0.15 145));
+  --brand-gradient-hover: linear-gradient(135deg, oklch(0.55 0.11 220), oklch(0.65 0.16 145));
+}
+
+/* ── Liquid Glass (Glassmorphism) Effect ── */
+/* Subtle frosted glass for cards and surfaces — Apple-inspired */
+.liquid-glass {
+  background: oklch(1 0 0 / 65%);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid oklch(1 0 0 / 30%);
+  box-shadow: 
+    0 0 0 0.5px oklch(0 0 0 / 5%),
+    0 2px 8px oklch(0 0 0 / 4%),
+    inset 0 1px 0 oklch(1 0 0 / 50%);
+}
+.dark .liquid-glass {
+  background: oklch(0.2 0 0 / 60%);
+  border: 1px solid oklch(1 0 0 / 8%);
+  box-shadow: 
+    0 0 0 0.5px oklch(1 0 0 / 5%),
+    0 2px 12px oklch(0 0 0 / 20%),
+    inset 0 1px 0 oklch(1 0 0 / 6%);
+}
+.bluelight .liquid-glass {
+  background: oklch(0.97 0.01 75 / 70%);
+  border: 1px solid oklch(0.85 0.02 75 / 50%);
+}
+
+/* Glass sidebar */
+.liquid-glass-sidebar {
+  background: oklch(0.985 0.004 200 / 80%);
+  backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  border-right: 1px solid oklch(1 0 0 / 25%);
+}
+.dark .liquid-glass-sidebar {
+  background: oklch(0.14 0.008 200 / 80%);
+  border-right: 1px solid oklch(1 0 0 / 6%);
+}
+.bluelight .liquid-glass-sidebar {
+  background: oklch(0.95 0.015 75 / 80%);
+  border-right: 1px solid oklch(0.82 0.02 75 / 50%);
+}
+
+/* Glass cards — more refined, for main content cards */
+.liquid-glass-card {
+  background: oklch(1 0 0 / 70%);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid oklch(1 0 0 / 35%);
+  box-shadow: 
+    0 1px 3px oklch(0 0 0 / 3%),
+    0 0 0 0.5px oklch(0 0 0 / 4%);
+}
+.dark .liquid-glass-card {
+  background: oklch(0.18 0.005 200 / 70%);
+  border: 1px solid oklch(1 0 0 / 8%);
+  box-shadow: 
+    0 1px 6px oklch(0 0 0 / 15%),
+    0 0 0 0.5px oklch(1 0 0 / 5%);
+}
+
+/* Gradient accent for decorative bars and highlights */
+.brand-gradient-bar {
+  background: var(--brand-gradient);
+}
+
+/* Reduced motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass,
+  .liquid-glass-sidebar,
+  .liquid-glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 @layer base {

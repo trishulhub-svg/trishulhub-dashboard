@@ -178,7 +178,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card
           onClick={() => router.push("/dashboard/projects")}
-          className="cursor-pointer hover:shadow-md transition-shadow"
+          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -199,7 +199,7 @@ export default function DashboardPage() {
           <>
             <Card
               onClick={() => router.push("/dashboard/crm")}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -217,7 +217,7 @@ export default function DashboardPage() {
 
             <Card
               onClick={() => router.push("/dashboard/finance")}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -240,7 +240,7 @@ export default function DashboardPage() {
           <>
             <Card
               onClick={() => router.push("/dashboard/projects")}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -258,7 +258,7 @@ export default function DashboardPage() {
 
             <Card
               onClick={() => router.push("/dashboard/projects")}
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -278,7 +278,7 @@ export default function DashboardPage() {
 
         <Card
           onClick={() => router.push("/dashboard/projects")}
-          className="cursor-pointer hover:shadow-md transition-shadow"
+          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between">

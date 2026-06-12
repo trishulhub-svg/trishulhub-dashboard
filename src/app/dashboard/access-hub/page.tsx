@@ -677,6 +677,25 @@ export default function AccessHubPage() {
     } catch { /* fallback */ }
   };
 
+  const handleCopyPassword = async (credId: string, fieldId: string) => {
+    try {
+      const res = await fetch(`/api/credentials/${credId}/reveal`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const realPassword = data.password;
+        if (realPassword) {
+          await copyToClipboard(realPassword, fieldId);
+        } else {
+          toast.error("Password not found");
+        }
+      } else {
+        toast.error("Failed to fetch password");
+      }
+    } catch {
+      toast.error("Failed to copy password");
+    }
+  };
+
   const resetCredForm = () => {
     setFormLabel("");
     setFormUsername("");
@@ -1176,7 +1195,7 @@ export default function AccessHubPage() {
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
                           <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
@@ -1809,7 +1828,7 @@ export default function AccessHubPage() {
 
                     {/* Quick links */}
                     <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
-                      <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+                      <a href="https://open.larksuite.com/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
                         <Globe className="h-3 w-3" /> Lark Developer Console
                       </a>
                       <span className="text-border">|</span>
@@ -1872,7 +1891,7 @@ export default function AccessHubPage() {
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
                           <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>

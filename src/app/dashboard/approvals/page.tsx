@@ -1246,11 +1246,11 @@ export default function ApprovalsPage() {
         <TabsContent value="leaves" className="mt-4">
           {loading ? (
             renderLoading()
-          ) : (isAdminUser ? pendingLeaves : myLeaves).length === 0 ? (
-            renderEmpty(isAdminUser ? "No pending leave requests." : "No leave requests found.")
+          ) : (isAdminUser ? leaveRequests : myLeaves).length === 0 ? (
+            renderEmpty(isAdminUser ? "No leave requests found." : "No leave requests found.")
           ) : (
             <div className="space-y-3">
-              {(isAdminUser ? pendingLeaves : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
+              {(isAdminUser ? leaveRequests : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
             </div>
           )}
         </TabsContent>

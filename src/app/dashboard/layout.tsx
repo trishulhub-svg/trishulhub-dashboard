@@ -585,7 +585,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar - wider and more spacious */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40",
+          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40 liquid-glass-sidebar",
           collapsed ? "w-[72px]" : "w-[280px]"
         )}
       >

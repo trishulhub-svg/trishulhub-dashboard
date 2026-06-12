@@ -4,7 +4,7 @@ import { getLarkToken, getLarkConfig } from "./auth"
 import type { LarkTask, LarkTaskList, LarkUser, LarkConfig } from "./types"
 import { STATUS_TO_LARK, PRIORITY_TO_LARK } from "./types"
 
-const LARK_BASE = "https://open.feishu.cn/open-apis"
+const LARK_BASE = "https://open.larksuite.com/open-apis"
 
 /** Make an authenticated Lark API request */
 async function larkFetch(path: string, options: RequestInit = {}): Promise<{ code: number; msg: string; data: Record<string, unknown> }> {
@@ -283,7 +283,7 @@ export async function getAllUsers(): Promise<LarkUser[]> {
   let pageToken = ""
 
   do {
-    const params = new URLSearchParams({ page_size: "50", user_id_type: "open_id" })
+    const params = new URLSearchParams({ page_size: "50", user_id_type: "open_id", department_id: "0" })
     if (pageToken) params.set("page_token", pageToken)
 
     const res = await larkFetch(`/contact/v3/users?${params.toString()}`)

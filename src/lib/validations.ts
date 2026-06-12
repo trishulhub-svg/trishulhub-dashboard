@@ -304,6 +304,7 @@ export const createMeetingSchema = z.object({
   projectId: z.string().optional(),
   attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
   notes: z.string().max(2000).optional(),
+  externalAttendeeEmails: z.array(z.string().email("Invalid email address")).max(20, "Maximum 20 external attendees").optional(),
 }).refine(
   (data) => {
     if (data.startTime && data.endTime) {

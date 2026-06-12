@@ -7,7 +7,7 @@ import {
   Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
   Phone, Monitor, ChevronDown, ChevronUp, X, Check,
   CalendarDays, CalendarRange, List, Grid3X3,
-  StickyNote, Link2,
+  StickyNote, Link2, History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -242,6 +242,9 @@ export default function MeetingsPage() {
   const [formAttendeeIds, setFormAttendeeIds] = useState<string[]>([]);
   const [formNotes, setFormNotes] = useState("");
 
+  const [pastMeetings, setPastMeetings] = useState<Meeting[]>([]);
+  const [showPast, setShowPast] = useState(true);
+
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
   const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -267,6 +270,16 @@ export default function MeetingsPage() {
     } finally {
       setLoading(false);
     }
+
+    // Fetch past meetings (non-blocking)
+    const todayStr = new Date().toISOString().split('T')[0];
+    try {
+      const pastRes = await fetch(`/api/meetings?startDate=2020-01-01&endDate=${todayStr}`, { credentials: "include", signal });
+      if (pastRes.ok) {
+        const pastData = await pastRes.json();
+        setPastMeetings(safeArray<Meeting>(pastData.data || pastData).filter(m => m.status !== 'CANCELLED').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      }
+    } catch { /* non-blocking */ }
   }, []);
 
   const fetchTeamAndProjects = useCallback(async () => {
@@ -747,6 +760,47 @@ export default function MeetingsPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Past Meetings */}
+          {pastMeetings.length > 0 && (
+            <>
+              <Separator className="my-4" />
+              <div>
+                <button
+                  onClick={() => setShowPast(!showPast)}
+                  className="flex items-center gap-2 w-full text-left mb-3 group"
+                  type="button"
+                >
+                  <History className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  {showPast ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                    Past Meetings
+                  </h2>
+                  <Badge variant="secondary" className="text-xs">
+                    {pastMeetings.length}
+                  </Badge>
+                </button>
+                {showPast && (
+                  <div className="space-y-3 opacity-70">
+                    {pastMeetings.map((meeting) => (
+                      <MeetingCard
+                        key={`past-${meeting.id}`}
+                        meeting={meeting}
+                        userId={userId}
+                        isAdmin={isAdmin}
+                        onOpenDetail={openDetail}
+                        onRsvp={handleRsvp}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       ) : (
@@ -1322,6 +1376,11 @@ function MeetingCard({
   const userRsvp = meeting.attendees.find((a) => a.userId === userId)?.rsvpStatus;
   const isOrganizer = meeting.organizerId === userId;
 
+  const meetingDate = new Date(meeting.date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isPastMeeting = meetingDate < today;
+
   return (
     <Card
       className={cn(
@@ -1435,7 +1494,7 @@ function MeetingCard({
           </div>
 
           {/* Google Meet Join Button */}
-          {meeting.meetingType === "VIRTUAL" && meeting.meetingLink && meeting.status !== "CANCELLED" && (
+          {meeting.meetingType === "VIRTUAL" && meeting.meetingLink && meeting.status !== "CANCELLED" && !isPastMeeting && (
             <div
               className="shrink-0"
               onClick={(e) => e.stopPropagation()}
@@ -1444,6 +1503,17 @@ function MeetingCard({
                 <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
                   <Video className="h-4 w-4 mr-1.5" />
                   Join
+                </Button>
+              </a>
+            </div>
+          )}
+          {/* Past meeting - show dimmed link indicator */}
+          {meeting.meetingType === "VIRTUAL" && meeting.meetingLink && isPastMeeting && (
+            <div className="shrink-0 opacity-40" onClick={(e) => e.stopPropagation()}>
+              <a href={safeMeetingLink(meeting.meetingLink)} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="ghost" className="text-xs">
+                  <Link2 className="h-4 w-4 mr-1" />
+                  Link
                 </Button>
               </a>
             </div>

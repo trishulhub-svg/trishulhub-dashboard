@@ -65,7 +65,7 @@ export async function getLarkToken(): Promise<string | null> {
   }
 
   try {
-    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    const res = await fetch("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -104,7 +104,7 @@ export async function getLarkToken(): Promise<string | null> {
  */
 export async function validateLarkConfig(config: LarkConfig): Promise<{ valid: boolean; error?: string }> {
   try {
-    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    const res = await fetch("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
