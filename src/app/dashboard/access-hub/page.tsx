@@ -259,6 +259,8 @@ export default function AccessHubPage() {
   const [credsError, setCredsError] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, string>>({});
+  const [revealingId, setRevealingId] = useState<string | null>(null);
   const [deleteProtocolDialogOpen, setDeleteProtocolDialogOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("all");
@@ -883,6 +885,32 @@ export default function AccessHubPage() {
     } catch { /* fallback */ }
   };
 
+  const handleRevealPassword = async (credId: string) => {
+    // If already revealed, toggle off
+    if (revealedPasswords[credId]) {
+      setRevealedPasswords((prev) => {
+        const next = { ...prev };
+        delete next[credId];
+        return next;
+      });
+      return;
+    }
+    setRevealingId(credId);
+    try {
+      const res = await authFetch(`/api/credentials/${credId}/reveal`);
+      if (!res.ok) {
+        toast.error("Failed to reveal password");
+        return;
+      }
+      const data = await res.json();
+      setRevealedPasswords((prev) => ({ ...prev, [credId]: data.password }));
+    } catch {
+      toast.error("Failed to reveal password");
+    } finally {
+      setRevealingId(null);
+    }
+  };
+
   const resetCredForm = () => {
     setFormLabel("");
     setFormUsername("");
@@ -1143,12 +1171,12 @@ export default function AccessHubPage() {
                 className="pr-20 font-mono text-xs bg-muted/50"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                    <button type="button" onClick={handleCopyWsToken} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                       {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                     </button>
                   </TooltipTrigger>
@@ -1193,12 +1221,12 @@ export default function AccessHubPage() {
                 className="pr-20 font-mono text-xs bg-muted/50"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   {showMyCode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" onClick={handleCopyMyCode} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                    <button type="button" onClick={handleCopyMyCode} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                       {copiedMyCode ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                     </button>
                   </TooltipTrigger>
@@ -1387,8 +1415,11 @@ export default function AccessHubPage() {
                       <div className="space-y-1">
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
-                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{revealedPasswords[cred.id] || safeText(cred.password, "••••••••••••")}</code>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={revealingId === cred.id} onClick={() => handleRevealPassword(cred.id)} aria-label={revealedPasswords[cred.id] ? "Hide password" : "Reveal password"}>
+                            {revealingId === cred.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : revealedPasswords[cred.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(revealedPasswords[cred.id] || cred.password, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
@@ -1838,7 +1869,7 @@ export default function AccessHubPage() {
                       <Label htmlFor="git-token" className="text-xs">Access Token</Label>
                       <div className="relative">
                         <Input id="git-token" type={showToken ? "text" : "password"} placeholder={gitConfig?.tokenMasked || "ghp_xxxxxxxxxxxx"} value={gitForm.token} onChange={(e) => setGitForm((prev) => ({ ...prev, token: e.target.value }))} className="pr-10 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "Hide access token" : "Show access token"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        <button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "Hide access token" : "Show access token"} className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                           {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                       </div>
@@ -1938,12 +1969,12 @@ export default function AccessHubPage() {
                       <Label htmlFor="enc-key" className="text-xs">New Encryption Key (64-char hex)</Label>
                       <div className="relative">
                         <Input id="enc-key" type={showEncKey ? "text" : "password"} placeholder="64-character hex string" value={encKeyForm} onChange={(e) => setEncKeyForm(e.target.value)} className="pr-20 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} aria-label={showEncKey ? "Hide encryption key" : "Show encryption key"} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} aria-label={showEncKey ? "Hide encryption key" : "Show encryption key"} className="absolute right-10 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                           {showEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <button type="button" onClick={handleGenerateKey} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors">
+                            <button type="button" onClick={handleGenerateKey} className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-muted transition-colors">
                               <RefreshCw className="h-3.5 w-3.5" />
                             </button>
                           </TooltipTrigger>
@@ -1991,14 +2022,14 @@ export default function AccessHubPage() {
                         />
                         <button
                           type="button"
-                          className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          className="absolute right-8 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                           onClick={() => setShowCredEncKey(!showCredEncKey)}
                         >
                           {showCredEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                         <button
                           type="button"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                           onClick={() => {
                             const bytes = new Uint8Array(32);
                             crypto.getRandomValues(bytes);
@@ -2292,8 +2323,11 @@ export default function AccessHubPage() {
                       <div className="space-y-1">
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
-                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{revealedPasswords[cred.id] || safeText(cred.password, "••••••••••••")}</code>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={revealingId === cred.id} onClick={() => handleRevealPassword(cred.id)} aria-label={revealedPasswords[cred.id] ? "Hide password" : "Reveal password"}>
+                            {revealingId === cred.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : revealedPasswords[cred.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(revealedPasswords[cred.id] || cred.password, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>

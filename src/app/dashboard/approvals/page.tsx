@@ -566,9 +566,9 @@ export default function ApprovalsPage() {
     return (
       <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${approvalTypeColors[item.type] || "bg-muted"}`}>
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${approvalTypeColors[item.type] || "bg-muted"}`}>
                 {item.type === "CHAT_DELETION" ? (
                   <Trash2 className="h-5 w-5" />
                 ) : item.requesterType === "AI" ? (
@@ -601,12 +601,12 @@ export default function ApprovalsPage() {
                 </div>
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <Badge variant={statusBadgeVariant[item.status] || "secondary"} className="text-xs">
                 {item.status.replace(/_/g, " ")}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1">
-                {new Date(item.createdAt).toLocaleString()}
+                {new Date(item.createdAt).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -666,6 +666,7 @@ export default function ApprovalsPage() {
                 </Button>
                 <Button
                   variant="destructive"
+                  className="flex-1"
                   disabled={actionLoading[item.id]}
                   onClick={() => handleAiApproval(item.id, "REJECTED")}
                 >
@@ -684,9 +685,9 @@ export default function ApprovalsPage() {
     return (
       <Card key={leave.id} className={`border ${statusColors[leave.status] || ""}`}>
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10">
+              <Avatar className="h-10 w-10 shrink-0">
                 <AvatarImage src={leave.user?.avatar || undefined} alt={safeText(leave.user?.name, "")} />
                 <AvatarFallback>{getInitials(safeText(leave.user?.name, "?"))}</AvatarFallback>
               </Avatar>
@@ -705,12 +706,12 @@ export default function ApprovalsPage() {
                 </div>
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <Badge variant={statusBadgeVariant[leave.status] || "secondary"} className="text-xs">
                 {leave.status.replace(/_/g, " ")}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1">
-                {new Date(leave.createdAt).toLocaleString()}
+                {new Date(leave.createdAt).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -767,9 +768,9 @@ export default function ApprovalsPage() {
     return (
       <Card key={task.id} className={`border ${statusColors[task.status] || ""}`}>
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${priorityBadge[task.priority] || "bg-muted"}`}>
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${priorityBadge[task.priority] || "bg-muted"}`}>
                 <ClipboardList className="h-5 w-5" />
               </div>
               <div>
@@ -787,12 +788,12 @@ export default function ApprovalsPage() {
                 </div>
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <Badge variant={statusBadgeVariant[task.status] || "secondary"} className="text-xs">
                 {task.status.replace(/_/g, " ")}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1">
-                {new Date(task.updatedAt).toLocaleString()}
+                {new Date(task.updatedAt).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -856,9 +857,9 @@ export default function ApprovalsPage() {
     return (
       <Card key={item.id} className="border border-yellow-300 bg-yellow-50/50 dark:border-yellow-700 dark:bg-yellow-900/10">
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${src.color}`}>
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${src.color}`}>
                 {src.icon}
               </div>
               <div>
@@ -882,7 +883,7 @@ export default function ApprovalsPage() {
                     <Badge variant="outline" className="text-[10px]">AI Requested</Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {new Date(approval.createdAt).toLocaleString()}
+                    {new Date(approval.createdAt).toLocaleDateString()}
                   </span>
                 </div>
               </div>
@@ -1246,11 +1247,11 @@ export default function ApprovalsPage() {
         <TabsContent value="leaves" className="mt-4">
           {loading ? (
             renderLoading()
-          ) : (isAdminUser ? pendingLeaves : myLeaves).length === 0 ? (
-            renderEmpty(isAdminUser ? "No pending leave requests." : "No leave requests found.")
+          ) : (isAdminUser ? leaveRequests : myLeaves).length === 0 ? (
+            renderEmpty(isAdminUser ? "No leave requests." : "No leave requests found.")
           ) : (
             <div className="space-y-3">
-              {(isAdminUser ? pendingLeaves : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
+              {(isAdminUser ? leaveRequests : myLeaves).map((leave) => renderLeaveCard(leave, isAdminUser))}
             </div>
           )}
         </TabsContent>

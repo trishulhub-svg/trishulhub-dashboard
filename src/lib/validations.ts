@@ -303,6 +303,7 @@ export const createMeetingSchema = z.object({
     .or(z.literal("")),
   projectId: z.string().optional(),
   attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
+  externalAttendeeEmails: z.array(z.string().email("Invalid email address")).max(20, "Maximum 20 external attendees").optional(),
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {

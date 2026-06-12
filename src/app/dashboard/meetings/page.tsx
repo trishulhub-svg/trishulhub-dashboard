@@ -7,7 +7,7 @@ import {
   Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
   Phone, Monitor, ChevronDown, ChevronUp, X, Check,
   CalendarDays, CalendarRange, List, Grid3X3,
-  StickyNote, Link2,
+  StickyNote, Link2, Mail, History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -216,6 +216,8 @@ export default function MeetingsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [pastMeetings, setPastMeetings] = useState<Meeting[]>([]);
+  const [showPast, setShowPast] = useState(true);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -226,7 +228,7 @@ export default function MeetingsPage() {
   const [editMode, setEditMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Today: true, Tomorrow: true, "This Week": true, Later: true });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Today: true, Tomorrow: true, "This Week": true, Later: true, "Past Meetings": true });
 
   const [cancelMeetingId, setCancelMeetingId] = useState<string | null>(null);
 
@@ -240,6 +242,8 @@ export default function MeetingsPage() {
   const [formMeetingLink, setFormMeetingLink] = useState("");
   const [formProjectId, setFormProjectId] = useState("");
   const [formAttendeeIds, setFormAttendeeIds] = useState<string[]>([]);
+  const [formExternalEmails, setFormExternalEmails] = useState<string[]>([]);
+  const [externalEmailInput, setExternalEmailInput] = useState("");
   const [formNotes, setFormNotes] = useState("");
 
   const userRole = session?.user?.role || "DEVELOPER";
@@ -248,17 +252,34 @@ export default function MeetingsPage() {
 
   const fetchMeetings = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/meetings", { credentials: "include", signal });
+      const today = new Date().toISOString().split("T")[0];
+      const [res, pastRes] = await Promise.all([
+        fetch("/api/meetings", { credentials: "include", signal }),
+        fetch(`/api/meetings?startDate=2020-01-01&endDate=${today}`, { credentials: "include", signal }),
+      ]);
+
       if (res.status === 401) { router.push("/login"); return; }
+
       if (res.ok) {
         const data = await res.json();
         setMeetings(safeArray<Meeting>(data.data || data));
       } else {
-        // Show error for non-ok responses (500, 429, etc.)
         try {
           const errData = await res.json();
           console.error("[meetings] API error:", errData);
         } catch { /* ignore parse error */ }
+      }
+
+      if (pastRes.ok) {
+        const pastData = await pastRes.json();
+        setPastMeetings(safeArray<Meeting>(pastData.data || pastData)
+          .filter((m: Meeting) => m.status !== "CANCELLED")
+          .sort((a: Meeting, b: Meeting) => {
+            const dc = new Date(b.date).getTime() - new Date(a.date).getTime();
+            if (dc !== 0) return dc;
+            return b.startTime.localeCompare(a.startTime);
+          })
+        );
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -380,6 +401,8 @@ export default function MeetingsPage() {
     setFormMeetingLink("");
     setFormProjectId("");
     setFormAttendeeIds([]);
+    setFormExternalEmails([]);
+    setExternalEmailInput("");
     setFormNotes("");
     setEditMode(false);
   };
@@ -429,6 +452,7 @@ export default function MeetingsPage() {
         meetingLink: formMeetingLink || undefined,
         projectId: formProjectId === "none" ? undefined : (formProjectId || undefined),
         attendeeIds: formAttendeeIds,
+        externalAttendeeEmails: formExternalEmails.length > 0 ? formExternalEmails : undefined,
         notes: formNotes || undefined,
       };
 
@@ -710,6 +734,45 @@ export default function MeetingsPage() {
                 </div>
               );
             })
+          )}
+
+          {/* Past Meetings */}
+          {pastMeetings.length > 0 && (
+            <div className="mt-4">
+              <Separator className="mb-4" />
+              <button
+                onClick={() => toggleGroup("Past Meetings")}
+                className="flex items-center gap-2 w-full text-left mb-3 group"
+                type="button"
+              >
+                {expandedGroups["Past Meetings"] !== false ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                )}
+                <History className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  Past Meetings
+                </h2>
+                <Badge variant="secondary" className="text-xs">
+                  {pastMeetings.length}
+                </Badge>
+              </button>
+              {expandedGroups["Past Meetings"] !== false && (
+                <div className="space-y-3 opacity-70">
+                  {pastMeetings.map((meeting) => (
+                    <MeetingCard
+                      key={meeting.id}
+                      meeting={meeting}
+                      userId={userId}
+                      isAdmin={false}
+                      onOpenDetail={openDetail}
+                      onRsvp={handleRsvp}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Cancelled meetings */}
@@ -1055,6 +1118,91 @@ export default function MeetingsPage() {
                 <p className="text-xs text-muted-foreground mt-1">
                   {formAttendeeIds.length} attendee{formAttendeeIds.length > 1 ? "s" : ""} selected
                 </p>
+              )}
+            </div>
+
+            {/* External Attendees */}
+            <div>
+              <Label className="flex items-center gap-2">
+                <Mail className="h-3.5 w-3.5" />
+                External Attendees
+              </Label>
+              <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">Add people outside the organization by email</p>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  type="email"
+                  value={externalEmailInput}
+                  onChange={(e) => setExternalEmailInput(e.target.value)}
+                  placeholder="colleague@company.com"
+                  className="flex-1 h-8 text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const email = externalEmailInput.trim().toLowerCase();
+                      if (!email) return;
+                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                        toast.error("Invalid email address");
+                        return;
+                      }
+                      if (formExternalEmails.includes(email)) {
+                        toast.error("Email already added");
+                        return;
+                      }
+                      if (formExternalEmails.length >= 20) {
+                        toast.error("Maximum 20 external attendees");
+                        return;
+                      }
+                      setFormExternalEmails((prev) => [...prev, email]);
+                      setExternalEmailInput("");
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3"
+                  onClick={() => {
+                    const email = externalEmailInput.trim().toLowerCase();
+                    if (!email) return;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                      toast.error("Invalid email address");
+                      return;
+                    }
+                    if (formExternalEmails.includes(email)) {
+                      toast.error("Email already added");
+                      return;
+                    }
+                    if (formExternalEmails.length >= 20) {
+                      toast.error("Maximum 20 external attendees");
+                      return;
+                    }
+                    setFormExternalEmails((prev) => [...prev, email]);
+                    setExternalEmailInput("");
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+              {formExternalEmails.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {formExternalEmails.map((email) => (
+                    <Badge
+                      key={email}
+                      variant="secondary"
+                      className="flex items-center gap-1 text-xs pl-2 pr-1 py-0.5"
+                    >
+                      <span className="max-w-[180px] truncate">{email}</span>
+                      <button
+                        type="button"
+                        onClick={() => setFormExternalEmails((prev) => prev.filter((e) => e !== email))}
+                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
               )}
             </div>
 

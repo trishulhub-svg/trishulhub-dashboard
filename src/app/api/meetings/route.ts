@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createMeetingSchema, validateRequest } from "@/lib/validations"
 import { meetingRateLimit } from "@/lib/rate-limit"
+import { sendEmailWithFailover, isValidEmail, isDisposableEmail } from "@/lib/email"
 
 // GET /api/meetings - List meetings with filters
 export async function GET(req: NextRequest) {
@@ -253,6 +254,54 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.warn("[meetings] Failed to create notification:", err)
         }
+      })
+    )
+
+    // Send email invitations to all attendees (internal + external)
+    const externalEmails = validation.data.externalAttendeeEmails || []
+    let internalEmails: string[] = []
+    if (attendeeIds && attendeeIds.length > 0) {
+      const internalUsers = await db.user.findMany({
+        where: { id: { in: attendeeIds } },
+        select: { name: true, email: true },
+      })
+      internalEmails = internalUsers.map(u => u.email)
+    }
+    const allEmails = [...internalEmails, ...externalEmails]
+    const seenEmails = new Set<string>()
+    const uniqueEmails = allEmails.filter(e => {
+      if (seenEmails.has(e)) return false
+      seenEmails.add(e)
+      return true
+    })
+
+    const meetingDateStr = new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    const meetingHtml = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;padding:20px;">
+      <div style="background:linear-gradient(135deg,#5ACB38,#1889CC);padding:20px;border-radius:12px 12px 0 0;text-align:center;">
+        <h1 style="color:white;margin:0;font-size:24px;">TrishulHub</h1>
+      </div>
+      <div style="background:white;padding:30px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
+        <h2 style="margin:0 0 16px;color:#1a1a1a;">Meeting Invitation: ${title}</h2>
+        <p style="color:#4b5563;margin:8px 0;"><strong>Date:</strong> ${meetingDateStr}</p>
+        <p style="color:#4b5563;margin:8px 0;"><strong>Time:</strong> ${startTime}${endTime ? ` - ${endTime}` : ''}</p>
+        <p style="color:#4b5563;margin:8px 0;"><strong>Type:</strong> ${meetingType || 'Virtual'}</p>
+        ${description ? `<p style="color:#4b5563;margin:8px 0;"><strong>Description:</strong> ${description}</p>` : ''}
+        ${meetingLink ? `<p style="margin:16px 0;text-align:center;"><a href="${meetingLink}" style="background:#1889CC;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">Join Meeting</a></p>` : ''}
+        ${notes ? `<p style="color:#6b7280;margin:16px 0;padding:12px;background:#f9fafb;border-radius:8px;font-size:14px;"><strong>Notes:</strong> ${notes}</p>` : ''}
+      </div>
+      <p style="text-align:center;color:#9ca3af;font-size:12px;margin:20px 0 0;">This meeting was scheduled via TrishulHub</p>
+    </div>`
+
+    await Promise.allSettled(
+      uniqueEmails.map(email => {
+        if (!isValidEmail(email) || isDisposableEmail(email)) return Promise.resolve()
+        return sendEmailWithFailover({
+          to: email,
+          subject: `Meeting: ${title} — TrishulHub`,
+          html: meetingHtml,
+          type: "MEETING_INVITATION",
+          triggeredBy: userId,
+        }).catch(err => console.warn("[meetings] Failed to send email:", err))
       })
     )
 
