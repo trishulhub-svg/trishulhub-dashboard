@@ -69,16 +69,19 @@ export async function GET(req: NextRequest) {
     }
 
     // Get Lark users (with caching)
-    const { users: larkUsers, error: larkError } = await getCachedLarkUsers()
+    const { users: larkUsers, error: fetchedLarkError } = await getCachedLarkUsers()
 
-    // Build error/warning messages for the caller
-    let responseLarkError: string | null = null
-    if (larkError) {
-      responseLarkError = larkError
-    } else if (larkUsers.length === 0) {
-      responseLarkError = "No Lark users found — check if contact:contact.base:readonly scope is enabled in Lark app settings."
-    } else if (!larkUsers.some((lu) => lu.email)) {
-      responseLarkError = "Lark users found but none have email addresses. Enable contact:contact.base:readonly scope in Lark app settings to retrieve email fields."
+    // Build warning messages (non-blocking — users are still returned)
+    let larkWarning: string | null = null
+    let larkError: string | null = fetchedLarkError
+    if (!larkError) {
+      if (larkUsers.length === 0) {
+        larkError = "No Lark users found. Make sure the contact API is enabled and the app has the required permissions."
+      } else if (larkUsers.length === 1) {
+        larkWarning = "Only 1 Lark user found (likely the app creator). On Lark free tier, only the app creator may be visible. Other team members need to be invited through the Lark admin console with proper contact permissions."
+      } else if (!larkUsers.some((lu) => lu.email)) {
+        larkWarning = "Lark users found but without email addresses. Name-based matching is available. To enable email matching, enable the contact:contact.base:readonly scope in your Lark app settings."
+      }
     }
 
     // If allLarkUsers=true, return the full Lark users list directly
@@ -86,7 +89,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         allLarkUsers: larkUsers,
         totalLarkUsers: larkUsers.length,
-        larkError: responseLarkError,
+        larkError,
+        larkWarning,
       })
     }
 
@@ -135,7 +139,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       users: result,
       totalLarkUsers: larkUsers.length,
-      larkError: responseLarkError,
+      larkError,
+      larkWarning,
     })
   } catch (err) {
     console.error("[lark/users] GET error:", err)

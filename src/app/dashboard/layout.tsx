@@ -405,8 +405,8 @@ const SidebarContent = React.memo(function SidebarContent({
                           <button
                             onClick={() => {
                               if (hasChildren) {
+                                // Only toggle expand/collapse — don't navigate to parent
                                 toggleItem(item.href);
-                                onNavigate(item.href);
                               } else {
                                 onNavigate(item.href);
                               }

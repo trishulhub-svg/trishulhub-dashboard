@@ -643,6 +643,8 @@ export default function AccessHubPage() {
         setLarkUsersFetched(true);
         if (data.larkError) {
           toast.error(data.larkError);
+        } else if (data.larkWarning) {
+          toast.warning(data.larkWarning, { duration: 8000 });
         }
       }
     } catch {
@@ -705,7 +707,9 @@ export default function AccessHubPage() {
         }));
         setAllLarkUsersForMap(allLark);
         if (data.larkError) {
-          toast.warning(data.larkError);
+          toast.error(data.larkError);
+        } else if (data.larkWarning) {
+          // Silent for manual map dialog — don't spam warnings
         }
       }
     } catch {
@@ -732,7 +736,7 @@ export default function AccessHubPage() {
         }));
         setAllLarkUsersForMap(allLark);
         if (data.larkError) {
-          toast.warning(data.larkError);
+          toast.error(data.larkError);
         }
       }
     } catch {
@@ -1225,7 +1229,8 @@ export default function AccessHubPage() {
 
       {isAdmin ? (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-muted/50 w-full sm:w-auto">
+          <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto">
+            <div className="flex w-full sm:w-auto">
             <TabsTrigger value="credentials" className="gap-1.5">
               <KeyRound className="h-3.5 w-3.5" />
               Credentials
@@ -1240,8 +1245,9 @@ export default function AccessHubPage() {
             </TabsTrigger>
             <TabsTrigger value="system" className="gap-1.5">
               <Settings className="h-3.5 w-3.5" />
-              System Config
+              System
             </TabsTrigger>
+            </div>
           </TabsList>
 
           {/* ═══════════ TAB 1: CREDENTIALS ═══════════ */}
@@ -1250,13 +1256,13 @@ export default function AccessHubPage() {
             {isAdmin && allUsers.length > 0 && (
               <Card>
                 <CardContent className="pt-4">
-                  <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
                     <div className="flex items-center gap-2">
                       <Shield className="h-4 w-4 text-muted-foreground" />
                       <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
                     </div>
                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                      <SelectTrigger className="w-[220px]">
+                      <SelectTrigger className="w-full sm:w-[220px]">
                         <SelectValue placeholder="All users" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1348,7 +1354,7 @@ export default function AccessHubPage() {
                           )}
                         </div>
                         {isAdmin && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
                               <Edit3 className="h-3 w-3" />
                             </Button>
@@ -1703,10 +1709,10 @@ export default function AccessHubPage() {
                         filteredLarkUsers.map((user) => (
                           <div
                             key={user.id}
-                            className="flex items-center justify-between p-2.5 rounded-lg hover:bg-accent/50 transition-colors group"
+                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2.5 sm:p-3 rounded-lg hover:bg-accent/50 transition-colors group gap-2 sm:gap-0"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              <Avatar className="h-8 w-8">
+                              <Avatar className="h-8 w-8 shrink-0">
                                 <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
                                   {user.name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
                                 </AvatarFallback>
@@ -1714,13 +1720,13 @@ export default function AccessHubPage() {
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-medium truncate">{user.name}</p>
-                                  <Badge variant="secondary" className="text-[10px] h-4">{user.role.replace("_", " ")}</Badge>
+                                  <Badge variant="secondary" className="text-[10px] h-4 shrink-0">{user.role.replace("_", " ")}</Badge>
                                 </div>
                                 <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 pl-11 sm:pl-0">
                               {user.larkMapped ? (
                                 <>
                                   <button
@@ -1736,7 +1742,7 @@ export default function AccessHubPage() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                                    className="h-7 w-7 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                                     onClick={() => handleLarkUnmap(user.id)}
                                     title="Unmap"
                                   >
@@ -2010,9 +2016,9 @@ export default function AccessHubPage() {
                 {/* ━━ Lark Integration ━━ */}
                 <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
                           <Bird className="h-4 w-4 text-blue-500" />
                         </div>
                         <div>
@@ -2212,7 +2218,7 @@ export default function AccessHubPage() {
                     )}
 
                     {/* Quick links */}
-                    <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 pt-1 text-[11px] text-muted-foreground">
                       <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
                         <Globe className="h-3 w-3" /> Lark Developer Console
                       </a>
