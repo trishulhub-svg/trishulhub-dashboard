@@ -77,21 +77,17 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
-    // Admin-only routes
+    // Admin-only routes — developers can access: workspace, timetable, meetings,
+    // my-training, leaves (for their own data). Everything else here requires admin.
     const adminOnlyRoutes = [
       "/dashboard/api-keys",
       "/dashboard/finance",
       "/dashboard/crm",
       "/dashboard/clients",
       "/dashboard/projects",
-      "/dashboard/workspace",
       "/dashboard/availability",
       "/dashboard/team",
-      "/dashboard/timetable",
-      "/dashboard/meetings",
       "/dashboard/training",
-      "/dashboard/leaves",
-      "/dashboard/my-training",
       "/dashboard/approvals",
       "/dashboard/audit-trail",
       "/dashboard/settings",

@@ -97,7 +97,7 @@ const navGroups: NavGroup[] = [
     label: "Overview",
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
@@ -121,14 +121,14 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Time Table", href: "/dashboard/timetable", icon: CalendarRange, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Time Table", href: "/dashboard/timetable", icon: CalendarRange, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
     label: "HR & People",
     items: [
-      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
@@ -137,7 +137,7 @@ const navGroups: NavGroup[] = [
     label: "Learning",
     items: [
       { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
