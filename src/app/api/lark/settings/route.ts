@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { isAdmin } from "@/lib/rbac"
 import { getLarkConfig, saveLarkConfig, validateLarkConfig, getLarkToken } from "@/lib/lark/auth"
@@ -9,7 +10,7 @@ import type { LarkConfig } from "@/lib/lark/types"
 // GET — Fetch current Lark config (masked secrets) + connection status
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
 // POST — Save Lark config (and optionally test connection)
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
 // PATCH — Toggle Lark sync on/off
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }

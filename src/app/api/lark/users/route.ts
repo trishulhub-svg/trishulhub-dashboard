@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { isAdmin } from "@/lib/rbac"
 import { db } from "@/lib/db"
@@ -9,7 +10,7 @@ import { getLarkConfig, getLarkToken } from "@/lib/lark/auth"
 // GET — List all TrishulHub users with their Lark mapping status
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
 // POST — Create or update a user mapping
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
 // PATCH — Auto-match users by email
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
@@ -192,7 +193,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE — Remove a user mapping
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     if (!session?.user?.id || !isAdmin(session.user.role as string)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
