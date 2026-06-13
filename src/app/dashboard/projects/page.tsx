@@ -1771,13 +1771,13 @@ export default function ProjectsPage() {
                         <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
-                        <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL}) <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+                        <Input name="budget" type="number" step="any" min="0" placeholder="0.00" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Live URL</Label>
+                        <Label className="text-xs">Live URL <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input
                           name="liveUrl"
                           type="url"
@@ -1790,9 +1790,9 @@ export default function ProjectsPage() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">Start Date</Label>
+                        <Label className="text-xs">Start Date <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input name="startDate" type="date" defaultValue={editProject.startDate ? String(editProject.startDate).slice(0, 10) : ''} id="edit-start-date" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const deadlineInput = document.getElementById("edit-deadline") as HTMLInputElement | null;
                           const sd = e.target.value;
@@ -1804,7 +1804,7 @@ export default function ProjectsPage() {
                         }} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Deadline</Label>
+                        <Label className="text-xs">Deadline <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} id="edit-deadline" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const startInput = document.getElementById("edit-start-date") as HTMLInputElement | null;
                           const sd = startInput?.value || "";
