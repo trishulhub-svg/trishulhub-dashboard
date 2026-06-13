@@ -6,8 +6,16 @@ import { STATUS_TO_LARK, PRIORITY_TO_LARK } from "./types"
 
 const LARK_BASE = "https://open.larksuite.com/open-apis"
 
-/** Make an authenticated Lark API request */
-async function larkFetch(path: string, options: RequestInit = {}): Promise<{ code: number; msg: string; data: Record<string, unknown> }> {
+// ━━ CORE FETCH ━━
+
+/** Make an authenticated Lark API request.
+ *  Lark returns HTTP 200 for ALL responses — errors are indicated by
+ *  `code !== 0` in the JSON body with `{code, msg}`.
+ */
+async function larkFetch<T = Record<string, unknown>>(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ code: number; msg: string; data: T }> {
   const token = await getLarkToken()
   if (!token) {
     throw new Error("Lark token unavailable — check Lark config in Access Hub")
@@ -22,11 +30,35 @@ async function larkFetch(path: string, options: RequestInit = {}): Promise<{ cod
     },
   })
 
-  if (!res.ok) {
-    throw new Error(`Lark API HTTP ${res.status}: ${res.statusText}`)
+  const json = await res.json()
+
+  if (json.code !== 0) {
+    const errMsg = `[lark/client] API error ${json.code}: ${json.msg} (path: ${path})`
+    console.error(errMsg)
+    throw new Error(errMsg)
   }
 
-  return res.json()
+  return json
+}
+
+// ━━ TASK LIST NORMALIZATION ━━
+
+/**
+ * Lark API v2 returns `guid` as the tasklist identifier, but our internal
+ * code references `.tasklist_id`. This helper normalizes every response
+ * so that `tasklist_id` always contains the actual guid value.
+ */
+function normalizeTaskList(raw: Record<string, unknown>): LarkTaskList {
+  const guid = raw.guid as string || ""
+  return {
+    tasklist_id: guid,
+    guid,
+    name: (raw.name as string) || "",
+    description: (raw.description as string) || undefined,
+    owner: raw.owner as LarkTaskList["owner"],
+    created_at: raw.created_at as LarkTaskList["created_at"],
+    updated_at: raw.updated_at as LarkTaskList["updated_at"],
+  }
 }
 
 // ━━ TASK LIST OPERATIONS ━━
@@ -36,47 +68,85 @@ export async function createTaskList(name: string, description?: string): Promis
   const body: Record<string, unknown> = { name }
   if (description) body.description = description
 
-  const res = await larkFetch("/task/v2/tasklists", {
+  const res = await larkFetch<{ tasklist: Record<string, unknown> }>("/task/v2/tasklists", {
     method: "POST",
     body: JSON.stringify(body),
   })
 
-  if (res.code !== 0) {
-    console.error("[lark/client] Create tasklist failed:", res.msg)
-    return null
-  }
-
-  const tasklist = res.data?.tasklist as LarkTaskList | undefined
-  return tasklist || null
+  return res.data?.tasklist ? normalizeTaskList(res.data.tasklist) : null
 }
 
 /** Get all task lists */
 export async function getTaskLists(): Promise<LarkTaskList[]> {
-  const res = await larkFetch("/task/v2/tasklists")
-
-  if (res.code !== 0) {
-    console.error("[lark/client] Get tasklists failed:", res.msg)
-    return []
-  }
-
-  const items = res.data?.items as LarkTaskList[] | undefined
-  return items || []
+  const res = await larkFetch<{ items: Record<string, unknown>[] }>("/task/v2/tasklists")
+  const items = res.data?.items || []
+  return items.map(normalizeTaskList)
 }
 
-/** Get a task list by ID */
+/** Get a task list by ID (accepts guid) */
 export async function getTaskList(tasklistId: string): Promise<LarkTaskList | null> {
-  const res = await larkFetch(`/task/v2/tasklists/${tasklistId}`)
+  const res = await larkFetch<{ tasklist: Record<string, unknown> }>(`/task/v2/tasklists/${tasklistId}`)
+  return res.data?.tasklist ? normalizeTaskList(res.data.tasklist) : null
+}
 
-  if (res.code !== 0) {
-    console.error("[lark/client] Get tasklist failed:", res.msg)
-    return null
+/** Delete a task list */
+export async function deleteTaskList(tasklistId: string): Promise<boolean> {
+  try {
+    await larkFetch(`/task/v2/tasklists/${tasklistId}`, { method: "DELETE" })
+    return true
+  } catch {
+    return false
   }
+}
 
-  return (res.data?.tasklist as LarkTaskList) || null
+/** Add a member to a task list (Lark uses `guid` in URL) */
+export async function addTaskListMember(
+  tasklistId: string,
+  members: Array<{ id: string; role?: "owner" | "editor" | "viewer" }>
+): Promise<boolean> {
+  try {
+    await larkFetch(`/task/v2/tasklists/${tasklistId}/add_members`, {
+      method: "POST",
+      body: JSON.stringify({
+        members: members.map((m) => ({
+          type: "open_id" as const,
+          id: m.id,
+          role: m.role || "editor",
+        })),
+      }),
+    })
+    return true
+  } catch (err) {
+    console.error("[lark/client] addTaskListMember failed:", err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/** Remove a member from a task list */
+export async function removeTaskListMember(
+  tasklistId: string,
+  members: Array<{ id: string }>
+): Promise<boolean> {
+  try {
+    await larkFetch(`/task/v2/tasklists/${tasklistId}/remove_members`, {
+      method: "POST",
+      body: JSON.stringify({
+        members: members.map((m) => ({
+          type: "open_id" as const,
+          id: m.id,
+        })),
+      }),
+    })
+    return true
+  } catch (err) {
+    console.error("[lark/client] removeTaskListMember failed:", err instanceof Error ? err.message : err)
+    return false
+  }
 }
 
 /** Find or create a task list for a project.
- * Uses project name + " Tasks" as the task list name.
+ * Uses project name directly (no " Tasks" suffix).
+ * Checks backward-compatible "${name} Tasks" format for existing lists.
  * Stores the mapping in AppSetting.
  */
 export async function getOrCreateProjectTaskList(
@@ -86,14 +156,15 @@ export async function getOrCreateProjectTaskList(
   const config = await getLarkConfig()
   if (!config?.enabled) return null
 
-  // Check if mapping already exists
   const { getAppSetting, setAppSetting } = await import("@/lib/db")
   const existingMapping = await getAppSetting(`lark_tasklist_${projectId}`)
 
   if (existingMapping) {
     try {
       const parsed = JSON.parse(existingMapping)
-      return { tasklistId: parsed.tasklistId, created: false }
+      if (parsed.tasklistId) {
+        return { tasklistId: parsed.tasklistId, created: false }
+      }
     } catch {
       // Invalid mapping, continue to find/create
     }
@@ -101,16 +172,18 @@ export async function getOrCreateProjectTaskList(
 
   // Search existing task lists for a match
   const taskLists = await getTaskLists()
-  const listName = `${projectName} Tasks`
-  const existing = taskLists.find((tl) => tl.name === listName)
+
+  // Check new format (project name directly) first, then backward compat
+  const existing = taskLists.find((tl) => tl.name === projectName)
+    || taskLists.find((tl) => tl.name === `${projectName} Tasks`)
 
   if (existing) {
     await setAppSetting(`lark_tasklist_${projectId}`, JSON.stringify({ tasklistId: existing.tasklist_id }))
     return { tasklistId: existing.tasklist_id, created: false }
   }
 
-  // Create new task list
-  const newTaskList = await createTaskList(listName, `Tasks synced from TrishulHub project: ${projectName}`)
+  // Create new task list with the project name
+  const newTaskList = await createTaskList(projectName, `Tasks synced from TrishulHub project: ${projectName}`)
   if (newTaskList) {
     await setAppSetting(`lark_tasklist_${projectId}`, JSON.stringify({ tasklistId: newTaskList.tasklist_id }))
     return { tasklistId: newTaskList.tasklist_id, created: true }
@@ -121,72 +194,75 @@ export async function getOrCreateProjectTaskList(
 
 // ━━ TASK OPERATIONS ━━
 
-/** Create a task in Lark */
+/** Create a task in Lark.
+ *  Lark v2 create API: POST /task/v2/tasks
+ *  Supported body fields: tasklist_id, summary, description?, due?, members?
+ *  NOTE: `status`, `priority`, `extra` are NOT supported on create — must update after.
+ */
 export async function createTask(
   tasklistId: string,
   params: {
     title: string
     description?: string
-    status?: string // TrishulHub status
-    priority?: string // TrishulHub priority
     assigneeOpenId?: string
     dueTimestamp?: number // unix ms
-    extra?: Record<string, unknown> // custom fields for REVIEW/AWAITING_APPROVAL
   }
 ): Promise<LarkTask | null> {
   const body: Record<string, unknown> = {
     tasklist_id: tasklistId,
-    name: params.title,
+    summary: params.title,
   }
 
   if (params.description) body.description = params.description
-  if (params.assigneeOpenId) body.assignee = params.assigneeOpenId
   if (params.dueTimestamp) body.due = { timestamp: String(params.dueTimestamp) }
 
-  // Map status and priority to Lark
-  const larkStatus = params.status ? STATUS_TO_LARK[params.status] : "todo"
-  const larkPriority = params.priority ? PRIORITY_TO_LARK[params.priority] : "normal"
-
-  // Use the v2 task create API
-  const res = await larkFetch("/task/v2/tasks", {
-    method: "POST",
-    body: JSON.stringify({
-      ...body,
-      status: larkStatus,
-      priority: larkPriority,
-      // Store extra TrishulHub metadata in custom fields
-      extra: params.extra ? JSON.stringify(params.extra) : undefined,
-    }),
-  })
-
-  if (res.code !== 0) {
-    console.error("[lark/client] Create task failed:", res.msg)
-    return null
+  // Lark v2 expects members as an array of {type, id, role}
+  if (params.assigneeOpenId) {
+    body.members = [
+      {
+        type: "open_id",
+        id: params.assigneeOpenId,
+        role: "assignee",
+      },
+    ]
   }
 
-  const task = res.data?.task as LarkTask | undefined
+  const res = await larkFetch<{ task: LarkTask }>("/task/v2/tasks", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+
+  const task = res.data?.task
+
+  // After creating, set status & priority via separate update call
+  if (task) {
+    // We don't set status/priority on create — those will be handled by the caller
+    // via a follow-up updateTask call if needed
+  }
+
   return task || null
 }
 
-/** Update a task in Lark */
+/** Update a task in Lark.
+ *  Lark v2 update API: PATCH /task/v2/tasks/{task_id}
+ *  Supported body fields: summary?, description?, due?, status?, priority?
+ *  NOTE: `assignee` changes go through addTaskMember/removeTaskMember, NOT here.
+ *  NOTE: `extra` is NOT a valid field — causes 400.
+ */
 export async function updateTask(
-  tasklistId: string,
   taskId: string,
   params: {
     title?: string
     description?: string
     status?: string // TrishulHub status
     priority?: string // TrishulHub priority
-    assigneeOpenId?: string
     dueTimestamp?: number
-    extra?: Record<string, unknown>
   }
 ): Promise<LarkTask | null> {
   const body: Record<string, unknown> = {}
 
-  if (params.title !== undefined) body.name = params.title
+  if (params.title !== undefined) body.summary = params.title
   if (params.description !== undefined) body.description = params.description
-  if (params.assigneeOpenId !== undefined) body.assignee = params.assigneeOpenId
   if (params.dueTimestamp !== undefined) body.due = { timestamp: String(params.dueTimestamp) }
 
   if (params.status !== undefined) {
@@ -195,86 +271,108 @@ export async function updateTask(
   if (params.priority !== undefined) {
     body.priority = PRIORITY_TO_LARK[params.priority] || "normal"
   }
-  if (params.extra) {
-    body.extra = JSON.stringify(params.extra)
-  }
 
-  const res = await larkFetch(`/task/v2/tasks/${taskId}`, {
+  const res = await larkFetch<{ task: LarkTask }>(`/task/v2/tasks/${taskId}`, {
     method: "PATCH",
     body: JSON.stringify(body),
   })
 
-  if (res.code !== 0) {
-    console.error("[lark/client] Update task failed:", res.msg)
-    return null
-  }
-
-  const task = res.data?.task as LarkTask | undefined
-  return task || null
+  return res.data?.task || null
 }
 
 /** Delete a task in Lark */
 export async function deleteTask(tasklistId: string, taskId: string): Promise<boolean> {
-  const res = await larkFetch(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`, {
-    method: "DELETE",
-  })
-
-  if (res.code !== 0) {
-    console.error("[lark/client] Delete task failed:", res.msg)
+  try {
+    await larkFetch(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`, {
+      method: "DELETE",
+    })
+    return true
+  } catch {
     return false
   }
-
-  return true
 }
 
 /** Get tasks from a task list */
 export async function getTasks(tasklistId: string): Promise<LarkTask[]> {
-  const res = await larkFetch(`/task/v2/tasks?tasklist_id=${tasklistId}`)
-
-  if (res.code !== 0) {
-    console.error("[lark/client] Get tasks failed:", res.msg)
-    return []
-  }
-
-  const items = res.data?.items as LarkTask[] | undefined
-  return items || []
+  const res = await larkFetch<{ items: LarkTask[] }>(`/task/v2/tasks?tasklist_id=${tasklistId}`)
+  return res.data?.items || []
 }
 
 /** Get a single task */
 export async function getTask(tasklistId: string, taskId: string): Promise<LarkTask | null> {
-  const res = await larkFetch(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`)
-
-  if (res.code !== 0) {
-    console.error("[lark/client] Get task failed:", res.msg)
+  try {
+    const res = await larkFetch<{ task: LarkTask }>(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`)
+    return res.data?.task || null
+  } catch {
+    // Completed tasks may not be fetchable (99404) — return null gracefully
     return null
   }
+}
 
-  return (res.data?.task as LarkTask) || null
+/** Add members to a task (e.g. assignee, follower).
+ *  POST /task/v2/tasks/{task_id}/add_members
+ */
+export async function addTaskMember(
+  taskId: string,
+  members: Array<{ id: string; role?: "assignee" | "follower" }>
+): Promise<boolean> {
+  try {
+    await larkFetch(`/task/v2/tasks/${taskId}/add_members`, {
+      method: "POST",
+      body: JSON.stringify({
+        members: members.map((m) => ({
+          type: "open_id" as const,
+          id: m.id,
+          role: m.role || "assignee",
+        })),
+      }),
+    })
+    return true
+  } catch (err) {
+    console.error("[lark/client] addTaskMember failed:", err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/** Remove members from a task.
+ *  POST /task/v2/tasks/{task_id}/remove_members
+ */
+export async function removeTaskMember(
+  taskId: string,
+  members: Array<{ id: string }>
+): Promise<boolean> {
+  try {
+    await larkFetch(`/task/v2/tasks/${taskId}/remove_members`, {
+      method: "POST",
+      body: JSON.stringify({
+        members: members.map((m) => ({
+          type: "open_id" as const,
+          id: m.id,
+        })),
+      }),
+    })
+    return true
+  } catch (err) {
+    console.error("[lark/client] removeTaskMember failed:", err instanceof Error ? err.message : err)
+    return false
+  }
 }
 
 // ━━ USER OPERATIONS ━━
 
 /** Look up a Lark user by email. Returns open_id if found. */
 export async function lookupUserByEmail(email: string): Promise<LarkUser | null> {
-  // Use userIdByUserEmail endpoint
-  const res = await larkFetch(`/contact/v3/users/batch_get_id?emails=${encodeURIComponent(email)}`)
+  const res = await larkFetch<{ user_list: Array<{ user_id: string; email: string }> }>(
+    `/contact/v3/users/batch_get_id?emails=${encodeURIComponent(email)}`
+  )
 
-  if (res.code !== 0) {
-    // User not found or API error
-    return null
-  }
-
-  const userList = (res.data?.user_list as Array<{ user_id: string; email: string }>) || []
+  const userList = res.data?.user_list || []
   if (userList.length === 0) return null
 
-  // Get full user info
   const userId = userList[0].user_id
-  const userRes = await larkFetch(`/contact/v3/users/${userId}?user_id_type=user_id`)
+  const userRes = await larkFetch<{ user: LarkUser }>(`/contact/v3/users/${userId}?user_id_type=user_id`)
 
-  if (userRes.code !== 0) return null
-
-  const user = userRes.data?.user as LarkUser | undefined
-  return user || null
+  return userRes.data?.user || null
 }
 
 /** Get all users in the Lark tenant (for batch matching) */
@@ -286,25 +384,26 @@ export async function getAllUsers(): Promise<LarkUser[]> {
     const params = new URLSearchParams({ page_size: "50", user_id_type: "open_id", department_id: "0" })
     if (pageToken) params.set("page_token", pageToken)
 
-    const res = await larkFetch(`/contact/v3/users?${params.toString()}`)
+    const res = await larkFetch<{ items: LarkUser[]; page_token?: string; total?: number }>(
+      `/contact/v3/users?${params.toString()}`
+    )
 
-    if (res.code !== 0) {
-      console.error("[lark/client] getAllUsers failed:", res.code, res.msg)
-      break
-    }
-
-    const items = (res.data?.items as LarkUser[]) || []
+    const items = res.data?.items || []
     users.push(...items)
 
     // Log first call details for debugging
     if (!pageToken) {
-      console.log("[lark/client] getAllUsers: first page returned", items.length, "users, has_more:", !!res.data?.page_token, "total:", res.data?.total)
+      console.log(
+        `[lark/client] getAllUsers: first page returned ${items.length} users, has_more: ${!!res.data?.page_token}, total: ${res.data?.total}`
+      )
       if (items.length > 0) {
-        console.log("[lark/client] getAllUsers: first user sample:", JSON.stringify({ name: items[0].name, email: items[0].email, open_id: items[0].open_id }))
+        console.log(
+          `[lark/client] getAllUsers: first user sample: ${JSON.stringify({ name: items[0].name, email: items[0].email, open_id: items[0].open_id })}`
+        )
       }
     }
 
-    pageToken = (res.data?.page_token as string) || ""
+    pageToken = res.data?.page_token || ""
   } while (pageToken)
 
   return users

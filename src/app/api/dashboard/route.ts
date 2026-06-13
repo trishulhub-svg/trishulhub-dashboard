@@ -51,7 +51,6 @@ export async function GET() {
       invoices,
       expenses,
       apiKeys,
-      usageLogs,
       supportTickets,
       tasks,
       leads,
@@ -68,24 +67,22 @@ export async function GET() {
     ] = await Promise.all([
       db.project.findMany({
         where: projectWhere,
-        include: { client: true, _count: { select: { tasks: true } } },
-        take: 50,
+        select: { id: true, name: true, status: true, progress: true, deadline: true, client: { select: { name: true } }, _count: { select: { tasks: true } } },
+        take: 10,
+        orderBy: { updatedAt: "desc" },
       }),
-      db.client.findMany({ where: clientWhere, take: 50 }),
-      db.invoice.findMany({ where: invoiceWhere, take: 20, orderBy: { createdAt: "desc" } }),
-      db.expense.findMany({ where: expenseWhere, take: 20, orderBy: { createdAt: "desc" } }),
+      db.client.findMany({ where: clientWhere, take: 10, select: { id: true, name: true, status: true, company: true } }),
+      db.invoice.findMany({ where: invoiceWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, invoiceNumber: true, total: true, status: true, createdAt: true } }),
+      db.expense.findMany({ where: expenseWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, amount: true, category: true, createdAt: true } }),
       // API keys — exclude keyValue for non-SUPER_ADMIN to avoid exposing secrets in memory
       role === "SUPER_ADMIN"
-        ? db.apiKey.findMany()
+        ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true, createdAt: true } })
         : admin
           ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true } })
           : Promise.resolve([] as unknown[]),
-      db.apiUsageLog.findMany({
-        take: 30,
-        orderBy: { createdAt: "desc" },
-      }),
-      db.supportTicket.findMany({ where: ticketWhere, include: { client: true }, take: 50 }),
-      db.task.findMany({ where: taskWhere, take: 50, orderBy: { createdAt: "desc" } }),
+      // Usage logs removed from dashboard — not displayed, saves a query
+      db.supportTicket.findMany({ where: ticketWhere, take: 5, include: { client: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
+      db.task.findMany({ where: taskWhere, take: 10, orderBy: { createdAt: "desc" }, select: { id: true, title: true, status: true, priority: true, deadline: true, assignedTo: true, project: { select: { name: true } } } }),
       // PERF: Leads query moved into Promise.all (was sequential before)
       admin ? db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : Promise.resolve([] as unknown[]),
       // Counts
@@ -122,9 +119,6 @@ export async function GET() {
         ? apiKeys
         : []
 
-    // Usage logs
-    const safeUsageLogs = usageLogs
-
     const totalApiSpend = admin ? (apiKeys as Array<{ currentSpend: number }>).reduce((sum, k) => sum + k.currentSpend, 0) : 0
     const monthlyBudget = admin ? (apiKeys as Array<{ monthlyBudget: number }>).reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
     const totalLeads = totalLeadsCount
@@ -136,7 +130,6 @@ export async function GET() {
       invoices: admin ? invoices : [],
       expenses: admin ? expenses : [],
       apiKeys: safeApiKeys,
-      usageLogs: safeUsageLogs,
       supportTickets: admin ? supportTickets : [],
       tasks,
       stats: {

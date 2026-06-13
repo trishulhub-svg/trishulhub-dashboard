@@ -1056,7 +1056,7 @@ function AccessHubContent() {
      ═══════════════════════════════════════════════════════════════ */
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto px-1 sm:px-0">
+    <div className="space-y-6 max-w-4xl mx-auto px-3 sm:px-0">
       <PageHeader
         title="Access Hub"
         description="Credentials, protocol documents, workspace tokens, and system configuration."
@@ -1095,7 +1095,7 @@ function AccessHubContent() {
                       <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
                     </div>
                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                      <SelectTrigger className="w-[220px]">
+                      <SelectTrigger className="w-full sm:w-[220px]">
                         <SelectValue placeholder="All users" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1187,7 +1187,7 @@ function AccessHubContent() {
                           )}
                         </div>
                         {isAdmin && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
                               <Edit3 className="h-3 w-3" />
                             </Button>
@@ -1198,7 +1198,7 @@ function AccessHubContent() {
                         )}
                       </div>
                       {isAdmin && cred.user && (
-                        <CardDescription className="text-xs">
+                        <CardDescription className="text-xs truncate">
                           For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
                         </CardDescription>
                       )}
@@ -1437,7 +1437,7 @@ function AccessHubContent() {
                       Match TrishulHub users with their Lark accounts for task sync
                     </CardDescription>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
                       variant="outline"
@@ -1531,7 +1531,7 @@ function AccessHubContent() {
                     </p>
                     <div className="grid gap-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
                       {larkUsers.map((lu) => (
-                        <div key={lu.open_id} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                        <div key={lu.open_id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-lg border bg-card">
                           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <span className="text-xs font-bold text-primary">{lu.name?.[0] || "?"}</span>
                           </div>
@@ -1543,7 +1543,7 @@ function AccessHubContent() {
                             value={larkMappings[lu.open_id] || ""}
                             onValueChange={(val) => setLarkMappings(m => ({ ...m, [lu.open_id]: val }))}
                           >
-                            <SelectTrigger className="w-[160px] h-8 text-xs">
+                            <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
                               <SelectValue placeholder="Not mapped" />
                             </SelectTrigger>
                             <SelectContent>
@@ -2153,7 +2153,7 @@ function AccessHubContent() {
 
       {/* Add/Edit Credential Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingCredential ? "Edit Credential" : "Add New Credential"}

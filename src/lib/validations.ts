@@ -50,7 +50,7 @@ export const createProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   deadline: z.string().optional(),
-  budget: z.number().min(0).optional(),
+  budget: z.number().min(0).optional().nullable(),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),
     label: z.string().max(100).nullable().optional(),
@@ -65,7 +65,7 @@ export const updateProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   deadline: z.string().optional(),
-  budget: z.number().min(0).optional(),
+  budget: z.number().min(0).optional().nullable(),
 })
 
 // ━━ Clients ━━

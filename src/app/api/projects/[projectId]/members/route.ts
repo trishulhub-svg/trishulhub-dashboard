@@ -122,6 +122,13 @@ export async function POST(
     // W9: Log errors from syncTasksToGit instead of swallowing them
     syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
 
+    // Fire-and-forget: add user to Lark task list for this project
+    import("@/lib/lark/sync").then(({ addProjectMemberToLarkTaskList }) => {
+      addProjectMemberToLarkTaskList(projectId, userId).catch((err) =>
+        console.error("[project-members] Lark tasklist member add failed (non-blocking):", err)
+      )
+    }).catch(() => {})
+
     // Notify the user about project assignment
     try {
       await db.notification.create({
@@ -187,6 +194,13 @@ export async function DELETE(
 
     // W9: Log errors from syncTasksToGit instead of swallowing them
     syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
+
+    // Fire-and-forget: remove user from Lark task list for this project
+    import("@/lib/lark/sync").then(({ removeProjectMemberFromLarkTaskList }) => {
+      removeProjectMemberFromLarkTaskList(projectId, userId).catch((err) =>
+        console.error("[project-members] Lark tasklist member remove failed (non-blocking):", err)
+      )
+    }).catch(() => {})
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {

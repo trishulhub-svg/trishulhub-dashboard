@@ -71,7 +71,8 @@ export interface LarkTask {
 
 /** Lark task list (a container for tasks) */
 export interface LarkTaskList {
-  tasklist_id: string
+  tasklist_id: string // kept as alias for backward compat — code uses .tasklist_id
+  guid: string // actual field name returned by Lark API v2
   name: string
   description?: string
   owner?: {
