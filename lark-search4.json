@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks",
+    "name": "Create HTTP target tasks",
+    "snippet": "This page demonstrates how to programmatically create basic HTTP target tasks and place them in Cloud Tasks queues. The request body of your task .",
+    "host_name": "docs.cloud.google.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/task-v2/tasklist/create",
+    "name": "Create Tasklist - Server API - Documentation",
+    "snippet": "09-11-2023 — Tasklist can be used to organize and manage multiple tasks belonging to the same project. When creating , the name of the tasklist must be filled in. Read more",
+    "host_name": "open.larksuite.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larkoffice.com/document/task-v2/task/overview",
+    "name": "Task Feature Overview - Documentation - Feishu Open Platform",
+    "snippet": "18-09-2024 — Use Create Task API to create a task . When creating a task, you can add initial task members, start/due time, reminders, etc., and you can also ...\nWhen creating a task, you can add initial task members, start/due time, reminders, etc., and you can also add the created task to one or more ...",
+    "host_name": "open.larkoffice.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.remoteopenclaw.com/skills/source/open.feishu.cn/lark-task",
+    "name": "lark-task - Skills Directory - Remote OpenClaw",
+    "snippet": "当用户需要创建待办事项、查看任务列表、跟踪任务进度、管理项目清单或给他人分配任务、为任务上传附件文件、注册注销任务智能体、更新智能体主页数据、写入任务记录时使用 ... Read more",
+    "host_name": "www.remoteopenclaw.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.scribd.com/document/1032538368/Task-API",
+    "name": "Task API | PDF | Xml | Boolean Data Type",
+    "snippet": "The document outlines the API methods for managing tasks , including GET, POST , and PUT requests . It specifies required and optional parameters for each ... Read more",
+    "host_name": "www.scribd.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  }
+]

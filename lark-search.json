@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/task-v2/task/create",
+    "name": "Create Task - Server API - Documentation - Lark Developer",
+    "snippet": "This API can create a task. When creating a task, it supports filling in the basic information of the task (such as title, description, person in charge, etc.).",
+    "host_name": "open.larksuite.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.feishu.cn/document/task-v2/overview",
+    "name": "Task overview - Documentation - Feishu Open Platform - Lark",
+    "snippet": "Lark Tasks is a universal task/project management tool that comes with Lark, with strong collaboration capabilities. You can easily create tasks ...\n... Create Task api to create a task. Then use the Add Task Members api to add your user (represented by the user's open id) as the task assignee.",
+    "host_name": "open.feishu.cn",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://learn.microsoft.com/en-us/answers/questions/5182800/problems-with-the-flow",
+    "name": "Problems with the flow - Microsoft Q&A",
+    "snippet": "The flow shows me this error: \"Schema validation has failed. Validation for field 'Assignments', on entity 'Task' has failed: The assignee id is invalid.\"",
+    "host_name": "learn.microsoft.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/reference/approval-v4/task/search",
+    "name": "List of tasks - Server API - Documentation - Lark Developer",
+    "snippet": "The response body of the API contains the following sensitive fields, and they will be returned only after corresponding scopes are added.",
+    "host_name": "open.larksuite.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://salesforce.stackexchange.com/questions/332361/cant-create-new-task",
+    "name": "Can't create new Task - validation rule - Salesforce StackExchange",
+    "snippet": "I'm running into the error \"Required fields are missing: [Status]\" when trying to create a new Task, but Status is a PickList with a default ...",
+    "host_name": "salesforce.stackexchange.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://trailhead.salesforce.com/trailblazer-community/feed/0D54V00007T43qpSAB",
+    "name": "Plaguing issues with Due Date field - Trailhead - Salesforce",
+    "snippet": "The process builder simply determines if the \"Due Date Only\" field (API - ActivityDate) is in between the start and end date of the assigned to user.",
+    "host_name": "trailhead.salesforce.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larkoffice.com/document/uAjLw4CM/ukTMukTMukTM/reference/task-v1/task/events/updated",
+    "name": "Task information changes(APP dimension) - Server API",
+    "snippet": "Task information changes. After subscribing to this event, an app can receive notifications of changes of a task created by the app.",
+    "host_name": "open.larkoffice.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/codex/comments/1rp7r8o/anyone_getting_error_creating_task",
+    "name": "anyone getting \"error creating task\" : r/codex - Reddit",
+    "snippet": "I fixed it by reloading Codex (VS Code plugin). I keep getting this message: ''Error creating task thread not found [THREAD ID].",
+    "host_name": "www.reddit.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larksuite.com/document/server-docs/approval-v4/task/specified_rollback",
+    "name": "Return approval task - Documentation - Lark Developer",
+    "snippet": "Rolls back the current approval to one or more approved task nodes. After the rollback, the approved nodes will generate approval tasks again.\nThe response body of the API contains the following sensitive fields, and they will be returned only after corresponding scopes are added.",
+    "host_name": "open.larksuite.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/task-v2/section/list",
+    "name": "List Section - Server API - Documentation - Lark Developer",
+    "snippet": "With its powerful open capabilities, Lark Developer enables enterprises to leverage apps and services to collaborate and grow.",
+    "host_name": "open.larksuite.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]
