@@ -61,3 +61,31 @@ Stage Summary:
 - Admin can create entries via POST /api/changelog
 - Per-user read tracking via UserChangelogRead table
 - 4 files changed, committed as cb6295c
+---
+Task ID: 1
+Agent: Main Agent
+Task: Implement Lark project-based task grouping so tasks appear under project-named groups in users Lark Task Center
+
+Work Log:
+- Read and analyzed current Lark client.ts, sync.ts, auth.ts, types.ts
+- Researched Lark Task v2 API tasklist capabilities (free tier) via subagent
+- Key finding: tasklists ARE the groups in Lark Task Center; users must be added as tasklist members for visibility
+- Added 3 new API functions to client.ts: addTaskListMember, removeTaskListMember, deleteTaskList
+- Updated syncTaskToLark() to add assignee as tasklist member (editor role) after task creation
+- Updated syncTaskUpdateToLark() to add new assignee as tasklist member on reassignment
+- Added addProjectMemberToLarkTaskList() — adds user to Lark tasklist when added to project
+- Added removeProjectMemberFromLarkTaskList() — removes user from Lark tasklist when removed from project
+- Added cleanupOrphanedTaskList() — auto-deletes tasklist when no Lark-mapped members remain
+- Updated getOrCreateProjectTaskList() to use exact project name (e.g. "UK STORE DEMO") with backward compat for old " Tasks" suffix
+- Added delAppSetting() to db.ts
+- Hooked into project members API route (POST/DELETE) with fire-and-forget Lark sync calls
+- TypeScript compilation: zero errors
+- Committed and pushed to GitHub
+
+Stage Summary:
+- 4 files modified: client.ts, sync.ts, db.ts, members/route.ts
+- 284 lines added, 13 removed
+- Lark tasks will now appear under project-named groups (e.g. "UK STORE DEMO") in users Lark Task Center
+- Adding member to project = they see the project tasklist in Lark
+- Removing member from project = tasklist disappears from their Lark (deleted entirely if no Lark members remain)
+
