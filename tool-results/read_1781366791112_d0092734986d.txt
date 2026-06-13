@@ -1,0 +1,502 @@
+     1→     1→     1→"use client";
+     2→     2→     2→
+     3→     3→     3→import { useState, useMemo, useRef, useCallback } from "react";
+     4→     4→     4→import { useParams, useRouter, usePathname } from "next/navigation";
+     5→     5→     5→import { useSession } from "next-auth/react";
+     6→     6→     6→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     7→     7→     7→import {
+     8→     8→     8→  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
+     9→     9→     9→  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
+    10→    10→    10→  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
+    11→    11→    11→} from "lucide-react";
+    12→    12→    12→import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
+    13→    13→    13→import { Card, CardContent } from "@/components/ui/card";
+    14→    14→    14→import { Button } from "@/components/ui/button";
+    15→    15→    15→import { Input } from "@/components/ui/input";
+    16→    16→    16→import { Textarea } from "@/components/ui/textarea";
+    17→    17→    17→import { Badge } from "@/components/ui/badge";
+    18→    18→    18→import { Progress } from "@/components/ui/progress";
+    19→    19→    19→import { Skeleton } from "@/components/ui/skeleton";
+    20→    20→    20→import { Label } from "@/components/ui/label";
+    21→    21→    21→import {
+    22→    22→    22→  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+    23→    23→    23→} from "@/components/ui/dialog";
+    24→    24→    24→import { ScrollArea } from "@/components/ui/scroll-area";
+    25→    25→    25→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    26→    26→    26→import { toast } from "sonner";
+    27→    27→    27→import { Switch } from "@/components/ui/switch";
+    28→    28→    28→import { TASK_COLUMNS } from "@/lib/types";
+    29→    29→    29→import { safeText, safeNumber, safeDate, deepSanitize, cn, extractStr, extractNum, extractNestedStr } from "@/lib/utils";
+    30→    30→    30→
+    31→    31→    31→// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    32→    32→    32→// BULLETPROOF v9: Redesigned layout — compact stats row, glassmorphism,
+    33→    33→    33→// removed view tabs (My Tasks link in header), horizontal member chips.
+    34→    34→    34→// ALL functionality preserved: handlers, RBAC, safe extractors, caching.
+    35→    35→    35→// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    36→    36→    36→
+    37→    37→    37→const taskStatusColors: Record<string, string> = {
+    38→    38→    38→  TODO: "bg-gray-100 dark:bg-gray-800/50",
+    39→    39→    39→  IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
+    40→    40→    40→  REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
+    41→    41→    41→  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
+    42→    42→    42→  DONE: "bg-green-50 dark:bg-green-900/20",
+    43→    43→    43→};
+    44→    44→    44→
+    45→    45→    45→const taskStatusAccentColors: Record<string, string> = {
+    46→    46→    46→  TODO: "bg-gray-400",
+    47→    47→    47→  IN_PROGRESS: "bg-blue-400",
+    48→    48→    48→  REVIEW: "bg-yellow-400",
+    49→    49→    49→  AWAITING_APPROVAL: "bg-orange-400",
+    50→    50→    50→  DONE: "bg-green-400",
+    51→    51→    51→};
+    52→    52→    52→
+    53→    53→    53→const taskStatusTextColors: Record<string, string> = {
+    54→    54→    54→  TODO: "text-gray-600 dark:text-gray-400",
+    55→    55→    55→  IN_PROGRESS: "text-blue-600 dark:text-blue-400",
+    56→    56→    56→  REVIEW: "text-yellow-600 dark:text-yellow-400",
+    57→    57→    57→  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+    58→    58→    58→  DONE: "text-green-600 dark:text-green-400",
+    59→    59→    59→};
+    60→    60→    60→
+    61→    61→    61→const projectStatusColors: Record<string, string> = {
+    62→    62→    62→  PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    63→    63→    63→  IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    64→    64→    64→  REVIEW: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    65→    65→    65→  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    66→    66→    66→  DEPLOYED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    67→    67→    67→  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    68→    68→    68→};
+    69→    69→    69→
+    70→    70→    70→const priorityColors: Record<string, string> = {
+    71→    71→    71→  LOW: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+    72→    72→    72→  MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    73→    73→    73→  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    74→    74→    74→  URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+    75→    75→    75→};
+    76→    76→    76→
+    77→    77→    77→const priorityBorderColors: Record<string, string> = {
+    78→    78→    78→  LOW: "border-l-gray-300 dark:border-l-gray-600",
+    79→    79→    79→  MEDIUM: "border-l-blue-400 dark:border-l-blue-500",
+    80→    80→    80→  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+    81→    81→    81→  URGENT: "border-l-red-400 dark:border-l-red-500",
+    82→    82→    82→};
+    83→    83→    83→
+    84→    84→    84→const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+    85→    85→    85→
+    86→    86→    86→function getProgressColor(progress: number) {
+    87→    87→    87→  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+    88→    88→    88→  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+    89→    89→    89→  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
+    90→    90→    90→}
+    91→    91→    91→
+    92→    92→    92→export default function ProjectDetailPage() {
+    93→    93→    93→  const params = useParams();
+    94→    94→    94→  const router = useRouter();
+    95→    95→    95→  const pathname = usePathname();
+    96→    96→    96→  const { data: session, status: sessionStatus } = useSession();
+    97→    97→    97→  const queryClient = useQueryClient();
+    98→    98→    98→
+    99→    99→    99→  // Safe projectId extraction
+   100→   100→   100→  const rawProjectId = params?.projectId;
+   101→   101→   101→  const projectId = typeof rawProjectId === "string"
+   102→   102→   102→    ? rawProjectId
+   103→   103→   103→    : Array.isArray(rawProjectId)
+   104→   104→   104→      ? String(rawProjectId[0] ?? "")
+   105→   105→   105→      : "";
+   106→   106→   106→
+   107→   107→   107→  const userRole = session?.user?.role || "DEVELOPER";
+   108→   108→   108→  const userId = session?.user?.id || "";
+   109→   109→   109→  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   110→   110→   110→
+   111→   111→   111→  const handle401 = useCallback((res: Response) => {
+   112→   112→   112→    if (res.status === 401) {
+   113→   113→   113→      window.location.href = "/login";
+   114→   114→   114→      return true;
+   115→   115→   115→    }
+   116→   116→   116→    return false;
+   117→   117→   117→  }, []);
+   118→   118→   118→
+   119→   119→   119→  // ── State: UI-only state (dialogs, selections) ──
+   120→   120→   120→  const [addOpen, setAddOpen] = useState(false);
+   121→   121→   121→  const [addMemberOpen, setAddMemberOpen] = useState(false);
+   122→   122→   122→  const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
+   123→   123→   123→  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+   124→   124→   124→  // Audit fix: delete confirmation state for tasks
+   125→   125→   125→  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+   126→   126→   126→  // Remove member confirmation state
+   127→   127→   127→  const [removeMemberUserId, setRemoveMemberUserId] = useState<string | null>(null);
+   128→   128→   128→  // Website management dialog state
+   129→   129→   129→  const [websiteMgmtOpen, setWebsiteMgmtOpen] = useState(false);
+   130→   130→   130→  const [deleteWebsiteId, setDeleteWebsiteId] = useState<string | null>(null);
+   131→   131→   131→  const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
+   132→   132→   132→  const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
+   133→   133→   133→  const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
+   134→   134→   134→
+   135→   135→   135→  // M-PRJ-6 FIX: Debounce timer ref for progress input
+   136→   136→   136→  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   137→   137→   137→  const progressTrackRef = useRef<HTMLDivElement>(null);
+   138→   138→   138→  const dragValueRef = useRef<number>(0);
+   139→   139→   139→  const [dragProgress, setDragProgress] = useState<number | null>(null);
+   140→   140→   140→
+   141→   141→   141→  // ── React Query: Project data with caching ──
+   142→   142→   142→  const { data: projectData, isLoading: projectLoading } = useQuery({
+   143→   143→   143→    queryKey: ["project", projectId],
+   144→   144→   144→    queryFn: async () => {
+   145→   145→   145→      if (!projectId) return null;
+   146→   146→   146→      const res = await fetch(`/api/projects?projectId=${projectId}`, { credentials: "include" });
+   147→   147→   147→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   148→   148→   148→      if (!res.ok) throw new Error("Failed to load project");
+   149→   149→   149→      const raw = deepSanitize(await res.json());
+   150→   150→   150→      if (Array.isArray(raw) && raw.length > 0) return raw[0] as Record<string, unknown>;
+   151→   151→   151→      if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) return raw as Record<string, unknown>;
+   152→   152→   152→      if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
+   153→   153→   153→        return ((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>;
+   154→   154→   154→      }
+   155→   155→   155→      return null;
+   156→   156→   156→    },
+   157→   157→   157→    enabled: !!projectId,
+   158→   158→   158→    staleTime: 30 * 1000,
+   159→   159→   159→    gcTime: 5 * 60 * 1000,
+   160→   160→   160→    refetchOnWindowFocus: false,
+   161→   161→   161→    retry: 1,
+   162→   162→   162→  });
+   163→   163→   163→
+   164→   164→   164→  const { data: tasksData = [], isLoading: tasksLoading } = useQuery({
+   165→   165→   165→    queryKey: ["project-tasks", projectId],
+   166→   166→   166→    queryFn: async () => {
+   167→   167→   167→      if (!projectId) return [];
+   168→   168→   168→      const res = await fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include" });
+   169→   169→   169→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   170→   170→   170→      if (!res.ok) throw new Error("Failed to load tasks");
+   171→   171→   171→      const td = deepSanitize(await res.json());
+   172→   172→   172→      return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+   173→   173→   173→    },
+   174→   174→   174→    enabled: !!projectId,
+   175→   175→   175→    staleTime: 30 * 1000,
+   176→   176→   176→    gcTime: 5 * 60 * 1000,
+   177→   177→   177→    refetchOnWindowFocus: false,
+   178→   178→   178→    retry: 1,
+   179→   179→   179→  });
+   180→   180→   180→
+   181→   181→   181→  const { data: membersData = [], isLoading: membersLoading } = useQuery({
+   182→   182→   182→    queryKey: ["project-members", projectId],
+   183→   183→   183→    queryFn: async () => {
+   184→   184→   184→      if (!projectId) return [];
+   185→   185→   185→      const res = await fetch(`/api/projects/${projectId}/members`, { credentials: "include" });
+   186→   186→   186→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   187→   187→   187→      if (!res.ok) throw new Error("Failed to load members");
+   188→   188→   188→      const md = deepSanitize(await res.json());
+   189→   189→   189→      return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
+   190→   190→   190→    },
+   191→   191→   191→    enabled: !!projectId,
+   192→   192→   192→    staleTime: 30 * 1000,
+   193→   193→   193→    gcTime: 5 * 60 * 1000,
+   194→   194→   194→    refetchOnWindowFocus: false,
+   195→   195→   195→    retry: 1,
+   196→   196→   196→  });
+   197→   197→   197→
+   198→   198→   198→  const { data: teamUsersData = [] } = useQuery({
+   199→   199→   199→    queryKey: ["team-users"],
+   200→   200→   200→    queryFn: async () => {
+   201→   201→   201→      const res = await fetch("/api/team?type=users", { credentials: "include" });
+   202→   202→   202→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   203→   203→   203→      if (!res.ok) throw new Error("Failed to load team users");
+   204→   204→   204→      const ud = deepSanitize(await res.json());
+   205→   205→   205→      return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
+   206→   206→   206→    },
+   207→   207→   207→    enabled: isAdminUser,
+   208→   208→   208→    staleTime: 30 * 1000,
+   209→   209→   209→    gcTime: 5 * 60 * 1000,
+   210→   210→   210→    refetchOnWindowFocus: false,
+   211→   211→   211→    retry: 1,
+   212→   212→   212→  });
+   213→   213→   213→
+   214→   214→   214→  // ── React Query: Websites with caching ──
+   215→   215→   215→  const { data: websitesData = [] } = useQuery({
+   216→   216→   216→    queryKey: ["project-websites", projectId],
+   217→   217→   217→    queryFn: async () => {
+   218→   218→   218→      if (!projectId) return [];
+   219→   219→   219→      const res = await fetch(`/api/projects/${projectId}/websites`, { credentials: "include" });
+   220→   220→   220→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   221→   221→   221→      if (!res.ok) return [];
+   222→   222→   222→      const raw = deepSanitize(await res.json());
+   223→   223→   223→      return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
+   224→   224→   224→    },
+   225→   225→   225→    enabled: !!projectId && isAdminUser,
+   226→   226→   226→    staleTime: 30 * 1000,
+   227→   227→   227→    gcTime: 5 * 60 * 1000,
+   228→   228→   228→    refetchOnWindowFocus: false,
+   229→   229→   229→    retry: 1,
+   230→   230→   230→  });
+   231→   231→   231→
+   232→   232→   232→  const project = projectData;
+   233→   233→   233→  const tasks = tasksData;
+   234→   234→   234→  const members = membersData;
+   235→   235→   235→  const teamUsers = teamUsersData;
+   236→   236→   236→  const websites = websitesData;
+   237→   237→   237→
+   238→   238→   238→  const invalidateAll = () => {
+   239→   239→   239→    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+   240→   240→   240→    queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+   241→   241→   241→    queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+   242→   242→   242→    queryClient.invalidateQueries({ queryKey: ["project-websites", projectId] });
+   243→   243→   243→  };
+   244→   244→   244→
+   245→   245→   245→  // ── Website CRUD handlers ──
+   246→   246→   246→  const handleAddWebsite = async () => {
+   247→   247→   247→    if (!newWebsiteUrl.trim()) { toast.error("URL is required"); return; }
+   248→   248→   248→    try {
+   249→   249→   249→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   250→   250→   250→        method: "POST",
+   251→   251→   251→        headers: { "Content-Type": "application/json" },
+   252→   252→   252→        credentials: "include",
+   253→   253→   253→        body: JSON.stringify({
+   254→   254→   254→          url: newWebsiteUrl.trim(),
+   255→   255→   255→          label: newWebsiteLabel.trim() || "Production",
+   256→   256→   256→          isPrimary: websites.length === 0,
+   257→   257→   257→        }),
+   258→   258→   258→      });
+   259→   259→   259→      if (res.ok) { toast.success("Website added"); setNewWebsiteUrl(""); setNewWebsiteLabel(""); invalidateAll(); }
+   260→   260→   260→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add website"); }
+   261→   261→   261→    } catch { toast.error("Failed to add website"); }
+   262→   262→   262→  };
+   263→   263→   263→
+   264→   264→   264→  const handleUpdateWebsite = async (websiteId: string, updates: Record<string, unknown>) => {
+   265→   265→   265→    try {
+   266→   266→   266→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   267→   267→   267→        method: "PATCH",
+   268→   268→   268→        headers: { "Content-Type": "application/json" },
+   269→   269→   269→        credentials: "include",
+   270→   270→   270→        body: JSON.stringify({ id: websiteId, ...updates }),
+   271→   271→   271→      });
+   272→   272→   272→      if (res.ok) { toast.success("Website updated"); invalidateAll(); }
+   273→   273→   273→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update website"); }
+   274→   274→   274→    } catch { toast.error("Failed to update website"); }
+   275→   275→   275→  };
+   276→   276→   276→
+   277→   277→   277→  const handleDeleteWebsite = async (websiteId: string) => {
+   278→   278→   278→    try {
+   279→   279→   279→      const res = await fetch(`/api/projects/${projectId}/websites?id=${websiteId}`, {
+   280→   280→   280→        method: "DELETE",
+   281→   281→   281→        credentials: "include",
+   282→   282→   282→      });
+   283→   283→   283→      if (res.ok) { toast.success("Website removed"); invalidateAll(); }
+   284→   284→   284→      else { if (handle401(res)) return; toast.error("Failed to delete website"); }
+   285→   285→   285→    } catch { toast.error("Failed to delete website"); }
+   286→   286→   286→  };
+   287→   287→   287→
+   288→   288→   288→  const handleSetPrimaryWebsite = async (websiteId: string) => {
+   289→   289→   289→    try {
+   290→   290→   290→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   291→   291→   291→        method: "PATCH",
+   292→   292→   292→        headers: { "Content-Type": "application/json" },
+   293→   293→   293→        credentials: "include",
+   294→   294→   294→        body: JSON.stringify({ id: websiteId, isPrimary: true }),
+   295→   295→   295→      });
+   296→   296→   296→      if (res.ok) { toast.success("Primary website set"); invalidateAll(); }
+   297→   297→   297→      else { if (handle401(res)) return; toast.error("Failed to set primary"); }
+   298→   298→   298→    } catch { toast.error("Failed to set primary"); }
+   299→   299→   299→  };
+   300→   300→   300→
+   301→   301→   301→  const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
+   302→   302→   302→    e.preventDefault();
+   303→   303→   303→    const form = new FormData(e.currentTarget);
+   304→   304→   304→    const data = {
+   305→   305→   305→      title: String(form.get("title") || ""),
+   306→   306→   306→      description: String(form.get("description") || ""),
+   307→   307→   307→      projectId,
+   308→   308→   308→      assigneeType: String(form.get("assigneeType") || "HUMAN"),
+   309→   309→   309→      assignedTo: String(form.get("assignedTo") || "") || null,
+   310→   310→   310→      priority: String(form.get("priority") || "MEDIUM"),
+   311→   311→   311→    };
+   312→   312→   312→    try {
+   313→   313→   313→      const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(data) });
+   314→   314→   314→      if (res.ok) { toast.success("Task created"); setAddOpen(false); invalidateAll(); }
+   315→   315→   315→      else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
+   316→   316→   316→    } catch { toast.error("Failed to create task"); }
+   317→   317→   317→  };
+   318→   318→   318→
+   319→   319→   319→  const handleMoveTask = async (taskId: string, newStatus: string) => {
+   320→   320→   320→    try {
+   321→   321→   321→      const res = await fetch("/api/tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: taskId, status: newStatus }) });
+   322→   322→   322→      if (res.ok) {
+   323→   323→   323→        const updated = await res.json().catch(() => null);
+   324→   324→   324→        const finalStatus = updated?.status || newStatus;
+   325→   325→   325→        if (finalStatus === "AWAITING_APPROVAL" && newStatus === "DONE") {
+   326→   326→   326→          toast.success("Task submitted for approval");
+   327→   327→   327→        } else if (finalStatus === "DONE" && newStatus === "DONE") {
+   328→   328→   328→          toast.success("Task approved and marked as done");
+   329→   329→   329→        } else {
+   330→   330→   330→          toast.success(`Task moved to ${String(finalStatus).replace("_", " ")}`);
+   331→   331→   331→        }
+   332→   332→   332→        invalidateAll();
+   333→   333→   333→      } else {
+   334→   334→   334→        if (handle401(res)) return;
+   335→   335→   335→        const err = await res.json().catch(() => null);
+   336→   336→   336→        toast.error(err?.error || "Failed to move task");
+   337→   337→   337→      }
+   338→   338→   338→    } catch { toast.error("Failed to move task"); }
+   339→   339→   339→  };
+   340→   340→   340→
+   341→   341→   341→  const handleDeleteTask = async (taskId: string) => {
+   342→   342→   342→    try {
+   343→   343→   343→      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
+   344→   344→   344→      if (res.ok) { toast.success("Task deleted"); invalidateAll(); }
+   345→   345→   345→      else { if (handle401(res)) return; toast.error("Failed to delete task"); }
+   346→   346→   346→    } catch { toast.error("Failed to delete task"); }
+   347→   347→   347→  };
+   348→   348→   348→
+   349→   349→   349→  const handleAddMember = async (userId: string, role: string) => {
+   350→   350→   350→    // Optimistic: find the user from teamUsers for instant UI update
+   351→   351→   351→    const matchUser = (teamUsers as Record<string, unknown>[]).find((u) => extractStr(u, "id", "") === userId);
+   352→   352→   352→    const optimisticMember = {
+   353→   353→   353→      id: `opt-${Date.now()}`,
+   354→   354→   354→      userId,
+   355→   355→   355→      projectId,
+   356→   356→   356→      role,
+   357→   357→   357→      user: matchUser ? { id: userId, name: extractStr(matchUser, "name", ""), email: extractStr(matchUser, "email", ""), role: extractStr(matchUser, "role", ""), department: extractStr(matchUser, "department", "") } : { id: userId, name: "", email: "" },
+   358→   358→   358→      createdAt: new Date().toISOString(),
+   359→   359→   359→    };
+   360→   360→   360→
+   361→   361→   361→    // Instantly update cache so the member appears without waiting for refetch
+   362→   362→   362→    queryClient.setQueryData(["project-members", projectId], (old: unknown[]) => {
+   363→   363→   363→      const arr = Array.isArray(old) ? old : [];
+   364→   364→   364→      if ((arr as Record<string, unknown>[]).some((m) => extractStr(m, "userId", "") === userId)) return old; // already in list
+   365→   365→   365→      return [...arr, optimisticMember];
+   366→   366→   366→    });
+   367→   367→   367→    toast.success("Member added");
+   368→   368→   368→    setAddMemberOpen(false);
+   369→   369→   369→
+   370→   370→   370→    // Fire-and-forget API call; rollback on failure
+   371→   371→   371→    try {
+   372→   372→   372→      const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
+   373→   373→   373→      if (!res.ok) {
+   374→   374→   374→        // Rollback
+   375→   375→   375→        queryClient.setQueryData(["project-members", projectId], (old: unknown[]) =>
+   376→   376→   376→          (Array.isArray(old) ? old : []).filter((m: unknown) => extractStr(m as Record<string, unknown>, "userId", "") !== userId)
+   377→   377→   377→        );
+   378→   378→   378→        if (handle401(res)) return;
+   379→   379→   379→        const d = await res.json();
+   380→   380→   380→        toast.error(d.error || "Failed to add member");
+   381→   381→   381→      } else {
+   382→   382→   382→        // Background refetch to sync with server data
+   383→   383→   383→        invalidateAll();
+   384→   384→   384→      }
+   385→   385→   385→    } catch {
+   386→   386→   386→      queryClient.setQueryData(["project-members", projectId], (old: unknown[]) =>
+   387→   387→   387→        (Array.isArray(old) ? old : []).filter((m: unknown) => extractStr(m as Record<string, unknown>, "userId", "") !== userId)
+   388→   388→   388→      );
+   389→   389→   389→      toast.error("Failed to add member");
+   390→   390→   390→    }
+   391→   391→   391→  };
+   392→   392→   392→
+   393→   393→   393→  const handleUpdateProject = async (updates: Record<string, unknown>) => {
+   394→   394→   394→    try {
+   395→   395→   395→      const res = await fetch("/api/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: projectId, ...updates }) });
+   396→   396→   396→      if (res.ok) { toast.success("Project updated"); invalidateAll(); }
+   397→   397→   397→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update project"); }
+   398→   398→   398→    } catch { toast.error("Failed to update project"); }
+   399→   399→   399→  };
+   400→   400→   400→
+   401→   401→   401→  const handleRemoveMember = async (userId: string) => {
+   402→   402→   402→    // Optimistic: instantly remove from cache
+   403→   403→   403→    queryClient.setQueryData(["project-members", projectId], (old: unknown[]) =>
+   404→   404→   404→      (Array.isArray(old) ? old : []).filter((m: unknown) => extractStr(m as Record<string, unknown>, "userId", "") !== userId)
+   405→   405→   405→    );
+   406→   406→   406→    toast.success("Member removed");
+   407→   407→   407→
+   408→   408→   408→    try {
+   409→   409→   409→      const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
+   410→   410→   410→      if (!res.ok) {
+   411→   411→   411→        // Rollback: re-add would need server data, just refetch
+   412→   412→   412→        invalidateAll();
+   413→   413→   413→        if (handle401(res)) return;
+   414→   414→   414→        toast.error("Failed to remove member");
+   415→   415→   415→      } else {
+   416→   416→   416→        invalidateAll();
+   417→   417→   417→      }
+   418→   418→   418→    } catch { invalidateAll(); toast.error("Failed to remove member"); }
+   419→   419→   419→  };
+   420→   420→   420→
+   421→   421→   421→  // ── Derived values (ALL guaranteed primitives via safe extractors) ──
+   422→   422→   422→  const projectName = project ? extractStr(project, "name", "Untitled") : "";
+   423→   423→   423→  const projectDesc = project ? extractStr(project, "description", "") : "";
+   424→   424→   424→  const projectStatus = project ? extractStr(project, "status", "PLANNING") : "PLANNING";
+   425→   425→   425→  const projectProgress = project ? extractNum(project, "progress", 0) : 0;
+   426→   426→   426→  const projectBudget = project ? extractNum(project, "budget", 0) : 0;
+   427→   427→   427→  const projectDeadline = project ? extractStr(project, "deadline", "") : "";
+   428→   428→   428→
+   429→   429→   429→  const memberUserIds = useMemo(() => members.map((m) => extractStr(m, "userId", "")), [members]);
+   430→   430→   430→  const availableUsers = useMemo(() => {
+   431→   431→   431→    const ids = memberUserIds;
+   432→   432→   432→    return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
+   433→   433→   433→  }, [teamUsers, memberUserIds]);
+   434→   434→   434→
+   435→   435→   435→  // Fix: Include tasksLoading and membersLoading to prevent layout shift
+   436→   436→   436→  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+   437→   437→   437→
+   438→   438→   438→  // ── Loading state ──
+   439→   439→   439→  if (isLoading) {
+   440→   440→   440→    return (
+   441→   441→   441→      <div className="space-y-5">
+   442→   442→   442→        <div className="flex items-center gap-3">
+   443→   443→   443→          <Skeleton className="h-8 w-8 rounded-lg" />
+   444→   444→   444→          <div className="space-y-1.5 flex-1">
+   445→   445→   445→            <Skeleton className="h-6 w-48" />
+   446→   446→   446→            <Skeleton className="h-3.5 w-72" />
+   447→   447→   447→          </div>
+   448→   448→   448→        </div>
+   449→   449→   449→        <div className="flex flex-wrap gap-2">
+   450→   450→   450→          {[1, 2, 3, 4, 5].map((i) => (
+   451→   451→   451→            <Skeleton key={i} className="h-9 w-28 rounded-full" />
+   452→   452→   452→          ))}
+   453→   453→   453→        </div>
+   454→   454→   454→        <Skeleton className="h-5 w-40" />
+   455→   455→   455→        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+   456→   456→   456→          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-72 rounded-xl" />)}
+   457→   457→   457→        </div>
+   458→   458→   458→      </div>
+   459→   459→   459→    );
+   460→   460→   460→  }
+   461→   461→   461→
+   462→   462→   462→  if (!projectId) {
+   463→   463→   463→    return (
+   464→   464→   464→      <div className="text-center py-16">
+   465→   465→   465→        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+   466→   466→   466→          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
+   467→   467→   467→        </div>
+   468→   468→   468→        <p className="text-muted-foreground mb-4 font-medium">Invalid project ID</p>
+   469→   469→   469→        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+   470→   470→   470→          <ArrowLeft className="h-4 w-4" /> Back to Projects
+   471→   471→   471→        </Button>
+   472→   472→   472→      </div>
+   473→   473→   473→    );
+   474→   474→   474→  }
+   475→   475→   475→
+   476→   476→   476→  if (!project) {
+   477→   477→   477→    return (
+   478→   478→   478→      <div className="text-center py-16">
+   479→   479→   479→        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+   480→   480→   480→          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
+   481→   481→   481→        </div>
+   482→   482→   482→        <p className="text-muted-foreground mb-4 font-medium">Project not found</p>
+   483→   483→   483→        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+   484→   484→   484→          <ArrowLeft className="h-4 w-4" /> Back to Projects
+   485→   485→   485→        </Button>
+   486→   486→   486→      </div>
+   487→   487→   487→    );
+   488→   488→   488→  }
+   489→   489→   489→
+   490→   490→   490→  const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
+   491→   491→   491→
+   492→   492→   492→  return (
+   493→   493→   493→    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both" }}>
+   494→   494→   494→      {/* ═══════ Compact Header ═══════ */}
+   495→   495→   495→      <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
+   496→   496→   496→        <Button
+   497→   497→   497→          variant="ghost"
+   498→   498→   498→          size="icon"
+   499→   499→   499→          onClick={() => router.push("/dashboard/projects")}
+   500→   500→   500→          aria-label="Back to projects"
+
+[showing lines 1-500 of 1410; use offset=501 with limit to continue reading]
