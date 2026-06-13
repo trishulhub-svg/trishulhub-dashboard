@@ -124,3 +124,23 @@ Stage Summary:
 - Dark mode and blue light mode both have dedicated glass variants
 - Text readability preserved — no blur applied to text elements, only to card/sidebar backgrounds
 - Key files: src/app/globals.css, src/app/dashboard/layout.tsx, src/app/dashboard/page.tsx
+---
+Task ID: 1-7
+Agent: main
+Task: Fix 7 issues - color, lark mapping, notification badge, meetings, training, system check
+
+Work Log:
+- Fixed color palette: Changed primary from oklch(0.55 0.12 148) to oklch(0.55 0.15 145) across all 3 themes, matching logo green #5ACB38 with better contrast
+- Fixed Lark user mapping: Refresh button now calls ?allLarkUsers=true for raw Lark users + separate mapping fetch; Save button sends individual POST requests per mapping
+- Fixed training data: API returns {documents:[...]} but page passed whole object to safeArray() — now correctly reads data.documents
+- Fixed time tracking badge: Removed spurious /dashboard/time-tracking badge for developers (active tasks already on Projects/Timetable)
+- Verified meetings: All features intact (past meetings, email invites, external attendees) — nothing lost in merge
+- Verified Lark mapping E2E: POST handler, client, schema, sync all correct
+- TypeScript build: Zero errors
+- Pushed to GitHub: commit 9223ff7
+
+Stage Summary:
+- 4 files changed: globals.css, access-hub/page.tsx, training/page.tsx, pending-counts/route.ts
+- Build passes cleanly
+- No data loss — training data was always in DB, just not rendered due to response shape bug
+- Glass effects fully intact (66 backdrop-filter references)
