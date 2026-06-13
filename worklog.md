@@ -89,3 +89,30 @@ Stage Summary:
 - Adding member to project = they see the project tasklist in Lark
 - Removing member from project = tasklist disappears from their Lark (deleted entirely if no Lark members remain)
 
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix remove-member button visibility + Lark done-status circular sync bug
+
+Work Log:
+- Issue 1: Found remove button had opacity-0 + group-hover/member:opacity-100 (invisible until hover)
+  - Removed opacity-0 and hover-only visibility
+  - Button now always visible with subtle color (text-muted-foreground/50), turns red on hover
+  - File: src/app/dashboard/projects/[projectId]/page.tsx line 711
+
+- Issue 2: Investigated Lark "done → reverts" circular sync bug
+  - Root cause: Lark webhook fires → handler fetches task from Lark API too quickly (stale read) → gets old status → overwrites TrishulHub → syncTaskUpdateToLark pushes old status back to Lark
+  - Also: Lark retries events, causing duplicate processing
+  - Fix 1: Circular sync guard (in-memory Map, 10s cooldown) — after webhook updates TH, prevents status push-back to Lark
+  - Fix 2: Webhook event deduplication (30s window) using event_id from Lark header
+  - Fix 3: 1s delay before fetching task from Lark API on webhook to let Lark settle
+  - Fix 4: Clear completedAt when status moves away from DONE
+  - Files: src/lib/lark/sync.ts, src/lib/lark/webhook.ts
+
+- TypeScript: zero errors
+- Committed and pushed: b0bc50d
+
+Stage Summary:
+- Remove member button now always visible (no longer hidden behind hover)
+- Lark done-status reverts fixed with 3-layer protection: dedup + delay + circular guard
+
