@@ -77,7 +77,7 @@ export default function TrainingLibraryPage() {
       if (search) params.set("search", search)
       if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
       const res = await fetch(`/api/training/documents?${params.toString()}`, { credentials: "include" })
-      if (res.ok) setDocuments(safeArray<TrainingDocument>(await res.json()))
+      if (res.ok) { const data = await res.json(); setDocuments(safeArray<TrainingDocument>(data.documents)) }
     } catch (err) { console.error("[training] Error:", err) } finally { setLoading(false) }
   }, [search, statusFilter])
 

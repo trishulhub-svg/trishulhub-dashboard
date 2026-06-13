@@ -127,9 +127,6 @@ export async function GET(req: NextRequest) {
     // Time Table: tasks with upcoming deadlines
     if (urgentTaskCount > 0) badges["/dashboard/timetable"] = urgentTaskCount
 
-    // Time Tracking: active tasks that need time logging
-    if (activeTaskCount > 0) badges["/dashboard/time-tracking"] = activeTaskCount
-
     // Leaves: my pending leave requests
     if (myPendingLeaves > 0) badges["/dashboard/leaves"] = myPendingLeaves
 

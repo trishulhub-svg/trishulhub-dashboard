@@ -1445,11 +1445,25 @@ function AccessHubContent() {
                         setLarkUsersLoading(true);
                         setLarkUsersError("");
                         try {
-                          const res = await fetch("/api/lark/users", { credentials: "include" });
-                          const data = await res.json();
-                          if (data.users) setLarkUsers(data.users);
-                          if (data.error) setLarkUsersError(data.error);
-                          if (data.mappings) setLarkMappings(data.mappings);
+                          // Fetch raw Lark users
+                          const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
+                          const larkData = await larkRes.json();
+                          if (larkData.allLarkUsers) setLarkUsers(larkData.allLarkUsers);
+                          if (larkData.larkError) setLarkUsersError(larkData.larkError);
+                          if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
+
+                          // Fetch existing mappings (TrishulHub users with their lark mapping info)
+                          const mapRes = await fetch("/api/lark/users", { credentials: "include" });
+                          const mapData = await mapRes.json();
+                          if (mapData.users) {
+                            const mappings: Record<string, string> = {};
+                            for (const u of mapData.users) {
+                              if (u.larkOpenId && u.larkMapped) {
+                                mappings[u.larkOpenId] = u.id;
+                              }
+                            }
+                            setLarkMappings(mappings);
+                          }
                         } catch { setLarkUsersError("Failed to fetch Lark users"); }
                         finally { setLarkUsersLoading(false); }
                       }}
@@ -1464,15 +1478,26 @@ function AccessHubContent() {
                       onClick={async () => {
                         setLarkMappingsSaving(true);
                         try {
-                          const res = await fetch("/api/lark/users", {
-                            method: "POST",
-                            credentials: "include",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ mappings: larkMappings }),
-                          });
-                          const data = await res.json();
-                          if (data.success) toast.success("User mappings saved successfully");
-                          else toast.error(data.error || "Failed to save mappings");
+                          const entries = Object.entries(larkMappings).filter(([_, val]) => val && val !== "__none__");
+                          let success = 0;
+                          for (const [larkOpenId, userId] of entries) {
+                            const larkUser = larkUsers.find(u => u.open_id === larkOpenId);
+                            const res = await fetch("/api/lark/users", {
+                              method: "POST",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                userId,
+                                larkOpenId,
+                                larkName: larkUser?.name || "",
+                                larkEmail: larkUser?.email || "",
+                                matchedBy: "manual",
+                              }),
+                            });
+                            const data = await res.json();
+                            if (data.success) success++;
+                          }
+                          toast.success(`${success} mapping${success !== 1 ? 's' : ''} saved successfully`);
                         } catch { toast.error("Failed to save mappings"); }
                         finally { setLarkMappingsSaving(false); }
                       }}
