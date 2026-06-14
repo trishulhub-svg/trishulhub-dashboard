@@ -14,6 +14,7 @@ export const AUDIT_DEPARTMENTS = {
   HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability"] },
   LEARNING: { label: "Learning", pages: ["training", "my-training"] },
   SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "files", "protocol", "credentials", "notifications"] },
+  INTEGRATION: { label: "Integrations", pages: ["lark-sync", "lark-webhook", "lark-settings"] },
 } as const
 
 export type AuditDepartment = keyof typeof AUDIT_DEPARTMENTS
@@ -22,7 +23,7 @@ export type AuditDepartment = keyof typeof AUDIT_DEPARTMENTS
 export const AUDIT_ACTIONS = [
   "CREATE", "READ", "UPDATE", "DELETE", "LOGIN", "LOGOUT",
   "EXPORT", "APPROVE", "REJECT", "SEND", "ASSIGN", "UPLOAD",
-  "DOWNLOAD", "STATUS_CHANGE", "CONFIG_CHANGE", "ACCESS",
+  "DOWNLOAD", "STATUS_CHANGE", "CONFIG_CHANGE", "ACCESS", "SYNC",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -44,6 +45,7 @@ export const ACTION_COLORS: Record<string, string> = {
   STATUS_CHANGE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
   CONFIG_CHANGE: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300",
   ACCESS: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400",
+  SYNC: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400",
   READ: "bg-gray-50 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400",
 }
 
@@ -60,6 +62,7 @@ export const DEPARTMENT_ICONS: Record<string, string> = {
   HR_PEOPLE: "Users",
   LEARNING: "GraduationCap",
   SYSTEM: "Settings",
+  INTEGRATION: "Link2",
 }
 
 // ── Department Colors ──
@@ -69,6 +72,7 @@ export const DEPARTMENT_COLORS: Record<string, string> = {
   HR_PEOPLE: "text-pink-600 dark:text-pink-400",
   LEARNING: "text-emerald-600 dark:text-emerald-400",
   SYSTEM: "text-slate-600 dark:text-slate-400",
+  INTEGRATION: "text-violet-600 dark:text-violet-400",
 }
 
 export interface LogAuditParams {

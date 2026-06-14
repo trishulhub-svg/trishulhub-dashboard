@@ -17,6 +17,7 @@ import {
 import { getLarkConfig } from "./auth"
 import type { SyncDirection, SyncAction, SyncStatus } from "./types"
 import { STATUS_TO_LARK, STATUS_FROM_LARK, PRIORITY_TO_LARK, PRIORITY_FROM_LARK } from "./types"
+import { logAudit } from "@/lib/audit-log"
 
 // ━━ CIRCULAR SYNC GUARD ━━
 
@@ -107,6 +108,80 @@ async function logSync(params: {
     )
   } catch (err) {
     console.error("[lark/sync] Failed to log sync:", err)
+  }
+
+  // Also write to main AuditLog so it's visible in the audit trail
+  auditLogSync(params).catch(() => { /* fire-and-forget */ })
+}
+
+/**
+ * Write a Lark sync event to the main AuditLog table (visible in audit trail).
+ * Fire-and-forget, non-blocking. For webhook-triggered events (no session),
+ * uses "Lark Webhook" as the user name.
+ */
+async function auditLogSync(params: {
+  direction: SyncDirection
+  action: SyncAction
+  status: SyncStatus
+  userId?: string
+  taskId?: string
+  larkTaskId?: string
+  larkTaskListId?: string
+  projectId?: string
+  error?: string
+}): Promise<void> {
+  try {
+    // Resolve user info for the audit entry
+    let userName = "Lark Webhook"
+    let userRole = "SYSTEM"
+    let userId = params.userId || "system"
+
+    if (params.userId) {
+      try {
+        const user = await db.user.findUnique({
+          where: { id: params.userId },
+          select: { name: true, role: true },
+        })
+        if (user) {
+          userName = user.name || "Unknown"
+          userRole = user.role
+        }
+      } catch { /* use defaults */ }
+    }
+
+    const directionLabel = params.direction === "TO_LARK" ? "TrishulHub → Lark" : "Lark → TrishulHub"
+    const statusLabel = params.status === "SUCCESS" ? "succeeded" : params.status === "FAILED" ? "failed" : "skipped"
+    const actionVerb = params.action === "CREATE" ? "created" : params.action === "DELETE" ? "deleted" : params.action === "STATUS_CHANGE" ? "status changed" : "updated"
+
+    let description = `Lark sync ${directionLabel}: Task ${actionVerb} (${statusLabel})`
+    if (params.error) description += ` — ${params.error}`
+    if (params.taskId) description += ` [TH: ${params.taskId.slice(0, 8)}]`
+    if (params.larkTaskId) description += ` [Lark: ${params.larkTaskId.slice(0, 8)}]`
+
+    await logAudit({
+      userId,
+      userName,
+      userRole,
+      department: "INTEGRATION",
+      page: "lark-sync",
+      action: "SYNC",
+      entityType: "LarkSync",
+      entityId: params.taskId || params.larkTaskId || undefined,
+      description,
+      metadata: JSON.stringify({
+        direction: params.direction,
+        syncAction: params.action,
+        syncStatus: params.status,
+        larkTaskId: params.larkTaskId || null,
+        larkTaskListId: params.larkTaskListId || null,
+        projectId: params.projectId || null,
+        error: params.error || null,
+      }),
+      status: params.status === "SUCCESS" ? "SUCCESS" : "FAILURE",
+    })
+  } catch (err) {
+    // Never throw — audit logging must not break sync
+    console.error("[lark/sync] Failed to write audit log entry:", err instanceof Error ? err.message : err)
   }
 }
 

@@ -8,6 +8,7 @@ import {
   Users,
   GraduationCap,
   Settings,
+  Link2,
   Search,
   Filter,
   Download,
@@ -59,6 +60,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Users,
   GraduationCap,
   Settings,
+  Link2,
 }
 
 interface AuditLogEntry {
