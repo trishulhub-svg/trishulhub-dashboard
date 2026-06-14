@@ -1,0 +1,729 @@
+     1→     1→// ━━ Lark Sync — Bidirectional Task Sync Engine ━━
+     2→     2→
+     3→     3→import { db, getAppSetting, setAppSetting, delAppSetting } from "@/lib/db"
+     4→     4→import {
+     5→     5→  createTask,
+     6→     6→  updateTask,
+     7→     7→  deleteTask as larkDeleteTask,
+     8→     8→  getOrCreateProjectTaskList,
+     9→     9→  getAllUsers,
+    10→    10→  lookupUserByEmail,
+    11→    11→  addTaskMember,
+    12→    12→  removeTaskMember,
+    13→    13→  addTaskListMember,
+    14→    14→  removeTaskListMember,
+    15→    15→  getTask,
+    16→    16→} from "./client"
+    17→    17→import { getLarkConfig } from "./auth"
+    18→    18→import type { SyncDirection, SyncAction, SyncStatus } from "./types"
+    19→    19→import { STATUS_TO_LARK, STATUS_FROM_LARK, PRIORITY_TO_LARK, PRIORITY_FROM_LARK } from "./types"
+    20→    20→
+    21→    21→// ━━ CIRCULAR SYNC GUARD ━━
+    22→    22→
+    23→    23→/** In-memory map: "taskId:direction" → timestamp. Prevents TH→Lark→TH→Lark loops.
+    24→    24→ *  Cooldown: 10 seconds.
+    25→    25→ */
+    26→    26→const _syncGuard = new Map<string, number>()
+    27→    27→const SYNC_GUARD_COOLDOWN_MS = 10_000
+    28→    28→
+    29→    29→function markSyncGuard(taskId: string, direction: string): void {
+    30→    30→  _syncGuard.set(`${taskId}:${direction}`, Date.now())
+    31→    31→}
+    32→    32→
+    33→    33→function isSyncGuarded(taskId: string, direction: string): boolean {
+    34→    34→  const ts = _syncGuard.get(`${taskId}:${direction}`)
+    35→    35→  if (!ts) return false
+    36→    36→  if (Date.now() - ts > SYNC_GUARD_COOLDOWN_MS) {
+    37→    37→    _syncGuard.delete(`${taskId}:${direction}`)
+    38→    38→    return false
+    39→    39→  }
+    40→    40→  return true
+    41→    41→}
+    42→    42→
+    43→    43→// ━━ WEBHOOK EVENT DEDUPLICATION ━━
+    44→    44→
+    45→    45→/** In-memory set of processed event_ids. Prevents duplicate processing from Lark retries.
+    46→    46→ *  Window: 30 seconds.
+    47→    47→ */
+    48→    48→const _processedEvents = new Map<string, number>()
+    49→    49→const DEDUP_WINDOW_MS = 30_000
+    50→    50→
+    51→    51→function isEventDuplicate(eventId: string): boolean {
+    52→    52→  const ts = _processedEvents.get(eventId)
+    53→    53→  if (!ts) return false
+    54→    54→  if (Date.now() - ts > DEDUP_WINDOW_MS) {
+    55→    55→    _processedEvents.delete(eventId)
+    56→    56→    return false
+    57→    57→  }
+    58→    58→  return true
+    59→    59→}
+    60→    60→
+    61→    61→function markEventProcessed(eventId: string): void {
+    62→    62→  _processedEvents.set(eventId, Date.now())
+    63→    63→}
+    64→    64→
+    65→    65→// Periodic cleanup of stale entries (every 60s)
+    66→    66→if (typeof setInterval !== "undefined") {
+    67→    67→  setInterval(() => {
+    68→    68→    const now = Date.now()
+    69→    69→    for (const [key, ts] of _syncGuard) {
+    70→    70→      if (now - ts > SYNC_GUARD_COOLDOWN_MS) _syncGuard.delete(key)
+    71→    71→    }
+    72→    72→    for (const [key, ts] of _processedEvents) {
+    73→    73→      if (now - ts > DEDUP_WINDOW_MS) _processedEvents.delete(key)
+    74→    74→    }
+    75→    75→  }, 60_000)
+    76→    76→}
+    77→    77→
+    78→    78→/**
+    79→    79→ * Log a sync operation to the LarkSyncLog table.
+    80→    80→ */
+    81→    81→async function logSync(params: {
+    82→    82→  direction: SyncDirection
+    83→    83→  action: SyncAction
+    84→    84→  status: SyncStatus
+    85→    85→  taskId?: string
+    86→    86→  larkTaskId?: string
+    87→    87→  larkTaskListId?: string
+    88→    88→  projectId?: string
+    89→    89→  userId?: string
+    90→    90→  error?: string
+    91→    91→  metadata?: Record<string, unknown>
+    92→    92→}): Promise<void> {
+    93→    93→  try {
+    94→    94→    await db.$executeRawUnsafe(
+    95→    95→      `INSERT INTO "LarkSyncLog" ("id", "direction", "action", "status", "taskId", "larkTaskId", "larkTaskListId", "projectId", "userId", "error", "metadata", "createdAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    96→    96→      `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    97→    97→      params.direction,
+    98→    98→      params.action,
+    99→    99→      params.status,
+   100→   100→      params.taskId || null,
+   101→   101→      params.larkTaskId || null,
+   102→   102→      params.larkTaskListId || null,
+   103→   103→      params.projectId || null,
+   104→   104→      params.userId || null,
+   105→   105→      params.error || null,
+   106→   106→      params.metadata ? JSON.stringify(params.metadata) : null
+   107→   107→    )
+   108→   108→  } catch (err) {
+   109→   109→    console.error("[lark/sync] Failed to log sync:", err)
+   110→   110→  }
+   111→   111→}
+   112→   112→
+   113→   113→/**
+   114→   114→ * Get the Lark open_id for a TrishulHub user.
+   115→   115→ * Checks LarkUserMapping table first, then tries email lookup.
+   116→   116→ */
+   117→   117→export async function getUserLarkOpenId(userId: string): Promise<string | null> {
+   118→   118→  try {
+   119→   119→    // Check mapping table
+   120→   120→    const rows = await db.$queryRawUnsafe<Array<{ larkOpenId: string }>>(
+   121→   121→      'SELECT "larkOpenId" FROM "LarkUserMapping" WHERE "userId" = ?',
+   122→   122→      userId
+   123→   123→    )
+   124→   124→    if (rows.length > 0 && rows[0].larkOpenId) {
+   125→   125→      return rows[0].larkOpenId
+   126→   126→    }
+   127→   127→
+   128→   128→    // Try email lookup
+   129→   129→    const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } })
+   130→   130→    if (user?.email) {
+   131→   131→      const larkUser = await lookupUserByEmail(user.email)
+   132→   132→      if (larkUser?.open_id) {
+   133→   133→        // Auto-save the mapping
+   134→   134→        await db.$executeRawUnsafe(
+   135→   135→          'INSERT OR IGNORE INTO "LarkUserMapping" ("id", "userId", "larkOpenId", "larkName", "larkEmail", "matchedBy", "createdAt") VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+   136→   136→          `map_${userId}_${Date.now()}`,
+   137→   137→          userId,
+   138→   138→          larkUser.open_id,
+   139→   139→          larkUser.name || "",
+   140→   140→          larkUser.email || "",
+   141→   141→          "email_auto"
+   142→   142→        )
+   143→   143→        return larkUser.open_id
+   144→   144→      }
+   145→   145→    }
+   146→   146→
+   147→   147→    return null
+   148→   148→  } catch (err) {
+   149→   149→    console.error("[lark/sync] Failed to get user Lark ID:", err)
+   150→   150→    return null
+   151→   151→  }
+   152→   152→}
+   153→   153→
+   154→   154→/**
+   155→   155→ * Get the TrishulHub userId for a Lark open_id.
+   156→   156→ */
+   157→   157→export async function getUserIdByLarkOpenId(larkOpenId: string): Promise<string | null> {
+   158→   158→  try {
+   159→   159→    const rows = await db.$queryRawUnsafe<Array<{ userId: string }>>(
+   160→   160→      'SELECT "userId" FROM "LarkUserMapping" WHERE "larkOpenId" = ?',
+   161→   161→      larkOpenId
+   162→   162→    )
+   163→   163→    return rows.length > 0 ? rows[0].userId : null
+   164→   164→  } catch {
+   165→   165→    return null
+   166→   166→  }
+   167→   167→}
+   168→   168→
+   169→   169→/**
+   170→   170→ * Get Lark task ID mapping for a TrishulHub task.
+   171→   171→ */
+   172→   172→async function getLarkTaskMapping(taskId: string): Promise<{ larkTaskId: string; larkTaskListId: string } | null> {
+   173→   173→  try {
+   174→   174→    const rows = await db.$queryRawUnsafe<Array<{ larkTaskId: string; larkTaskListId: string }>>(
+   175→   175→      'SELECT "larkTaskId", "larkTaskListId" FROM "LarkTaskMapping" WHERE "taskId" = ?',
+   176→   176→      taskId
+   177→   177→    )
+   178→   178→    return rows.length > 0 ? rows[0] : null
+   179→   179→  } catch {
+   180→   180→    return null
+   181→   181→  }
+   182→   182→}
+   183→   183→
+   184→   184→/**
+   185→   185→ * Get TrishulHub task ID for a Lark task.
+   186→   186→ */
+   187→   187→export async function getTaskIdByLarkId(larkTaskId: string): Promise<string | null> {
+   188→   188→  try {
+   189→   189→    const rows = await db.$queryRawUnsafe<Array<{ taskId: string }>>(
+   190→   190→      'SELECT "taskId" FROM "LarkTaskMapping" WHERE "larkTaskId" = ?',
+   191→   191→      larkTaskId
+   192→   192→    )
+   193→   193→    return rows.length > 0 ? rows[0].taskId : null
+   194→   194→  } catch {
+   195→   195→    return null
+   196→   196→  }
+   197→   197→}
+   198→   198→
+   199→   199→/**
+   200→   200→ * Save a task mapping.
+   201→   201→ */
+   202→   202→async function saveLarkTaskMapping(taskId: string, larkTaskId: string, larkTaskListId: string): Promise<void> {
+   203→   203→  try {
+   204→   204→    await db.$executeRawUnsafe(
+   205→   205→      `INSERT OR IGNORE INTO "LarkTaskMapping" ("id", "taskId", "larkTaskId", "larkTaskListId", "createdAt") VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+   206→   206→      `tmapping_${taskId}`,
+   207→   207→      taskId,
+   208→   208→      larkTaskId,
+   209→   209→      larkTaskListId
+   210→   210→    )
+   211→   211→  } catch (err) {
+   212→   212→    console.error("[lark/sync] Failed to save task mapping:", err)
+   213→   213→  }
+   214→   214→}
+   215→   215→
+   216→   216→/**
+   217→   217→ * Remove a task mapping.
+   218→   218→ */
+   219→   219→async function removeLarkTaskMapping(taskId: string): Promise<void> {
+   220→   220→  try {
+   221→   221→    await db.$executeRawUnsafe('DELETE FROM "LarkTaskMapping" WHERE "taskId" = ?', taskId)
+   222→   222→  } catch (err) {
+   223→   223→    console.error("[lark/sync] Failed to remove task mapping:", err)
+   224→   224→  }
+   225→   225→}
+   226→   226→
+   227→   227→// ━━ TRISHULHUB → LARK SYNC ━━
+   228→   228→
+   229→   229→/**
+   230→   230→ * Sync a task creation from TrishulHub to Lark.
+   231→   231→ * Call this AFTER the task is saved in the DB.
+   232→   232→ */
+   233→   233→export async function syncTaskToLark(
+   234→   234→  taskId: string,
+   235→   235→  data: {
+   236→   236→    title: string
+   237→   237→    description?: string
+   238→   238→    status: string
+   239→   239→    priority: string
+   240→   240→    assignedTo?: string
+   241→   241→    projectId?: string
+   242→   242→    deadline?: string | Date
+   243→   243→  },
+   244→   244→  userId: string
+   245→   245→): Promise<void> {
+   246→   246→  const config = await getLarkConfig()
+   247→   247→  if (!config?.enabled) return
+   248→   248→
+   249→   249→  try {
+   250→   250→    // Get or create the task list for the project
+   251→   251→    let tasklistId: string | undefined
+   252→   252→
+   253→   253→    if (data.projectId) {
+   254→   254→      const project = await db.project.findUnique({ where: { id: data.projectId }, select: { name: true } })
+   255→   255→      if (project) {
+   256→   256→        // Try to get or create the project task list (retry once on failure)
+   257→   257→        let result = await getOrCreateProjectTaskList(data.projectId, project.name)
+   258→   258→        if (!result) {
+   259→   259→          // Retry once — transient API errors can cause first attempt to fail
+   260→   260→          console.warn(`[lark/sync] Retrying task list creation for project ${data.projectId} (${project.name})`)
+   261→   261→          result = await getOrCreateProjectTaskList(data.projectId, project.name)
+   262→   262→        }
+   263→   263→        if (result) {
+   264→   264→          tasklistId = result.tasklistId
+   265→   265→          if (result.created) {
+   266→   266→            console.log(`[lark/sync] Created new Lark task list for project: ${project.name}`)
+   267→   267→          }
+   268→   268→        } else {
+   269→   269→          console.error(`[lark/sync] FAILED to get/create task list for project ${data.projectId} (${project.name}) — aborting sync, task will NOT fall to default list`)
+   270→   270→          await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Failed to create project task list for "${project.name}"` })
+   271→   271→          // Don't fall back to default — if the task has a project, it MUST go to that project's list
+   272→   272→          return
+   273→   273→        }
+   274→   274→      }
+   275→   275→    }
+   276→   276→
+   277→   277→    if (!tasklistId) {
+   278→   278→      // No project — use a default "TrishulHub Tasks" list
+   279→   279→      const defaultResult = await getOrCreateProjectTaskList("__default__", "TrishulHub Tasks")
+   280→   280→      if (!defaultResult) {
+   281→   281→        await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: "Failed to get/create default task list" })
+   282→   282→        return
+   283→   283→      }
+   284→   284→      tasklistId = defaultResult.tasklistId
+   285→   285→    }
+   286→   286→
+   287→   287→    // Resolve assignee's Lark open_id
+   288→   288→    let assigneeOpenId: string | undefined
+   289→   289→    if (data.assignedTo) {
+   290→   290→      assigneeOpenId = await getUserLarkOpenId(data.assignedTo) || undefined
+   291→   291→    }
+   292→   292→
+   293→   293→    // Convert deadline to unix ms
+   294→   294→    let dueTimestamp: number | undefined
+   295→   295→    if (data.deadline) {
+   296→   296→      dueTimestamp = new Date(data.deadline).getTime()
+   297→   297→    }
+   298→   298→
+   299→   299→    // Create task — NO extra, NO status, NO priority (not supported by Lark create API)
+   300→   300→    const larkTask = await createTask(tasklistId, {
+   301→   301→      title: data.title,
+   302→   302→      description: data.description,
+   303→   303→      assigneeOpenId,
+   304→   304→      dueTimestamp,
+   305→   305→    })
+   306→   306→
+   307→   307→    if (larkTask) {
+   308→   308→      await saveLarkTaskMapping(taskId, larkTask.task_id, tasklistId)
+   309→   309→
+   310→   310→      // Now set status & priority via separate update
+   311→   311→      await updateTask(larkTask.task_id, {
+   312→   312→        status: data.status,
+   313→   313→        priority: data.priority,
+   314→   314→      })
+   315→   315→
+   316→   316→      // Add assignee as tasklist member (editor role) so the tasklist
+   317→   317→      // appears in the user's Lark Task Center
+   318→   318→      if (assigneeOpenId) {
+   319→   319→        await addTaskListMember(tasklistId, [
+   320→   320→          { id: assigneeOpenId, role: "editor" },
+   321→   321→        ])
+   322→   322→      }
+   323→   323→
+   324→   324→      // Mark circular guard to prevent webhook from echoing back
+   325→   325→      markSyncGuard(taskId, "TO_LARK")
+   326→   326→
+   327→   327→      await logSync({ direction: "TO_LARK", action: "CREATE", status: "SUCCESS", taskId, larkTaskId: larkTask.task_id, larkTaskListId: tasklistId, projectId: data.projectId, userId })
+   328→   328→    } else {
+   329→   329→      await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: "Lark API returned null task" })
+   330→   330→    }
+   331→   331→  } catch (err) {
+   332→   332→    const msg = err instanceof Error ? err.message : String(err)
+   333→   333→    await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: msg })
+   334→   334→  }
+   335→   335→}
+   336→   336→
+   337→   337→/**
+   338→   338→ * Sync a task update from TrishulHub to Lark.
+   339→   339→ */
+   340→   340→export async function syncTaskUpdateToLark(
+   341→   341→  taskId: string,
+   342→   342→  data: {
+   343→   343→    title?: string
+   344→   344→    description?: string
+   345→   345→    status?: string
+   346→   346→    priority?: string
+   347→   347→    assignedTo?: string
+   348→   348→    deadline?: string | Date | null
+   349→   349→  },
+   350→   350→  userId: string
+   351→   351→): Promise<void> {
+   352→   352→  const config = await getLarkConfig()
+   353→   353→  if (!config?.enabled) return
+   354→   354→
+   355→   355→  // Circular sync guard: skip if we just synced FROM Lark for this task
+   356→   356→  if (isSyncGuarded(taskId, "FROM_LARK")) {
+   357→   357→    console.log(`[lark/sync] Skipping TO_LARK update for ${taskId} — circular guard active`)
+   358→   358→    return
+   359→   359→  }
+   360→   360→
+   361→   361→  try {
+   362→   362→    const mapping = await getLarkTaskMapping(taskId)
+   363→   363→    if (!mapping) {
+   364→   364→      // No mapping exists — try full sync (task may have been created before Lark was enabled)
+   365→   365→      const task = await db.task.findUnique({ where: { id: taskId } })
+   366→   366→      if (task) {
+   367→   367→        await syncTaskToLark(taskId, {
+   368→   368→          title: task.title,
+   369→   369→          description: task.description || undefined,
+   370→   370→          status: task.status,
+   371→   371→          priority: task.priority,
+   372→   372→          assignedTo: task.assignedTo || undefined,
+   373→   373→          projectId: task.projectId || undefined,
+   374→   374→          deadline: task.deadline || undefined,
+   375→   375→        }, userId)
+   376→   376→      }
+   377→   377→      return
+   378→   378→    }
+   379→   379→
+   380→   380→    // Resolve assignee's Lark open_id
+   381→   381→    let assigneeOpenId: string | undefined
+   382→   382→    if (data.assignedTo) {
+   383→   383→      assigneeOpenId = await getUserLarkOpenId(data.assignedTo) || undefined
+   384→   384→    }
+   385→   385→
+   386→   386→    // Convert deadline to unix ms
+   387→   387→    let dueTimestamp: number | undefined
+   388→   388→    if (data.deadline) {
+   389→   389→      dueTimestamp = new Date(data.deadline).getTime()
+   390→   390→    }
+   391→   391→
+   392→   392→    // Update task — NO extra, NO assignee in body (use member APIs instead)
+   393→   393→    const larkTask = await updateTask(mapping.larkTaskId, {
+   394→   394→      title: data.title,
+   395→   395→      description: data.description,
+   396→   396→      status: data.status,
+   397→   397→      priority: data.priority,
+   398→   398→      dueTimestamp,
+   399→   399→    })
+   400→   400→
+   401→   401→    // Handle assignee change via member API
+   402→   402→    if (data.assignedTo !== undefined && assigneeOpenId) {
+   403→   403→      await addTaskMember(mapping.larkTaskId, [
+   404→   404→        { id: assigneeOpenId, role: "assignee" },
+   405→   405→      ])
+   406→   406→    }
+   407→   407→
+   408→   408→    if (larkTask) {
+   409→   409→      // Mark circular guard
+   410→   410→      markSyncGuard(taskId, "TO_LARK")
+   411→   411→
+   412→   412→      await logSync({ direction: "TO_LARK", action: "UPDATE", status: "SUCCESS", taskId, larkTaskId: mapping.larkTaskId, larkTaskListId: mapping.larkTaskListId, userId })
+   413→   413→    } else {
+   414→   414→      await logSync({ direction: "TO_LARK", action: "UPDATE", status: "FAILED", taskId, larkTaskId: mapping.larkTaskId, larkTaskListId: mapping.larkTaskListId, userId, error: "Lark API returned null" })
+   415→   415→    }
+   416→   416→  } catch (err) {
+   417→   417→    const msg = err instanceof Error ? err.message : String(err)
+   418→   418→    await logSync({ direction: "TO_LARK", action: "UPDATE", status: "FAILED", taskId, userId, error: msg })
+   419→   419→  }
+   420→   420→}
+   421→   421→
+   422→   422→/**
+   423→   423→ * Sync a task deletion from TrishulHub to Lark.
+   424→   424→ */
+   425→   425→export async function syncTaskDeleteToLark(taskId: string, userId: string): Promise<void> {
+   426→   426→  const config = await getLarkConfig()
+   427→   427→  if (!config?.enabled) return
+   428→   428→
+   429→   429→  try {
+   430→   430→    const mapping = await getLarkTaskMapping(taskId)
+   431→   431→    if (!mapping) {
+   432→   432→      await logSync({ direction: "TO_LARK", action: "DELETE", status: "SKIPPED", taskId, userId, error: "No Lark mapping found" })
+   433→   433→      return
+   434→   434→    }
+   435→   435→
+   436→   436→    const success = await larkDeleteTask(mapping.larkTaskListId, mapping.larkTaskId)
+   437→   437→    await removeLarkTaskMapping(taskId)
+   438→   438→
+   439→   439→    if (success) {
+   440→   440→      await logSync({ direction: "TO_LARK", action: "DELETE", status: "SUCCESS", taskId, larkTaskId: mapping.larkTaskId, larkTaskListId: mapping.larkTaskListId, userId })
+   441→   441→    } else {
+   442→   442→      await logSync({ direction: "TO_LARK", action: "DELETE", status: "FAILED", taskId, larkTaskId: mapping.larkTaskId, larkTaskListId: mapping.larkTaskListId, userId, error: "Lark delete API failed" })
+   443→   443→    }
+   444→   444→  } catch (err) {
+   445→   445→    const msg = err instanceof Error ? err.message : String(err)
+   446→   446→    await logSync({ direction: "TO_LARK", action: "DELETE", status: "FAILED", taskId, userId, error: msg })
+   447→   447→  }
+   448→   448→}
+   449→   449→
+   450→   450→// ━━ LARK → TRISHULHUB SYNC (Webhook-driven) ━━
+   451→   451→
+   452→   452→/**
+   453→   453→ * Handle incoming Lark webhook events.
+   454→   454→ * @param eventId — Lark event_id for deduplication
+   455→   455→ * @param eventType — Lark event type
+   456→   456→ * @param eventData — Parsed event payload
+   457→   457→ */
+   458→   458→export async function handleLarkWebhookEvent(
+   459→   459→  eventId: string,
+   460→   460→  eventType: string,
+   461→   461→  eventData: {
+   462→   462→    task_id: string
+   463→   463→    tasklist_id: string
+   464→   464→    operator?: { open_id: string }
+   465→   465→    [key: string]: unknown
+   466→   466→  }
+   467→   467→): Promise<{ success: boolean; message: string }> {
+   468→   468→  const config = await getLarkConfig()
+   469→   469→  if (!config?.enabled) {
+   470→   470→    return { success: false, message: "Lark sync is disabled" }
+   471→   471→  }
+   472→   472→
+   473→   473→  // ── Dedup check ──
+   474→   474→  if (isEventDuplicate(eventId)) {
+   475→   475→    console.log(`[lark/sync] Dedup: skipping duplicate event ${eventId}`)
+   476→   476→    return { success: true, message: "Duplicate event, skipped" }
+   477→   477→  }
+   478→   478→  markEventProcessed(eventId)
+   479→   479→
+   480→   480→  const { task_id, tasklist_id } = eventData
+   481→   481→  console.log(`[lark/sync] Processing event: ${eventType} (id: ${eventId}) for task: ${task_id}`)
+   482→   482→  console.log(`[lark/sync] Event details: tasklist_id=${tasklist_id}, operator=${eventData.operator?.open_id || 'none'}`)
+   483→   483→
+   484→   484→  try {
+   485→   485→    // Find existing mapping
+   486→   486→    const thTaskId = await getTaskIdByLarkId(task_id)
+   487→   487→    console.log(`[lark/sync] Mapping lookup: larkTaskId=${task_id} → thTaskId=${thTaskId || 'NOT FOUND'}`)
+   488→   488→
+   489→   489→    if (eventType === "task.task.deleted") {
+   490→   490→      if (!thTaskId) {
+   491→   491→        return { success: true, message: "Task not mapped, ignoring delete" }
+   492→   492→      }
+   493→   493→      // Delete the TrishulHub task
+   494→   494→      await db.task.delete({ where: { id: thTaskId } })
+   495→   495→      await removeLarkTaskMapping(thTaskId)
+   496→   496→      return { success: true, message: "Task deleted from TrishulHub" }
+   497→   497→    }
+   498→   498→
+   499→   499→    // For create/update/complete, we need the full task data from Lark
+   500→   500→    // Add 1s delay to give Lark eventual-consistency time to propagate
+   501→   501→    await new Promise((resolve) => setTimeout(resolve, 1000))
+   502→   502→
+   503→   503→    const larkTask = await getTask(tasklist_id, task_id)
+   504→   504→    if (larkTask) {
+   505→   505→      console.log(`[lark/sync] Fetched from Lark: title="${larkTask.title}", status="${larkTask.status}", priority="${larkTask.priority}", assignee="${larkTask.assignee?.open_id || 'none'}"`)
+   506→   506→    } else {
+   507→   507→      console.warn(`[lark/sync] getTask returned null for task ${task_id} in list ${tasklist_id}`)
+   508→   508→    }
+   509→   509→
+   510→   510→    // Fallback: if getTask returns null (e.g. completed tasks return 99404),
+   511→   511→    // but we have a mapping, infer status from event type instead of blindly marking DONE
+   512→   512→    if (!larkTask) {
+   513→   513→      if (thTaskId) {
+   514→   514→        // Lark API returns null/error for completed tasks on free tier (error 99404).
+   515→   515→        // Only mark as DONE if the event type suggests completion.
+   516→   516→        const likelyCompleted = eventType.includes("done") || eventType.includes("complete") || eventType.includes("finish");
+   517→   517→        const newStatus = likelyCompleted ? "DONE" : "IN_PROGRESS";
+   518→   518→        const fallbackData: Record<string, unknown> = { status: newStatus };
+   519→   519→        if (newStatus === "DONE") fallbackData.completedAt = new Date();
+   520→   520→
+   521→   521→        const existingTask = await db.task.findUnique({ where: { id: thTaskId }, select: { status: true } });
+   522→   522→        console.warn(`[lark/sync] getTask returned null for mapped task ${thTaskId}. Event: ${eventType}. Assuming status="${newStatus}" (was "${existingTask?.status || 'unknown'}")`);
+   523→   523→
+   524→   524→        await db.task.update({ where: { id: thTaskId }, data: fallbackData })
+   525→   525→        markSyncGuard(thTaskId, "FROM_LARK")
+   526→   526→        await logSync({
+   527→   527→          direction: "FROM_LARK",
+   528→   528→          action: "STATUS_CHANGE",
+   529→   529→          status: "SUCCESS",
+   530→   530→          taskId: thTaskId,
+   531→   531→          larkTaskId: task_id,
+   532→   532→          larkTaskListId: tasklist_id,
+   533→   533→          metadata: { inferredStatus: newStatus, eventType },
+   534→   534→        })
+   535→   535→        return { success: true, message: `Task ${thTaskId} updated to ${newStatus} (getTask returned null, inferred from event type)` }
+   536→   536→      }
+   537→   537→      return { success: false, message: "Failed to fetch task from Lark and no existing mapping" }
+   538→   538→    }
+   539→   539→
+   540→   540→    // Circular sync guard: skip if we just synced TO_LARK for this task
+   541→   541→    if (thTaskId && isSyncGuarded(thTaskId, "TO_LARK")) {
+   542→   542→      console.log(`[lark/sync] Skipping FROM_LARK for ${thTaskId} — circular guard active`)
+   543→   543→      return { success: true, message: "Circular guard: skipped" }
+   544→   544→    }
+   545→   545→
+   546→   546→    // Map Lark task data to TrishulHub format
+   547→   547→    const title = larkTask.title
+   548→   548→    const description = larkTask.description
+   549→   549→    const status = STATUS_FROM_LARK[larkTask.status] || "TODO"
+   550→   550→    console.log(`[lark/sync] Status mapping: lark="${larkTask.status}" → th="${status}"`)
+   551→   551→    const priority = PRIORITY_FROM_LARK[larkTask.priority] || "MEDIUM"
+   552→   552→
+   553→   553→    // Resolve assignee
+   554→   554→    let assignedTo: string | undefined
+   555→   555→    if (larkTask.assignee?.open_id) {
+   556→   556→      assignedTo = await getUserIdByLarkOpenId(larkTask.assignee.open_id) || undefined
+   557→   557→    }
+   558→   558→
+   559→   559→    // Resolve due date
+   560→   560→    const deadline = larkTask.due?.timestamp ? new Date(parseInt(larkTask.due.timestamp)) : null
+   561→   561→
+   562→   562→    if (thTaskId) {
+   563→   563→      // UPDATE existing task
+   564→   564→      const updateData: Record<string, unknown> = {}
+   565→   565→      if (title) updateData.title = title
+   566→   566→      if (description !== undefined) updateData.description = description
+   567→   567→      updateData.status = status
+   568→   568→      updateData.priority = priority
+   569→   569→      if (assignedTo !== undefined) updateData.assignedTo = assignedTo
+   570→   570→      if (deadline !== null) updateData.deadline = deadline
+   571→   571→
+   572→   572→      // Set completedAt if status changed to DONE
+   573→   573→      if (status === "DONE") {
+   574→   574→        updateData.completedAt = new Date()
+   575→   575→      }
+   576→   576→
+   577→   577→      await db.task.update({ where: { id: thTaskId }, data: updateData })
+   578→   578→      console.log(`[lark/sync] Updated TH task ${thTaskId}: status=${updateData.status}, priority=${updateData.priority}, assignedTo=${updateData.assignedTo || 'unchanged'}`)
+   579→   579→
+   580→   580→      // Mark circular guard so our update handler doesn't echo back
+   581→   581→      markSyncGuard(thTaskId, "FROM_LARK")
+   582→   582→
+   583→   583→      await logSync({
+   584→   584→        direction: "FROM_LARK",
+   585→   585→        action: "UPDATE",
+   586→   586→        status: "SUCCESS",
+   587→   587→        taskId: thTaskId,
+   588→   588→        larkTaskId: task_id,
+   589→   589→        larkTaskListId: tasklist_id,
+   590→   590→      })
+   591→   591→
+   592→   592→      return { success: true, message: `Task ${thTaskId} updated from Lark` }
+   593→   593→    } else {
+   594→   594→      // CREATE new task (originated in Lark)
+   595→   595→      const newTask = await db.task.create({
+   596→   596→        data: {
+   597→   597→          title,
+   598→   598→          description: description || null,
+   599→   599→          status,
+   600→   600→          priority,
+   601→   601→          assignedTo: assignedTo || null,
+   602→   602→          deadline,
+   603→   603→          assigneeType: "HUMAN",
+   604→   604→          category: "GENERAL",
+   605→   605→          projectId: await findProjectByTaskList(tasklist_id),
+   606→   606→        },
+   607→   607→      })
+   608→   608→
+   609→   609→      // Save mapping
+   610→   610→      await saveLarkTaskMapping(newTask.id, task_id, tasklist_id)
+   611→   611→
+   612→   612→      // Mark guard for the newly created task
+   613→   613→      markSyncGuard(newTask.id, "FROM_LARK")
+   614→   614→
+   615→   615→      return { success: true, message: `New task ${newTask.id} created from Lark` }
+   616→   616→    }
+   617→   617→  } catch (err) {
+   618→   618→    const msg = err instanceof Error ? err.message : String(err)
+   619→   619→    console.error("[lark/sync] Webhook handling error:", msg)
+   620→   620→    return { success: false, message: msg }
+   621→   621→  }
+   622→   622→}
+   623→   623→
+   624→   624→// ━━ PROJECT MEMBER ↔ LARK TASKLIST MEMBER SYNC ━━
+   625→   625→
+   626→   626→/**
+   627→   627→ * Add a TrishulHub project member to the corresponding Lark task list.
+   628→   628→ * Called fire-and-forget from the project members POST route.
+   629→   629→ */
+   630→   630→export async function addProjectMemberToLarkTaskList(
+   631→   631→  projectId: string,
+   632→   632→  userId: string
+   633→   633→): Promise<void> {
+   634→   634→  const config = await getLarkConfig()
+   635→   635→  if (!config?.enabled) return
+   636→   636→
+   637→   637→  try {
+   638→   638→    // Find the tasklist mapping for this project
+   639→   639→    const { getAppSetting } = await import("@/lib/db")
+   640→   640→    const raw = await getAppSetting(`lark_tasklist_${projectId}`)
+   641→   641→    if (!raw) return
+   642→   642→
+   643→   643→    const parsed = JSON.parse(raw)
+   644→   644→    const tasklistId = parsed.tasklistId
+   645→   645→    if (!tasklistId) return
+   646→   646→
+   647→   647→    // Get user's Lark open_id
+   648→   648→    const openId = await getUserLarkOpenId(userId)
+   649→   649→    if (!openId) return
+   650→   650→
+   651→   651→    // Add as editor to the task list
+   652→   652→    await addTaskListMember(tasklistId, [{ id: openId, role: "editor" }])
+   653→   653→    console.log(`[lark/sync] Added user ${userId} (${openId}) to tasklist ${tasklistId}`)
+   654→   654→  } catch (err) {
+   655→   655→    console.error("[lark/sync] addProjectMemberToLarkTaskList failed:", err instanceof Error ? err.message : err)
+   656→   656→  }
+   657→   657→}
+   658→   658→
+   659→   659→/**
+   660→   660→ * Remove a TrishulHub project member from the corresponding Lark task list.
+   661→   661→ * Called fire-and-forget from the project members DELETE route.
+   662→   662→ */
+   663→   663→export async function removeProjectMemberFromLarkTaskList(
+   664→   664→  projectId: string,
+   665→   665→  userId: string
+   666→   666→): Promise<void> {
+   667→   667→  const config = await getLarkConfig()
+   668→   668→  if (!config?.enabled) return
+   669→   669→
+   670→   670→  try {
+   671→   671→    const { getAppSetting, delAppSetting } = await import("@/lib/db")
+   672→   672→    const raw = await getAppSetting(`lark_tasklist_${projectId}`)
+   673→   673→    if (!raw) return
+   674→   674→
+   675→   675→    const parsed = JSON.parse(raw)
+   676→   676→    const tasklistId = parsed.tasklistId
+   677→   677→    if (!tasklistId) return
+   678→   678→
+   679→   679→    // Get user's Lark open_id
+   680→   680→    const openId = await getUserLarkOpenId(userId)
+   681→   681→    if (!openId) return
+   682→   682→
+   683→   683→    // Remove from task list
+   684→   684→    await removeTaskListMember(tasklistId, [{ id: openId }])
+   685→   685→    console.log(`[lark/sync] Removed user ${userId} (${openId}) from tasklist ${tasklistId}`)
+   686→   686→
+   687→   687→    // Cleanup: check if project has no members left — if so, delete the tasklist
+   688→   688→    const memberCount = await db.projectMember.count({ where: { projectId } })
+   689→   689→    if (memberCount === 0) {
+   690→   690→      const { deleteTaskList } = await import("./client")
+   691→   691→      await deleteTaskList(tasklistId)
+   692→   692→      await delAppSetting(`lark_tasklist_${projectId}`)
+   693→   693→      console.log(`[lark/sync] Deleted empty tasklist ${tasklistId} for project ${projectId}`)
+   694→   694→    }
+   695→   695→  } catch (err) {
+   696→   696→    console.error("[lark/sync] removeProjectMemberFromLarkTaskList failed:", err instanceof Error ? err.message : err)
+   697→   697→  }
+   698→   698→}
+   699→   699→
+   700→   700→/**
+   701→   701→ * Find a project ID by looking up the tasklist mapping.
+   702→   702→ */
+   703→   703→async function findProjectByTaskList(tasklistId: string): Promise<string | null> {
+   704→   704→  try {
+   705→   705→    const rows = await db.$queryRawUnsafe<Array<{ key: string; value: string }>>(
+   706→   706→      'SELECT "key", "value" FROM "AppSetting" WHERE "key" LIKE ?',
+   707→   707→      'lark_tasklist_%'
+   708→   708→    )
+   709→   709→
+   710→   710→    for (const row of rows) {
+   711→   711→      try {
+   712→   712→        const parsed = JSON.parse(row.value)
+   713→   713→        if (parsed.tasklistId === tasklistId) {
+   714→   714→          const projectId = row.key.replace("lark_tasklist_", "")
+   715→   715→          if (projectId && projectId !== "__default__") {
+   716→   716→            const project = await db.project.findUnique({ where: { id: projectId }, select: { id: true } })
+   717→   717→            return project?.id || null
+   718→   718→          }
+   719→   719→        }
+   720→   720→      } catch {
+   721→   721→        continue
+   722→   722→      }
+   723→   723→    }
+   724→   724→  } catch {
+   725→   725→    // Ignore
+   726→   726→  }
+   727→   727→
+   728→   728→  return null
+   729→   729→}

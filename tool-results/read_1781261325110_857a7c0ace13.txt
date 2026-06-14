@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+     4→import { useRouter } from "next/navigation";
+     5→import { useSession } from "next-auth/react";
+     6→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     7→import {
+     8→  DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
+     9→  useSensor, useSensors, closestCorners, useDroppable,
+    10→} from "@dnd-kit/core";
+    11→import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+    12→import { CSS } from "@dnd-kit/utilities";
+    13→import {
+    14→  Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
+    15→  Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
+    16→  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
+    17→  Settings, Check, ChevronDown, ChevronUp,
+    18→} from "lucide-react";
+    19→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    20→import { Button } from "@/components/ui/button";
+    21→import { Input } from "@/components/ui/input";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { Progress } from "@/components/ui/progress";
+    24→import { Skeleton } from "@/components/ui/skeleton";
+    25→import { Label } from "@/components/ui/label";
+    26→import { Textarea } from "@/components/ui/textarea";
+    27→import {
+    28→  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+    29→} from "@/components/ui/dialog";
+    30→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    31→import {
+    32→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+    33→} from "@/components/ui/alert-dialog";
+    34→import {
+    35→  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+    36→  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
+    37→} from "@/components/ui/dropdown-menu";
+    38→import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+    39→import { toast } from "sonner";
+    40→import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+    41→
+    42→// TODO: Make configurable per project/client
+    43→const CURRENCY_SYMBOL = "₹";
+    44→
+    45→// URL sanitizer: blocks javascript: and data: schemes to prevent XSS
+    46→const safeUrl = (url: string) => {
+    47→  if (!url) return '#';
+    48→  try {
+    49→    const parsed = new URL(url);
+    50→    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url;
+    51→  } catch {}
+    52→  return '#';
+    53→};
+    54→
+    55→const statusColors: Record<string, string> = {
+    56→  PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+    57→  IN_PROGRESS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    58→  REVIEW: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    59→  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    60→  DEPLOYED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    61→  COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+    62→};
+    63→
+    64→const statusDotColors: Record<string, string> = {
+    65→  PLANNING: "bg-gray-400",
+    66→  IN_PROGRESS: "bg-blue-400",
+    67→  REVIEW: "bg-yellow-400",
+    68→  APPROVAL: "bg-orange-400",
+    69→  DEPLOYED: "bg-green-400",
+    70→  COMPLETED: "bg-emerald-400",
+    71→};
+    72→
+    73→const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+    74→
+    75→// ━━ Kanban column configuration ━━
+    76→const KANBAN_COLUMNS = [
+    77→  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10", accentBar: "bg-gray-400", accentRing: "ring-gray-400/20" },
+    78→  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10", accentBar: "bg-blue-400", accentRing: "ring-blue-400/20" },
+    79→  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10", accentBar: "bg-yellow-400", accentRing: "ring-yellow-400/20" },
+    80→  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10", accentBar: "bg-orange-400", accentRing: "ring-orange-400/20" },
+    81→  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10", accentBar: "bg-green-400", accentRing: "ring-green-400/20" },
+    82→  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
+    83→] as const;
+    84→
+    85→// Column display order: IN_PROGRESS first, PLANNING middle, COMPLETED last
+    86→const COLUMN_DISPLAY_ORDER: Record<string, number> = {
+    87→  IN_PROGRESS: 0,
+    88→  REVIEW: 1,
+    89→  APPROVAL: 2,
+    90→  DEPLOYED: 3,
+    91→  PLANNING: 4,
+    92→  COMPLETED: 5,
+    93→};
+    94→
+    95→// ━━ Credential form type ━━
+    96→interface CredentialForm {
+    97→  title: string;
+    98→  username: string;
+    99→  password: string;
+   100→}
+   101→
+   102→
+   103→function getProgressColor(progress: number) {
+   104→  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+   105→  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+   106→  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
+   107→}
+   108→
+   109→// ━━ Kanban Project Card (visual only — used in both sortable cards and DragOverlay) ━━
+   110→function KanbanProjectCard({
+   111→  project,
+   112→  onClick,
+   113→  isAdminUser,
+   114→  onEdit,
+   115→  onDelete,
+   116→  isDragging,
+   117→  onHover,
+   118→  pendingCount,
+   119→  onPendingClick,
+   120→}: {
+   121→  project: Record<string, unknown>;
+   122→  onClick: () => void;
+   123→  isAdminUser: boolean;
+   124→  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   125→  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+   126→  isDragging?: boolean;
+   127→  onHover?: () => void;
+   128→  pendingCount?: number;
+   129→  onPendingClick?: () => void;
+   130→}) {
+   131→  const client = project.client as Record<string, unknown> | undefined;
+   132→  const pName = safeText(project.name, "Untitled");
+   133→  const pStatus = safeText(project.status, "");
+   134→  const pClientName = client ? safeText(client.name, "Client") : "Client";
+   135→  const pProgress = safeNumber(project.progress);
+   136→  const pDeadline = project.deadline as string | null | undefined;
+   137→  const pWebsites = Array.isArray(project.websites) ? project.websites as Record<string, unknown>[] : [];
+   138→
+   139→  return (
+   140→    <div
+   141→      className={cn(
+   142→        "group/card relative rounded-lg border-l-[3px] p-3 cursor-pointer transition-all duration-200",
+   143→        "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
+   144→        "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
+   145→        "hover:border-gray-300 dark:hover:border-gray-600",
+   146→        "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+   147→        !isDragging && "hover:-translate-y-0.5",
+   148→        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
+   149→        pStatus === "IN_PROGRESS" && "border-l-blue-400 dark:border-l-blue-500",
+   150→        pStatus === "REVIEW" && "border-l-yellow-400 dark:border-l-yellow-500",
+   151→        pStatus === "APPROVAL" && "border-l-orange-400 dark:border-l-orange-500",
+   152→        pStatus === "DEPLOYED" && "border-l-green-400 dark:border-l-green-500",
+   153→        pStatus === "COMPLETED" && "border-l-emerald-400 dark:border-l-emerald-500",
+   154→        pStatus === "PLANNING" && "border-l-gray-400 dark:border-l-gray-500",
+   155→      )}
+   156→      onClick={onClick}
+   157→      onMouseEnter={onHover}
+   158→      style={isDragging ? { pointerEvents: "none" as const } : undefined}
+   159→    >
+   160→      {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
+   161→      {isAdminUser && onEdit && onDelete && !isDragging && (
+   162→        <div
+   163→          className="absolute top-2 right-2 z-10"
+   164→          onClick={(e) => e.stopPropagation()}
+   165→        >
+   166→          <DropdownMenu>
+   167→            <DropdownMenuTrigger asChild>
+   168→              <Button
+   169→                variant="ghost"
+   170→                size="icon"
+   171→                className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
+   172→              >
+   173→                <MoreHorizontal className="h-3.5 w-3.5" />
+   174→              </Button>
+   175→            </DropdownMenuTrigger>
+   176→            <DropdownMenuContent align="end" className="w-40">
+   177→              <DropdownMenuItem onClick={(e) => onEdit(project, e)} className="gap-2 cursor-pointer">
+   178→                <Pencil className="h-3.5 w-3.5" /> Edit Project
+   179→              </DropdownMenuItem>
+   180→              <DropdownMenuItem onClick={(e) => onDelete(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
+   181→                <Trash2 className="h-3.5 w-3.5" /> Delete Project
+   182→              </DropdownMenuItem>
+   183→            </DropdownMenuContent>
+   184→          </DropdownMenu>
+   185→        </div>
+   186→      )}
+   187→
+   188→      {/* Project Title + Status Dot */}
+   189→      <div className="flex items-start gap-2 pr-7">
+   190→        <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+   191→        <div className="flex-1 min-w-0">
+   192→          <h4
+   193→            className="text-[13px] font-semibold leading-snug line-clamp-2"
+   194→            title={pName}
+   195→          >
+   196→            {pName}
+   197→          </h4>
+   198→        </div>
+   199→      </div>
+   200→
+   201→      {/* Status Badge + Client Name */}
+   202→      <div className="mt-2 flex items-center gap-2 flex-wrap">
+   203→        <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
+   204→          {pStatus.replace("_", " ")}
+   205→        </Badge>
+   206→        <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
+   207→          {pClientName}
+   208→        </span>
+   209→      </div>
+   210→
+   211→      {/* Method badges */}
+   212→      {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+   213→        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+   214→          {(project.methods as Array<{name: string}>).map((m, i) => (
+   215→            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+   216→              {m.name}
+   217→            </Badge>
+   218→          ))}
+   219→        </div>
+   220→      )}
+   221→
+   222→      {/* Pending Tasks Badge — clickable */}
+   223→      {typeof pendingCount === "number" && pendingCount > 0 && !isDragging && (
+   224→        <button
+   225→          type="button"
+   226→          className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+   227→          onClick={(e) => {
+   228→            e.stopPropagation();
+   229→            onPendingClick?.();
+   230→          }}
+   231→          title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+   232→        >
+   233→          <ClipboardCheck className="h-2.5 w-2.5" />
+   234→          {pendingCount} Pending
+   235→        </button>
+   236→      )}
+   237→
+   238→      {/* Progress Bar */}
+   239→      <div className="mt-2.5 space-y-1">
+   240→        <div className="flex justify-between text-[11px]">
+   241→          <span className="text-muted-foreground">Progress</span>
+   242→          <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
+   243→        </div>
+   244→        <Progress value={pProgress} className={cn("h-1.5 rounded-full shadow-sm", getProgressColor(pProgress))} />
+   245→      </div>
+   246→
+   247→      {/* Deadline */}
+   248→      {pDeadline && (
+   249→        <p className="text-[11px] text-muted-foreground/70 mt-2 flex items-center gap-1">
+   250→          <span className="font-medium text-muted-foreground">Deadline:</span>
+   251→          {safeDate(pDeadline, "No date")}
+   252→        </p>
+   253→      )}
+   254→
+   255→      {/* Live button for admin when websites exist */}
+   256→      {isAdminUser && pWebsites.length > 0 && !isDragging && (
+   257→        <div
+   258→          className="absolute bottom-2 left-2 z-10"
+   259→          onClick={(e) => e.stopPropagation()}
+   260→        >
+   261→          {pWebsites.length === 1 ? (
+   262→            <a
+   263→              href={safeUrl(safeText(pWebsites[0].url, ""))}
+   264→              target="_blank"
+   265→              rel="noopener noreferrer"
+   266→              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   267→            >
+   268→              <Globe className="h-2.5 w-2.5" />
+   269→              Live
+   270→            </a>
+   271→          ) : (
+   272→            <DropdownMenu>
+   273→              <DropdownMenuTrigger asChild>
+   274→                <button
+   275→                  type="button"
+   276→                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   277→                >
+   278→                  <Globe className="h-2.5 w-2.5" />
+   279→                  Live
+   280→                </button>
+   281→              </DropdownMenuTrigger>
+   282→              <DropdownMenuContent align="start" className="w-48">
+   283→                {pWebsites.map((w, i) => {
+   284→                  const wUrl = safeText(w.url, "");
+   285→                  const wLabel = safeText(w.label, "");
+   286→                  return (
+   287→                    <DropdownMenuItem key={safeText(w.id, String(i))} asChild>
+   288→                      <a href={safeUrl(wUrl)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+   289→                        <ExternalLink className="h-3 w-3 text-emerald-500 shrink-0" />
+   290→                        <div className="min-w-0 flex-1">
+   291→                          <p className="text-[11px] font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
+   292→                          <p className="text-[9px] text-muted-foreground truncate">{wUrl}</p>
+   293→                        </div>
+   294→                      </a>
+   295→                    </DropdownMenuItem>
+   296→                  );
+   297→                })}
+   298→              </DropdownMenuContent>
+   299→            </DropdownMenu>
+   300→          )}
+   301→        </div>
+   302→      )}
+   303→    </div>
+   304→  );
+   305→}
+   306→
+   307→// ━━ SortableProjectCard — wraps KanbanProjectCard with useSortable ━━
+   308→function SortableProjectCard({
+   309→  project,
+   310→  onCardClick,
+   311→  isAdminUser,
+   312→  onEdit,
+   313→  onDelete,
+   314→  onHover,
+   315→  pendingCount,
+   316→  onPendingClick,
+   317→}: {
+   318→  project: Record<string, unknown>;
+   319→  onCardClick: () => void;
+   320→  isAdminUser: boolean;
+   321→  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   322→  onDelete: (projectId: string, e: React.MouseEvent) => void;
+   323→  onHover?: () => void;
+   324→  pendingCount?: number;
+   325→  onPendingClick?: () => void;
+   326→}) {
+   327→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+   328→    id: safeText(project.id, ""),
+   329→  });
+   330→  const style = {
+   331→    transform: CSS.Transform.toString(transform),
+   332→    transition,
+   333→    opacity: isDragging ? 0.5 : 1,
+   334→  };
+   335→
+   336→  return (
+   337→    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+   338→      <KanbanProjectCard
+   339→        project={project}
+   340→        onClick={onCardClick}
+   341→        isAdminUser={isAdminUser}
+   342→        onEdit={onEdit}
+   343→        onDelete={onDelete}
+   344→        isDragging={false}
+   345→        onHover={onHover}
+   346→        pendingCount={pendingCount}
+   347→        onPendingClick={onPendingClick}
+   348→      />
+   349→    </div>
+   350→  );
+   351→}
+   352→
+   353→// ━━ DroppableKanbanColumn — wraps column card list with useDroppable + SortableContext ━━
+   354→function DroppableKanbanColumn({
+   355→  col,
+   356→  projects,
+   357→  isAdminUser,
+   358→  onCardClick,
+   359→  onEdit,
+   360→  onDelete,
+   361→  isDimmed,
+   362→  activeId,
+   363→  onHover,
+   364→  pendingTaskCounts,
+   365→}: {
+   366→  col: typeof KANBAN_COLUMNS[number];
+   367→  projects: Record<string, unknown>[];
+   368→  isAdminUser: boolean;
+   369→  onCardClick: (project: Record<string, unknown>) => void;
+   370→  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   371→  onDelete: (projectId: string, e: React.MouseEvent) => void;
+   372→  isDimmed: boolean;
+   373→  activeId: string | null;
+   374→  onHover?: (pid: string) => void;
+   375→  pendingTaskCounts?: Record<string, number>;
+   376→}) {
+   377→  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+   378→
+   379→  return (
+   380→    <div
+   381→      className={cn(
+   382→        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+   383→        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
+   384→        "border-gray-200/80 dark:border-gray-700/50",
+   385→        "hover:border-gray-300 dark:hover:border-gray-600",
+   386→        col.glowColor,
+   387→        isDimmed && "opacity-40 pointer-events-none",
+   388→        isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
+   389→      )}
+   390→      style={{ minHeight: "calc(100vh - 300px)" }}
+   391→    >
+   392→      {/* Left accent bar */}
+   393→      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
+   394→
+   395→      {/* Column Header */}
+   396→      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+   397→        <div className="flex items-center gap-2">
+   398→          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
+   399→          <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
+   400→          <Badge
+   401→            variant="secondary"
+   402→            className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
+   403→          >
+   404→            {projects.length}
+   405→          </Badge>
+   406→        </div>
+   407→      </div>
+   408→
+   409→      {/* Card List — Droppable zone */}
+   410→      <div
+   411→        ref={setNodeRef}
+   412→        className={cn(
+   413→          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
+   414→          isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
+   415→        )}
+   416→        style={{ maxHeight: "calc(100vh - 380px)" }}
+   417→      >
+   418→        {projects.length === 0 && (
+   419→          <div className="flex flex-col items-center justify-center py-8 text-center">
+   420→            <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+   421→              <FolderKanban className="h-4 w-4 text-muted-foreground/30" />
+   422→            </div>
+   423→            <p className="text-[11px] text-muted-foreground/50 font-medium">No projects</p>
+   424→          </div>
+   425→        )}
+   426→        <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
+   427→          {projects.map((project) => {
+   428→            const pId = safeText(project.id, "");
+   429→            // Don't render the actively dragged card in the list
+   430→            if (activeId === pId) return null;
+   431→            return (
+   432→              <SortableProjectCard
+   433→                key={pId}
+   434→                project={project}
+   435→                onCardClick={() => onCardClick(project)}
+   436→                isAdminUser={isAdminUser}
+   437→                onEdit={onEdit}
+   438→                onDelete={onDelete}
+   439→                onHover={() => onHover && onHover(pId)}
+   440→                pendingCount={pendingTaskCounts?.[pId]}
+   441→                onPendingClick={() => onCardClick(project)}
+   442→              />
+   443→            );
+   444→          })}
+   445→        </SortableContext>
+   446→      </div>
+   447→    </div>
+   448→  );
+   449→}
+   450→
+   451→// ━━ List View Row ━━
+   452→function ListViewRow({
+   453→  project,
+   454→  isAdminUser,
+   455→  onView,
+   456→  onEdit,
+   457→  onDelete,
+   458→  pendingCount,
+   459→  onPendingClick,
+   460→}: {
+   461→  project: Record<string, unknown>;
+   462→  isAdminUser: boolean;
+   463→  onView: () => void;
+   464→  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   465→  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+   466→  pendingCount?: number;
+   467→  onPendingClick?: () => void;
+   468→}) {
+   469→  const client = project.client as Record<string, unknown> | undefined;
+   470→  const pName = safeText(project.name, "Untitled");
+   471→  const pStatus = safeText(project.status, "");
+   472→  const pClientName = client ? safeText(client.name, "Client") : "Client";
+   473→  const pProgress = safeNumber(project.progress);
+   474→  const pDeadline = project.deadline as string | null | undefined;
+   475→
+   476→  return (
+   477→    <div
+   478→      className={cn(
+   479→        "group/row flex items-center gap-4 p-3 rounded-lg border transition-all duration-150",
+   480→        "bg-white/70 dark:bg-white/[0.04] backdrop-blur-sm",
+   481→        "border-gray-200/60 dark:border-gray-700/40",
+   482→        "hover:border-gray-300 dark:hover:border-gray-600",
+   483→        "hover:bg-white/90 dark:hover:bg-white/[0.07]",
+   484→        "hover:shadow-sm cursor-pointer",
+   485→      )}
+   486→      onClick={onView}
+   487→    >
+   488→      {/* Status dot + Name */}
+   489→      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+   490→        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+   491→        <div className="min-w-0">
+   492→          <h4 className="text-sm font-semibold truncate" title={pName}>{pName}</h4>
+   493→          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+   494→            <span className="text-[11px] text-muted-foreground">{pClientName}</span>
+   495→            {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+   496→              <span className="flex items-center gap-0.5">
+   497→                {(project.methods as Array<{name: string}>).map((m, i) => (
+   498→                  <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+   499→                    {m.name}
+   500→                  </Badge>
+   501→                ))}
+   502→              </span>
+   503→            )}
+   504→          </div>
+   505→        </div>
+   506→      </div>
+   507→
+   508→      {/* Status Badge */}
+   509→      <div className="hidden sm:block shrink-0">
+   510→        <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
+   511→          {pStatus.replace("_", " ")}
+   512→        </Badge>
+   513→      </div>
+   514→
+   515→      {/* Pending Tasks Badge */}
+   516→      <div className="hidden sm:flex items-center shrink-0">
+   517→        {typeof pendingCount === "number" && pendingCount > 0 ? (
+   518→          <button
+   519→            type="button"
+   520→            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+   521→            onClick={(e) => {
+   522→              e.stopPropagation();
+   523→              onPendingClick?.();
+   524→            }}
+   525→            title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+   526→          >
+   527→            <ClipboardCheck className="h-2.5 w-2.5" />
+   528→            {pendingCount}
+   529→          </button>
+   530→        ) : (
+   531→          <span className="text-[11px] text-muted-foreground/40 w-6 text-center">—</span>
+   532→        )}
+   533→      </div>
+   534→
+   535→      {/* Progress */}
+   536→      <div className="hidden md:flex items-center gap-2 min-w-[140px] shrink-0">
+   537→        <Progress value={pProgress} className={cn("h-1.5 rounded-full flex-1", getProgressColor(pProgress))} />
+   538→        <span className={cn("text-[11px] font-bold tabular-nums w-8 text-right", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+   539→          {pProgress}%
+   540→        </span>
+   541→      </div>
+   542→
+   543→      {/* Deadline */}
+   544→      <div className="hidden lg:block shrink-0 min-w-[90px]">
+   545→        {pDeadline ? (
+   546→          <p className="text-[12px] text-muted-foreground">{safeDate(pDeadline, "No date")}</p>
+   547→        ) : (
+   548→          <p className="text-[12px] text-muted-foreground/50">—</p>
+   549→        )}
+   550→      </div>
+   551→
+   552→      {/* Actions */}
+   553→      <div
+   554→        className="flex items-center gap-1 shrink-0"
+   555→        onClick={(e) => e.stopPropagation()}
+   556→      >
+   557→        <Button variant="ghost" size="sm" className="h-7 w-7" onClick={onView} title="View" aria-label="View project">
+   558→          <ArrowUpDown className="h-3.5 w-3.5" />
+   559→        </Button>
+   560→        {isAdminUser && onEdit && onDelete && (
+   561→          <>
+   562→            <Button variant="ghost" size="sm" className="h-7 w-7" onClick={(e) => onEdit(project, e)} title="Edit" aria-label="Edit project">
+   563→              <Pencil className="h-3.5 w-3.5" />
+   564→            </Button>
+   565→            <Button variant="ghost" size="sm" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={(e) => onDelete(safeText(project.id, ""), e)} title="Delete" aria-label="Delete project">
+   566→              <Trash2 className="h-3.5 w-3.5" />
+   567→            </Button>
+   568→          </>
+   569→        )}
+   570→      </div>
+   571→    </div>
+   572→  );
+   573→}
+   574→
+   575→// ━━ Searchable Client Select (Combobox) ━━
+   576→// Shows "No Client" option + 10 most recent clients by default.
+   577→// Typing in the search box filters the full client list.
+   578→function ClientSearchSelect({
+   579→  name,
+   580→  defaultValue,
+   581→  clients,
+   582→  required = false,
+   583→}: {
+   584→  name: string;
+   585→  defaultValue?: string;
+   586→  clients: Array<{ id: string; name: string; company?: string }>;
+   587→  required?: boolean;
+   588→}) {
+   589→  const [search, setSearch] = useState("");
+   590→  const [open, setOpen] = useState(false);
+   591→  const [selectedId, setSelectedId] = useState(defaultValue || "");
+   592→  const ref = useRef<HTMLDivElement>(null);
+   593→
+   594→  // Display name for currently selected client
+   595→  const selectedClient = selectedId
+   596→    ? clients.find((c) => c.id === selectedId)
+   597→    : null;
+   598→  const displayValue = selectedClient
+   599→    ? selectedClient.company || selectedClient.name
+   600→    : selectedId === "__none__"
+   601→      ? "No Client (Internal)"
+   602→      : "";
+   603→
+   604→  // Filter: "No Client" always shows first, then 10 recent by default, or search results
+   605→  const filtered = useMemo(() => {
+   606→    if (search.trim()) {
+   607→      const q = search.toLowerCase();
+   608→      return clients.filter(
+   609→        (c) =>
+   610→          c.name.toLowerCase().includes(q) ||
+   611→          (c.company && c.company.toLowerCase().includes(q))
+   612→      );
+   613→    }
+   614→    // Default: show 10 most recent
+   615→    return clients.slice(0, 10);
+   616→  }, [clients, search]);
+   617→
+   618→  // Close dropdown on outside click
+   619→  useEffect(() => {
+   620→    const handler = (e: MouseEvent) => {
+   621→      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+   622→    };
+   623→    document.addEventListener("mousedown", handler);
+   624→    return () => document.removeEventListener("mousedown", handler);
+   625→  }, []);
+   626→
+   627→  return (
+   628→    <div ref={ref} className="relative">
+   629→      {/* Hidden input to store the value for form submission */}
+   630→      <input type="hidden" name={name} value={selectedId} />
+   631→
+   632→      {/* Trigger button — shows selected value or placeholder */}
+   633→      <button
+   634→        type="button"
+   635→        onClick={() => setOpen(!open)}
+   636→        className={cn(
+   637→          "flex h-9 w-full items-center justify-between rounded-md border px-3 py-2 text-sm bg-background transition-colors",
+   638→          "hover:bg-accent hover:border-accent-foreground/20",
+   639→          open && "ring-2 ring-ring",
+   640→          !selectedId && "text-muted-foreground"
+   641→        )}
+   642→      >
+   643→        <span className="truncate">{displayValue || "Select client..."}</span>
+   644→        <Search className="h-3.5 w-3.5 shrink-0 ml-2 text-muted-foreground" />
+   645→      </button>
+   646→
+   647→      {/* Dropdown */}
+   648→      {open && (
+   649→        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-[240px] overflow-hidden">
+   650→          {/* Search input */}
+   651→          <div className="p-1.5 border-b">
+   652→            <input
+   653→              type="text"
+   654→              placeholder="Search clients..."
+   655→              value={search}
+   656→              onChange={(e) => setSearch(e.target.value)}
+   657→              className="w-full h-8 rounded border bg-background px-2.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+   658→              autoFocus
+   659→            />
+   660→          </div>
+   661→
+   662→          {/* Options */}
+   663→          <div className="overflow-y-auto max-h-[170px] p-1">
+   664→            {/* "No Client" option */}
+   665→            <button
+   666→              type="button"
+   667→              className={cn(
+   668→                "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+   669→                selectedId === "__none__"
+   670→                  ? "bg-primary text-primary-foreground font-medium"
+   671→                  : "hover:bg-accent"
+   672→              )}
+   673→              onClick={() => {
+   674→                setSelectedId("__none__");
+   675→                setOpen(false);
+   676→                setSearch("");
+   677→              }}
+   678→            >
+   679→              <span className="text-muted-foreground italic">No Client (Internal)</span>
+   680→            </button>
+   681→
+   682→            {filtered.length === 0 && (
+   683→              <p className="px-2.5 py-2 text-xs text-muted-foreground text-center">
+   684→                {search ? "No clients found" : "No clients registered"}
+   685→              </p>
+   686→            )}
+   687→
+   688→            {filtered.map((c) => (
+   689→              <button
+   690→                key={c.id}
+   691→                type="button"
+   692→                className={cn(
+   693→                  "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+   694→                  selectedId === c.id
+   695→                    ? "bg-primary text-primary-foreground font-medium"
+   696→                    : "hover:bg-accent"
+   697→                )}
+   698→                onClick={() => {
+   699→                  setSelectedId(c.id);
+   700→                  setOpen(false);
+   701→                  setSearch("");
+   702→                }}
+   703→              >
+   704→                <span className="font-medium">{c.company || c.name}</span>
+   705→                {c.company && c.name !== c.company && (
+   706→                  <span className="text-muted-foreground ml-1.5 text-xs">({c.name})</span>
+   707→                )}
+   708→              </button>
+   709→            ))}
+   710→
+   711→            {!search && clients.length > 10 && (
+   712→              <p className="px-2.5 py-1.5 text-[10px] text-muted-foreground text-center border-t mt-1">
+   713→                Showing 10 recent — type to search all {clients.length} clients
+   714→              </p>
+   715→            )}
+   716→          </div>
+   717→        </div>
+   718→      )}
+   719→    </div>
+   720→  );
+   721→}
+   722→
+   723→// ━━ Helper: Calculate and format period between two dates ━━
+   724→function calcProjectPeriod(startDate: string, deadline: string): string | null {
+   725→  if (!startDate || !deadline) return null;
+   726→  const start = new Date(startDate);
+   727→  const end = new Date(deadline);
+   728→  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+   729→  const diffMs = end.getTime() - start.getTime();
+   730→  if (diffMs < 0) return "Start date is after deadline";
+   731→  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+   732→  if (days === 0) return "Same day";
+   733→  const months = Math.floor(days / 30);
+   734→  const remainDays = days % 30;
+   735→  if (months > 0 && remainDays > 0) return `${months}m ${remainDays}d (${days} days)`;
+   736→  if (months > 0) return `${months}m (${days} days)`;
+   737→  return `${days} days`;
+   738→}
+   739→
+   740→// ━━ Create Project Form with Start Date + Total Period ━━
+   741→function CreateProjectForm({ onSubmit, clients }: {
+   742→  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+   743→  clients: { id: string; name: string; company?: string }[];
+   744→}) {
+   745→  const [startDate, setStartDate] = useState("");
+   746→  const [deadline, setDeadline] = useState("");
+   747→  const period = useMemo(() => calcProjectPeriod(startDate, deadline), [startDate, deadline]);
+   748→
+   749→  return (
+   750→    <form onSubmit={onSubmit} className="space-y-3">
+   751→      <div className="space-y-1">
+   752→        <Label className="text-xs">Project Name *</Label>
+   753→        <Input name="name" required />
+   754→      </div>
+   755→      <div className="space-y-1">
+   756→        <Label className="text-xs">Description</Label>
+   757→        <Textarea name="description" rows={2} />
+   758→      </div>
+   759→      <div className="space-y-1">
+   760→        <Label className="text-xs">Client</Label>
+   761→        <ClientSearchSelect name="clientId" clients={clients} />
+   762→      </div>
+   763→      <div className="grid grid-cols-2 gap-3">
+   764→        <div className="space-y-1">
+   765→          <Label className="text-xs">Start Date</Label>
+   766→          <Input name="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+   767→        </div>
+   768→        <div className="space-y-1">
+   769→          <Label className="text-xs">Deadline</Label>
+   770→          <Input name="deadline" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+   771→        </div>
+   772→      </div>
+   773→      {period && (
+   774→        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10">
+   775→          <Activity className="h-3.5 w-3.5 text-primary" />
+   776→          <span className="text-xs font-medium text-primary">Total Period: {period}</span>
+   777→        </div>
+   778→      )}
+   779→      <div className="grid grid-cols-2 gap-3">
+   780→        <div className="space-y-1">
+   781→          <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
+   782→          <Input name="budget" type="number" />
+   783→        </div>
+   784→        <div className="space-y-1">
+   785→          <Label className="text-xs">Live URL</Label>
+   786→          <Input name="liveUrl" type="url" placeholder="https://example.com" />
+   787→        </div>
+   788→      </div>
+   789→      <Button type="submit" className="w-full">Create Project</Button>
+   790→    </form>
+   791→  );
+   792→}
+   793→
+   794→export default function ProjectsPage() {
+   795→  const router = useRouter();
+   796→  const { data: session, status: sessionStatus } = useSession();
+   797→  const queryClient = useQueryClient();
+   798→  const [addOpen, setAddOpen] = useState(false);
+   799→  const [editOpen, setEditOpen] = useState(false);
+   800→  const [editProject, setEditProject] = useState<Record<string, unknown> | null>(null);
+   801→  const [deleteId, setDeleteId] = useState<string | null>(null);
+   802→  const [filter, setFilter] = useState("ALL");
+   803→  const [search, setSearch] = useState("");
+   804→  const [activeId, setActiveId] = useState<string | null>(null);
+   805→  const [updating, setUpdating] = useState(false);
+   806→  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+   807→
+   808→  // Read saved view mode from localStorage after hydration
+   809→  useEffect(() => {
+   810→    const saved = localStorage.getItem("project-view-mode");
+   811→    if (saved === "board" || saved === "list") setViewMode(saved);
+   812→  }, []);
+   813→
+   814→  const handleViewModeChange = useCallback((mode: "board" | "list") => {
+   815→    setViewMode(mode);
+   816→    localStorage.setItem("project-view-mode", mode);
+   817→  }, []);
+   818→
+   819→  // ━━ React Query — cached fetch with stale-while-revalidate ━━
+   820→  const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
+   821→    queryKey: ["projects"],
+   822→    queryFn: async () => {
+   823→      const res = await fetch("/api/projects", { credentials: "include" });
+   824→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   825→      if (!res.ok) throw new Error("Failed to load projects");
+   826→      const data = await res.json();
+   827→      const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+   828→      return deepSanitize(raw) as unknown[];
+   829→    },
+   830→    staleTime: 60 * 1000,
+   831→    retry: 1,
+   832→  });
+   833→
+   834→  const { data: clientsData = [] } = useQuery({
+   835→    queryKey: ["clients"],
+   836→    queryFn: async () => {
+   837→      const res = await fetch("/api/clients", { credentials: "include" });
+   838→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   839→      if (!res.ok) throw new Error("Failed to load clients");
+   840→      const data = await res.json();
+   841→      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+   842→    },
+   843→    staleTime: 60 * 1000,
+   844→    retry: 1,
+   845→  });
+   846→
+   847→  // ━━ Pending task counts per project (lightweight count endpoint) ━━
+   848→  const { data: taskCountsData } = useQuery({
+   849→    queryKey: ["task-counts"],
+   850→    queryFn: async () => {
+   851→      const res = await fetch("/api/tasks/counts", { credentials: "include" });
+   852→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   853→      if (!res.ok) throw new Error("Failed to load task counts");
+   854→      const data = await res.json();
+   855→      return data as Record<string, number>;
+   856→    },
+   857→    staleTime: 30 * 1000,
+   858→    retry: 1,
+   859→  });
+   860→
+   861→  const projects = projectsData;
+   862→  const clients = clientsData;
+   863→  const pendingTaskCounts = taskCountsData || {};
+   864→
+   865→  const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+   866→
+   867→  // Feature 3: Credentials state
+   868→  const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
+   869→  const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+   870→  const [editingCredId, setEditingCredId] = useState<string | null>(null);
+   871→  const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+   872→  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+   873→  const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
+   874→  const [passwordChanged, setPasswordChanged] = useState(false);
+   875→
+   876→  // Feature 4: Project Methods management state
+   877→  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
+   878→  const [methodLoading, setMethodLoading] = useState(false);
+   879→  const [methodSaving, setMethodSaving] = useState(false);
+   880→  const [newMethodName, setNewMethodName] = useState("");
+   881→  const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
+   882→  const [editingMethodName, setEditingMethodName] = useState("");
+   883→  const [deleteMethodTarget, setDeleteMethodTarget] = useState<{ id: string; name: string } | null>(null);
+   884→
+   885→  // Project method assignments (when editing a project)
+   886→  const [assignedMethodIds, setAssignedMethodIds] = useState<string[]>([]);
+   887→  const [methodAssignLoading, setMethodAssignLoading] = useState(false);
+   888→
+   889→  // ━━ Project Methods CRUD Handlers ━━
+   890→  const fetchProjectMethods = useCallback(async () => {
+   891→    if (!isAdminUser) return;
+   892→    setMethodLoading(true);
+   893→    try {
+   894→      const res = await fetch("/api/project-methods", { credentials: "include" });
+   895→      if (res.ok) {
+   896→        const data = await res.json();
+   897→        const methods: { id: string; name: string }[] = Array.isArray(data) ? data : [];
+   898→        setProjectMethods(methods);
+   899→        // Seed defaults if empty
+   900→        if (methods.length === 0) {
+   901→          const defaults = ["JAVA", "PHP", "HTML", "Other"];
+   902→          await Promise.all(defaults.map((name) =>
+   903→            fetch("/api/project-methods", {
+   904→              method: "POST",
+   905→              headers: { "Content-Type": "application/json" },
+   906→              credentials: "include",
+   907→              body: JSON.stringify({ name }),
+   908→            })
+   909→          ));
+   910→          const res2 = await fetch("/api/project-methods", { credentials: "include" });
+   911→          if (res2.ok) setProjectMethods(await res2.json());
+   912→        }
+   913→      }
+   914→    } catch { /* silent */ } finally { setMethodLoading(false); }
+   915→  }, [isAdminUser]);
+   916→
+   917→  const handleSaveNewMethod = useCallback(async () => {
+   918→    if (!newMethodName.trim() || methodSaving) return;
+   919→    setMethodSaving(true);
+   920→    try {
+   921→      const res = await fetch("/api/project-methods", {
+   922→        method: "POST",
+   923→        headers: { "Content-Type": "application/json" },
+   924→        credentials: "include",
+   925→        body: JSON.stringify({ name: newMethodName.trim() }),
+   926→      });
+   927→      if (res.ok) {
+   928→        setNewMethodName("");
+   929→        fetchProjectMethods();
+   930→        toast.success("Method added successfully");
+   931→      } else {
+   932→        const data = await res.json().catch(() => ({})) as Record<string, string>;
+   933→        const errMsg = data.error || "Failed to add method";
+   934→        console.error("[project-methods] Create failed:", errMsg, data.debug || "");
+   935→        toast.error(errMsg, { duration: 6000 });
+   936→      }
+   937→    } catch (err) {
+   938→      console.error("[project-methods] Network error:", err);
+   939→      toast.error("Failed to add method — network error");
+   940→    } finally { setMethodSaving(false); }
+   941→  }, [newMethodName, methodSaving, fetchProjectMethods]);
+   942→
+   943→  const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
+   944→    if (!name.trim() || methodSaving) return;
+   945→    setMethodSaving(true);
+   946→    try {
+   947→      const res = await fetch("/api/project-methods", {
+   948→        method: "PATCH",
+   949→        headers: { "Content-Type": "application/json" },
+   950→        credentials: "include",
+   951→        body: JSON.stringify({ id: methodId, name: name.trim() }),
+   952→      });
+   953→      if (res.ok) {
+   954→        setEditingMethodId(null);
+   955→        fetchProjectMethods();
+   956→        toast.success("Method updated");
+   957→      } else {
+   958→        const data = await res.json().catch(() => ({}));
+   959→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update method");
+   960→      }
+   961→    } catch { toast.error("Failed to update method"); } finally { setMethodSaving(false); }
+   962→  }, [methodSaving, fetchProjectMethods]);
+   963→
+   964→  const handleDeleteMethod = useCallback(async () => {
+   965→    if (!deleteMethodTarget) return;
+   966→    setMethodSaving(true);
+   967→    try {
+   968→      const res = await fetch(`/api/project-methods?id=${deleteMethodTarget.id}`, {
+   969→        method: "DELETE",
+   970→        credentials: "include",
+   971→      });
+   972→      if (res.ok) {
+   973→        toast.success("Method deleted");
+   974→        fetchProjectMethods();
+   975→      } else {
+   976→        const data = await res.json().catch(() => ({}));
+   977→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to delete method");
+   978→      }
+   979→    } catch { toast.error("Failed to delete method"); } finally { setMethodSaving(false); setDeleteMethodTarget(null); }
+   980→  }, [deleteMethodTarget, fetchProjectMethods]);
+   981→
+   982→  // ━━ Project Method Assignment Handlers ━━
+   983→  const fetchProjectAssignedMethods = useCallback(async (projectId: string) => {
+   984→    try {
+   985→      const res = await fetch(`/api/projects/${projectId}/methods`, { credentials: "include" });
+   986→      if (res.ok) {
+   987→        const data = await res.json();
+   988→        setAssignedMethodIds(Array.isArray(data) ? data.map((m: { id: string }) => m.id) : []);
+   989→      }
+   990→    } catch { /* silent */ }
+   991→  }, []);
+   992→
+   993→  const handleSaveProjectMethods = useCallback(async () => {
+   994→    if (!editProject) return;
+   995→    setMethodAssignLoading(true);
+   996→    try {
+   997→      const res = await fetch(`/api/projects/${safeText(editProject.id, "")}/methods`, {
+   998→        method: "PUT",
+   999→        headers: { "Content-Type": "application/json" },
+  1000→        credentials: "include",
+  1001→        body: JSON.stringify({ methodIds: assignedMethodIds }),
+  1002→      });
+  1003→      if (res.ok) {
+  1004→        toast.success("Project methods updated");
+  1005→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1006→      } else {
+  1007→        const data = await res.json().catch(() => ({}));
+  1008→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update project methods");
+  1009→      }
+  1010→    } catch {
+  1011→      toast.error("Failed to update project methods");
+  1012→    } finally {
+  1013→      setMethodAssignLoading(false);
+  1014→    }
+  1015→  }, [editProject, assignedMethodIds, queryClient]);
+  1016→
+  1017→  const toggleProjectMethod = useCallback((methodId: string) => {
+  1018→    setAssignedMethodIds((prev) =>
+  1019→      prev.includes(methodId)
+  1020→        ? prev.filter((id) => id !== methodId)
+  1021→        : [...prev, methodId]
+  1022→    );
+  1023→  }, []);
+  1024→
+  1025→  // Fetch project methods on mount (admin only)
+  1026→  useEffect(() => {
+  1027→    if (sessionStatus === "authenticated" && isAdminUser) {
+  1028→      fetchProjectMethods();
+  1029→    }
+  1030→  }, [sessionStatus, isAdminUser, fetchProjectMethods]);
+  1031→
+  1032→  // DnD sensors
+  1033→  const sensors = useSensors(
+  1034→    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  1035→  );
+  1036→
+  1037→  const handle401 = useCallback((res: Response) => {
+  1038→    if (res.status === 401) {
+  1039→      window.location.href = "/login";
+  1040→      return true;
+  1041→    }
+  1042→    return false;
+  1043→  }, []);
+  1044→
+  1045→  // ━━ Fetch credentials for a project ━━
+  1046→  const fetchCredentials = useCallback(async (projectId: string) => {
+  1047→    try {
+  1048→      const res = await fetch(`/api/projects/credentials?projectId=${projectId}`, { credentials: 'include' });
+  1049→      if (res.ok) {
+  1050→        const data = await res.json();
+  1051→        setCredentials(Array.isArray(data) ? data : []);
+  1052→      }
+  1053→    } catch {
+  1054→      // silently fail
+  1055→    }
+  1056→  }, []);
+  1057→
+  1058→  const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
+  1059→    e.preventDefault();
+  1060→    const form = new FormData(e.currentTarget);
+  1061→    let clientId = form.get("clientId") as string;
+  1062→
+  1063→    // "No Client" means skip client requirement — the API will handle it
+  1064→    if (!clientId || clientId === "__none__") {
+  1065→      clientId = "";
+  1066→    }
+  1067→
+  1068→    const data = {
+  1069→      name: form.get("name") as string,
+  1070→      description: form.get("description") as string,
+  1071→      clientId,
+  1072→      budget: parseFloat(form.get("budget") as string) || null,
+  1073→      startDate: form.get("startDate") as string || null,
+  1074→      deadline: form.get("deadline") as string || null,
+  1075→    };
+  1076→    const liveUrl = (form.get("liveUrl") as string)?.trim();
+  1077→
+  1078→    try {
+  1079→      const res = await fetch("/api/projects", {
+  1080→        method: "POST",
+  1081→        headers: { "Content-Type": "application/json" },
+  1082→        credentials: 'include',
+  1083→        body: JSON.stringify(data),
+  1084→      });
+  1085→      if (res.ok) {
+  1086→        const newProject = await res.json().catch(() => null);
+  1087→        const newProjectId = newProject?.id;
+  1088→        // If live URL was provided, create a website entry
+  1089→        if (liveUrl && newProjectId) {
+  1090→          try {
+  1091→            await fetch(`/api/projects/${newProjectId}/websites`, {
+  1092→              method: "POST",
+  1093→              headers: { "Content-Type": "application/json" },
+  1094→              credentials: "include",
+  1095→              body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+  1096→            });
+  1097→          } catch {
+  1098→            // silently fail — project was created
+  1099→          }
+  1100→        }
+  1101→        toast.success("Project created");
+  1102→        setAddOpen(false);
+  1103→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1104→        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
+  1105→      } else {
+  1106→        if (handle401(res)) return;
+  1107→        const errData = await res.json().catch(() => null);
+  1108→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to create project");
+  1109→      }
+  1110→    } catch {
+  1111→      toast.error("Failed to create project");
+  1112→    }
+  1113→  };
+  1114→
+  1115→  const handleEditProject = async (e: React.FormEvent<HTMLFormElement>) => {
+  1116→    e.preventDefault();
+  1117→    if (!editProject) return;
+  1118→
+  1119→    const form = new FormData(e.currentTarget);
+  1120→    const data: Record<string, unknown> = {
+  1121→      id: editProject.id,
+  1122→      name: form.get("name") as string,
+  1123→      description: form.get("description") as string || null,
+  1124→      status: form.get("status") as string,
+  1125→      clientId: (form.get("clientId") as string === "__none__" ? null : form.get("clientId") as string) || null,
+  1126→      budget: parseFloat(form.get("budget") as string) || null,
+  1127→      startDate: form.get("startDate") as string || null,
+  1128→      deadline: form.get("deadline") as string || null,
+  1129→      progress: parseInt(form.get("progress") as string) || 0,
+  1130→    };
+  1131→    const liveUrl = (form.get("liveUrl") as string)?.trim();
+  1132→
+  1133→    try {
+  1134→      const res = await fetch("/api/projects", {
+  1135→        method: "PUT",
+  1136→        headers: { "Content-Type": "application/json" },
+  1137→        credentials: 'include',
+  1138→        body: JSON.stringify(data),
+  1139→      });
+  1140→      if (res.ok) {
+  1141→        // Update website if live URL changed
+  1142→        const projectWebsites = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+  1143→        const primaryWebsite = projectWebsites.find((w) => w.isPrimary === true || w.isPrimary === "true") || projectWebsites[0];
+  1144→        const currentUrl = primaryWebsite ? safeText(primaryWebsite.url, "") : "";
+  1145→        const primaryId = primaryWebsite ? safeText(primaryWebsite.id, "") : "";
+  1146→
+  1147→        if (liveUrl && liveUrl !== currentUrl) {
+  1148→          // Update existing primary website or create new
+  1149→          if (primaryId) {
+  1150→            try {
+  1151→              await fetch(`/api/projects/${editProject.id}/websites`, {
+  1152→                method: "PATCH",
+  1153→                headers: { "Content-Type": "application/json" },
+  1154→                credentials: "include",
+  1155→                body: JSON.stringify({ id: primaryId, url: liveUrl, isPrimary: true }),
+  1156→              });
+  1157→            } catch { /* silent */ }
+  1158→          } else {
+  1159→            try {
+  1160→              await fetch(`/api/projects/${editProject.id}/websites`, {
+  1161→                method: "POST",
+  1162→                headers: { "Content-Type": "application/json" },
+  1163→                credentials: "include",
+  1164→                body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+  1165→              });
+  1166→            } catch { /* silent */ }
+  1167→          }
+  1168→        } else if (!liveUrl && currentUrl && primaryId) {
+  1169→          // URL was cleared — remove the website
+  1170→          try {
+  1171→            await fetch(`/api/projects/${editProject.id}/websites?id=${primaryId}`, {
+  1172→              method: "DELETE",
+  1173→              credentials: "include",
+  1174→            });
+  1175→          } catch { /* silent */ }
+  1176→        }
+  1177→
+  1178→        toast.success("Project updated");
+  1179→        setEditOpen(false);
+  1180→        setEditProject(null);
+  1181→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1182→        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
+  1183→      } else {
+  1184→        if (handle401(res)) return;
+  1185→        const errData = await res.json().catch(() => null);
+  1186→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to update project");
+  1187→      }
+  1188→    } catch {
+  1189→      toast.error("Failed to update project");
+  1190→    }
+  1191→  };
+  1192→
+  1193→  const handleDeleteProject = async () => {
+  1194→    if (!deleteId) return;
+  1195→    try {
+  1196→      const res = await fetch(`/api/projects?id=${deleteId}`, {
+  1197→        method: "DELETE",
+  1198→        credentials: 'include',
+  1199→      });
+  1200→      if (res.ok) {
+  1201→        toast.success("Project deleted successfully");
+  1202→        queryClient.setQueryData(["projects"], (old: unknown[]) =>
+  1203→          (old || []).filter((p: any) => p.id !== deleteId)
+  1204→        );
+  1205→      } else {
+  1206→        if (handle401(res)) return;
+  1207→        const errData = await res.json().catch(() => null);
+  1208→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to delete project");
+  1209→      }
+  1210→    } catch {
+  1211→      toast.error("Failed to delete project");
+  1212→    } finally {
+  1213→      setDeleteId(null);
+  1214→    }
+  1215→  };
+  1216→
+  1217→  const openEditDialog = (project: Record<string, unknown>, e: React.MouseEvent) => {
+  1218→    e.stopPropagation();
+  1219→    setEditProject(project);
+  1220→    setEditOpen(true);
+  1221→    fetchCredentials(safeText(project.id, ""));
+  1222→    fetchProjectAssignedMethods(safeText(project.id, ""));
+  1223→    setShowPasswords({});
+  1224→    setNewCred({ title: "", username: "", password: "" });
+  1225→    setEditingCredId(null);
+  1226→  };
+  1227→
+  1228→  const openDeleteDialog = (projectId: string, e: React.MouseEvent) => {
+  1229→    e.stopPropagation();
+  1230→    setDeleteId(projectId);
+  1231→  };
+  1232→
+  1233→  // ━━ Prefetch project detail data on hover (Task 2: fast navigation) ━━
+  1234→  const handlePrefetchProject = useCallback((pid: string) => {
+  1235→    if (!pid) return;
+  1236→    queryClient.prefetchQuery({
+  1237→      queryKey: ["project", pid],
+  1238→      queryFn: async () => {
+  1239→        const res = await fetch(`/api/projects?projectId=${pid}`, { credentials: "include" });
+  1240→        if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+  1241→        if (!res.ok) throw new Error("Failed to load project");
+  1242→        const raw = await res.json();
+  1243→        if (Array.isArray(raw) && raw.length > 0) return raw[0];
+  1244→        if (raw && typeof raw === "object" && raw.id) return raw;
+  1245→        return null;
+  1246→      },
+  1247→      staleTime: 30 * 1000,
+  1248→    });
+  1249→    queryClient.prefetchQuery({
+  1250→      queryKey: ["project-tasks", pid],
+  1251→      queryFn: async () => {
+  1252→        const res = await fetch(`/api/tasks?projectId=${pid}`, { credentials: "include" });
+  1253→        if (!res.ok) throw new Error("Failed to load tasks");
+  1254→        const td = await res.json();
+  1255→        return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+  1256→      },
+  1257→      staleTime: 30 * 1000,
+  1258→    });
+  1259→    queryClient.prefetchQuery({
+  1260→      queryKey: ["project-members", pid],
+  1261→      queryFn: async () => {
+  1262→        const res = await fetch(`/api/projects/${pid}/members`, { credentials: "include" });
+  1263→        if (!res.ok) throw new Error("Failed to load members");
+  1264→        const md = await res.json();
+  1265→        return Array.isArray(md) ? md : (Array.isArray(md?.data) ? md.data : []);
+  1266→      },
+  1267→      staleTime: 30 * 1000,
+  1268→    });
+  1269→  }, [queryClient]);
+  1270→
+  1271→  // ━━ Credential handlers ━━
+  1272→  const handleAddCredential = async () => {
+  1273→    if (!editProject || !newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()) {
+  1274→      toast.error("All credential fields are required");
+  1275→      return;
+  1276→    }
+  1277→    try {
+  1278→      const res = await fetch("/api/projects/credentials", {
+  1279→        method: "POST",
+  1280→        headers: { "Content-Type": "application/json" },
+  1281→        credentials: "include",
+  1282→        body: JSON.stringify({ projectId: editProject.id, ...newCred }),
+  1283→      });
+  1284→      if (res.ok) {
+  1285→        toast.success("Credential added");
+  1286→        setNewCred({ title: "", username: "", password: "" });
+  1287→        fetchCredentials(safeText(editProject.id, ""));
+  1288→      } else {
+  1289→        const data = await res.json().catch(() => ({}));
+  1290→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to add credential");
+  1291→      }
+  1292→    } catch {
+  1293→      toast.error("Failed to add credential");
+  1294→    }
+  1295→  };
+  1296→
+  1297→  const handleUpdateCredential = async () => {
+  1298→    if (!editingCredId || !editingCred.title.trim() || !editingCred.username.trim()) {
+  1299→      toast.error("Title and username are required");
+  1300→      return;
+  1301→    }
+  1302→    try {
+  1303→      // Only send password if the user explicitly changed it
+  1304→      const payload: Record<string, unknown> = { id: editingCredId, title: editingCred.title, username: editingCred.username };
+  1305→      if (passwordChanged && editingCred.password) {
+  1306→        payload.password = editingCred.password;
+  1307→      }
+  1308→      const res = await fetch("/api/projects/credentials", {
+  1309→        method: "PATCH",
+  1310→        headers: { "Content-Type": "application/json" },
+  1311→        credentials: "include",
+  1312→        body: JSON.stringify(payload),
+  1313→      });
+  1314→      if (res.ok) {
+  1315→        toast.success("Credential updated");
+  1316→        setEditingCredId(null);
+  1317→        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+  1318→      } else {
+  1319→        const data = await res.json().catch(() => ({}));
+  1320→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update credential");
+  1321→      }
+  1322→    } catch {
+  1323→      toast.error("Failed to update credential");
+  1324→    }
+  1325→  };
+  1326→
+  1327→  const handleDeleteCredential = async () => {
+  1328→    if (!deleteCredId) return;
+  1329→    try {
+  1330→      const res = await fetch(`/api/projects/credentials?id=${deleteCredId}`, {
+  1331→        method: "DELETE",
+  1332→        credentials: "include",
+  1333→      });
+  1334→      if (res.ok) {
+  1335→        toast.success("Credential removed");
+  1336→        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+  1337→      }
+  1338→    } catch {
+  1339→      toast.error("Failed to delete credential");
+  1340→    } finally {
+  1341→      setDeleteCredId(null);
+  1342→    }
+  1343→  };
+  1344→
+  1345→  // ━━ DnD handlers ━━
+  1346→  const handleDragStart = (event: DragStartEvent) => {
+  1347→    if (updating) return;
+  1348→    setActiveId(event.active.id as string);
+  1349→  };
+  1350→
+  1351→  const handleDragEnd = async (event: DragEndEvent) => {
+  1352→    setActiveId(null);
+  1353→    const { active, over } = event;
+  1354→    if (!over) return;
+  1355→
+  1356→    const projectId = active.id as string;
+  1357→    const newStatus = over.id as string;
+  1358→
+  1359→    if (!VALID_STATUSES.includes(newStatus)) return;
+  1360→
+  1361→    const project = (projects as Record<string, unknown>[]).find((p) => safeText(p.id, "") === projectId);
+  1362→    if (!project) return;
+  1363→
+  1364→    const currentStatus = safeText(project.status, "");
+  1365→    if (currentStatus === newStatus) return;
+  1366→
+  1367→    const prevProjects = projects;
+  1368→
+  1369→    setUpdating(true);
+  1370→    queryClient.setQueryData(["projects"], (old: unknown[]) =>
+  1371→      (old || []).map((p) =>
+  1372→        safeText((p as Record<string, unknown>).id, "") === projectId
+  1373→          ? { ...(p as Record<string, unknown>), status: newStatus }
+  1374→          : p
+  1375→      )
+  1376→    );
+  1377→
+  1378→    try {
+  1379→      const res = await fetch("/api/projects", {
+  1380→        method: "PUT",
+  1381→        headers: { "Content-Type": "application/json" },
+  1382→        credentials: "include",
+  1383→        body: JSON.stringify({ id: projectId, status: newStatus }),
+  1384→      });
+  1385→      if (handle401(res)) {
+  1386→        queryClient.setQueryData(["projects"], prevProjects);
+  1387→        return;
+  1388→      }
+  1389→      if (!res.ok) {
+  1390→        queryClient.setQueryData(["projects"], prevProjects);
+  1391→        const data = await res.json().catch(() => ({}));
+  1392→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to move project");
+  1393→      } else {
+  1394→        toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
+  1395→      }
+  1396→    } catch {
+  1397→      queryClient.setQueryData(["projects"], prevProjects);
+  1398→      toast.error("Failed to move project");
+  1399→    } finally {
+  1400→      setUpdating(false);
+  1401→    }
+  1402→  };
+  1403→
+  1404→  const filtered = (projects as Record<string, unknown>[]).filter((p) => {
+  1405→    const pName = safeText(p.name, "");
+  1406→    const pStatus = safeText(p.status, "");
+  1407→    const pClient = p.client as Record<string, unknown> | undefined;
+  1408→    const pClientName = pClient ? safeText(pClient.name, "") : "";
+  1409→    const matchesFilter = filter === "ALL" || pStatus === filter;
+  1410→    const searchLower = search.toLowerCase();
+  1411→    const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
+  1412→    return matchesFilter && matchesSearch;
+  1413→  });
+  1414→
+  1415→  // ━━ Group filtered projects into Kanban columns (reorder: IN_PROGRESS first, COMPLETED last) ━━
+  1416→  const kanbanColumns = useMemo(() => {
+  1417→    if (filter !== "ALL") {
+  1418→      // When a specific status is selected, show only that column
+  1419→      return KANBAN_COLUMNS.filter((col) => col.key === filter).map((col) => ({
+  1420→        ...col,
+  1421→        projects: (filtered as Record<string, unknown>[]).filter(
+  1422→          (p) => safeText(p.status, "") === col.key
+  1423→        ),
+  1424→      }));
+  1425→    }
+  1426→    // ALL: reorder columns — IN_PROGRESS first, PLANNING middle, COMPLETED last
+  1427→    return [...KANBAN_COLUMNS]
+  1428→      .sort((a, b) => (COLUMN_DISPLAY_ORDER[a.key] ?? 99) - (COLUMN_DISPLAY_ORDER[b.key] ?? 99))
+  1429→      .map((col) => ({
+  1430→        ...col,
+  1431→        projects: (filtered as Record<string, unknown>[]).filter(
+  1432→          (p) => safeText(p.status, "") === col.key
+  1433→        ),
+  1434→      }));
+  1435→  }, [filtered, filter]);
+  1436→
+  1437→  // ━━ Stats computation ━━
+  1438→  const totalProjects = projects.length;
+  1439→  const inProgressCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
+  1440→  const reviewCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "REVIEW").length;
+  1441→  const completedCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "COMPLETED").length;
+  1442→
+  1443→  // ━━ Loading skeleton ━━
+  1444→  if (sessionStatus === "loading" || projectsLoading) {
+  1445→    return (
+  1446→      <div className="space-y-4">
+  1447→        <div className="flex items-center justify-between flex-wrap gap-3">
+  1448→          <div className="flex items-center gap-2">
+  1449→            <Skeleton className="h-8 w-8 rounded-lg" />
+  1450→            <Skeleton className="h-7 w-32" />
+  1451→          </div>
+  1452→          <div className="flex items-center gap-2">
+  1453→            <Skeleton className="h-8 w-52" />
+  1454→            <Skeleton className="h-8 w-20" />
+  1455→          </div>
+  1456→        </div>
+  1457→        {/* Stats bar skeleton */}
+  1458→        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+  1459→          {[1, 2, 3, 4].map((i) => (
+  1460→            <div key={i} className="rounded-xl p-2.5 sm:p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+  1461→              <Skeleton className="h-3 w-12 mb-2" />
+  1462→              <Skeleton className="h-5 w-8" />
+  1463→            </div>
+  1464→          ))}
+  1465→        </div>
+  1466→        {/* Filter skeleton */}
+  1467→        <div className="flex gap-2">
+  1468→          {[1, 2, 3, 4, 5].map((i) => (
+  1469→            <Skeleton key={i} className="h-7 w-20 rounded-full" />
+  1470→          ))}
+  1471→        </div>
+  1472→        <div className="flex gap-4 overflow-hidden">
+  1473→          {KANBAN_COLUMNS.slice(0, 4).map((col) => (
+  1474→            <div key={col.key} className="flex-shrink-0 w-[280px] space-y-3">
+  1475→              <Skeleton className="h-10 w-full rounded-xl" />
+  1476→              <Skeleton className="h-44 w-full rounded-lg animate-pulse" />
+  1477→              <Skeleton className="h-36 w-full rounded-lg animate-pulse" />
+  1478→            </div>
+  1479→          ))}
+  1480→        </div>
+  1481→      </div>
+  1482→    );
+  1483→  }
+  1484→
+  1485→  return (
+  1486→    <div className="space-y-3 sm:space-y-4">
+  1487→      {/* ━━━━ Header ━━━━ */}
+  1488→      <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
+  1489→        <div className="flex items-center gap-2 sm:gap-3">
+  1490→          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+  1491→            <LayoutGrid className="h-4.5 w-4.5 text-primary" />
+  1492→          </div>
+  1493→          <h1 className="text-lg sm:text-xl font-bold tracking-tight">Projects</h1>
+  1494→        </div>
+  1495→        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+  1496→          {/* Inline Search */}
+  1497→          <div className="relative">
+  1498→            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+  1499→            <Input
+  1500→              placeholder="Search..."
+  1501→              value={search}
+  1502→              onChange={(e) => setSearch(e.target.value)}
+  1503→              className="pl-8 w-full sm:w-48 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+  1504→              aria-label="Search projects"
+  1505→            />
+  1506→            {search && (
+  1507→              <button
+  1508→                onClick={() => setSearch("")}
+  1509→                className="absolute right-2 top-2 h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+  1510→                aria-label="Clear search"
+  1511→              >
+  1512→                <X className="h-3 w-3" />
+  1513→              </button>
+  1514→            )}
+  1515→          </div>
+  1516→          {/* View Toggle */}
+  1517→          <ToggleGroup
+  1518→            type="single"
+  1519→            value={viewMode}
+  1520→            onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
+  1521→            className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
+  1522→          >
+  1523→            <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
+  1524→              <LayoutGrid className="h-3.5 w-3.5" />
+  1525→              <span className="hidden sm:inline">Board</span>
+  1526→            </ToggleGroupItem>
+  1527→            <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
+  1528→              <List className="h-3.5 w-3.5" />
+  1529→              <span className="hidden sm:inline">List</span>
+  1530→            </ToggleGroupItem>
+  1531→          </ToggleGroup>
+  1532→          {/* My Todos — ghost variant */}
+  1533→          <Button
+  1534→            variant="ghost"
+  1535→            size="sm"
+  1536→            className="h-8 gap-1.5 text-xs text-muted-foreground hidden sm:inline-flex"
+  1537→            onClick={() => router.push("/dashboard/projects/todos")}
+  1538→          >
+  1539→            <ClipboardCheck className="h-3.5 w-3.5" /> <span className="hidden md:inline">My Todos</span>
+  1540→          </Button>
+  1541→          {/* New Project */}
+  1542→          {isAdminUser && (
+  1543→          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+  1544→            <DialogTrigger asChild>
+  1545→              <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
+  1546→                <Plus className="h-3.5 w-3.5" /> New Project
+  1547→              </Button>
+  1548→            </DialogTrigger>
+  1549→            <DialogContent className="sm:max-w-[480px]">
+  1550→              <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
+  1551→              <CreateProjectForm onSubmit={handleCreateProject} clients={clients as { id: string; name: string; company?: string }[]} />
+  1552→            </DialogContent>
+  1553→          </Dialog>
+  1554→          )}
+  1555→        </div>
+  1556→      </div>
+  1557→
+  1558→      {/* ━━━━ Stats Bar — Glassmorphism, 4 stats ━━━━ */}
+  1559→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+  1560→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
+  1561→          <div className="flex items-center gap-1.5 mb-1">
+  1562→            <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+  1563→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
+  1564→          </div>
+  1565→          <p className="text-xl font-bold tracking-tight">{totalProjects}</p>
+  1566→        </div>
+  1567→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-blue-200/40 dark:border-blue-500/20 hover:shadow-md">
+  1568→          <div className="flex items-center gap-1.5 mb-1">
+  1569→            <Activity className="h-3.5 w-3.5 text-blue-500" />
+  1570→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
+  1571→          </div>
+  1572→          <p className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{inProgressCount}</p>
+  1573→        </div>
+  1574→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md">
+  1575→          <div className="flex items-center gap-1.5 mb-1">
+  1576→            <CircleDot className="h-3.5 w-3.5 text-yellow-500" />
+  1577→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Review</span>
+  1578→          </div>
+  1579→          <p className="text-xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">{reviewCount}</p>
+  1580→        </div>
+  1581→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md">
+  1582→          <div className="flex items-center gap-1.5 mb-1">
+  1583→            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+  1584→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>
+  1585→          </div>
+  1586→          <p className="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{completedCount}</p>
+  1587→        </div>
+  1588→      </div>
+  1589→
+  1590→      {/* ━━━━ Filter Bar — Horizontal scrollable pills ━━━━ */}
+  1591→      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+  1592→        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => {
+  1593→          const isActive = filter === s;
+  1594→          const dotColor = s === "ALL" ? "bg-gray-400" : statusDotColors[s] || "bg-gray-400";
+  1595→          return (
+  1596→            <button
+  1597→              key={s}
+  1598→              onClick={() => setFilter(s)}
+  1599→              className={cn(
+  1600→                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+  1601→                isActive
+  1602→                  ? "bg-primary text-primary-foreground shadow-sm"
+  1603→                  : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+  1604→              )}
+  1605→            >
+  1606→              <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-primary-foreground/80" : dotColor)} />
+  1607→              {s === "ALL" ? "All" : s.replace("_", " ")}
+  1608→            </button>
+  1609→          );
+  1610→        })}
+  1611→      </div>
+  1612→
+  1613→      {/* ━━━━ Main Content Area ━━━━ */}
+  1614→      {filtered.length === 0 ? (
+  1615→        <div className="text-center py-24">
+  1616→          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-4">
+  1617→            <FolderKanban className="h-8 w-8 text-primary/40" />
+  1618→          </div>
+  1619→          <p className="text-lg font-bold text-foreground/80">
+  1620→            {projects.length === 0 ? "No projects yet" : "No projects match your search"}
+  1621→          </p>
+  1622→          <p className="text-sm text-muted-foreground/60 mt-1.5 max-w-sm mx-auto">
+  1623→            {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
+  1624→          </p>
+  1625→          {projects.length === 0 && isAdminUser && (
+  1626→            <Button variant="outline" className="mt-5 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
+  1627→              <Plus className="h-4 w-4" /> Create your first project
+  1628→            </Button>
+  1629→          )}
+  1630→        </div>
+  1631→      ) : viewMode === "board" ? (
+  1632→        /* ━━ Kanban Board View ━━ */
+  1633→        <DndContext
+  1634→          sensors={sensors}
+  1635→          collisionDetection={closestCorners}
+  1636→          onDragStart={handleDragStart}
+  1637→          onDragEnd={handleDragEnd}
+  1638→        >
+  1639→          <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
+  1640→            {kanbanColumns.map((col) => {
+  1641→              const isDimmed = filter !== "ALL" && filter !== col.key;
+  1642→              return (
+  1643→                <DroppableKanbanColumn
+  1644→                  key={col.key}
+  1645→                  col={col}
+  1646→                  projects={col.projects}
+  1647→                  isAdminUser={isAdminUser}
+  1648→                  onCardClick={(project) => {
+  1649→                    const pId = safeText(project.id, "");
+  1650→                    router.push(`/dashboard/projects/${pId}`);
+  1651→                  }}
+  1652→                  onEdit={openEditDialog}
+  1653→                  onDelete={openDeleteDialog}
+  1654→                  isDimmed={isDimmed}
+  1655→                  activeId={activeId}
+  1656→                  onHover={handlePrefetchProject}
+  1657→                  pendingTaskCounts={pendingTaskCounts}
+  1658→                />
+  1659→              );
+  1660→            })}
+  1661→          </div>
+  1662→          {/* DragOverlay — visual floating card during drag */}
+  1663→          <DragOverlay dropAnimation={null}>
+  1664→            {activeId ? (() => {
+  1665→              const project = (filtered as Record<string, unknown>[]).find(
+  1666→                (p) => safeText(p.id, "") === activeId
+  1667→              );
+  1668→              return project ? (
+  1669→                <KanbanProjectCard
+  1670→                  project={project}
+  1671→                  onClick={() => {}}
+  1672→                  isAdminUser={false}
+  1673→                  isDragging={true}
+  1674→                  pendingCount={pendingTaskCounts[safeText(project.id, "")]}
+  1675→                />
+  1676→              ) : null;
+  1677→            })() : null}
+  1678→          </DragOverlay>
+  1679→        </DndContext>
+  1680→      ) : (
+  1681→        /* ━━ List View ━━ */
+  1682→        <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
+  1683→          {[...(filtered as Record<string, unknown>[])].sort((a, b) => {
+  1684→            const orderA = COLUMN_DISPLAY_ORDER[safeText(a.status, "")] ?? 99;
+  1685→            const orderB = COLUMN_DISPLAY_ORDER[safeText(b.status, "")] ?? 99;
+  1686→            return orderA - orderB;
+  1687→          }).map((project) => {
+  1688→            const pId = safeText(project.id, "");
+  1689→            return (
+  1690→              <ListViewRow
+  1691→                key={pId}
+  1692→                project={project}
+  1693→                isAdminUser={isAdminUser}
+  1694→                onView={() => {
+  1695→                  handlePrefetchProject(pId);
+  1696→                  router.push(`/dashboard/projects/${pId}`);
+  1697→                }}
+  1698→                onEdit={isAdminUser ? openEditDialog : undefined}
+  1699→                onDelete={isAdminUser ? openDeleteDialog : undefined}
+  1700→                pendingCount={pendingTaskCounts[pId]}
+  1701→                onPendingClick={() => {
+  1702→                  handlePrefetchProject(pId);
+  1703→                  router.push(`/dashboard/projects/${pId}`);
+  1704→                }}
+  1705→              />
+  1706→            );
+  1707→          })}
+  1708→        </div>
+  1709→      )}
+  1710→
+  1711→      {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
+  1712→      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
+  1713→        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+  1714→          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, credentials, and methods.</DialogDescription></DialogHeader>
+  1715→          {editProject && (
+  1716→            <Tabs defaultValue="details">
+  1717→              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
+  1718→                <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1719→                  <Pencil className="h-3 w-3" /> Details
+  1720→                </TabsTrigger>
+  1721→                <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1722→                  <Key className="h-3 w-3" /> Credentials
+  1723→                </TabsTrigger>
+  1724→                {isAdminUser && (
+  1725→                <TabsTrigger value="methods" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1726→                  <Settings className="h-3 w-3" /> Methods
+  1727→                </TabsTrigger>
+  1728→                )}
+  1729→              </TabsList>
+  1730→
+  1731→              {/* Details Tab */}
+  1732→              <TabsContent value="details">
+  1733→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-3">
+  1734→                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1735→                    <Pencil className="h-3.5 w-3.5" /> Project Information
+  1736→                  </h3>
+  1737→                  <form onSubmit={handleEditProject} className="space-y-3">
+  1738→                    <div className="space-y-1">
+  1739→                      <Label className="text-xs">Project Name *</Label>
+  1740→                      <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
+  1741→                    </div>
+  1742→                    <div className="space-y-1">
+  1743→                      <Label className="text-xs">Description</Label>
+  1744→                      <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
+  1745→                    </div>
+  1746→                    <div className="space-y-1">
+  1747→                      <Label className="text-xs">Client</Label>
+  1748→                      <ClientSearchSelect
+  1749→                        name="clientId"
+  1750→                        defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
+  1751→                        clients={(clients as { id: string; name: string; company?: string }[])}
+  1752→                      />
+  1753→                    </div>
+  1754→                    <div className="grid grid-cols-2 gap-3">
+  1755→                      <div className="space-y-1">
+  1756→                        <Label className="text-xs">Status</Label>
+  1757→                        <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
+  1758→                          {VALID_STATUSES.map((s) => (
+  1759→                            <option key={s} value={s}>{s.replace("_", " ")}</option>
+  1760→                          ))}
+  1761→                        </select>
+  1762→                      </div>
+  1763→                      <div className="space-y-1">
+  1764→                        <Label className="text-xs">Progress (%)</Label>
+  1765→                        <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+  1766→                      </div>
+  1767→                    </div>
+  1768→                    <div className="grid grid-cols-2 gap-3">
+  1769→                      <div className="space-y-1">
+  1770→                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
+  1771→                        <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+  1772→                      </div>
+  1773→                      <div className="space-y-1">
+  1774→                        <Label className="text-xs">Live URL</Label>
+  1775→                        <Input
+  1776→                          name="liveUrl"
+  1777→                          type="url"
+  1778→                          placeholder="https://example.com"
+  1779→                          defaultValue={(() => {
+  1780→                            const ws = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+  1781→                            const primary = ws.find((w) => w.isPrimary === true || w.isPrimary === "true") || ws[0];
+  1782→                            return primary ? safeText(primary.url, "") : "";
+  1783→                          })()}
+  1784→                        />
+  1785→                      </div>
+  1786→                    </div>
+  1787→                    <div className="grid grid-cols-2 gap-3">
+  1788→                      <div className="space-y-1">
+  1789→                        <Label className="text-xs">Start Date</Label>
+  1790→                        <Input name="startDate" type="date" defaultValue={editProject.startDate ? String(editProject.startDate).slice(0, 10) : ''} id="edit-start-date" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+  1791→                          const deadlineInput = document.getElementById("edit-deadline") as HTMLInputElement | null;
+  1792→                          const sd = e.target.value;
+  1793→                          const dl = deadlineInput?.value || "";
+  1794→                          const period = calcProjectPeriod(sd, dl);
+  1795→                          const el = document.getElementById("edit-period-display");
+  1796→                          if (el) el.style.display = period ? "" : "none";
+  1797→                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+  1798→                        }} />
+  1799→                      </div>
+  1800→                      <div className="space-y-1">
+  1801→                        <Label className="text-xs">Deadline</Label>
+  1802→                        <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} id="edit-deadline" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+  1803→                          const startInput = document.getElementById("edit-start-date") as HTMLInputElement | null;
+  1804→                          const sd = startInput?.value || "";
+  1805→                          const dl = e.target.value;
+  1806→                          const period = calcProjectPeriod(sd, dl);
+  1807→                          const el = document.getElementById("edit-period-display");
+  1808→                          if (el) el.style.display = period ? "" : "none";
+  1809→                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+  1810→                        }} />
+  1811→                      </div>
+  1812→                    </div>
+  1813→                    <div id="edit-period-display" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10" style={{ display: (() => {
+  1814→                      const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+  1815→                      const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+  1816→                      return calcProjectPeriod(sd, dl) ? "" : "none";
+  1817→                    })() }}>
+  1818→                      <Activity className="h-3.5 w-3.5 text-primary" />
+  1819→                      <span className="text-xs font-medium text-primary">{(() => {
+  1820→                        const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+  1821→                        const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+  1822→                        const p = calcProjectPeriod(sd, dl);
+  1823→                        return p ? `Total Period: ${p}` : "";
+  1824→                      })()}</span>
+  1825→                    </div>
+  1826→                    <div className="flex gap-2 pt-2">
+  1827→                      <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
+  1828→                      <Button type="submit" className="flex-1">Save Changes</Button>
+  1829→                    </div>
+  1830→                  </form>
+  1831→                </div>
+  1832→              </TabsContent>
+  1833→
+  1834→              {/* Credentials Tab */}
+  1835→              <TabsContent value="credentials">
+  1836→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+  1837→                  {/* Add new credential */}
+  1838→                  <div className="space-y-2">
+  1839→                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1840→                      <Key className="h-3.5 w-3.5" /> Add New Credential
+  1841→                    </h3>
+  1842→                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  1843→                      <Input placeholder="Title (e.g., Hosting Login)" value={newCred.title} onChange={(e) => setNewCred({ ...newCred, title: e.target.value })} className="h-8 text-sm" />
+  1844→                      <Input placeholder="Username / Email" value={newCred.username} onChange={(e) => setNewCred({ ...newCred, username: e.target.value })} className="h-8 text-sm" />
+  1845→                      <Input placeholder="Password" type="password" value={newCred.password} onChange={(e) => setNewCred({ ...newCred, password: e.target.value })} className="h-8 text-sm" />
+  1846→                    </div>
+  1847→                    <Button type="button" size="sm" onClick={handleAddCredential} disabled={!newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()} className="h-8">
+  1848→                      <Plus className="h-3 w-3 mr-1" /> Add Credential
+  1849→                    </Button>
+  1850→                  </div>
+  1851→
+  1852→                  {/* Existing credentials */}
+  1853→                  <div className="space-y-2">
+  1854→                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1855→                      <Key className="h-3.5 w-3.5" /> Stored Credentials
+  1856→                    </h3>
+  1857→                  </div>
+  1858→                  <div className="max-h-64 overflow-y-auto space-y-2">
+  1859→                    {credentials.length === 0 && (
+  1860→                      <p className="text-sm text-muted-foreground text-center py-6">No credentials stored</p>
+  1861→                    )}
+  1862→                    {credentials.map((cred) => (
+  1863→                      <div key={cred.id} className="border rounded-lg p-3 space-y-2 bg-white/40 dark:bg-white/[0.02]">
+  1864→                        {editingCredId === cred.id ? (
+  1865→                          <>
+  1866→                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  1867→                              <Input value={editingCred.title} onChange={(e) => setEditingCred({ ...editingCred, title: e.target.value })} className="h-8 text-sm" />
+  1868→                              <Input value={editingCred.username} onChange={(e) => setEditingCred({ ...editingCred, username: e.target.value })} className="h-8 text-sm" />
+  1869→                              <Input value={editingCred.password} onChange={(e) => { setEditingCred({ ...editingCred, password: e.target.value }); setPasswordChanged(true); }} className="h-8 text-sm" placeholder="Enter new password (leave blank to keep)" />
+  1870→                            </div>
+  1871→                            <div className="flex gap-2">
+  1872→                              <Button type="button" size="sm" className="h-7" onClick={handleUpdateCredential}>Save</Button>
+  1873→                              <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setEditingCredId(null)}>Cancel</Button>
+  1874→                            </div>
+  1875→                          </>
+  1876→                        ) : (
+  1877→                          <>
+  1878→                            <div className="flex items-center justify-between">
+  1879→                              <div className="flex items-center gap-2">
+  1880→                                <Key className="h-3.5 w-3.5 text-muted-foreground" />
+  1881→                                <span className="text-sm font-medium">{cred.title}</span>
+  1882→                              </div>
+  1883→                              <div className="flex gap-1">
+  1884→                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: "" }); setPasswordChanged(false); }} title="Edit">
+  1885→                                  <Pencil className="h-3 w-3" />
+  1886→                                </Button>
+  1887→                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteCredId(cred.id)} title="Delete">
+  1888→                                  <Trash2 className="h-3 w-3" />
+  1889→                                </Button>
+  1890→                              </div>
+  1891→                            </div>
+  1892→                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+  1893→                              <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
+  1894→                              <span className="mx-1">&bull;</span>
+  1895→                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
+  1896→                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
+  1897→                                {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+  1898→                              </Button>
+  1899→                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={async () => { try { await navigator.clipboard.writeText(cred.password); toast.success("Copied"); } catch { toast.error("Failed to copy to clipboard"); } }} title="Copy" aria-label="Copy password">
+  1900→                                <Copy className="h-3 w-3" />
+  1901→                              </Button>
+  1902→                            </div>
+  1903→                          </>
+  1904→                        )}
+  1905→                      </div>
+  1906→                    ))}
+  1907→                  </div>
+  1908→                </div>
+  1909→              </TabsContent>
+  1910→
+  1911→              {/* Methods Tab — admin only */}
+  1912→              {isAdminUser && (
+  1913→              <TabsContent value="methods">
+  1914→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+  1915→
+  1916→                  {/* Section 1: Assign methods to this project */}
+  1917→                  {editProject && (
+  1918→                    <div className="space-y-3 pb-4 border-b border-white/20 dark:border-white/10">
+  1919→                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1920→                        <CheckCircle2 className="h-3.5 w-3.5" /> Methods for this Project
+  1921→                      </h3>
+  1922→                      <p className="text-[11px] text-muted-foreground">Select which methods apply to this project.</p>
+  1923→                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+  1924→                        {methodLoading ? (
+  1925→                          <div className="space-y-2">
+  1926→                            {[1, 2, 3].map((i) => (
+  1927→                              <div key={i} className="h-8 bg-muted/50 animate-pulse rounded-lg" />
+  1928→                            ))}
+  1929→                          </div>
+  1930→                        ) : (
+  1931→                          <>
+  1932→                            {projectMethods.length === 0 && (
+  1933→                              <p className="text-sm text-muted-foreground text-center py-4">No methods available. Add methods below first.</p>
+  1934→                            )}
+  1935→                            {projectMethods.map((pm) => (
+  1936→                              <label
+  1937→                                key={pm.id}
+  1938→                                className={cn(
+  1939→                                  "flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-all",
+  1940→                                  assignedMethodIds.includes(pm.id)
+  1941→                                    ? "border-primary/40 bg-primary/5 dark:bg-primary/10"
+  1942→                                    : "border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:border-primary/20"
+  1943→                                )}
+  1944→                              >
+  1945→                                <input
+  1946→                                  type="checkbox"
+  1947→                                  checked={assignedMethodIds.includes(pm.id)}
+  1948→                                  onChange={() => toggleProjectMethod(pm.id)}
+  1949→                                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary/30"
+  1950→                                />
+  1951→                                <div className="flex items-center gap-2 flex-1 min-w-0">
+  1952→                                  <div className={cn(
+  1953→                                    "h-2 w-2 rounded-full shrink-0",
+  1954→                                    assignedMethodIds.includes(pm.id) ? "bg-primary" : "bg-muted-foreground/40"
+  1955→                                  )} />
+  1956→                                  <span className="text-sm font-medium truncate">{pm.name}</span>
+  1957→                                </div>
+  1958→                              </label>
+  1959→                            ))}
+  1960→                          </>
+  1961→                        )}
+  1962→                      </div>
+  1963→                      <Button
+  1964→                        size="sm"
+  1965→                        disabled={methodAssignLoading}
+  1966→                        onClick={handleSaveProjectMethods}
+  1967→                        className="h-8 px-4"
+  1968→                      >
+  1969→                        {methodAssignLoading ? "Saving..." : "Save Methods"}
+  1970→                      </Button>
+  1971→                    </div>
+  1972→                  )}
+  1973→
+  1974→                  {/* Section 2: Manage All Methods */}
+  1975→                  <div className="space-y-2">
+  1976→                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1977→                      <Settings className="h-3.5 w-3.5" /> Manage Project Methods
+  1978→                    </h3>
+  1979→                    <p className="text-[11px] text-muted-foreground">Add, edit, or remove project methods (e.g., JAVA, PHP, HTML). These are used when creating clients.</p>
+  1980→                  </div>
+  1981→                  <div className="flex gap-2">
+  1982→                    <Input
+  1983→                      placeholder="New method name..."
+  1984→                      value={newMethodName}
+  1985→                      onChange={(e) => setNewMethodName(e.target.value)}
+  1986→                      onKeyDown={(e) => {
+  1987→                        if (e.key === "Enter") { e.preventDefault(); handleSaveNewMethod(); }
+  1988→                      }}
+  1989→                      className="h-9 text-sm flex-1"
+  1990→                    />
+  1991→                    <Button
+  1992→                      type="button"
+  1993→                      size="sm"
+  1994→                      disabled={!newMethodName.trim() || methodSaving}
+  1995→                      onClick={handleSaveNewMethod}
+  1996→                      className="h-9 px-4"
+  1997→                    >
+  1998→                      <Plus className="h-3.5 w-3.5 mr-1" />
+  1999→                      <span className="hidden sm:inline">Add</span>
+  2000→                    </Button>
+
+[showing lines 1-2000 of 2123; use offset=2001 with limit to continue reading]

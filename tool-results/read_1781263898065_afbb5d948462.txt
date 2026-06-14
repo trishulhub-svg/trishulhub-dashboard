@@ -1,0 +1,720 @@
+     1→"use client"
+     2→
+     3→import React, { useState, useCallback, useEffect, useMemo } from "react"
+     4→import { useSession } from "next-auth/react"
+     5→import {
+     6→  Briefcase,
+     7→  FolderKanban,
+     8→  Users,
+     9→  GraduationCap,
+    10→  Settings,
+    11→  Search,
+    12→  Filter,
+    13→  Download,
+    14→  Activity,
+    15→  Clock,
+    16→  Shield,
+    17→  ChevronDown,
+    18→  RotateCcw,
+    19→  Loader2,
+    20→  FileText,
+    21→  AlertTriangle,
+    22→} from "lucide-react"
+    23→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+    24→import { Badge } from "@/components/ui/badge"
+    25→import { Button } from "@/components/ui/button"
+    26→import { Input } from "@/components/ui/input"
+    27→import {
+    28→  Select,
+    29→  SelectContent,
+    30→  SelectItem,
+    31→  SelectTrigger,
+    32→  SelectValue,
+    33→} from "@/components/ui/select"
+    34→import {
+    35→  Table,
+    36→  TableBody,
+    37→  TableCell,
+    38→  TableHead,
+    39→  TableHeader,
+    40→  TableRow,
+    41→} from "@/components/ui/table"
+    42→import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+    43→import {
+    44→  Tooltip,
+    45→  TooltipContent,
+    46→  TooltipProvider,
+    47→  TooltipTrigger,
+    48→} from "@/components/ui/tooltip"
+    49→import { Skeleton } from "@/components/ui/skeleton"
+    50→import { AUDIT_DEPARTMENTS, ACTION_COLORS, STATUS_COLORS, DEPARTMENT_ICONS, DEPARTMENT_COLORS, type AuditDepartment } from "@/lib/audit-log"
+    51→import { formatDateTime } from "@/lib/format"
+    52→import { cn } from "@/lib/utils"
+    53→
+    54→// Icons mapping
+    55→const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+    56→  Briefcase,
+    57→  FolderKanban,
+    58→  Users,
+    59→  GraduationCap,
+    60→  Settings,
+    61→}
+    62→
+    63→interface AuditLogEntry {
+    64→  id: string
+    65→  userId: string
+    66→  userName: string | null
+    67→  userRole: string | null
+    68→  userDepartment: string | null
+    69→  department: string
+    70→  page: string
+    71→  action: string | null
+    72→  entityType: string | null
+    73→  entityId: string | null
+    74→  description: string | null
+    75→  oldValue: string | null
+    76→  newValue: string | null
+    77→  ipAddress: string | null
+    78→  userAgent: string | null
+    79→  status: string | null
+    80→  metadata: string | null
+    81→  createdAt: string
+    82→}
+    83→
+    84→interface DeptCount {
+    85→  department: string
+    86→  count: number
+    87→}
+    88→
+    89→interface StatsData {
+    90→  total: number
+    91→  todayCount: number
+    92→  departmentCounts: DeptCount[]
+    93→  actionCounts: { action: string; count: number }[]
+    94→  statusCounts: { status: string; count: number }[]
+    95→  recentActivity: { id: string; department: string; page: string; action: string; description: string; userName: string; createdAt: string }[]
+    96→}
+    97→
+    98→function formatRelativeTime(dateStr: string | null | undefined): string {
+    99→  if (!dateStr) return "N/A"
+   100→  const date = new Date(dateStr)
+   101→  if (isNaN(date.getTime())) return "N/A"
+   102→  const now = new Date()
+   103→  const diffMs = now.getTime() - date.getTime()
+   104→  const diffSec = Math.floor(diffMs / 1000)
+   105→  if (diffSec < 60) return "just now"
+   106→  const diffMin = Math.floor(diffSec / 60)
+   107→  if (diffMin < 60) return `${diffMin}m ago`
+   108→  const diffHr = Math.floor(diffMin / 60)
+   109→  if (diffHr < 24) return `${diffHr}h ago`
+   110→  const diffDay = Math.floor(diffHr / 24)
+   111→  if (diffDay < 7) return `${diffDay}d ago`
+   112→  return formatDateTime(dateStr)
+   113→}
+   114→
+   115→/** Safe helper: extract initials from a potentially null user name */
+   116→function getInitials(userName: string | null | undefined): string {
+   117→  if (!userName) return "?"
+   118→  return userName.split(" ").filter(Boolean).map(n => n[0] || "").join("").toUpperCase().slice(0, 2) || "?"
+   119→}
+   120→
+   121→/** Safe helper: format role for display */
+   122→function formatRole(role: string | null | undefined): string {
+   123→  if (!role) return "—"
+   124→  return role.replace(/_/g, " ")
+   125→}
+   126→
+   127→/**
+   128→ * Local error boundary for the Audit Trail page.
+   129→ * Catches render-time errors so they show a useful message
+   130→ * instead of the generic DashboardError boundary.
+   131→ */
+   132→class AuditTrailErrorBoundary extends React.Component<
+   133→  { children: React.ReactNode },
+   134→  { hasError: boolean; error: Error | null }
+   135→> {
+   136→  constructor(props: { children: React.ReactNode }) {
+   137→    super(props)
+   138→    this.state = { hasError: false, error: null }
+   139→  }
+   140→  static getDerivedStateFromError(error: Error) {
+   141→    return { hasError: true, error }
+   142→  }
+   143→  componentDidCatch(error: Error, info: React.ErrorInfo) {
+   144→    console.error("[AuditTrailErrorBoundary]", error.message, info.componentStack)
+   145→  }
+   146→  render() {
+   147→    if (this.state.hasError) {
+   148→      return (
+   149→        <div className="min-h-[40vh] flex items-center justify-center p-6">
+   150→          <Card className="max-w-md w-full border-red-200 dark:border-red-900/50">
+   151→            <CardContent className="p-6 space-y-4">
+   152→              <div className="flex justify-center">
+   153→                <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+   154→                  <AlertTriangle className="h-7 w-7 text-red-600 dark:text-red-400" />
+   155→                </div>
+   156→              </div>
+   157→              <div className="text-center space-y-2">
+   158→                <h2 className="text-lg font-bold">Audit Trail Error</h2>
+   159→                <p className="text-sm text-muted-foreground">
+   160→                  Something went wrong loading the audit trail. This is likely a data or rendering issue.
+   161→                </p>
+   162→                <details className="text-left">
+   163→                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+   164→                    Error details
+   165→                  </summary>
+   166→                  <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
+   167→                    {this.state.error?.message || "Unknown error"}
+   168→                  </pre>
+   169→                </details>
+   170→              </div>
+   171→              <div className="flex gap-2 justify-center">
+   172→                <Button onClick={() => this.setState({ hasError: false, error: null })}>
+   173→                  <RotateCcw className="h-4 w-4 mr-2" /> Try Again
+   174→                </Button>
+   175→              </div>
+   176→            </CardContent>
+   177→          </Card>
+   178→        </div>
+   179→      )
+   180→    }
+   181→    return this.props.children
+   182→  }
+   183→}
+   184→
+   185→export default function AuditTrailPage() {
+   186→  const { data: session, status: sessionStatus } = useSession()
+   187→  const [logs, setLogs] = useState<AuditLogEntry[]>([])
+   188→  const [stats, setStats] = useState<StatsData | null>(null)
+   189→  const [selectedDept, setSelectedDept] = useState<string>("")
+   190→  const [search, setSearch] = useState("")
+   191→  const [actionFilter, setActionFilter] = useState<string>("")
+   192→  const [statusFilter, setStatusFilter] = useState<string>("ALL")
+   193→  const [nextCursor, setNextCursor] = useState<string | null>(null)
+   194→  const [loading, setLoading] = useState(true)
+   195→  const [statsLoading, setStatsLoading] = useState(true)
+   196→  const [exporting, setExporting] = useState(false)
+   197→  const [exportingPdf, setExportingPdf] = useState(false)
+   198→  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d")
+   199→  const [hasMore, setHasMore] = useState(false)
+   200→  const [total, setTotal] = useState(0)
+   201→  const [error, setError] = useState<string | null>(null)
+   202→  const userRole = session?.user?.role || "DEVELOPER"
+   203→
+   204→  const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
+   205→
+   206→  // Fetch stats
+   207→  useEffect(() => {
+   208→    if (sessionStatus === "loading") return
+   209→    if (!session) return
+   210→    const fetchStats = async () => {
+   211→      setStatsLoading(true)
+   212→      try {
+   213→        const res = await fetch("/api/audit-trail/stats", { credentials: "include" })
+   214→        if (res.ok) {
+   215→          const data = await res.json()
+   216→          setStats(data)
+   217→        } else {
+   218→          console.error("[audit-trail] Stats API returned:", res.status)
+   219→          // Stats failure is non-fatal — just log, don't block the page
+   220→        }
+   221→      } catch (err) {
+   222→        console.error("Failed to fetch audit stats:", err)
+   223→        // Stats failure is non-fatal — page still works without stats cards
+   224→      } finally {
+   225→        setStatsLoading(false)
+   226→      }
+   227→    }
+   228→    fetchStats()
+   229→    const interval = setInterval(fetchStats, 30000)
+   230→    return () => clearInterval(interval)
+   231→  }, [session, sessionStatus])
+   232→
+   233→  // Fetch logs
+   234→  const fetchLogs = useCallback(async (cursor?: string) => {
+   235→    setLoading(true)
+   236→    setError(null)
+   237→    try {
+   238→      const params = new URLSearchParams()
+   239→      if (selectedDept) params.set("department", selectedDept)
+   240→      if (search) params.set("search", search)
+   241→      if (actionFilter) params.set("action", actionFilter)
+   242→      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
+   243→      if (cursor) params.set("cursor", cursor)
+   244→      params.set("limit", "50")
+   245→
+   246→      const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
+   247→      if (res.ok) {
+   248→        const data = await res.json()
+   249→        const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+   250→        if (cursor) {
+   251→          setLogs(prev => [...prev, ...items])
+   252→        } else {
+   253→          setLogs(items)
+   254→        }
+   255→        setNextCursor(data?.nextCursor ?? null)
+   256→        setHasMore(!!data?.nextCursor)
+   257→        setTotal(typeof data?.total === "number" ? data.total : 0)
+   258→      } else {
+   259→        setError(`Failed to load logs (HTTP ${res.status})`)
+   260→      }
+   261→    } catch (err) {
+   262→      setError("Network error — check your connection and try again.")
+   263→      console.error("Failed to fetch audit logs:", err)
+   264→    } finally {
+   265→      setLoading(false)
+   266→    }
+   267→  }, [selectedDept, search, actionFilter, statusFilter])
+   268→
+   269→  // Initial fetch when filters change (not cursor-based)
+   270→  useEffect(() => {
+   271→    setNextCursor(null)
+   272→    setLogs([])
+   273→    fetchLogs()
+   274→  }, [selectedDept, search, actionFilter, statusFilter, fetchLogs])
+   275→
+   276→  const loadMore = () => {
+   277→    if (nextCursor) fetchLogs(nextCursor)
+   278→  }
+   279→
+   280→  // Department counts from stats
+   281→  const deptCounts = useMemo(() => {
+   282→    const counts: Record<string, number> = {}
+   283→    if (stats?.departmentCounts) {
+   284→      stats.departmentCounts.forEach(d => { counts[d.department] = d.count })
+   285→    }
+   286→    return counts
+   287→  }, [stats])
+   288→
+   289→  // Stats cards
+   290→  const mostActiveDept = useMemo(() => {
+   291→    if (!stats?.departmentCounts?.length) return ""
+   292→    return stats.departmentCounts[0]?.department || ""
+   293→  }, [stats])
+   294→
+   295→  const mostCommonAction = useMemo(() => {
+   296→    if (!stats?.actionCounts?.length) return "—"
+   297→    return stats.actionCounts[0]?.action || "—"
+   298→  }, [stats])
+   299→
+   300→  const successRate = useMemo(() => {
+   301→    if (!stats?.statusCounts?.length) return "—"
+   302→    const success = stats.statusCounts.find(s => s.status === "SUCCESS")
+   303→    const failure = stats.statusCounts.find(s => s.status === "FAILURE")
+   304→    const total = (success?.count || 0) + (failure?.count || 0)
+   305→    if (total === 0) return "—"
+   306→    return `${Math.round(((success?.count || 0) / total) * 100)}%`
+   307→  }, [stats])
+   308→
+   309→  // Date range filter for export
+   310→  const getDateRange = useCallback(() => {
+   311→    const now = new Date()
+   312→    switch (dateRange) {
+   313→      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+   314→      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+   315→      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+   316→      default: return ""
+   317→    }
+   318→  }, [dateRange])
+   319→
+   320→  const exportCsv = async () => {
+   321→    setExporting(true)
+   322→    try {
+   323→      const params = new URLSearchParams()
+   324→      if (selectedDept) params.set("department", selectedDept)
+   325→      if (actionFilter) params.set("action", actionFilter)
+   326→      const startDate = getDateRange()
+   327→      if (startDate) params.set("startDate", startDate)
+   328→      params.set("endDate", new Date().toISOString())
+   329→
+   330→      const res = await fetch(`/api/audit-trail/export?${params.toString()}`, { credentials: "include" })
+   331→      if (res.ok) {
+   332→        const blob = await res.blob()
+   333→        const url = window.URL.createObjectURL(blob)
+   334→        const a = document.createElement("a")
+   335→        a.href = url
+   336→        a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.csv`
+   337→        document.body.appendChild(a)
+   338→        a.click()
+   339→        document.body.removeChild(a)
+   340→        window.URL.revokeObjectURL(url)
+   341→      }
+   342→    } catch (err) {
+   343→      console.error("Export failed:", err)
+   344→    } finally {
+   345→      setExporting(false)
+   346→    }
+   347→  }
+   348→
+   349→  const exportPdf = async () => {
+   350→    setExportingPdf(true)
+   351→    try {
+   352→      const params = new URLSearchParams()
+   353→      if (selectedDept) params.set("department", selectedDept)
+   354→      if (actionFilter) params.set("action", actionFilter)
+   355→      const startDate = getDateRange()
+   356→      if (startDate) params.set("startDate", startDate)
+   357→      params.set("endDate", new Date().toISOString())
+   358→
+   359→      const res = await fetch(`/api/audit-trail/export-pdf?${params.toString()}`, { credentials: "include" })
+   360→      if (res.ok) {
+   361→        const blob = await res.blob()
+   362→        const url = window.URL.createObjectURL(blob)
+   363→        const a = document.createElement("a")
+   364→        a.href = url
+   365→        a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.pdf`
+   366→        document.body.appendChild(a)
+   367→        a.click()
+   368→        document.body.removeChild(a)
+   369→        window.URL.revokeObjectURL(url)
+   370→      }
+   371→    } catch (err) {
+   372→      console.error("PDF export failed:", err)
+   373→    } finally {
+   374→      setExportingPdf(false)
+   375→    }
+   376→  }
+   377→
+   378→  if (sessionStatus === "loading") return null
+   379→
+   380→  if (!session) return null
+   381→
+   382→  return (
+   383→    <AuditTrailErrorBoundary>
+   384→    <TooltipProvider>
+   385→    <div className="space-y-6">
+   386→      {/* Stats Cards */}
+   387→      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   388→        {statsLoading ? (
+   389→          <>
+   390→            {[...Array(4)].map((_, i) => (
+   391→              <Card key={i}>
+   392→                <CardContent className="p-4">
+   393→                  <Skeleton className="h-4 w-24 mb-2" />
+   394→                  <Skeleton className="h-8 w-16" />
+   395→                </CardContent>
+   396→              </Card>
+   397→            ))}
+   398→          </>
+   399→        ) : (
+   400→          <>
+   401→            <Card>
+   402→              <CardContent className="p-4">
+   403→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Entries</p>
+   404→                <p className="text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
+   405→              </CardContent>
+   406→            </Card>
+   407→            <Card>
+   408→              <CardContent className="p-4">
+   409→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Today</p>
+   410→                <p className="text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
+   411→              </CardContent>
+   412→            </Card>
+   413→            <Card>
+   414→              <CardContent className="p-4">
+   415→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Most Active Dept</p>
+   416→                <p className="text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
+   417→              </CardContent>
+   418→            </Card>
+   419→            <Card>
+   420→              <CardContent className="p-4">
+   421→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Success Rate</p>
+   422→                <p className="text-2xl font-bold">{successRate}</p>
+   423→              </CardContent>
+   424→            </Card>
+   425→          </>
+   426→        )}
+   427→      </div>
+   428→
+   429→      {/* Main Content */}
+   430→      <div className="flex flex-col lg:flex-row gap-6">
+   431→        {/* Left Sidebar — Department Cards */}
+   432→        <div className="lg:w-64 shrink-0 space-y-3">
+   433→          <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+   434→            <Shield className="h-4 w-4" />
+   435→            Departments
+   436→          </h3>
+   437→
+   438→          {/* All Departments card */}
+   439→          <Card
+   440→            className={cn(
+   441→              "cursor-pointer transition-all hover:shadow-md border-2",
+   442→              !selectedDept && "border-primary/50 bg-primary/5"
+   443→            )}
+   444→            onClick={() => setSelectedDept("")}
+   445→          >
+   446→            <CardContent className="p-4 flex items-center justify-between">
+   447→              <div className="flex items-center gap-3">
+   448→                <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center">
+   449→                  <Activity className="h-5 w-5 text-muted-foreground" />
+   450→                </div>
+   451→                <div>
+   452→                  <p className="text-sm font-semibold">All Departments</p>
+   453→                  <p className="text-xs text-muted-foreground">{(stats?.total ?? 0).toLocaleString()} entries</p>
+   454→                </div>
+   455→              </div>
+   456→            </CardContent>
+   457→          </Card>
+   458→
+   459→          {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => {
+   460→            const Icon = iconMap[DEPARTMENT_ICONS[key]] || Settings
+   461→            const count = deptCounts[key] || 0
+   462→            const isSelected = selectedDept === key
+   463→            return (
+   464→              <Card
+   465→                key={key}
+   466→                className={cn(
+   467→                  "cursor-pointer transition-all hover:shadow-md border-2",
+   468→                  isSelected && "border-primary/50 bg-primary/5"
+   469→                )}
+   470→                onClick={() => setSelectedDept(isSelected ? "" : key)}
+   471→              >
+   472→                <CardContent className="p-3 flex items-center gap-3">
+   473→                  <div className={cn(
+   474→                    "h-9 w-9 rounded-lg flex items-center justify-center shrink-0",
+   475→                    isSelected ? "bg-primary text-primary-foreground" : "bg-muted"
+   476→                  )}>
+   477→                    <Icon className="h-4 w-4" />
+   478→                  </div>
+   479→                  <div className="min-w-0 flex-1">
+   480→                    <p className="text-sm font-medium truncate">{dept.label}</p>
+   481→                    <p className="text-xs text-muted-foreground">{count.toLocaleString()} entries</p>
+   482→                  </div>
+   483→                </CardContent>
+   484→              </Card>
+   485→            )
+   486→          })}
+   487→        </div>
+   488→
+   489→        {/* Main Content Area */}
+   490→        <div className="flex-1 min-w-0 space-y-4">
+   491→          {/* Top Bar */}
+   492→          <Card>
+   493→            <CardContent className="p-4">
+   494→              <div className="flex flex-col sm:flex-row gap-3">
+   495→                <div className="relative flex-1">
+   496→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   497→                  <Input
+   498→                    placeholder="Search audit logs..."
+   499→                    className="pl-10 h-10"
+   500→                    value={search}
+   501→                    onChange={(e) => setSearch(e.target.value)}
+   502→                  />
+   503→                </div>
+   504→                <div className="flex flex-wrap gap-2">
+   505→                  <Select value={actionFilter} onValueChange={setActionFilter}>
+   506→                    <SelectTrigger className="w-[140px] h-10">
+   507→                      <Filter className="h-4 w-4 mr-2" />
+   508→                      <SelectValue placeholder="Actions" />
+   509→                    </SelectTrigger>
+   510→                    <SelectContent>
+   511→                      <SelectItem value="CREATE">Create</SelectItem>
+   512→                      <SelectItem value="UPDATE">Update</SelectItem>
+   513→                      <SelectItem value="DELETE">Delete</SelectItem>
+   514→                      <SelectItem value="LOGIN">Login</SelectItem>
+   515→                      <SelectItem value="LOGOUT">Logout</SelectItem>
+   516→                      <SelectItem value="APPROVE">Approve</SelectItem>
+   517→                      <SelectItem value="REJECT">Reject</SelectItem>
+   518→                      <SelectItem value="EXPORT">Export</SelectItem>
+   519→                      <SelectItem value="SEND">Send</SelectItem>
+   520→                      <SelectItem value="ASSIGN">Assign</SelectItem>
+   521→                      <SelectItem value="STATUS_CHANGE">Status Change</SelectItem>
+   522→                      <SelectItem value="CONFIG_CHANGE">Config Change</SelectItem>
+   523→                      <SelectItem value="ACCESS">Access</SelectItem>
+   524→                    </SelectContent>
+   525→                  </Select>
+   526→                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+   527→                    <SelectTrigger className="w-[120px] h-10">
+   528→                      <SelectValue placeholder="Status" />
+   529→                    </SelectTrigger>
+   530→                    <SelectContent>
+   531→                      <SelectItem value="ALL">All</SelectItem>
+   532→                      <SelectItem value="SUCCESS">Success</SelectItem>
+   533→                      <SelectItem value="FAILURE">Failure</SelectItem>
+   534→                    </SelectContent>
+   535→                  </Select>
+   536→                  {isExportVisible && (
+   537→                    <>
+   538→                      <Button variant="outline" size="sm" className="h-10" onClick={exportCsv} disabled={exporting}>
+   539→                        {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+   540→                        CSV
+   541→                      </Button>
+   542→                      <Button variant="default" size="sm" className="h-10 bg-primary" onClick={exportPdf} disabled={exportingPdf}>
+   543→                        {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+   544→                        PDF Report
+   545→                      </Button>
+   546→                    </>
+   547→                  )}
+   548→                </div>
+   549→              </div>
+   550→            </CardContent>
+   551→          </Card>
+   552→
+   553→          {/* Error Display */}
+   554→          {error && (
+   555→            <Card className="border-red-200 dark:border-red-900/50">
+   556→              <CardContent className="p-4 flex items-center gap-3">
+   557→                <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+   558→                <div className="flex-1">
+   559→                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Error loading audit logs</p>
+   560→                  <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+   561→                </div>
+   562→                <Button variant="outline" size="sm" onClick={() => fetchLogs()}>
+   563→                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
+   564→                </Button>
+   565→              </CardContent>
+   566→            </Card>
+   567→          )}
+   568→
+   569→          {/* Results Info */}
+   570→          <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
+   571→            <span>
+   572→              {loading ? (
+   573→                "Loading..."
+   574→              ) : (
+   575→                <>
+   576→                  {total.toLocaleString()} entries found
+   577→                  {selectedDept && (
+   578→                    <> in <span className="font-medium text-foreground capitalize">{AUDIT_DEPARTMENTS[selectedDept as AuditDepartment]?.label || selectedDept}</span></>
+   579→                  )}
+   580→                </>
+   581→              )}
+   582→            </span>
+   583→            <span className="flex items-center gap-1">
+   584→              <Clock className="h-3.5 w-3.5" />
+   585→              Updated just now
+   586→            </span>
+   587→          </div>
+   588→
+   589→          {/* Audit Logs Table */}
+   590→          <Card>
+   591→            <CardContent className="p-0">
+   592→              <div className="overflow-x-auto">
+   593→                <Table>
+   594→                  <TableHeader>
+   595→                    <TableRow>
+   596→                      <TableHead className="w-[160px]">Timestamp</TableHead>
+   597→                      <TableHead className="w-[160px]">User</TableHead>
+   598→                      <TableHead className="w-[100px]">Action</TableHead>
+   599→                      <TableHead>Description</TableHead>
+   600→                      <TableHead className="w-[80px]">Page</TableHead>
+   601→                      <TableHead className="w-[80px]">Status</TableHead>
+   602→                    </TableRow>
+   603→                  </TableHeader>
+   604→                  <TableBody>
+   605→                    {loading && logs.length === 0 ? (
+   606→                      <>
+   607→                        {[...Array(10)].map((_, i) => (
+   608→                          <TableRow key={i}>
+   609→                            <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+   610→                            <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+   611→                            <TableCell><Skeleton className="h-6 w-[70px]" /></TableCell>
+   612→                            <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+   613→                            <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+   614→                            <TableCell><Skeleton className="h-6 w-[60px]" /></TableCell>
+   615→                          </TableRow>
+   616→                        ))}
+   617→                      </>
+   618→                    ) : logs.length === 0 ? (
+   619→                      <TableRow>
+   620→                        <TableCell colSpan={6} className="h-32 text-center">
+   621→                          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+   622→                            <Activity className="h-8 w-8 opacity-20" />
+   623→                            <p className="text-sm">No audit logs found</p>
+   624→                          </div>
+   625→                        </TableCell>
+   626→                      </TableRow>
+   627→                    ) : (
+   628→                      logs.map((log) => (
+   629→                        <TableRow key={log.id} className="hover:bg-muted/50">
+   630→                          <TableCell className="text-xs">
+   631→                            <Tooltip>
+   632→                              <TooltipTrigger asChild>
+   633→                                <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+   634→                              </TooltipTrigger>
+   635→                              <TooltipContent>
+   636→                                <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+   637→                              </TooltipContent>
+   638→                            </Tooltip>
+   639→                          </TableCell>
+   640→                          <TableCell>
+   641→                            <div className="flex items-center gap-2">
+   642→                              <Avatar className="h-7 w-7">
+   643→                                <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
+   644→                                  {getInitials(log.userName)}
+   645→                                </AvatarFallback>
+   646→                              </Avatar>
+   647→                              <div className="min-w-0">
+   648→                                <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
+   649→                                <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
+   650→                              </div>
+   651→                            </div>
+   652→                          </TableCell>
+   653→                          <TableCell>
+   654→                            <Badge
+   655→                              variant="secondary"
+   656→                              className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
+   657→                            >
+   658→                              {log.action || "—"}
+   659→                            </Badge>
+   660→                          </TableCell>
+   661→                          <TableCell>
+   662→                            <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
+   663→                              {log.description || "—"}
+   664→                            </p>
+   665→                          </TableCell>
+   666→                          <TableCell>
+   667→                            <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
+   668→                          </TableCell>
+   669→                          <TableCell>
+   670→                            <Badge
+   671→                              variant="outline"
+   672→                              className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
+   673→                            >
+   674→                              {log.status || "—"}
+   675→                            </Badge>
+   676→                          </TableCell>
+   677→                        </TableRow>
+   678→                      ))
+   679→                    )}
+   680→                  </TableBody>
+   681→                </Table>
+   682→              </div>
+   683→
+   684→              {/* Load More */}
+   685→              {hasMore && (
+   686→                <div className="flex justify-center p-4 border-t">
+   687→                  <Button
+   688→                    variant="outline"
+   689→                    size="sm"
+   690→                    onClick={loadMore}
+   691→                    disabled={loading}
+   692→                  >
+   693→                    {loading ? (
+   694→                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   695→                    ) : (
+   696→                      <ChevronDown className="h-4 w-4 mr-2" />
+   697→                    )}
+   698→                    Load More
+   699→                  </Button>
+   700→                </div>
+   701→              )}
+   702→
+   703→              {/* No more data indicator */}
+   704→              {!hasMore && logs.length > 0 && (
+   705→                <div className="flex justify-center p-4 border-t">
+   706→                  <p className="text-xs text-muted-foreground">
+   707→                    Showing {logs.length} of {total.toLocaleString()} entries
+   708→                  </p>
+   709→                </div>
+   710→              )}
+   711→            </CardContent>
+   712→          </Card>
+   713→        </div>
+   714→      </div>
+   715→    </div>
+   716→    </TooltipProvider>
+   717→    </AuditTrailErrorBoundary>
+   718→  )
+   719→}
+   720→

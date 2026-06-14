@@ -1,0 +1,1758 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useMemo, useCallback, useEffect } from "react";
+     4→     4→import { useRouter } from "next/navigation";
+     5→     5→import { useSession } from "next-auth/react";
+     6→     6→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     7→     7→import {
+     8→     8→  Search, CheckCircle2, Clock, AlertTriangle, BookOpen,
+     9→     9→  GraduationCap, ExternalLink, ListTodo, MoreHorizontal, Trash2,
+    10→    10→  Flag, UserCircle, Users, CheckCircle, ChevronDown, ChevronRight,
+    11→    11→  CircleCheckBig, Filter, Plus, X, UserPlus,
+    12→    12→  MessageSquare, Phone, ArrowUpCircle, Building2, LayoutGrid,
+    13→    13→} from "lucide-react";
+    14→    14→import { Card, CardContent } from "@/components/ui/card";
+    15→    15→import { Button } from "@/components/ui/button";
+    16→    16→import { Input } from "@/components/ui/input";
+    17→    17→import { Badge } from "@/components/ui/badge";
+    18→    18→import { Skeleton } from "@/components/ui/skeleton";
+    19→    19→import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+    20→    20→import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+    21→    21→import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+    22→    22→import {
+    23→    23→  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+    24→    24→  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+    25→    25→} from "@/components/ui/dropdown-menu";
+    26→    26→import {
+    27→    27→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    28→    28→  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+    29→    29→  AlertDialogTrigger,
+    30→    30→} from "@/components/ui/alert-dialog";
+    31→    31→import {
+    32→    32→  Dialog, DialogContent, DialogDescription, DialogFooter,
+    33→    33→  DialogHeader, DialogTitle,
+    34→    34→} from "@/components/ui/dialog";
+    35→    35→import { Label } from "@/components/ui/label";
+    36→    36→import { Textarea } from "@/components/ui/textarea";
+    37→    37→import { toast } from "sonner";
+    38→    38→import { cn, safeText, safeDate, deepSanitize, extractStr, extractNestedStr } from "@/lib/utils";
+    39→    39→import { PageHeader } from "@/components/page-header";
+    40→    40→
+    41→    41→// TODO: Extract sub-components to separate files
+    42→    42→// ── Inline style injection for animations ──
+    43→    43→const animationStyles = `
+    44→    44→@keyframes slideUp {
+    45→    45→  from { opacity: 0; transform: translateY(8px); }
+    46→    46→  to { opacity: 1; transform: translateY(0); }
+    47→    47→}
+    48→    48→@keyframes scaleIn {
+    49→    49→  from { opacity: 0; transform: scale(0.95); }
+    50→    50→  to { opacity: 1; transform: scale(1); }
+    51→    51→}
+    52→    52→@keyframes pulseSoft {
+    53→    53→  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+    54→    54→  50% { box-shadow: 0 0 0 12px rgba(139, 92, 246, 0); }
+    55→    55→}
+    56→    56→@keyframes gradientShift {
+    57→    57→  0% { background-position: 0% 50%; }
+    58→    58→  50% { background-position: 100% 50%; }
+    59→    59→  100% { background-position: 0% 50%; }
+    60→    60→}
+    61→    61→@keyframes floatOrb {
+    62→    62→  0%, 100% { transform: translate(0, 0) scale(1); }
+    63→    63→  25% { transform: translate(10px, -15px) scale(1.05); }
+    64→    64→  50% { transform: translate(-5px, -25px) scale(0.95); }
+    65→    65→  75% { transform: translate(-15px, -10px) scale(1.02); }
+    66→    66→}
+    67→    67→@keyframes searchGlow {
+    68→    68→  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+    69→    69→  50% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15); }
+    70→    70→}
+    71→    71→.animate-slide-up {
+    72→    72→  animation: slideUp 0.3s ease-out forwards;
+    73→    73→  opacity: 0;
+    74→    74→}
+    75→    75→.animate-scale-in {
+    76→    76→  animation: scaleIn 0.4s ease-out forwards;
+    77→    77→  opacity: 0;
+    78→    78→}
+    79→    79→.animate-pulse-soft {
+    80→    80→  animation: pulseSoft 2s ease-in-out infinite;
+    81→    81→}
+    82→    82→.animate-float-orb {
+    83→    83→  animation: floatOrb 6s ease-in-out infinite;
+    84→    84→}
+    85→    85→.animate-gradient-underline {
+    86→    86→  background: linear-gradient(90deg, rgba(139, 92, 246, 0.3), rgba(59, 130, 246, 0.3), rgba(16, 185, 129, 0.3));
+    87→    87→  background-size: 200% 100%;
+    88→    88→  animation: gradientShift 3s ease-in-out infinite;
+    89→    89→}
+    90→    90→.search-glow:focus-within {
+    91→    91→  animation: searchGlow 1.5s ease-in-out infinite;
+    92→    92→}
+    93→    93→`;
+    94→    94→
+    95→    95→// ── Color maps ──
+    96→    96→const trainingStatusColors: Record<string, string> = {
+    97→    97→  ASSIGNED: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    98→    98→  READ: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    99→    99→  TEST_STARTED: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+   100→   100→  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+   101→   101→  PASSED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+   102→   102→  FAILED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+   103→   103→};
+   104→   104→
+   105→   105→const trainingLevelColors: Record<string, string> = {
+   106→   106→  LOW: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300",
+   107→   107→  MEDIUM: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300",
+   108→   108→  HIGH: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+   109→   109→};
+   110→   110→
+   111→   111→const priorityDotColors: Record<string, string> = {
+   112→   112→  URGENT: "bg-red-400", HIGH: "bg-orange-400", MEDIUM: "bg-blue-400", LOW: "bg-gray-400",
+   113→   113→};
+   114→   114→
+   115→   115→const priorityBorderColors: Record<string, string> = {
+   116→   116→  URGENT: "border-l-red-400", HIGH: "border-l-orange-400", MEDIUM: "border-l-blue-400", LOW: "border-l-gray-300 dark:border-l-gray-600",
+   117→   117→};
+   118→   118→
+   119→   119→const statusBadgeColors: Record<string, string> = {
+   120→   120→  TODO: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400",
+   121→   121→  IN_PROGRESS: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+   122→   122→  REVIEW: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+   123→   123→  AWAITING_APPROVAL: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+   124→   124→  DONE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+   125→   125→};
+   126→   126→
+   127→   127→// ── Category colors & icons ──
+   128→   128→const CATEGORY_COLORS: Record<string, string> = {
+   129→   129→  GENERAL: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300",
+   130→   130→  MEETING: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+   131→   131→  FOLLOW_UP: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+   132→   132→  UPGRADE: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+   133→   133→  CUSTOMER: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+   134→   134→  INTERNAL: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+   135→   135→};
+   136→   136→
+   137→   137→const CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"] as const;
+   138→   138→
+   139→   139→const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+   140→   140→  GENERAL: <LayoutGrid className="h-3 w-3" />,
+   141→   141→  MEETING: <MessageSquare className="h-3 w-3" />,
+   142→   142→  FOLLOW_UP: <Phone className="h-3 w-3" />,
+   143→   143→  UPGRADE: <ArrowUpCircle className="h-3 w-3" />,
+   144→   144→  CUSTOMER: <UserPlus className="h-3 w-3" />,
+   145→   145→  INTERNAL: <Building2 className="h-3 w-3" />,
+   146→   146→};
+   147→   147→
+   148→   148→const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+   149→   149→const VALID_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
+   150→   150→
+   151→   151→function getInitials(name: string): string {
+   152→   152→  return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+   153→   153→}
+   154→   154→
+   155→   155→// ══════════════════════════════════════════════════════
+   156→   156→// REUSABLE COMPONENTS
+   157→   157→// ══════════════════════════════════════════════════════
+   158→   158→
+   159→   159→/** Glassmorphism stat card with icon — upgraded with gradient icon bg & hover lift */
+   160→   160→function GlassStatCard({ label, value, color, icon, delay = 0 }: { label: string; value: number; color: string; icon?: React.ReactNode; delay?: number }) {
+   161→   161→  return (
+   162→   162→    <div
+   163→   163→      className={cn(
+   164→   164→        "rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-3.5",
+   165→   165→        "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md animate-scale-in",
+   166→   166→      )}
+   167→   167→      style={{ animationDelay: `${delay}ms` }}
+   168→   168→    >
+   169→   169→      <div className="flex items-center justify-between">
+   170→   170→        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{label}</p>
+   171→   171→        {icon && (
+   172→   172→          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
+   173→   173→            {icon}
+   174→   174→          </div>
+   175→   175→        )}
+   176→   176→      </div>
+   177→   177→      <p className={cn("text-2xl font-bold tracking-tight mt-1", color)}>{String(value)}</p>
+   178→   178→    </div>
+   179→   179→  );
+   180→   180→}
+   181→   181→
+   182→   182→/** Section header with icon, title, count badge, and animated gradient underline */
+   183→   183→function SectionHeader({ icon, title, count, badgeColor }: { icon: React.ReactNode; title: string; count: number; badgeColor?: string }) {
+   184→   184→  return (
+   185→   185→    <div className="flex items-center gap-2.5 px-1 pb-1">
+   186→   186→      <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center", badgeColor || "bg-violet-100 dark:bg-violet-900/30")}>
+   187→   187→        {icon}
+   188→   188→      </div>
+   189→   189→      <h2 className="text-sm font-bold text-foreground">{title}</h2>
+   190→   190→      <Badge variant="secondary" className={cn("text-[10px] font-bold", badgeColor || "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300")}>
+   191→   191→        {String(count)}
+   192→   192→      </Badge>
+   193→   193→      <div className="flex-1 h-[2px] rounded-full animate-gradient-underline mt-0.5" />
+   194→   194→    </div>
+   195→   195→  );
+   196→   196→}
+   197→   197→
+   198→   198→/** Collapsible project group header */
+   199→   199→function ProjectGroupHeader({ name, count, isOpen, onToggle }: { name: string; count: number; isOpen: boolean; onToggle: () => void }) {
+   200→   200→  return (
+   201→   201→    <button
+   202→   202→      type="button"
+   203→   203→      onClick={onToggle}
+   204→   204→      className={cn(
+   205→   205→        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-all duration-200",
+   206→   206→        "bg-gray-50/80 dark:bg-white/[0.02] border-gray-200/80 dark:border-gray-700/50",
+   207→   207→        "hover:bg-gray-100/80 dark:hover:bg-white/[0.05] cursor-pointer",
+   208→   208→      )}
+   209→   209→    >
+   210→   210→      {isOpen ? (
+   211→   211→        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+   212→   212→      ) : (
+   213→   213→        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+   214→   214→      )}
+   215→   215→      <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+   216→   216→      <h3 className="text-xs font-bold text-foreground truncate">{safeText(name)}</h3>
+   217→   217→      <Badge variant="secondary" className="text-[10px] font-bold ml-auto shrink-0">{String(count)}</Badge>
+   218→   218→    </button>
+   219→   219→  );
+   220→   220→}
+   221→   221→
+   222→   222→/** Category badge component */
+   223→   223→function CategoryBadge({ category }: { category: string }) {
+   224→   224→  if (!category || category === "GENERAL") return null;
+   225→   225→  const colorClass = CATEGORY_COLORS[category] || CATEGORY_COLORS.GENERAL;
+   226→   226→  const icon = CATEGORY_ICONS[category];
+   227→   227→  const label = safeText(category).replace("_", " ");
+   228→   228→  return (
+   229→   229→    <Badge className={cn("text-[10px] font-medium gap-1", colorClass)}>
+   230→   230→      {icon}
+   231→   231→      {label}
+   232→   232→    </Badge>
+   233→   233→  );
+   234→   234→}
+   235→   235→
+   236→   236→/** Single personal task item (checkbox + title + meta) — upgraded with category & hover scale */
+   237→   237→function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
+   238→   238→  task: unknown; togglingId: string | null; onToggleDone: (id: string) => void; index?: number;
+   239→   239→}) {
+   240→   240→  const taskId = extractStr(task, "id", "");
+   241→   241→  const title = extractStr(task, "title", "Untitled");
+   242→   242→  const status = extractStr(task, "status", "TODO");
+   243→   243→  const priority = extractStr(task, "priority", "MEDIUM");
+   244→   244→  const deadline = extractStr(task, "deadline", "");
+   245→   245→  const category = extractStr(task, "category", "GENERAL");
+   246→   246→  const isAwaiting = status === "AWAITING_APPROVAL";
+   247→   247→  const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting;
+   248→   248→  const isToggling = togglingId === taskId;
+   249→   249→  const priorityDot = priorityDotColors[priority] || "bg-gray-400";
+   250→   250→  const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
+   251→   251→
+   252→   252→  return (
+   253→   253→    <div
+   254→   254→      className={cn(
+   255→   255→        "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
+   256→   256→        "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
+   257→   257→        "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
+   258→   258→        priorityBorder,
+   259→   259→        isAwaiting && "opacity-60",
+   260→   260→        "animate-slide-up",
+   261→   261→      )}
+   262→   262→      style={{ animationDelay: `${index * 50}ms` }}
+   263→   263→    >
+   264→   264→      <button
+   265→   265→        type="button"
+   266→   266→        onClick={(e) => { e.stopPropagation(); onToggleDone(taskId); }}
+   267→   267→        disabled={isToggling || isAwaiting}
+   268→   268→        className={cn(
+   269→   269→          "shrink-0 h-[18px] w-[18px] rounded border-2 flex items-center justify-center",
+   270→   270→          "transition-all duration-200 hover:scale-110",
+   271→   271→          isToggling && "animate-pulse",
+   272→   272→          isAwaiting && "cursor-default",
+   273→   273→          !isAwaiting && "hover:border-primary/60 hover:bg-primary/5",
+   274→   274→          "border-gray-300 dark:border-gray-600",
+   275→   275→        )}
+   276→   276→      >
+   277→   277→        {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
+   278→   278→      </button>
+   279→   279→      <div className="flex-1 min-w-0">
+   280→   280→        <p className={cn("text-sm leading-snug", isAwaiting && "line-through text-muted-foreground/70", !isAwaiting && "font-medium")}>
+   281→   281→          {safeText(title)}
+   282→   282→        </p>
+   283→   283→      </div>
+   284→   284→      <div className="flex items-center gap-2.5 shrink-0">
+   285→   285→        <CategoryBadge category={category} />
+   286→   286→        <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
+   287→   287→        {deadline && (
+   288→   288→          <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+   289→   289→            {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+   290→   290→            {safeDate(deadline)}
+   291→   291→          </span>
+   292→   292→        )}
+   293→   293→        {isAwaiting && (
+   294→   294→          <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">
+   295→   295→            Reviewing
+   296→   296→          </Badge>
+   297→   297→        )}
+   298→   298→      </div>
+   299→   299→    </div>
+   300→   300→  );
+   301→   301→}
+   302→   302→
+   303→   303→/** Single team task row with admin action dropdown — upgraded with category, createdBy, hover scale */
+   304→   304→function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, onChangePriority, onChangeStatus, togglingId, index = 0 }: {
+   305→   305→  task: unknown; projectNameMap: Map<string, string>; teamMembers: Record<string, unknown>[];
+   306→   306→  onDelete: (id: string) => void; onReassign: (taskId: string, userId: string) => void;
+   307→   307→  onChangePriority: (taskId: string, priority: string) => void; onChangeStatus: (taskId: string, status: string) => void;
+   308→   308→  togglingId: string | null; index?: number;
+   309→   309→}) {
+   310→   310→  const taskId = extractStr(task, "id", "");
+   311→   311→  const title = extractStr(task, "title", "Untitled");
+   312→   312→  const status = extractStr(task, "status", "TODO");
+   313→   313→  const priority = extractStr(task, "priority", "MEDIUM");
+   314→   314→  const deadline = extractStr(task, "deadline", "");
+   315→   315→  const assignedTo = extractStr(task, "assignedTo", "");
+   316→   316→  const projectId = extractStr(task, "projectId", "");
+   317→   317→  const category = extractStr(task, "category", "GENERAL");
+   318→   318→  const createdByName = extractStr(task, "createdByName", "");
+   319→   319→  const isAwaiting = status === "AWAITING_APPROVAL";
+   320→   320→  const isDone = status === "DONE";
+   321→   321→  const isOverdue = deadline && new Date(deadline) < new Date() && !isAwaiting && !isDone;
+   322→   322→  const isToggling = togglingId === taskId;
+   323→   323→  const priorityDot = priorityDotColors[priority] || "bg-gray-400";
+   324→   324→  const priorityBorder = priorityBorderColors[priority] || "border-l-gray-300";
+   325→   325→  const projectName = projectNameMap.get(projectId) || "Unknown";
+   326→   326→
+   327→   327→  return (
+   328→   328→    <div
+   329→   329→      className={cn(
+   330→   330→        "flex items-center gap-3 p-3 rounded-lg border border-l-[3px] transition-all duration-200",
+   331→   331→        "bg-white/70 dark:bg-white/[0.03] border-gray-200/60 dark:border-gray-700/40",
+   332→   332→        "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
+   333→   333→        priorityBorder,
+   334→   334→        isDone && "opacity-50", isAwaiting && "opacity-60",
+   335→   335→        "animate-slide-up",
+   336→   336→      )}
+   337→   337→      style={{ animationDelay: `${index * 50}ms` }}
+   338→   338→    >
+   339→   339→      <button
+   340→   340→        type="button"
+   341→   341→        onClick={() => onChangeStatus(taskId, isDone ? "TODO" : "DONE")}
+   342→   342→        disabled={isToggling}
+   343→   343→        className={cn(
+   344→   344→          "shrink-0 h-[18px] w-[18px] rounded border-2 flex items-center justify-center",
+   345→   345→          "transition-all duration-200 hover:scale-110",
+   346→   346→          isToggling && "animate-pulse",
+   347→   347→          isDone ? "border-green-400 bg-green-400" : "border-gray-300 dark:border-gray-600",
+   348→   348→          !isDone && !isAwaiting && "hover:border-primary/60 hover:bg-primary/5",
+   349→   349→        )}
+   350→   350→      >
+   351→   351→        {isDone && <CheckCircle2 className="h-3 w-3 text-white" />}
+   352→   352→        {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
+   353→   353→      </button>
+   354→   354→      <div className="flex-1 min-w-0">
+   355→   355→        <p className={cn("text-sm leading-snug", (isDone || isAwaiting) && "line-through text-muted-foreground/60", !isDone && !isAwaiting && "font-medium")}>
+   356→   356→          {safeText(title)}
+   357→   357→        </p>
+   358→   358→        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+   359→   359→          <span className="text-[11px] text-muted-foreground truncate">{safeText(projectName)}</span>
+   360→   360→          {createdByName && (
+   361→   361→            <>
+   362→   362→              <span className="text-[11px] text-muted-foreground/40">·</span>
+   363→   363→              <span className="text-[11px] text-muted-foreground/60">Created by {safeText(createdByName)}</span>
+   364→   364→            </>
+   365→   365→          )}
+   366→   366→        </div>
+   367→   367→      </div>
+   368→   368→      <div className="flex items-center gap-2 shrink-0">
+   369→   369→        <CategoryBadge category={category} />
+   370→   370→        <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
+   371→   371→        {deadline && (
+   372→   372→          <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+   373→   373→            {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+   374→   374→            {safeDate(deadline)}
+   375→   375→          </span>
+   376→   376→        )}
+   377→   377→        {isAwaiting && (
+   378→   378→          <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">Reviewing</Badge>
+   379→   379→        )}
+   380→   380→        {!isAwaiting && !isDone && (
+   381→   381→          <Badge className={cn("text-[10px] font-medium", statusBadgeColors[status] || "")}>
+   382→   382→            {safeText(status).replace("_", " ")}
+   383→   383→          </Badge>
+   384→   384→        )}
+   385→   385→        <DropdownMenu>
+   386→   386→          <DropdownMenuTrigger asChild>
+   387→   387→            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+   388→   388→              <MoreHorizontal className="h-3.5 w-3.5" />
+   389→   389→              <span className="sr-only">Actions</span>
+   390→   390→            </Button>
+   391→   391→          </DropdownMenuTrigger>
+   392→   392→          <DropdownMenuContent align="end" className="w-48">
+   393→   393→            <DropdownMenuLabel>Manage Task</DropdownMenuLabel>
+   394→   394→            <DropdownMenuSeparator />
+   395→   395→            <DropdownMenuLabel className="text-xs text-muted-foreground">Status</DropdownMenuLabel>
+   396→   396→            {VALID_STATUSES.map((s) => (
+   397→   397→              <DropdownMenuItem key={s} onClick={() => onChangeStatus(taskId, s)} disabled={status === s}>
+   398→   398→                <CheckCircle className={cn("h-3.5 w-3.5", status === s && "text-primary")} />
+   399→   399→                {s.replace(/_/g, " ")}
+   400→   400→              </DropdownMenuItem>
+   401→   401→            ))}
+   402→   402→            <DropdownMenuSeparator />
+   403→   403→            <DropdownMenuLabel className="text-xs text-muted-foreground">Priority</DropdownMenuLabel>
+   404→   404→            {VALID_PRIORITIES.map((p) => (
+   405→   405→              <DropdownMenuItem key={p} onClick={() => onChangePriority(taskId, p)} disabled={priority === p}>
+   406→   406→                <Flag className={cn("h-3.5 w-3.5", priorityDotColors[p])} />
+   407→   407→                {p}
+   408→   408→              </DropdownMenuItem>
+   409→   409→            ))}
+   410→   410→            <DropdownMenuSeparator />
+   411→   411→            <DropdownMenuLabel className="text-xs text-muted-foreground">Reassign</DropdownMenuLabel>
+   412→   412→            <div className="max-h-40 overflow-y-auto">
+   413→   413→              {teamMembers.filter((m) => m.isActive !== false).map((member) => {
+   414→   414→                const mId = extractStr(member, "id", "");
+   415→   415→                const mName = extractStr(member, "name", "");
+   416→   416→                return (
+   417→   417→                  <DropdownMenuItem key={mId} onClick={() => onReassign(taskId, mId)} disabled={mId === assignedTo}>
+   418→   418→                    <UserCircle className="h-3.5 w-3.5" />
+   419→   419→                    {mName}
+   420→   420→                    {mId === assignedTo && <span className="ml-auto text-[10px] text-muted-foreground">current</span>}
+   421→   421→                  </DropdownMenuItem>
+   422→   422→                );
+   423→   423→              })}
+   424→   424→            </div>
+   425→   425→            <DropdownMenuSeparator />
+   426→   426→            <AlertDialog>
+   427→   427→              <AlertDialogTrigger asChild>
+   428→   428→                <DropdownMenuItem variant="destructive" className="text-red-600 dark:text-red-400" onSelect={(e) => e.preventDefault()}>
+   429→   429→                  <Trash2 className="h-3.5 w-3.5" /> Delete Task
+   430→   430→                </DropdownMenuItem>
+   431→   431→              </AlertDialogTrigger>
+   432→   432→              <AlertDialogContent>
+   433→   433→                <AlertDialogHeader>
+   434→   434→                  <AlertDialogTitle>Delete Task</AlertDialogTitle>
+   435→   435→                  <AlertDialogDescription>
+   436→   436→                    Are you sure you want to delete &quot;{safeText(title)}&quot;? This action cannot be undone.
+   437→   437→                  </AlertDialogDescription>
+   438→   438→                </AlertDialogHeader>
+   439→   439→                <AlertDialogFooter>
+   440→   440→                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+   441→   441→                  <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => onDelete(taskId)}>Delete</AlertDialogAction>
+   442→   442→                </AlertDialogFooter>
+   443→   443→              </AlertDialogContent>
+   444→   444→            </AlertDialog>
+   445→   445→          </DropdownMenuContent>
+   446→   446→        </DropdownMenu>
+   447→   447→      </div>
+   448→   448→    </div>
+   449→   449→  );
+   450→   450→}
+   451→   451→
+   452→   452→/** Create Task Dialog — NEW */
+   453→   453→function CreateTaskDialog({
+   454→   454→  open,
+   455→   455→  onOpenChange,
+   456→   456→  isAdmin,
+   457→   457→  teamMembers,
+   458→   458→  projects,
+   459→   459→  onSuccess,
+   460→   460→}: {
+   461→   461→  open: boolean;
+   462→   462→  onOpenChange: (v: boolean) => void;
+   463→   463→  isAdmin: boolean;
+   464→   464→  teamMembers: Record<string, unknown>[];
+   465→   465→  projects: Record<string, unknown>[];
+   466→   466→  onSuccess: () => void;
+   467→   467→}) {
+   468→   468→  const queryClient = useQueryClient();
+   469→   469→  const [title, setTitle] = useState("");
+   470→   470→  const [description, setDescription] = useState("");
+   471→   471→  const [priority, setPriority] = useState("MEDIUM");
+   472→   472→  const [category, setCategory] = useState("GENERAL");
+   473→   473→  const [deadline, setDeadline] = useState("");
+   474→   474→  const [assignedTo, setAssignedTo] = useState("");
+   475→   475→  const [projectId, setProjectId] = useState("");
+   476→   476→  const [creating, setCreating] = useState(false);
+   477→   477→
+   478→   478→  const handleCreate = useCallback(async () => {
+   479→   479→    if (!title.trim()) {
+   480→   480→      toast.error("Task title is required");
+   481→   481→      return;
+   482→   482→    }
+   483→   483→    setCreating(true);
+   484→   484→    try {
+   485→   485→      const body: Record<string, unknown> = {
+   486→   486→        title: title.trim(),
+   487→   487→        description: description.trim() || undefined,
+   488→   488→        priority,
+   489→   489→        category,
+   490→   490→        deadline: deadline || undefined,
+   491→   491→        projectId: projectId || undefined,
+   492→   492→      };
+   493→   493→      if (isAdmin && assignedTo) {
+   494→   494→        body.assignedTo = assignedTo;
+   495→   495→      }
+   496→   496→      const res = await fetch("/api/tasks", {
+   497→   497→        method: "POST",
+   498→   498→        headers: { "Content-Type": "application/json" },
+   499→   499→        credentials: "include",
+   500→   500→        body: JSON.stringify(body),
+   501→   501→      });
+   502→   502→      if (res.ok) {
+   503→   503→        toast.success("Task created successfully");
+   504→   504→        queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
+   505→   505→        queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] });
+   506→   506→        // Reset form
+   507→   507→        setTitle("");
+   508→   508→        setDescription("");
+   509→   509→        setPriority("MEDIUM");
+   510→   510→        setCategory("GENERAL");
+   511→   511→        setDeadline("");
+   512→   512→        setAssignedTo("");
+   513→   513→        setProjectId("");
+   514→   514→        onOpenChange(false);
+   515→   515→        onSuccess();
+   516→   516→      } else {
+   517→   517→        if (res.status === 401) { window.location.href = "/login"; return; }
+   518→   518→        const err = await res.json().catch(() => null);
+   519→   519→        toast.error(err?.error || "Failed to create task");
+   520→   520→      }
+   521→   521→    } catch {
+   522→   522→      toast.error("Failed to create task");
+   523→   523→    } finally {
+   524→   524→      setCreating(false);
+   525→   525→    }
+   526→   526→  }, [title, description, priority, category, deadline, assignedTo, projectId, isAdmin, queryClient, onOpenChange, onSuccess]);
+   527→   527→
+   528→   528→  const handleClose = useCallback(() => {
+   529→   529→    onOpenChange(false);
+   530→   530→  }, [onOpenChange]);
+   531→   531→
+   532→   532→  return (
+   533→   533→    <Dialog open={open} onOpenChange={onOpenChange}>
+   534→   534→      <DialogContent className="bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-white/20 dark:border-white/10 sm:max-w-lg max-h-[90vh] overflow-y-auto">
+   535→   535→        <DialogHeader>
+   536→   536→          <DialogTitle className="text-lg font-bold">Create New Task</DialogTitle>
+   537→   537→          <DialogDescription className="text-sm text-muted-foreground">
+   538→   538→            Add a new task to your project. Fill in the details below.
+   539→   539→          </DialogDescription>
+   540→   540→        </DialogHeader>
+   541→   541→
+   542→   542→        <div className="space-y-4 py-2">
+   543→   543→          {/* Title */}
+   544→   544→          <div className="space-y-1.5">
+   545→   545→            <Label htmlFor="task-title" className="text-xs font-semibold">
+   546→   546→              Title <span className="text-red-500">*</span>
+   547→   547→            </Label>
+   548→   548→            <Input
+   549→   549→              id="task-title"
+   550→   550→              placeholder="What needs to be done?"
+   551→   551→              value={title}
+   552→   552→              onChange={(e) => setTitle(e.target.value)}
+   553→   553→              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm"
+   554→   554→            />
+   555→   555→          </div>
+   556→   556→
+   557→   557→          {/* Description */}
+   558→   558→          <div className="space-y-1.5">
+   559→   559→            <Label htmlFor="task-desc" className="text-xs font-semibold">Description</Label>
+   560→   560→            <Textarea
+   561→   561→              id="task-desc"
+   562→   562→              placeholder="Add more details (optional)"
+   563→   563→              value={description}
+   564→   564→              onChange={(e) => setDescription(e.target.value)}
+   565→   565→              rows={3}
+   566→   566→              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm resize-none"
+   567→   567→            />
+   568→   568→          </div>
+   569→   569→
+   570→   570→          {/* Priority */}
+   571→   571→          <div className="space-y-1.5">
+   572→   572→            <Label className="text-xs font-semibold">Priority</Label>
+   573→   573→            <div className="flex items-center gap-2 flex-wrap">
+   574→   574→              {VALID_PRIORITIES.map((p) => (
+   575→   575→                <button
+   576→   576→                  key={p}
+   577→   577→                  type="button"
+   578→   578→                  onClick={() => setPriority(p)}
+   579→   579→                  className={cn(
+   580→   580→                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200",
+   581→   581→                    priority === p
+   582→   582→                      ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+   583→   583→                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08]",
+   584→   584→                  )}
+   585→   585→                >
+   586→   586→                  <span className={cn("h-2 w-2 rounded-full", priorityDotColors[p])} />
+   587→   587→                  {p}
+   588→   588→                </button>
+   589→   589→              ))}
+   590→   590→            </div>
+   591→   591→          </div>
+   592→   592→
+   593→   593→          {/* Category */}
+   594→   594→          <div className="space-y-1.5">
+   595→   595→            <Label className="text-xs font-semibold">Category</Label>
+   596→   596→            <div className="grid grid-cols-3 gap-2">
+   597→   597→              {CATEGORIES.map((cat) => (
+   598→   598→                <button
+   599→   599→                  key={cat}
+   600→   600→                  type="button"
+   601→   601→                  onClick={() => setCategory(cat)}
+   602→   602→                  className={cn(
+   603→   603→                    "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all duration-200",
+   604→   604→                    category === cat
+   605→   605→                      ? CATEGORY_COLORS[cat]
+   606→   606→                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08]",
+   607→   607→                    category === cat && "ring-1 ring-offset-1 ring-current",
+   608→   608→                  )}
+   609→   609→                >
+   610→   610→                  {CATEGORY_ICONS[cat]}
+   611→   611→                  {cat.replace("_", " ")}
+   612→   612→                </button>
+   613→   613→              ))}
+   614→   614→            </div>
+   615→   615→          </div>
+   616→   616→
+   617→   617→          {/* Deadline */}
+   618→   618→          <div className="space-y-1.5">
+   619→   619→            <Label htmlFor="task-deadline" className="text-xs font-semibold">Deadline</Label>
+   620→   620→            <Input
+   621→   621→              id="task-deadline"
+   622→   622→              type="date"
+   623→   623→              value={deadline}
+   624→   624→              onChange={(e) => setDeadline(e.target.value)}
+   625→   625→              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border-white/20 dark:border-white/10 text-sm"
+   626→   626→              min={new Date().toISOString().split("T")[0]}
+   627→   627→            />
+   628→   628→          </div>
+   629→   629→
+   630→   630→          {/* Project */}
+   631→   631→          <div className="space-y-1.5">
+   632→   632→            <Label htmlFor="task-project" className="text-xs font-semibold">Project</Label>
+   633→   633→            <select
+   634→   634→              id="task-project"
+   635→   635→              value={projectId}
+   636→   636→              onChange={(e) => setProjectId(e.target.value)}
+   637→   637→              className="w-full rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border border-white/20 dark:border-white/10 text-sm px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+   638→   638→            >
+   639→   639→              <option value="">No project</option>
+   640→   640→              {(projects as Record<string, unknown>[]).map((p) => {
+   641→   641→                const pid = extractStr(p, "id", "");
+   642→   642→                const pName = extractStr(p, "name", "");
+   643→   643→                return (
+   644→   644→                  <option key={pid} value={pid}>{safeText(pName)}</option>
+   645→   645→                );
+   646→   646→              })}
+   647→   647→            </select>
+   648→   648→          </div>
+   649→   649→
+   650→   650→          {/* Assign to (admin only) */}
+   651→   651→          {isAdmin && (
+   652→   652→            <div className="space-y-1.5">
+   653→   653→              <Label htmlFor="task-assign" className="text-xs font-semibold">Assign to member</Label>
+   654→   654→              <select
+   655→   655→                id="task-assign"
+   656→   656→                value={assignedTo}
+   657→   657→                onChange={(e) => setAssignedTo(e.target.value)}
+   658→   658→                className="w-full rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-sm border border-white/20 dark:border-white/10 text-sm px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+   659→   659→              >
+   660→   660→                <option value="">Leave unassigned</option>
+   661→   661→                {(teamMembers as Record<string, unknown>[]).filter((m) => m.isActive !== false).map((m) => {
+   662→   662→                  const mId = extractStr(m, "id", "");
+   663→   663→                  const mName = extractStr(m, "name", "");
+   664→   664→                  return (
+   665→   665→                    <option key={mId} value={mId}>{safeText(mName)}</option>
+   666→   666→                  );
+   667→   667→                })}
+   668→   668→              </select>
+   669→   669→            </div>
+   670→   670→          )}
+   671→   671→        </div>
+   672→   672→
+   673→   673→        <DialogFooter className="gap-2 pt-2">
+   674→   674→          <Button variant="outline" onClick={handleClose} className="text-sm">
+   675→   675→            Cancel
+   676→   676→          </Button>
+   677→   677→          <Button
+   678→   678→            onClick={handleCreate}
+   679→   679→            disabled={creating || !title.trim()}
+   680→   680→            className="text-sm bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+   681→   681→          >
+   682→   682→            {creating ? (
+   683→   683→              <span className="inline-flex items-center gap-2">
+   684→   684→                <span className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+   685→   685→                Creating...
+   686→   686→              </span>
+   687→   687→            ) : (
+   688→   688→              "Create Task"
+   689→   689→            )}
+   690→   690→          </Button>
+   691→   691→        </DialogFooter>
+   692→   692→      </DialogContent>
+   693→   693→    </Dialog>
+   694→   694→  );
+   695→   695→}
+   696→   696→
+   697→   697→/** Floating Action Button — NEW */
+   698→   698→function CreateTaskFAB({ onClick }: { onClick: () => void }) {
+   699→   699→  return (
+   700→   700→    <button
+   701→   701→      type="button"
+   702→   702→      onClick={onClick}
+   703→   703→      className={cn(
+   704→   704→        "fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full",
+   705→   705→        "bg-gradient-to-r from-violet-600 to-purple-600",
+   706→   706→        "text-white shadow-lg shadow-violet-500/25",
+   707→   707→        "flex items-center justify-center",
+   708→   708→        "transition-all duration-200 hover:scale-110 hover:shadow-xl hover:shadow-violet-500/30",
+   709→   709→        "active:scale-95",
+   710→   710→        "animate-pulse-soft",
+   711→   711→      )}
+   712→   712→      aria-label="Create Task"
+   713→   713→    >
+   714→   714→      <Plus className="h-6 w-6" />
+   715→   715→    </button>
+   716→   716→  );
+   717→   717→}
+   718→   718→
+   719→   719→/** The full "My Todos" personal view — shared between admin tab and non-admin fallback */
+   720→   720→function PersonalTodosView({
+   721→   721→  totalActive, overdueTasks, awaitingApproval, completedCount,
+   722→   722→  sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+   723→   723→  search, togglingId, handleToggleDone, projectNameMap, router,
+   724→   724→}: {
+   725→   725→  totalActive: number; overdueTasks: number; awaitingApproval: number;
+   726→   726→  completedCount: number;
+   727→   727→  sortedTraining: unknown[]; tasksByProject: Map<string, unknown[]>; activeTasks: unknown[];
+   728→   728→  filteredTasks: unknown[]; completedTasks: unknown[];
+   729→   729→  search: string; togglingId: string | null;
+   730→   730→  handleToggleDone: (taskId: string) => Promise<void>;
+   731→   731→  projectNameMap: Map<string, string>; router: ReturnType<typeof useRouter>;
+   732→   732→}) {
+   733→   733→
+   734→   734→  const [showCompleted, setShowCompleted] = useState(false);
+   735→   735→  const [openProjects, setOpenProjects] = useState<Set<string>>(new Set());
+   736→   736→
+   737→   737→  const toggleProject = useCallback((pid: string) => {
+   738→   738→    setOpenProjects((prev) => {
+   739→   739→      const next = new Set(prev);
+   740→   740→      if (next.has(pid)) next.delete(pid); else next.add(pid);
+   741→   741→      return next;
+   742→   742→    });
+   743→   743→  }, []);
+   744→   744→
+   745→   745→  // Open all projects by default when data loads
+   746→   746→  useEffect(() => {
+   747→   747→    if (tasksByProject.size > 0 && openProjects.size === 0) {
+   748→   748→      setOpenProjects(new Set(tasksByProject.keys()));
+   749→   749→    }
+   750→   750→  }, [tasksByProject, openProjects.size]);
+   751→   751→
+   752→   752→  const hasVisibleContent = totalActive > 0 || completedCount > 0;
+   753→   753→
+   754→   754→  return (
+   755→   755→    <div className="space-y-4">
+   756→   756→      {/* Stats */}
+   757→   757→      <div className="grid grid-cols-3 gap-3">
+   758→   758→        <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
+   759→   759→        <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
+   760→   760→        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
+   761→   761→      </div>
+   762→   762→
+   763→   763→      {/* Empty state — no content at all — upgraded with animated gradient orbs */}
+   764→   764→      {!hasVisibleContent && (
+   765→   765→        <div className="text-center py-20 relative overflow-hidden">
+   766→   766→          <div className="absolute top-8 left-1/4 h-24 w-24 rounded-full bg-violet-400/10 blur-3xl animate-float-orb" />
+   767→   767→          <div className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-purple-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+   768→   768→          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-16 w-16 rounded-full bg-fuchsia-400/10 blur-2xl animate-float-orb" style={{ animationDelay: "4s" }} />
+   769→   769→          <div className="relative z-10">
+   770→   770→            <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
+   771→   771→              <CheckCircle2 className="h-8 w-8 text-violet-400/40" />
+   772→   772→            </div>
+   773→   773→            <p className="text-lg font-bold text-foreground/80">All caught up!</p>
+   774→   774→            <p className="text-sm text-muted-foreground/60 mt-1">No pending tasks or training assignments</p>
+   775→   775→          </div>
+   776→   776→        </div>
+   777→   777→      )}
+   778→   778→
+   779→   779→      {/* Search with no results */}
+   780→   780→      {search && filteredTasks.length === 0 && sortedTraining.length === 0 && (
+   781→   781→        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+   782→   782→          <CardContent className="p-8 text-center">
+   783→   783→            <div className="h-12 w-12 mx-auto rounded-xl bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center mb-3">
+   784→   784→              <Search className="h-5 w-5 text-muted-foreground/50" />
+   785→   785→            </div>
+   786→   786→            <p className="text-sm font-medium text-muted-foreground">No tasks match &quot;{search}&quot;</p>
+   787→   787→            <p className="text-xs text-muted-foreground/60 mt-1">Try a different search term</p>
+   788→   788→          </CardContent>
+   789→   789→        </Card>
+   790→   790→      )}
+   791→   791→
+   792→   792→      {/* ── Training Section (separate card) ── */}
+   793→   793→      {sortedTraining.length > 0 && (
+   794→   794→        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+   795→   795→          <CardContent className="p-4 sm:p-5 space-y-3">
+   796→   796→            <SectionHeader
+   797→   797→              icon={<GraduationCap className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
+   798→   798→              title="Training"
+   799→   799→              count={sortedTraining.length}
+   800→   800→            />
+   801→   801→            <div className="space-y-2">
+   802→   802→              {sortedTraining.map((training: unknown, idx: number) => {
+   803→   803→                const tId = extractStr(training, "id", "");
+   804→   804→                const topic = extractNestedStr(training, ["document", "topic"], "Untitled Training");
+   805→   805→                const dueDate = extractStr(training, "dueDate", "");
+   806→   806→                const status = extractStr(training, "status", "ASSIGNED");
+   807→   807→                const level = extractStr(training, "testLevel", "MEDIUM");
+   808→   808→                const isOverdue = dueDate && new Date(dueDate) < new Date();
+   809→   809→
+   810→   810→                return (
+   811→   811→                  <Card
+   812→   812→                    key={tId}
+   813→   813→                    className={cn(
+   814→   814→                      "border border-white/20 dark:border-white/10 cursor-pointer",
+   815→   815→                      "hover:shadow-md hover:-translate-y-[1px] transition-all duration-200",
+   816→   816→                      "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl",
+   817→   817→                      isOverdue && "border-red-300 dark:border-red-800/50 bg-red-50/50 dark:bg-red-900/5",
+   818→   818→                      "animate-slide-up",
+   819→   819→                    )}
+   820→   820→                    style={{ animationDelay: `${idx * 50}ms` }}
+   821→   821→                    onClick={() => router.push(`/dashboard/my-training/${tId}`)}
+   822→   822→                  >
+   823→   823→                    <CardContent className="p-3.5">
+   824→   824→                      <div className="flex items-start gap-3">
+   825→   825→                        <div className="mt-0.5 shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-violet-500/15 to-violet-500/5 flex items-center justify-center">
+   826→   826→                          <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+   827→   827→                        </div>
+   828→   828→                        <div className="flex-1 min-w-0 space-y-1">
+   829→   829→                          <div className="flex items-center justify-between gap-2">
+   830→   830→                            <p className="text-sm font-semibold truncate">{safeText(topic)}</p>
+   831→   831→                            <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+   832→   832→                          </div>
+   833→   833→                          <div className="flex items-center gap-2 flex-wrap">
+   834→   834→                            <Badge className={cn("text-[10px] font-medium", trainingStatusColors[status] || "")}>
+   835→   835→                              {safeText(status).replace("_", " ")}
+   836→   836→                            </Badge>
+   837→   837→                            <Badge className={cn("text-[10px] font-medium", trainingLevelColors[level] || "")}>
+   838→   838→                              {safeText(level)}
+   839→   839→                            </Badge>
+   840→   840→                            {dueDate && (
+   841→   841→                              <span className={cn("text-[11px] flex items-center gap-1", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+   842→   842→                                {isOverdue ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+   843→   843→                                {safeDate(dueDate)}
+   844→   844→                              </span>
+   845→   845→                            )}
+   846→   846→                          </div>
+   847→   847→                        </div>
+   848→   848→                      </div>
+   849→   849→                    </CardContent>
+   850→   850→                  </Card>
+   851→   851→                );
+   852→   852→              })}
+   853→   853→            </div>
+   854→   854→          </CardContent>
+   855→   855→        </Card>
+   856→   856→      )}
+   857→   857→
+   858→   858→      {/* ── Tasks Section (separate card, grouped by project) ── */}
+   859→   859→      {tasksByProject.size > 0 && (
+   860→   860→        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+   861→   861→          <CardContent className="p-4 sm:p-5 space-y-3">
+   862→   862→            <SectionHeader
+   863→   863→              icon={<ListTodo className="h-3.5 w-3.5 text-primary" />}
+   864→   864→              title="Tasks"
+   865→   865→              count={activeTasks.length}
+   866→   866→            />
+   867→   867→            <div className="space-y-3">
+   868→   868→              {Array.from(tasksByProject.entries()).map(([projectId, tasks]) => {
+   869→   869→                const projectName = projectNameMap.get(projectId) || "Unknown Project";
+   870→   870→                const isProjectOpen = openProjects.has(projectId);
+   871→   871→
+   872→   872→                return (
+   873→   873→                  <div key={projectId} className="rounded-lg">
+   874→   874→                    <ProjectGroupHeader
+   875→   875→                      name={projectName}
+   876→   876→                      count={tasks.length}
+   877→   877→                      isOpen={isProjectOpen}
+   878→   878→                      onToggle={() => toggleProject(projectId)}
+   879→   879→                    />
+   880→   880→                    {isProjectOpen && (
+   881→   881→                      <div className="mt-2 space-y-1.5 pl-1">
+   882→   882→                        {tasks.map((task: unknown, idx: number) => (
+   883→   883→                          <PersonalTaskItem
+   884→   884→                            key={extractStr(task, "id", "")}
+   885→   885→                            task={task}
+   886→   886→                            togglingId={togglingId}
+   887→   887→                            onToggleDone={handleToggleDone}
+   888→   888→                            index={idx}
+   889→   889→                          />
+   890→   890→                        ))}
+   891→   891→                      </div>
+   892→   892→                    )}
+   893→   893→                  </div>
+   894→   894→                );
+   895→   895→              })}
+   896→   896→            </div>
+   897→   897→          </CardContent>
+   898→   898→        </Card>
+   899→   899→      )}
+   900→   900→
+   901→   901→      {/* ── Completed Tasks (collapsed by default) — upgraded with green accent ── */}
+   902→   902→      {completedCount > 0 && (
+   903→   903→        <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
+   904→   904→          <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+   905→   905→            <CollapsibleTrigger asChild>
+   906→   906→              <button
+   907→   907→                type="button"
+   908→   908→                className={cn(
+   909→   909→                  "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all duration-200",
+   910→   910→                  "hover:bg-gray-50/50 dark:hover:bg-white/[0.02] rounded-t-xl",
+   911→   911→                )}
+   912→   912→              >
+   913→   913→                {showCompleted ? (
+   914→   914→                  <ChevronDown className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+   915→   915→                ) : (
+   916→   916→                  <ChevronRight className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+   917→   917→                )}
+   918→   918→                <CircleCheckBig className={cn(
+   919→   919→                  "h-4 w-4 shrink-0",
+   920→   920→                  showCompleted ? "text-green-600 dark:text-green-400" : "text-green-500 dark:text-green-400",
+   921→   921→                )} />
+   922→   922→                <span className={cn("text-sm font-bold", showCompleted ? "text-muted-foreground" : "text-green-600 dark:text-green-400")}>Completed</span>
+   923→   923→                <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+   924→   924→                  {String(completedCount)}
+   925→   925→                </Badge>
+   926→   926→                {!showCompleted && (
+   927→   927→                  <span className="text-[11px] text-muted-foreground/50 ml-auto">Click to expand</span>
+   928→   928→                )}
+   929→   929→              </button>
+   930→   930→            </CollapsibleTrigger>
+   931→   931→            <CollapsibleContent>
+   932→   932→              <CardContent className="px-4 pb-4 pt-0">
+   933→   933→                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+   934→   934→                  {completedTasks.map((task: unknown, idx: number) => (
+   935→   935→                    <PersonalTaskItem
+   936→   936→                      key={extractStr(task, "id", "")}
+   937→   937→                      task={task}
+   938→   938→                      togglingId={togglingId}
+   939→   939→                      onToggleDone={handleToggleDone}
+   940→   940→                      index={idx}
+   941→   941→                    />
+   942→   942→                  ))}
+   943→   943→                </div>
+   944→   944→              </CardContent>
+   945→   945→            </CollapsibleContent>
+   946→   946→          </Card>
+   947→   947→        </Collapsible>
+   948→   948→      )}
+   949→   949→    </div>
+   950→   950→  );
+   951→   951→}
+   952→   952→
+   953→   953→// ══════════════════════════════════════════════════════
+   954→   954→// MAIN PAGE
+   955→   955→// ══════════════════════════════════════════════════════
+   956→   956→
+   957→   957→export default function GlobalTodosPage() {
+   958→   958→  const router = useRouter();
+   959→   959→  const { data: session, status: sessionStatus } = useSession();
+   960→   960→  const queryClient = useQueryClient();
+   961→   961→
+   962→   962→  const userId = session?.user?.id || "";
+   963→   963→  const userRole = session?.user?.role || "DEVELOPER";
+   964→   964→  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   965→   965→
+   966→   966→  const [search, setSearch] = useState("");
+   967→   967→  const [togglingId, setTogglingId] = useState<string | null>(null);
+   968→   968→  const [activeTab, setActiveTab] = useState("my");
+   969→   969→  const [selectedMember, setSelectedMember] = useState<string>("all");
+   970→   970→  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+   971→   971→
+   972→   972→  const handle401 = useCallback((res: Response) => {
+   973→   973→    if (res.status === 401) { window.location.href = "/login"; return true; }
+   974→   974→    return false;
+   975→   975→  }, []);
+   976→   976→
+   977→   977→  // ── Data fetching ──
+   978→   978→
+   979→   979→  const { data: myTasksData = [], isLoading: tasksLoading } = useQuery({
+   980→   980→    queryKey: ["my-tasks-all"],
+   981→   981→    queryFn: async () => {
+   982→   982→      const res = await fetch("/api/tasks?assignedTo=current", { credentials: "include" });
+   983→   983→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   984→   984→      if (!res.ok) throw new Error("Failed to load tasks");
+   985→   985→      const td = deepSanitize(await res.json());
+   986→   986→      return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : [];
+   987→   987→    },
+   988→   988→    staleTime: 15 * 1000, retry: 1,
+   989→   989→  });
+   990→   990→
+   991→   991→  const { data: allTasksData = [], isLoading: allTasksLoading } = useQuery({
+   992→   992→    queryKey: ["all-tasks-team"],
+   993→   993→    queryFn: async () => {
+   994→   994→      const res = await fetch("/api/tasks", { credentials: "include" });
+   995→   995→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   996→   996→      if (!res.ok) throw new Error("Failed to load tasks");
+   997→   997→      const td = deepSanitize(await res.json());
+   998→   998→      return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : [];
+   999→   999→    },
+  1000→  1000→    staleTime: 15 * 1000, retry: 1, enabled: isAdminUser,
+  1001→  1001→  });
+  1002→  1002→
+  1003→  1003→  const { data: teamMembers = [], isLoading: teamLoading } = useQuery({
+  1004→  1004→    queryKey: ["team-users-list"],
+  1005→  1005→    queryFn: async () => {
+  1006→  1006→      const res = await fetch("/api/team?type=users", { credentials: "include" });
+  1007→  1007→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+  1008→  1008→      if (!res.ok) throw new Error("Failed to load team");
+  1009→  1009→      const td = deepSanitize(await res.json());
+  1010→  1010→      return Array.isArray(td) ? td : [];
+  1011→  1011→    },
+  1012→  1012→    staleTime: 30 * 1000, retry: 1, enabled: isAdminUser,
+  1013→  1013→  });
+  1014→  1014→
+  1015→  1015→  const { data: projectsData = [] } = useQuery({
+  1016→  1016→    queryKey: ["projects"],
+  1017→  1017→    queryFn: async () => {
+  1018→  1018→      const res = await fetch("/api/projects", { credentials: "include" });
+  1019→  1019→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+  1020→  1020→      if (!res.ok) throw new Error("Failed to load projects");
+  1021→  1021→      const data = deepSanitize(await res.json());
+  1022→  1022→      return Array.isArray(data) ? data : (Array.isArray((data as Record<string, unknown>)?.data) ? (data as Record<string, unknown>).data as unknown[] : []);
+  1023→  1023→    },
+  1024→  1024→    staleTime: 60 * 1000, retry: 1,
+  1025→  1025→  });
+  1026→  1026→
+  1027→  1027→  const { data: trainingData = [], isLoading: trainingLoading } = useQuery({
+  1028→  1028→    queryKey: ["my-training-assignments"],
+  1029→  1029→    queryFn: async () => {
+  1030→  1030→      const res = await fetch("/api/training/assignments", { credentials: "include" });
+  1031→  1031→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+  1032→  1032→      if (!res.ok) throw new Error("Failed to load training");
+  1033→  1033→      const td = deepSanitize(await res.json());
+  1034→  1034→      return Array.isArray(td) ? td : [];
+  1035→  1035→    },
+  1036→  1036→    staleTime: 30 * 1000, retry: 1,
+  1037→  1037→  });
+  1038→  1038→
+  1039→  1039→  // ── Derived data ──
+  1040→  1040→
+  1041→  1041→  const projectNameMap = useMemo(() => {
+  1042→  1042→    const map = new Map<string, string>();
+  1043→  1043→    for (const p of projectsData as Record<string, unknown>[]) {
+  1044→  1044→      const pid = extractStr(p, "id", "");
+  1045→  1045→      const name = extractStr(p, "name", "");
+  1046→  1046→      if (pid && name) map.set(pid, name);
+  1047→  1047→    }
+  1048→  1048→    return map;
+  1049→  1049→  }, [projectsData]);
+  1050→  1050→
+  1051→  1051→  // Personal view
+  1052→  1052→  const activeTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [myTasksData]);
+  1053→  1053→
+  1054→  1054→  const completedTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [myTasksData]);
+  1055→  1055→
+  1056→  1056→  const activeTraining = useMemo(() => trainingData.filter((t: unknown) => {
+  1057→  1057→    const s = extractStr(t, "status", "");
+  1058→  1058→    return s !== "COMPLETED" && s !== "PASSED" && s !== "FAILED";
+  1059→  1059→  }), [trainingData]);
+  1060→  1060→
+  1061→  1061→  const filteredTasks = useMemo(() => {
+  1062→  1062→    if (!search) return activeTasks;
+  1063→  1063→    const q = search.toLowerCase();
+  1064→  1064→    return activeTasks.filter((t: unknown) => {
+  1065→  1065→      const title = extractStr(t, "title", "").toLowerCase();
+  1066→  1066→      const desc = extractStr(t, "description", "").toLowerCase();
+  1067→  1067→      return title.includes(q) || desc.includes(q);
+  1068→  1068→    });
+  1069→  1069→  }, [activeTasks, search]);
+  1070→  1070→
+  1071→  1071→  const tasksByProject = useMemo(() => {
+  1072→  1072→    const map = new Map<string, unknown[]>();
+  1073→  1073→    for (const task of filteredTasks) {
+  1074→  1074→      const pid = extractStr(task, "projectId", "other");
+  1075→  1075→      if (!map.has(pid)) map.set(pid, []);
+  1076→  1076→      map.get(pid)!.push(task);
+  1077→  1077→    }
+  1078→  1078→    for (const [, tasks] of map) {
+  1079→  1079→      tasks.sort((a, b) => {
+  1080→  1080→        const aDate = extractStr(a, "deadline", "") ? new Date(extractStr(a, "deadline", "")).getTime() : Infinity;
+  1081→  1081→        const bDate = extractStr(b, "deadline", "") ? new Date(extractStr(b, "deadline", "")).getTime() : Infinity;
+  1082→  1082→        const now = Date.now();
+  1083→  1083→        const ao = aDate < now ? 0 : 1; const bo = bDate < now ? 0 : 1;
+  1084→  1084→        if (ao !== bo) return ao - bo;
+  1085→  1085→        return aDate - bDate;
+  1086→  1086→      });
+  1087→  1087→    }
+  1088→  1088→    return map;
+  1089→  1089→  }, [filteredTasks]);
+  1090→  1090→
+  1091→  1091→  const sortedTraining = useMemo(() => {
+  1092→  1092→    return [...activeTraining].sort((a, b) => {
+  1093→  1093→      const aDate = extractStr(a, "dueDate", "") ? new Date(extractStr(a, "dueDate", "")).getTime() : Infinity;
+  1094→  1094→      const bDate = extractStr(b, "dueDate", "") ? new Date(extractStr(b, "dueDate", "")).getTime() : Infinity;
+  1095→  1095→      return aDate - bDate;
+  1096→  1096→    }).filter((t) => {
+  1097→  1097→      if (!search) return true;
+  1098→  1098→      const q = search.toLowerCase();
+  1099→  1099→      const topic = extractNestedStr(t, ["document", "topic"], "").toLowerCase();
+  1100→  1100→      const status = extractStr(t, "status", "").toLowerCase();
+  1101→  1101→      return topic.includes(q) || status.includes(q);
+  1102→  1102→    });
+  1103→  1103→  }, [activeTraining, search]);
+  1104→  1104→
+  1105→  1105→  const totalActive = activeTasks.length + activeTraining.length;
+  1106→  1106→  const completedCount = completedTasks.length;
+  1107→  1107→  const overdueTasks = activeTasks.filter((t: unknown) => {
+  1108→  1108→    const d = extractStr(t, "deadline", "");
+  1109→  1109→    return d && new Date(d) < new Date();
+  1110→  1110→  }).length;
+  1111→  1111→  const awaitingApproval = activeTasks.filter((t: unknown) => extractStr(t, "status", "") === "AWAITING_APPROVAL").length;
+  1112→  1112→
+  1113→  1113→  // Team view
+  1114→  1114→  const teamActiveTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [allTasksData]);
+  1115→  1115→
+  1116→  1116→  const teamCompletedTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [allTasksData]);
+  1117→  1117→
+  1118→  1118→  const teamFilteredTasks = useMemo(() => {
+  1119→  1119→    let tasks = teamActiveTasks;
+  1120→  1120→    if (selectedMember !== "all") tasks = tasks.filter((t: unknown) => extractStr(t, "assignedTo", "") === selectedMember);
+  1121→  1121→    if (search) {
+  1122→  1122→      const q = search.toLowerCase();
+  1123→  1123→      tasks = tasks.filter((t: unknown) => {
+  1124→  1124→        const title = extractStr(t, "title", "").toLowerCase();
+  1125→  1125→        const desc = extractStr(t, "description", "").toLowerCase();
+  1126→  1126→        return title.includes(q) || desc.includes(q);
+  1127→  1127→      });
+  1128→  1128→    }
+  1129→  1129→    return tasks;
+  1130→  1130→  }, [teamActiveTasks, selectedMember, search]);
+  1131→  1131→
+  1132→  1132→  const teamFilteredCompletedTasks = useMemo(() => {
+  1133→  1133→    let tasks = teamCompletedTasks;
+  1134→  1134→    if (selectedMember !== "all") tasks = tasks.filter((t: unknown) => extractStr(t, "assignedTo", "") === selectedMember);
+  1135→  1135→    return tasks;
+  1136→  1136→  }, [teamCompletedTasks, selectedMember]);
+  1137→  1137→
+  1138→  1138→  const teamStats = useMemo(() => {
+  1139→  1139→    const tasks = teamActiveTasks.filter((t: unknown) => selectedMember === "all" || extractStr(t, "assignedTo", "") === selectedMember);
+  1140→  1140→    return {
+  1141→  1141→      total: tasks.length,
+  1142→  1142→      overdue: tasks.filter((t: unknown) => {
+  1143→  1143→        const d = extractStr(t, "deadline", ""); const s = extractStr(t, "status", "");
+  1144→  1144→        return d && new Date(d) < new Date() && s !== "AWAITING_APPROVAL";
+  1145→  1145→      }).length,
+  1146→  1146→      awaiting: tasks.filter((t: unknown) => extractStr(t, "status", "") === "AWAITING_APPROVAL").length,
+  1147→  1147→    };
+  1148→  1148→  }, [teamActiveTasks, selectedMember]);
+  1149→  1149→
+  1150→  1150→  const teamTasksGrouped = useMemo(() => {
+  1151→  1151→    if (selectedMember === "all") {
+  1152→  1152→      const map = new Map<string, unknown[]>();
+  1153→  1153→      for (const task of teamFilteredTasks) {
+  1154→  1154→        const aid = extractStr(task, "assignedTo", "unassigned");
+  1155→  1155→        const aname = extractStr(task, "assignedToName", aid === "unassigned" ? "Unassigned" : "Unknown");
+  1156→  1156→        const key = `${aid}:::${aname}`;
+  1157→  1157→        if (!map.has(key)) map.set(key, []);
+  1158→  1158→        map.get(key)!.push(task);
+  1159→  1159→      }
+  1160→  1160→      for (const [, tasks] of map) {
+  1161→  1161→        tasks.sort((a, b) => {
+  1162→  1162→          const ad = extractStr(a, "deadline", "") ? new Date(extractStr(a, "deadline", "")).getTime() : Infinity;
+  1163→  1163→          const bd = extractStr(b, "deadline", "") ? new Date(extractStr(b, "deadline", "")).getTime() : Infinity;
+  1164→  1164→          const now = Date.now();
+  1165→  1165→          const ao = ad < now ? 0 : 1; const bo = bd < now ? 0 : 1;
+  1166→  1166→          if (ao !== bo) return ao - bo; return ad - bd;
+  1167→  1167→        });
+  1168→  1168→      }
+  1169→  1169→      const sorted = Array.from(map.entries()).sort(([, a], [, b]) => {
+  1170→  1170→        const ao = a.filter((t) => { const d = extractStr(t, "deadline", ""); return d && new Date(d) < new Date(); }).length;
+  1171→  1171→        const bo = b.filter((t) => { const d = extractStr(t, "deadline", ""); return d && new Date(d) < new Date(); }).length;
+  1172→  1172→        if (ao !== bo) return bo - ao; return a.length - b.length;
+  1173→  1173→      });
+  1174→  1174→      return { groupBy: "assignee" as const, entries: sorted };
+  1175→  1175→    }
+  1176→  1176→    const map = new Map<string, unknown[]>();
+  1177→  1177→    for (const task of teamFilteredTasks) {
+  1178→  1178→      const pid = extractStr(task, "projectId", "other");
+  1179→  1179→      if (!map.has(pid)) map.set(pid, []);
+  1180→  1180→      map.get(pid)!.push(task);
+  1181→  1181→    }
+  1182→  1182→    for (const [, tasks] of map) {
+  1183→  1183→      tasks.sort((a, b) => {
+  1184→  1184→        const ad = extractStr(a, "deadline", "") ? new Date(extractStr(a, "deadline", "")).getTime() : Infinity;
+  1185→  1185→        const bd = extractStr(b, "deadline", "") ? new Date(extractStr(b, "deadline", "")).getTime() : Infinity;
+  1186→  1186→        const now = Date.now();
+  1187→  1187→        const ao = ad < now ? 0 : 1; const bo = bd < now ? 0 : 1;
+  1188→  1188→        if (ao !== bo) return ao - bo; return ad - bd;
+  1189→  1189→      });
+  1190→  1190→    }
+  1191→  1191→    return { groupBy: "project" as const, entries: Array.from(map.entries()) };
+  1192→  1192→  }, [teamFilteredTasks, selectedMember]);
+  1193→  1193→
+  1194→  1194→  // Team completed grouped by same logic
+  1195→  1195→  const teamCompletedGrouped = useMemo(() => {
+  1196→  1196→    if (selectedMember === "all") {
+  1197→  1197→      const map = new Map<string, unknown[]>();
+  1198→  1198→      for (const task of teamFilteredCompletedTasks) {
+  1199→  1199→        const aid = extractStr(task, "assignedTo", "unassigned");
+  1200→  1200→        const aname = extractStr(task, "assignedToName", aid === "unassigned" ? "Unassigned" : "Unknown");
+  1201→  1201→        const key = `${aid}:::${aname}`;
+  1202→  1202→        if (!map.has(key)) map.set(key, []);
+  1203→  1203→        map.get(key)!.push(task);
+  1204→  1204→      }
+  1205→  1205→      return { groupBy: "assignee" as const, entries: Array.from(map.entries()) };
+  1206→  1206→    }
+  1207→  1207→    const map = new Map<string, unknown[]>();
+  1208→  1208→    for (const task of teamFilteredCompletedTasks) {
+  1209→  1209→      const pid = extractStr(task, "projectId", "other");
+  1210→  1210→      if (!map.has(pid)) map.set(pid, []);
+  1211→  1211→      map.get(pid)!.push(task);
+  1212→  1212→    }
+  1213→  1213→    return { groupBy: "project" as const, entries: Array.from(map.entries()) };
+  1214→  1214→  }, [teamFilteredCompletedTasks, selectedMember]);
+  1215→  1215→
+  1216→  1216→  // ── Actions ──
+  1217→  1217→
+  1218→  1218→  const handleToggleDone = useCallback(async (taskId: string) => {
+  1219→  1219→    setTogglingId(taskId);
+  1220→  1220→    try {
+  1221→  1221→      const res = await fetch("/api/tasks", {
+  1222→  1222→        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+  1223→  1223→        body: JSON.stringify({ id: taskId, status: "DONE" }),
+  1224→  1224→      });
+  1225→  1225→      if (res.ok) {
+  1226→  1226→        const updated = await res.json().catch(() => null);
+  1227→  1227→        toast.success(updated?.status === "AWAITING_APPROVAL" ? "Task submitted for approval" : "Task completed");
+  1228→  1228→        queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
+  1229→  1229→      } else {
+  1230→  1230→        if (handle401(res)) return;
+  1231→  1231→        const err = await res.json().catch(() => null);
+  1232→  1232→        toast.error(err?.error || "Failed to update task");
+  1233→  1233→      }
+  1234→  1234→    } catch { toast.error("Failed to update task"); } finally { setTogglingId(null); }
+  1235→  1235→  }, [queryClient, handle401]);
+  1236→  1236→
+  1237→  1237→  const handleDeleteTask = useCallback(async (taskId: string) => {
+  1238→  1238→    try {
+  1239→  1239→      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
+  1240→  1240→      if (res.ok) { toast.success("Task deleted"); queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] }); }
+  1241→  1241→      else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to delete task"); }
+  1242→  1242→    } catch { toast.error("Failed to delete task"); }
+  1243→  1243→  }, [queryClient, handle401]);
+  1244→  1244→
+  1245→  1245→  const handleReassignTask = useCallback(async (taskId: string, newAssigneeId: string) => {
+  1246→  1246→    try {
+  1247→  1247→      const res = await fetch("/api/tasks", {
+  1248→  1248→        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+  1249→  1249→        body: JSON.stringify({ id: taskId, assignedTo: newAssigneeId }),
+  1250→  1250→      });
+  1251→  1251→      if (res.ok) {
+  1252→  1252→        const m = teamMembers.find((m2) => extractStr(m2, "id", "") === newAssigneeId);
+  1253→  1253→        toast.success(`Task reassigned to ${extractStr(m, "name", "team member")}`);
+  1254→  1254→        queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] });
+  1255→  1255→      } else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to reassign task"); }
+  1256→  1256→    } catch { toast.error("Failed to reassign task"); }
+  1257→  1257→  }, [queryClient, teamMembers, handle401]);
+  1258→  1258→
+  1259→  1259→  const handleChangePriority = useCallback(async (taskId: string, priority: string) => {
+  1260→  1260→    try {
+  1261→  1261→      const res = await fetch("/api/tasks", {
+  1262→  1262→        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+  1263→  1263→        body: JSON.stringify({ id: taskId, priority }),
+  1264→  1264→      });
+  1265→  1265→      if (res.ok) { toast.success(`Priority changed to ${priority}`); queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] }); }
+  1266→  1266→      else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to update priority"); }
+  1267→  1267→    } catch { toast.error("Failed to update priority"); }
+  1268→  1268→  }, [queryClient, handle401]);
+  1269→  1269→
+  1270→  1270→  const handleChangeStatus = useCallback(async (taskId: string, status: string) => {
+  1271→  1271→    setTogglingId(taskId);
+  1272→  1272→    try {
+  1273→  1273→      const res = await fetch("/api/tasks", {
+  1274→  1274→        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+  1275→  1275→        body: JSON.stringify({ id: taskId, status }),
+  1276→  1276→      });
+  1277→  1277→      if (res.ok) {
+  1278→  1278→        toast.success(status === "DONE" ? "Task completed" : `Status changed to ${status.replace(/_/g, " ")}`);
+  1279→  1279→        queryClient.invalidateQueries({ queryKey: ["all-tasks-team"] });
+  1280→  1280→        queryClient.invalidateQueries({ queryKey: ["my-tasks-all"] });
+  1281→  1281→      } else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to update status"); }
+  1282→  1282→    } catch { toast.error("Failed to update status"); } finally { setTogglingId(null); }
+  1283→  1283→  }, [queryClient, handle401]);
+  1284→  1284→
+  1285→  1285→  const handleCreateSuccess = useCallback(() => {
+  1286→  1286→    // Queries already invalidated inside CreateTaskDialog.handleCreate
+  1287→  1287→  }, [queryClient]);
+  1288→  1288→
+  1289→  1289→  // ── Shared props for personal view ──
+  1290→  1290→  const personalViewProps = useMemo(() => ({
+  1291→  1291→    totalActive, overdueTasks, awaitingApproval, completedCount,
+  1292→  1292→    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+  1293→  1293→    search, togglingId, handleToggleDone, projectNameMap, router,
+  1294→  1294→  }), [totalActive, overdueTasks, awaitingApproval, completedCount,
+  1295→  1295→    sortedTraining, tasksByProject, activeTasks, filteredTasks, completedTasks,
+  1296→  1296→    search, togglingId, handleToggleDone, projectNameMap, router]);
+  1297→  1297→
+  1298→  1298→  const isLoading = sessionStatus === "loading" || tasksLoading || trainingLoading;
+  1299→  1299→
+  1300→  1300→  // ── Loading state ──
+  1301→  1301→  if (isLoading) {
+  1302→  1302→    return (
+  1303→  1303→      <div className="space-y-5">
+  1304→  1304→        <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+  1305→  1305→        <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-4">
+  1306→  1306→          <Skeleton className="h-4 w-48" />
+  1307→  1307→        </div>
+  1308→  1308→        <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
+  1309→  1309→        <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+  1310→  1310→          <CardContent className="p-4 sm:p-5 space-y-5">
+  1311→  1311→            <Skeleton className="h-6 w-32 rounded-lg" />
+  1312→  1312→            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+  1313→  1313→          </CardContent>
+  1314→  1314→        </Card>
+  1315→  1315→      </div>
+  1316→  1316→    );
+  1317→  1317→  }
+  1318→  1318→
+  1319→  1319→  // ── Render ──
+  1320→  1320→  return (
+  1321→  1321→    <>
+  1322→  1322→      {/* Inject animation styles */}
+  1323→  1323→      <style dangerouslySetInnerHTML={{ __html: animationStyles }} />
+  1324→  1324→
+  1325→  1325→      <div className="space-y-5">
+  1326→  1326→        {/* Header — no search inside */}
+  1327→  1327→        <PageHeader title="My Todos" description="Track your tasks and training assignments" />
+  1328→  1328→
+  1329→  1329→        {/* Search & Filter bar — upgraded with glow effect */}
+  1330→  1330→        <div className={cn(
+  1331→  1331→          "rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-3 gap-2",
+  1332→  1332→          "transition-all duration-300 search-glow",
+  1333→  1333→        )}>
+  1334→  1334→          <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+  1335→  1335→          <Input
+  1336→  1336→            placeholder="Search tasks and training..."
+  1337→  1337→            value={search}
+  1338→  1338→            onChange={(e) => setSearch(e.target.value)}
+  1339→  1339→            className="border-0 bg-transparent shadow-none focus-visible:ring-0 h-8 p-0 text-sm placeholder:text-muted-foreground/50"
+  1340→  1340→          />
+  1341→  1341→          {search && (
+  1342→  1342→            <button
+  1343→  1343→              type="button"
+  1344→  1344→              onClick={() => setSearch("")}
+  1345→  1345→              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
+  1346→  1346→            >
+  1347→  1347→              Clear
+  1348→  1348→            </button>
+  1349→  1349→          )}
+  1350→  1350→        </div>
+  1351→  1351→
+  1352→  1352→        {/* Admin: Tabs view */}
+  1353→  1353→        {isAdminUser && (
+  1354→  1354→          <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1355→  1355→            <TabsList className="mb-4">
+  1356→  1356→              <TabsTrigger value="my" className="gap-1.5">
+  1357→  1357→                <ListTodo className="h-3.5 w-3.5" />
+  1358→  1358→                My Todos
+  1359→  1359→                {totalActive > 0 && (
+  1360→  1360→                  <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
+  1361→  1361→                    {String(totalActive)}
+  1362→  1362→                  </Badge>
+  1363→  1363→                )}
+  1364→  1364→              </TabsTrigger>
+  1365→  1365→              <TabsTrigger value="team" className="gap-1.5">
+  1366→  1366→                <Users className="h-3.5 w-3.5" />
+  1367→  1367→                Team Todos
+  1368→  1368→                {teamStats.total > 0 && (
+  1369→  1369→                  <Badge variant="secondary" className="ml-1 text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-1.5 py-0">
+  1370→  1370→                    {String(teamStats.total)}
+  1371→  1371→                  </Badge>
+  1372→  1372→                )}
+  1373→  1373→              </TabsTrigger>
+  1374→  1374→            </TabsList>
+  1375→  1375→
+  1376→  1376→            {/* My Todos Tab */}
+  1377→  1377→            <TabsContent value="my">
+  1378→  1378→              <PersonalTodosView {...personalViewProps} />
+  1379→  1379→            </TabsContent>
+  1380→  1380→
+  1381→  1381→            {/* Team Todos Tab */}
+  1382→  1382→            <TabsContent value="team">
+  1383→  1383→              <TeamTodosContent
+  1384→  1384→                teamStats={teamStats}
+  1385→  1385→                teamFilteredTasks={teamFilteredTasks}
+  1386→  1386→                teamFilteredCompletedTasks={teamFilteredCompletedTasks}
+  1387→  1387→                teamCompletedGrouped={teamCompletedGrouped}
+  1388→  1388→                teamTasksGrouped={teamTasksGrouped}
+  1389→  1389→                teamMembers={teamMembers}
+  1390→  1390→                teamActiveTasks={teamActiveTasks}
+  1391→  1391→                selectedMember={selectedMember}
+  1392→  1392→                setSelectedMember={setSelectedMember}
+  1393→  1393→                projectNameMap={projectNameMap}
+  1394→  1394→                togglingId={togglingId}
+  1395→  1395→                handleDeleteTask={handleDeleteTask}
+  1396→  1396→                handleReassignTask={handleReassignTask}
+  1397→  1397→                handleChangePriority={handleChangePriority}
+  1398→  1398→                handleChangeStatus={handleChangeStatus}
+  1399→  1399→                search={search}
+  1400→  1400→                allTasksLoading={allTasksLoading}
+  1401→  1401→                teamLoading={teamLoading}
+  1402→  1402→              />
+  1403→  1403→            </TabsContent>
+  1404→  1404→          </Tabs>
+  1405→  1405→        )}
+  1406→  1406→
+  1407→  1407→        {/* Non-admin: Personal view directly (no tabs) */}
+  1408→  1408→        {!isAdminUser && (
+  1409→  1409→          <PersonalTodosView {...personalViewProps} />
+  1410→  1410→        )}
+  1411→  1411→      </div>
+  1412→  1412→
+  1413→  1413→      {/* FAB — Create Task button (only visible for admin/superadmin) */}
+  1414→  1414→      {isAdminUser && <CreateTaskFAB onClick={() => setCreateDialogOpen(true)} />}
+  1415→  1415→
+  1416→  1416→      {/* Create Task Dialog (only for admin/superadmin) */}
+  1417→  1417→      {isAdminUser && (
+  1418→  1418→        <CreateTaskDialog
+  1419→  1419→          open={createDialogOpen}
+  1420→  1420→          onOpenChange={setCreateDialogOpen}
+  1421→  1421→          isAdmin={isAdminUser}
+  1422→  1422→          teamMembers={teamMembers}
+  1423→  1423→          projects={projectsData}
+  1424→  1424→          onSuccess={handleCreateSuccess}
+  1425→  1425→        />
+  1426→  1426→      )}
+  1427→  1427→    </>
+  1428→  1428→  );
+  1429→  1429→}
+  1430→  1430→
+  1431→  1431→// ══════════════════════════════════════════════════════
+  1432→  1432→// TEAM TODOS TAB CONTENT
+  1433→  1433→// ══════════════════════════════════════════════════════
+  1434→  1434→
+  1435→  1435→function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedTasks, teamCompletedGrouped,
+  1436→  1436→  teamTasksGrouped, teamMembers, teamActiveTasks, selectedMember, setSelectedMember,
+  1437→  1437→  projectNameMap, togglingId, handleDeleteTask, handleReassignTask,
+  1438→  1438→  handleChangePriority, handleChangeStatus, search, allTasksLoading, teamLoading }: {
+  1439→  1439→  teamStats: { total: number; overdue: number; awaiting: number };
+  1440→  1440→  teamFilteredTasks: unknown[];
+  1441→  1441→  teamFilteredCompletedTasks: unknown[];
+  1442→  1442→  teamCompletedGrouped: { groupBy: "assignee" | "project"; entries: [string, unknown[]][] };
+  1443→  1443→  teamTasksGrouped: { groupBy: "assignee" | "project"; entries: [string, unknown[]][] };
+  1444→  1444→  teamMembers: Record<string, unknown>[];
+  1445→  1445→  teamActiveTasks: unknown[];
+  1446→  1446→  selectedMember: string;
+  1447→  1447→  setSelectedMember: (v: string) => void;
+  1448→  1448→  projectNameMap: Map<string, string>;
+  1449→  1449→  togglingId: string | null;
+  1450→  1450→  handleDeleteTask: (id: string) => void;
+  1451→  1451→  handleReassignTask: (taskId: string, userId: string) => void;
+  1452→  1452→  handleChangePriority: (taskId: string, priority: string) => void;
+  1453→  1453→  handleChangeStatus: (taskId: string, status: string) => void;
+  1454→  1454→  search: string;
+  1455→  1455→  allTasksLoading: boolean;
+  1456→  1456→  teamLoading: boolean;
+  1457→  1457→}) {
+  1458→  1458→  const [showCompleted, setShowCompleted] = useState(false);
+  1459→  1459→
+  1460→  1460→  return (
+  1461→  1461→    <>
+  1462→  1462→      {allTasksLoading || teamLoading ? (
+  1463→  1463→        <div className="space-y-4">
+  1464→  1464→          <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
+  1465→  1465→          <Skeleton className="h-10 w-full rounded-xl" />
+  1466→  1466→          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+  1467→  1467→        </div>
+  1468→  1468→      ) : (
+  1469→  1469→        <div className="space-y-4">
+  1470→  1470→          {/* Team Stats */}
+  1471→  1471→          <div className="grid grid-cols-3 gap-3">
+  1472→  1472→            <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
+  1473→  1473→            <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
+  1474→  1474→            <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
+  1475→  1475→          </div>
+  1476→  1476→
+  1477→  1477→          {/* Member filter — card with chips */}
+  1478→  1478→          <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+  1479→  1479→            <CardContent className="p-3">
+  1480→  1480→              <div className="flex items-center gap-2 mb-2.5">
+  1481→  1481→                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+  1482→  1482→                <span className="text-xs font-semibold text-muted-foreground">Filter by member</span>
+  1483→  1483→              </div>
+  1484→  1484→              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+  1485→  1485→                <button
+  1486→  1486→                  type="button"
+  1487→  1487→                  onClick={() => setSelectedMember("all")}
+  1488→  1488→                  className={cn(
+  1489→  1489→                    "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
+  1490→  1490→                    selectedMember === "all"
+  1491→  1491→                      ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+  1492→  1492→                      : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
+  1493→  1493→                  )}
+  1494→  1494→                >
+  1495→  1495→                  <Users className="h-3.5 w-3.5" />
+  1496→  1496→                  All
+  1497→  1497→                  <span className="text-[10px] opacity-70">({String(teamMembers.length)})</span>
+  1498→  1498→                </button>
+  1499→  1499→                {teamMembers.map((member) => {
+  1500→  1500→                  const mId = extractStr(member, "id", "");
+  1501→  1501→                  const mName = extractStr(member, "name", "");
+  1502→  1502→                  const mAvatar = extractStr(member, "avatar", "");
+  1503→  1503→                  const taskCount = teamActiveTasks.filter((t) => extractStr(t, "assignedTo", "") === mId).length;
+  1504→  1504→                  const isInactive = member.isActive === false;
+  1505→  1505→
+  1506→  1506→                  return (
+  1507→  1507→                    <button
+  1508→  1508→                      key={mId}
+  1509→  1509→                      type="button"
+  1510→  1510→                      onClick={() => setSelectedMember(mId)}
+  1511→  1511→                      className={cn(
+  1512→  1512→                        "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200",
+  1513→  1513→                        selectedMember === mId
+  1514→  1514→                          ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800/50"
+  1515→  1515→                          : "bg-white/60 dark:bg-white/[0.04] text-muted-foreground border-gray-200/60 dark:border-gray-700/40 hover:bg-gray-100 dark:hover:bg-white/[0.08] backdrop-blur-sm",
+  1516→  1516→                        isInactive && "opacity-50",
+  1517→  1517→                      )}
+  1518→  1518→                    >
+  1519→  1519→                      <Avatar className="h-5 w-5">
+  1520→  1520→                        {mAvatar && <AvatarImage src={mAvatar} alt={mName} />}
+  1521→  1521→                        <AvatarFallback className="text-[8px]">{getInitials(mName)}</AvatarFallback>
+  1522→  1522→                      </Avatar>
+  1523→  1523→                      <span className="truncate max-w-24">{safeText(mName)}</span>
+  1524→  1524→                      {taskCount > 0 && <span className="text-[10px] opacity-70">({String(taskCount)})</span>}
+  1525→  1525→                    </button>
+  1526→  1526→                  );
+  1527→  1527→                })}
+  1528→  1528→              </div>
+  1529→  1529→            </CardContent>
+  1530→  1530→          </Card>
+  1531→  1531→
+  1532→  1532→          {/* Empty: no team members */}
+  1533→  1533→          {teamMembers.length === 0 && (
+  1534→  1534→            <div className="text-center py-20 relative overflow-hidden">
+  1535→  1535→              <div className="absolute top-8 left-1/3 h-24 w-24 rounded-full bg-violet-400/10 blur-3xl animate-float-orb" />
+  1536→  1536→              <div className="absolute bottom-8 right-1/3 h-20 w-20 rounded-full bg-purple-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+  1537→  1537→              <div className="relative z-10">
+  1538→  1538→                <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 flex items-center justify-center mb-4 animate-pulse">
+  1539→  1539→                  <Users className="h-8 w-8 text-violet-400/40" />
+  1540→  1540→                </div>
+  1541→  1541→                <p className="text-lg font-bold text-foreground/80">No team members found</p>
+  1542→  1542→                <p className="text-sm text-muted-foreground/60 mt-1">Add team members to see their tasks here</p>
+  1543→  1543→              </div>
+  1544→  1544→            </div>
+  1545→  1545→          )}
+  1546→  1546→
+  1547→  1547→          {/* Empty: no tasks */}
+  1548→  1548→          {teamMembers.length > 0 && teamFilteredTasks.length === 0 && teamFilteredCompletedTasks.length === 0 && (
+  1549→  1549→            <div className="text-center py-20 relative overflow-hidden">
+  1550→  1550→              <div className="absolute top-8 left-1/4 h-24 w-24 rounded-full bg-green-400/10 blur-3xl animate-float-orb" />
+  1551→  1551→              <div className="absolute bottom-8 right-1/4 h-20 w-20 rounded-full bg-emerald-400/10 blur-3xl animate-float-orb" style={{ animationDelay: "2s" }} />
+  1552→  1552→              <div className="relative z-10">
+  1553→  1553→                <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-green-500/10 to-green-500/5 flex items-center justify-center mb-4 animate-pulse">
+  1554→  1554→                  <CheckCircle2 className="h-8 w-8 text-green-400/40" />
+  1555→  1555→                </div>
+  1556→  1556→                <p className="text-lg font-bold text-foreground/80">
+  1557→  1557→                  {selectedMember === "all" ? "No tasks found" : "No tasks found for this team member"}
+  1558→  1558→                </p>
+  1559→  1559→                <p className="text-sm text-muted-foreground/60 mt-1">{search ? "Try a different search term" : "All tasks are completed"}</p>
+  1560→  1560→              </div>
+  1561→  1561→            </div>
+  1562→  1562→          )}
+  1563→  1563→
+  1564→  1564→          {/* Search no results (when there are completed items but no active results) */}
+  1565→  1565→          {search && teamFilteredTasks.length === 0 && teamFilteredCompletedTasks.length > 0 && (
+  1566→  1566→            <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+  1567→  1567→              <CardContent className="p-8 text-center">
+  1568→  1568→                <div className="h-12 w-12 mx-auto rounded-xl bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center mb-3">
+  1569→  1569→                  <Search className="h-5 w-5 text-muted-foreground/50" />
+  1570→  1570→                </div>
+  1571→  1571→                <p className="text-sm font-medium text-muted-foreground">No active tasks match &quot;{search}&quot;</p>
+  1572→  1572→                <p className="text-xs text-muted-foreground/60 mt-1">Check the completed section below</p>
+  1573→  1573→              </CardContent>
+  1574→  1574→            </Card>
+  1575→  1575→          )}
+  1576→  1576→
+  1577→  1577→          {/* Grouped active tasks */}
+  1578→  1578→          {teamTasksGrouped.entries.length > 0 && (
+  1579→  1579→            <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+  1580→  1580→              <CardContent className="p-4 sm:p-5 space-y-4">
+  1581→  1581→                {teamTasksGrouped.entries.map(([key, tasks], groupIdx) => {
+  1582→  1582→                  if (teamTasksGrouped.groupBy === "assignee") {
+  1583→  1583→                    const [assigneeId, assigneeName] = (key as string).split(":::");
+  1584→  1584→                    const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+  1585→  1585→                    const mAvatar = extractStr(member, "avatar", "");
+  1586→  1586→                    const isUnassigned = assigneeId === "unassigned";
+  1587→  1587→                    const memberTasks = tasks as unknown[];
+  1588→  1588→                    const memberOverdue = memberTasks.filter((t) => {
+  1589→  1589→                      const d = extractStr(t, "deadline", "");
+  1590→  1590→                      return d && new Date(d) < new Date() && extractStr(t, "status", "") !== "AWAITING_APPROVAL";
+  1591→  1591→                    }).length;
+  1592→  1592→
+  1593→  1593→                    return (
+  1594→  1594→                      <div key={key} className="animate-slide-up" style={{ animationDelay: `${groupIdx * 80}ms` }}>
+  1595→  1595→                        <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
+  1596→  1596→                          {isUnassigned ? (
+  1597→  1597→                            <div className="h-7 w-7 rounded-full bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center shrink-0">
+  1598→  1598→                              <UserCircle className="h-4 w-4 text-gray-400" />
+  1599→  1599→                            </div>
+  1600→  1600→                          ) : (
+  1601→  1601→                            <Avatar className="h-7 w-7 shrink-0">
+  1602→  1602→                              {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+  1603→  1603→                              <AvatarFallback className="text-[10px]">{getInitials(assigneeName)}</AvatarFallback>
+  1604→  1604→                            </Avatar>
+  1605→  1605→                          )}
+  1606→  1606→                          <h3 className="text-sm font-bold text-foreground">{safeText(assigneeName)}</h3>
+  1607→  1607→                          {isUnassigned && (
+  1608→  1608→                            <Badge className="text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+  1609→  1609→                              Unassigned
+  1610→  1610→                            </Badge>
+  1611→  1611→                          )}
+  1612→  1612→                          <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
+  1613→  1613→                          {memberOverdue > 0 && (
+  1614→  1614→                            <Badge className="text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+  1615→  1615→                              {String(memberOverdue)} overdue
+  1616→  1616→                            </Badge>
+  1617→  1617→                          )}
+  1618→  1618→                        </div>
+  1619→  1619→                        <div className="space-y-1.5 pl-2">
+  1620→  1620→                          {memberTasks.map((task, taskIdx) => (
+  1621→  1621→                            <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+  1622→  1622→                              teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+  1623→  1623→                              onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
+  1624→  1624→                          ))}
+  1625→  1625→                        </div>
+  1626→  1626→                      </div>
+  1627→  1627→                    );
+  1628→  1628→                  }
+  1629→  1629→
+  1630→  1630→                  // Grouped by project
+  1631→  1631→                  const projectId = key as string;
+  1632→  1632→                  const projectName = projectNameMap.get(projectId) || "Unknown Project";
+  1633→  1633→                  const projectTasks = tasks as unknown[];
+  1634→  1634→                  return (
+  1635→  1635→                    <div key={projectId} className="animate-slide-up" style={{ animationDelay: `${groupIdx * 80}ms` }}>
+  1636→  1636→                      <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2 rounded-lg bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-gray-700/50">
+  1637→  1637→                        <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+  1638→  1638→                        <h3 className="text-xs font-bold text-foreground">{safeText(projectName)}</h3>
+  1639→  1639→                        <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
+  1640→  1640→                      </div>
+  1641→  1641→                      <div className="space-y-1.5 pl-2">
+  1642→  1642→                        {projectTasks.map((task, taskIdx) => (
+  1643→  1643→                          <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+  1644→  1644→                            teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+  1645→  1645→                            onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
+  1646→  1646→                        ))}
+  1647→  1647→                      </div>
+  1648→  1648→                    </div>
+  1649→  1649→                  );
+  1650→  1650→                })}
+  1651→  1651→              </CardContent>
+  1652→  1652→            </Card>
+  1653→  1653→          )}
+  1654→  1654→
+  1655→  1655→          {/* Team completed (collapsed by default) — upgraded with green accent */}
+  1656→  1656→          {teamFilteredCompletedTasks.length > 0 && (
+  1657→  1657→            <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
+  1658→  1658→              <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
+  1659→  1659→                <CollapsibleTrigger asChild>
+  1660→  1660→                  <button
+  1661→  1661→                    type="button"
+  1662→  1662→                    className={cn(
+  1663→  1663→                      "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all duration-200",
+  1664→  1664→                      "hover:bg-gray-50/50 dark:hover:bg-white/[0.02] rounded-t-xl",
+  1665→  1665→                    )}
+  1666→  1666→                  >
+  1667→  1667→                    {showCompleted ? (
+  1668→  1668→                      <ChevronDown className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+  1669→  1669→                    ) : (
+  1670→  1670→                      <ChevronRight className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+  1671→  1671→                    )}
+  1672→  1672→                    <CircleCheckBig className={cn(
+  1673→  1673→                      "h-4 w-4 shrink-0",
+  1674→  1674→                      showCompleted ? "text-green-600 dark:text-green-400" : "text-green-500 dark:text-green-400",
+  1675→  1675→                    )} />
+  1676→  1676→                    <span className={cn("text-sm font-bold", showCompleted ? "text-muted-foreground" : "text-green-600 dark:text-green-400")}>Completed</span>
+  1677→  1677→                    <Badge variant="secondary" className="text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+  1678→  1678→                      {String(teamFilteredCompletedTasks.length)}
+  1679→  1679→                    </Badge>
+  1680→  1680→                    {!showCompleted && (
+  1681→  1681→                      <span className="text-[11px] text-muted-foreground/50 ml-auto">Click to expand</span>
+  1682→  1682→                    )}
+  1683→  1683→                  </button>
+  1684→  1684→                </CollapsibleTrigger>
+  1685→  1685→                <CollapsibleContent>
+  1686→  1686→                  <CardContent className="px-4 pb-4 pt-0">
+  1687→  1687→                    <div className="space-y-4 max-h-96 overflow-y-auto">
+  1688→  1688→                      {teamCompletedGrouped.entries.map(([key, tasks]) => {
+  1689→  1689→                        if (teamCompletedGrouped.groupBy === "assignee") {
+  1690→  1690→                          const [assigneeId, assigneeName] = (key as string).split(":::");
+  1691→  1691→                          const member = teamMembers.find((m) => extractStr(m, "id", "") === assigneeId);
+  1692→  1692→                          const mAvatar = extractStr(member, "avatar", "");
+  1693→  1693→                          const isUnassigned = assigneeId === "unassigned";
+  1694→  1694→                          const memberTasks = tasks as unknown[];
+  1695→  1695→
+  1696→  1696→                          return (
+  1697→  1697→                            <div key={key}>
+  1698→  1698→                              <div className="flex items-center gap-2 mb-2 px-2">
+  1699→  1699→                                {isUnassigned ? (
+  1700→  1700→                                  <div className="h-5 w-5 rounded-full bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center shrink-0">
+  1701→  1701→                                    <UserCircle className="h-3 w-3 text-gray-400" />
+  1702→  1702→                                  </div>
+  1703→  1703→                                ) : (
+  1704→  1704→                                  <Avatar className="h-5 w-5 shrink-0">
+  1705→  1705→                                    {mAvatar && <AvatarImage src={mAvatar} alt={assigneeName} />}
+  1706→  1706→                                    <AvatarFallback className="text-[8px]">{getInitials(assigneeName)}</AvatarFallback>
+  1707→  1707→                                  </Avatar>
+  1708→  1708→                                )}
+  1709→  1709→                                <h4 className="text-xs font-semibold text-muted-foreground">{safeText(assigneeName)}</h4>
+  1710→  1710→                                {isUnassigned && (
+  1711→  1711→                                  <Badge className="text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+  1712→  1712→                                    Unassigned
+  1713→  1713→                                  </Badge>
+  1714→  1714→                                )}
+  1715→  1715→                                <Badge variant="secondary" className="text-[10px] font-bold">{String(memberTasks.length)}</Badge>
+  1716→  1716→                              </div>
+  1717→  1717→                              <div className="space-y-1.5 pl-2">
+  1718→  1718→                                {memberTasks.map((task, taskIdx) => (
+  1719→  1719→                                  <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+  1720→  1720→                                    teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+  1721→  1721→                                    onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
+  1722→  1722→                                ))}
+  1723→  1723→                              </div>
+  1724→  1724→                            </div>
+  1725→  1725→                          );
+  1726→  1726→                        }
+  1727→  1727→                        const projectId = key as string;
+  1728→  1728→                        const projectName = projectNameMap.get(projectId) || "Unknown Project";
+  1729→  1729→                        const projectTasks = tasks as unknown[];
+  1730→  1730→                        return (
+  1731→  1731→                          <div key={projectId}>
+  1732→  1732→                            <div className="flex items-center gap-2 mb-2 px-2">
+  1733→  1733→                              <span className="h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
+  1734→  1734→                              <h4 className="text-xs font-semibold text-muted-foreground">{safeText(projectName)}</h4>
+  1735→  1735→                              <Badge variant="secondary" className="text-[10px] font-bold">{String(projectTasks.length)}</Badge>
+  1736→  1736→                            </div>
+  1737→  1737→                            <div className="space-y-1.5 pl-2">
+  1738→  1738→                              {projectTasks.map((task, taskIdx) => (
+  1739→  1739→                                <TeamTaskRow key={extractStr(task, "id", "")} task={task} projectNameMap={projectNameMap}
+  1740→  1740→                                  teamMembers={teamMembers} onDelete={handleDeleteTask} onReassign={handleReassignTask}
+  1741→  1741→                                  onChangePriority={handleChangePriority} onChangeStatus={handleChangeStatus} togglingId={togglingId} index={taskIdx} />
+  1742→  1742→                              ))}
+  1743→  1743→                            </div>
+  1744→  1744→                          </div>
+  1745→  1745→                        );
+  1746→  1746→                      })}
+  1747→  1747→                    </div>
+  1748→  1748→                  </CardContent>
+  1749→  1749→                </CollapsibleContent>
+  1750→  1750→              </Card>
+  1751→  1751→            </Collapsible>
+  1752→  1752→          )}
+  1753→  1753→        </div>
+  1754→  1754→      )}
+  1755→  1755→    </>
+  1756→  1756→  );
+  1757→  1757→}
+  1758→  1758→

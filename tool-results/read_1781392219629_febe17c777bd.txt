@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+     4→import { useRouter, useSearchParams } from "next/navigation";
+     5→import { useSession } from "next-auth/react";
+     6→import {
+     7→  FileText, Upload, Download, Trash2, Loader2,
+     8→  FileUp, CheckCircle2, AlertCircle, Clock,
+     9→  Shield, Ban, Save, Eye, EyeOff,
+    10→  Copy, Check, KeyRound, UserCog, Info,
+    11→  Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
+    12→  Plus, Edit3, Globe, Search, Key,
+    13→  Bird, Link2, Unlink, ArrowRightLeft, Zap, UserCheck, XCircle, CircleDot,
+    14→  ChevronDown, ChevronRight, Lightbulb, CheckCircle2 as CheckCircleIcon,
+    15→} from "lucide-react";
+    16→import { Button } from "@/components/ui/button";
+    17→import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
+    18→import { Badge } from "@/components/ui/badge";
+    19→import { Switch } from "@/components/ui/switch";
+    20→import { Input } from "@/components/ui/input";
+    21→import { Label } from "@/components/ui/label";
+    22→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    23→import {
+    24→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+    25→} from "@/components/ui/dialog";
+    26→import { ScrollArea } from "@/components/ui/scroll-area";
+    27→import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+    28→import { Textarea } from "@/components/ui/textarea";
+    29→import { toast } from "sonner";
+    30→import { PageHeader } from "@/components/page-header";
+    31→import { safeText, safeDate, safeArray, cn } from "@/lib/utils";
+    32→
+    33→const authFetch = (url: string, options?: RequestInit) => fetch(url, { credentials: "include", ...options });
+    34→import {
+    35→  Select,
+    36→  SelectContent,
+    37→  SelectItem,
+    38→  SelectTrigger,
+    39→  SelectValue,
+    40→} from "@/components/ui/select";
+    41→import {
+    42→  AlertDialog,
+    43→  AlertDialogAction,
+    44→  AlertDialogCancel,
+    45→  AlertDialogContent,
+    46→  AlertDialogDescription,
+    47→  AlertDialogFooter,
+    48→  AlertDialogHeader,
+    49→  AlertDialogTitle,
+    50→} from "@/components/ui/alert-dialog";
+    51→
+    52→/* ═══════════════════════════════════════════════════════════════
+    53→   INTERFACES — from both protocol & credentials pages
+    54→   ═══════════════════════════════════════════════════════════════ */
+    55→
+    56→interface ProtocolFile {
+    57→  id: string;
+    58→  fileName: string;
+    59→  fileSize: number;
+    60→  mimeType: string;
+    61→  uploadedAt: string;
+    62→  uploadedBy: string;
+    63→  downloadEnabled: boolean;
+    64→}
+    65→
+    66→interface GitConfigState {
+    67→  repoUrl: string;
+    68→  tokenMasked: string;
+    69→  branch: string;
+    70→  isEnabled: boolean;
+    71→  lastSyncAt: string | null;
+    72→  lastSyncStatus: string | null;
+    73→  lastSyncError: string | null;
+    74→}
+    75→
+    76→interface WorkspaceConfigState {
+    77→  id: string | null;
+    78→  configToken: string;
+    79→  configTokenMasked: string;
+    80→  configTokenLabel: string;
+    81→  hasToken: boolean;
+    82→}
+    83→
+    84→interface UserCodeEntry {
+    85→  id: string | null;
+    86→  userId: string;
+    87→  userName: string;
+    88→  userEmail: string;
+    89→  userRole: string;
+    90→  codeMasked: string;
+    91→  hasCode: boolean;
+    92→  updatedAt: string | null;
+    93→}
+    94→
+    95→interface MyUserCode {
+    96→  hasCode: boolean;
+    97→  code: string;
+    98→  codeMasked: string;
+    99→  updatedAt: string | null;
+   100→}
+   101→
+   102→interface Credential {
+   103→  id: string;
+   104→  label: string;
+   105→  username: string;
+   106→  password: string;
+   107→  url: string | null;
+   108→  notes: string | null;
+   109→  createdAt: string;
+   110→  user?: { id: string; name: string; email: string; role: string };
+   111→}
+   112→
+   113→interface UserOption {
+   114→  id: string;
+   115→  name: string;
+   116→  email: string;
+   117→  role: string;
+   118→}
+   119→
+   120→const LABEL_COLORS: Record<string, string> = {
+   121→  Workspace: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+   122→  Email: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+   123→  Portal: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+   124→  Hosting: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+   125→  API: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+   126→  Database: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+   127→  Default: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+   128→};
+   129→
+   130→/* ═══════════════════════════════════════════════════════════════
+   131→   MAIN COMPONENT
+   132→   ═══════════════════════════════════════════════════════════════ */
+   133→
+   134→export default function AccessHubPage() {
+   135→  return (
+   136→    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+   137→      <AccessHubContent />
+   138→    </Suspense>
+   139→  );
+   140→}
+   141→
+   142→function AccessHubContent() {
+   143→  const { data: session, status } = useSession();
+   144→  const router = useRouter();
+   145→  const searchParams = useSearchParams();
+   146→  const urlTab = searchParams.get("tab") || "credentials";
+   147→  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+   148→  const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+   149→  const fileInputRef = useRef<HTMLInputElement>(null);
+   150→  const initialFetchDone = useRef(false);
+   151→
+   152→  // ── Protocol state ──
+   153→  const [protocol, setProtocol] = useState<ProtocolFile | null>(null);
+   154→  const [protocolLoading, setProtocolLoading] = useState(true);
+   155→  const [uploading, setUploading] = useState(false);
+   156→  const [dragOver, setDragOver] = useState(false);
+   157→  const [downloadEnabled, setDownloadEnabled] = useState(true);
+   158→
+   159→  // ── Git config state ──
+   160→  const [gitConfig, setGitConfig] = useState<GitConfigState | null>(null);
+   161→  const [gitForm, setGitForm] = useState({ repoUrl: "", token: "" });
+   162→  const [gitSaving, setGitSaving] = useState(false);
+   163→  const [gitSyncing, setGitSyncing] = useState(false);
+   164→  const [showToken, setShowToken] = useState(false);
+   165→
+   166→  // ── Encryption key state ──
+   167→  const [encKeyForm, setEncKeyForm] = useState("");
+   168→  const [showEncKey, setShowEncKey] = useState(false);
+   169→  const [encKeySaving, setEncKeySaving] = useState(false);
+   170→  const [hasEncryptionKey, setHasEncryptionKey] = useState(false);
+   171→
+   172→  // ── Credential encryption key state ──
+   173→  const [credEncKeyForm, setCredEncKeyForm] = useState("");
+   174→  const [showCredEncKey, setShowCredEncKey] = useState(false);
+   175→  const [credEncKeySaving, setCredEncKeySaving] = useState(false);
+   176→  const [hasCredEncKey, setHasCredEncKey] = useState(false);
+   177→  const [credEncKeyMasked, setCredEncKeyMasked] = useState("");
+   178→
+   179→  // ── Lark Integration state ──
+   180→  const [larkConfig, setLarkConfig] = useState<{
+   181→    configured: boolean; enabled: boolean; connected: boolean; error?: string;
+   182→    appId: string; encryptKey: string; taskLists: Array<{ id: string; name: string }>;
+   183→  } | null>(null);
+   184→  const [larkForm, setLarkForm] = useState({ appId: "", appSecret: "", encryptKey: "" });
+   185→  const [larkSaving, setLarkSaving] = useState(false);
+   186→  const [larkToggling, setLarkToggling] = useState(false);
+   187→  const [showLarkSecret, setShowLarkSecret] = useState(false);
+   188→  const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
+   189→  const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
+   190→
+   191→  // ── Workspace Config Token state ──
+   192→  const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
+   193→  const [wsTokenForm, setWsTokenForm] = useState("");
+   194→  const [wsLabelForm, setWsLabelForm] = useState("");
+   195→  const [wsSaving, setWsSaving] = useState(false);
+   196→  const [showWsToken, setShowWsToken] = useState(false);
+   197→
+   198→  // ── User Code state (admin) ──
+   199→  const [allUserCodes, setAllUserCodes] = useState<UserCodeEntry[]>([]);
+   200→  const [userCodesLoading, setUserCodesLoading] = useState(false);
+   201→  const [setCodeDialogOpen, setSetCodeDialogOpen] = useState(false);
+   202→  const [setCodeTarget, setSetCodeTarget] = useState<UserCodeEntry | null>(null);
+   203→  const [setCodeValue, setSetCodeValue] = useState("");
+   204→  const [setCodeSaving, setSetCodeSaving] = useState(false);
+   205→
+   206→  // ── User Code state (self) ──
+   207→  const [myUserCode, setMyUserCode] = useState<MyUserCode | null>(null);
+   208→  const [showMyCode, setShowMyCode] = useState(false);
+   209→
+   210→  // ── Copied states ──
+   211→  const [copiedWsToken, setCopiedWsToken] = useState(false);
+   212→  const [copiedMyCode, setCopiedMyCode] = useState(false);
+   213→
+   214→  // ── Credentials state ──
+   215→  const [credentials, setCredentials] = useState<Credential[]>([]);
+   216→  const [credsLoading, setCredsLoading] = useState(true);
+   217→  const [credsError, setCredsError] = useState("");
+   218→  const [deleteId, setDeleteId] = useState<string | null>(null);
+   219→  const [copiedField, setCopiedField] = useState<string | null>(null);
+   220→  const [deleteProtocolDialogOpen, setDeleteProtocolDialogOpen] = useState(false);
+   221→  const [allUsers, setAllUsers] = useState<UserOption[]>([]);
+   222→  const [selectedUserId, setSelectedUserId] = useState<string>("all");
+   223→  const [searchQuery, setSearchQuery] = useState("");
+   224→  const [showAddDialog, setShowAddDialog] = useState(false);
+   225→  const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
+   226→
+   227→  // ── Credential form state ──
+   228→  const [formLabel, setFormLabel] = useState("");
+   229→  const [formUsername, setFormUsername] = useState("");
+   230→  const [formPassword, setFormPassword] = useState("");
+   231→  const [formUrl, setFormUrl] = useState("");
+   232→  const [formNotes, setFormNotes] = useState("");
+   233→  const [formTargetUserId, setFormTargetUserId] = useState("");
+   234→  const [saving, setSaving] = useState(false);
+   235→
+   236→  // ── Lark User Mapping state ──
+   237→  const [larkUsers, setLarkUsers] = useState<Array<{ open_id: string; name: string; email?: string }>>([]);
+   238→  const [larkUsersLoading, setLarkUsersLoading] = useState(false);
+   239→  const [larkUsersError, setLarkUsersError] = useState("");
+   240→  const [larkMappings, setLarkMappings] = useState<Record<string, string>>({});
+   241→  const [larkMappingsLoading, setLarkMappingsLoading] = useState(false);
+   242→  const [larkMappingsSaving, setLarkMappingsSaving] = useState(false);
+   243→
+   244→  /* ═══════════════════════════════════════════════════════════════
+   245→     DATA FETCHING
+   246→     ═══════════════════════════════════════════════════════════════ */
+   247→
+   248→  // ── Fetch protocol/init data (protocol page data) ──
+   249→  useEffect(() => {
+   250→    if (status !== "authenticated") return;
+   251→    let cancelled = false;
+   252→    authFetch("/api/protocol/init")
+   253→      .then((res) => res.ok ? res.json() : null)
+   254→      .then((data) => {
+   255→        if (cancelled || !data) return;
+   256→        if (data.protocol?.id) {
+   257→          setProtocol(data.protocol);
+   258→          setDownloadEnabled(data.protocol.downloadEnabled !== false);
+   259→        } else {
+   260→          setDownloadEnabled(true);
+   261→        }
+   262→        if (data.wsConfig) {
+   263→          setWsConfig(data.wsConfig);
+   264→          if (data.wsConfig.configTokenLabel) setWsLabelForm(data.wsConfig.configTokenLabel);
+   265→        }
+   266→        if (data.myUserCode) setMyUserCode(data.myUserCode);
+   267→        if (data.gitConfig) {
+   268→          setGitConfig(data.gitConfig);
+   269→          setHasEncryptionKey(!!data.gitConfig.hasEncryptionKey);
+   270→          setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
+   271→        }
+   272→        if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
+   273→        fetchCredEncKeyStatus();
+   274→        fetchLarkConfig();
+   275→      })
+   276→      .catch(() => { /* silent */ })
+   277→      .finally(() => { if (!cancelled) setProtocolLoading(false); });
+   278→    return () => { cancelled = true; };
+   279→  }, [status]);
+   280→
+   281→  // ── Fetch credentials ──
+   282→  const fetchCredentials = useCallback(async () => {
+   283→    setCredsLoading(true);
+   284→    setCredsError("");
+   285→    try {
+   286→      const params = new URLSearchParams();
+   287→      if (isAdmin && selectedUserId && selectedUserId !== "all") {
+   288→        params.set("userId", selectedUserId);
+   289→      }
+   290→      const res = await fetch(`/api/credentials?${params.toString()}`, { credentials: "include" });
+   291→      if (res.ok) {
+   292→        const data = await res.json();
+   293→        const creds = Array.isArray(data) ? data : data.data;
+   294→        setCredentials(safeArray<Credential>(creds));
+   295→      } else {
+   296→        setCredsError("Failed to load credentials");
+   297→        toast.error("Failed to load credentials");
+   298→      }
+   299→    } catch {
+   300→      setCredsError("Failed to load credentials");
+   301→      toast.error("Failed to load credentials");
+   302→    } finally {
+   303→      setCredsLoading(false);
+   304→    }
+   305→  }, [isAdmin, selectedUserId]);
+   306→
+   307→  const fetchUsers = useCallback(async () => {
+   308→    if (!isAdmin) return;
+   309→    try {
+   310→      const res = await fetch("/api/team", { credentials: "include" });
+   311→      if (res.ok) {
+   312→        const data = await res.json();
+   313→        const users = safeArray<UserOption>(data.users || data);
+   314→        setAllUsers(users);
+   315→      }
+   316→    } catch {
+   317→      // silent
+   318→    }
+   319→  }, [isAdmin]);
+   320→
+   321→  useEffect(() => {
+   322→    if (status === "loading") return;
+   323→    if (!session) return;
+   324→    fetchCredentials();
+   325→    fetchUsers();
+   326→    initialFetchDone.current = true;
+   327→  }, [session, status, fetchCredentials, fetchUsers]);
+   328→
+   329→  // Re-fetch when admin changes user filter (skip initial mount)
+   330→  useEffect(() => {
+   331→    if (!isAdmin || !session || !initialFetchDone.current) return;
+   332→    fetchCredentials();
+   333→  }, [selectedUserId]);
+   334→
+   335→  /* ═══════════════════════════════════════════════════════════════
+   336→     PROTOCOL HANDLERS
+   337→     ═══════════════════════════════════════════════════════════════ */
+   338→
+   339→  const handleUpload = async (file: File) => {
+   340→    if (!file.name.toLowerCase().endsWith(".pdf")) { toast.error("Only PDF files are allowed"); return; }
+   341→    if (file.size > 10 * 1024 * 1024) { toast.error("File too large (max 10MB)"); return; }
+   342→    setUploading(true);
+   343→    try {
+   344→      const arrayBuffer = await file.arrayBuffer();
+   345→      const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""));
+   346→      const res = await authFetch("/api/protocol", {
+   347→        method: "PUT",
+   348→        headers: { "Content-Type": "application/json" },
+   349→        body: JSON.stringify({ fileName: file.name, fileSize: file.size, mimeType: file.type || "application/pdf", data: base64 }),
+   350→      });
+   351→      if (res.ok) {
+   352→        toast.success("Protocol PDF uploaded successfully");
+   353→        await refetchProtocol();
+   354→      } else {
+   355→        const data = await res.json();
+   356→        toast.error(safeText(data.error, "Upload failed"));
+   357→      }
+   358→    } catch { toast.error("Failed to upload file"); }
+   359→    setUploading(false);
+   360→  };
+   361→
+   362→  const handleDownload = useCallback(async () => {
+   363→    if (!protocol) return;
+   364→    try {
+   365→      const res = await authFetch("/api/protocol?download=true");
+   366→      if (res.ok) {
+   367→        const blob = await res.blob();
+   368→        const url = URL.createObjectURL(blob);
+   369→        const a = document.createElement("a");
+   370→        a.href = url;
+   371→        a.download = protocol.fileName || "trishul-protocol.pdf";
+   372→        document.body.appendChild(a);
+   373→        a.click();
+   374→        document.body.removeChild(a);
+   375→        URL.revokeObjectURL(url);
+   376→        toast.success("Download started");
+   377→      } else { toast.error("Failed to download protocol"); }
+   378→    } catch { toast.error("Download failed"); }
+   379→  }, [protocol]);
+   380→
+   381→  const handleDeleteProtocol = async () => {
+   382→    if (!protocol) return;
+   383→    setDeleteProtocolDialogOpen(true);
+   384→  };
+   385→
+   386→  const confirmDeleteProtocol = async () => {
+   387→    setDeleteProtocolDialogOpen(false);
+   388→    try {
+   389→      const res = await authFetch("/api/protocol", { method: "DELETE" });
+   390→      if (res.ok) { toast.success("Protocol PDF deleted"); setProtocol(null); }
+   391→      else { toast.error("Failed to delete"); }
+   392→    } catch { toast.error("Failed to delete"); }
+   393→  };
+   394→
+   395→  const handleToggleDownload = async () => {
+   396→    try {
+   397→      const res = await authFetch("/api/protocol", {
+   398→        method: "PATCH",
+   399→        headers: { "Content-Type": "application/json" },
+   400→        body: JSON.stringify({ downloadEnabled: !downloadEnabled }),
+   401→      });
+   402→      if (res.ok) {
+   403→        setDownloadEnabled(!downloadEnabled);
+   404→        toast.success(!downloadEnabled ? "Downloads enabled" : "Downloads disabled");
+   405→      } else { toast.error("Failed to toggle download"); }
+   406→    } catch { toast.error("Failed to toggle download"); }
+   407→  };
+   408→
+   409→  /* ═══════════════════════════════════════════════════════════════
+   410→     GIT CONFIG HANDLERS
+   411→     ═══════════════════════════════════════════════════════════════ */
+   412→
+   413→  const handleSaveGitConfig = async () => {
+   414→    if (!gitForm.repoUrl.trim()) { toast.error("Repository URL is required"); return; }
+   415→    if (!gitForm.token.trim()) { toast.error("Access token is required"); return; }
+   416→    setGitSaving(true);
+   417→    try {
+   418→      const res = await authFetch("/api/task-git-config", {
+   419→        method: gitConfig ? "PUT" : "POST",
+   420→        headers: { "Content-Type": "application/json" },
+   421→        body: JSON.stringify({ repoUrl: gitForm.repoUrl.trim(), token: gitForm.token, isEnabled: gitConfig?.isEnabled ?? false }),
+   422→      });
+   423→      if (res.ok) {
+   424→        toast.success("Git configuration saved");
+   425→        await refetchGitConfig();
+   426→        setGitForm((prev) => ({ ...prev, token: "" }));
+   427→      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to save configuration")); }
+   428→    } catch { toast.error("Failed to save configuration"); }
+   429→    setGitSaving(false);
+   430→  };
+   431→
+   432→  const handleToggleGitSync = async () => {
+   433→    if (!gitConfig) return;
+   434→    const newValue = !gitConfig.isEnabled;
+   435→    try {
+   436→      const res = await authFetch("/api/task-git-config", {
+   437→        method: "PATCH",
+   438→        headers: { "Content-Type": "application/json" },
+   439→        body: JSON.stringify({ isEnabled: newValue }),
+   440→      });
+   441→      if (res.ok) {
+   442→        setGitConfig({ ...gitConfig, isEnabled: newValue });
+   443→        toast.success(newValue ? "Auto-sync enabled — syncing now..." : "Auto-sync disabled");
+   444→        if (newValue) {
+   445→          setGitSyncing(true);
+   446→          authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } })
+   447→            .then(async (syncRes) => {
+   448→              setGitSyncing(false);
+   449→              if (syncRes.ok) {
+   450→                const syncData = await syncRes.json();
+   451→                if (syncData.success) toast.success(`Sync completed — ${syncData.filesUpdated} file(s) updated`);
+   452→                else toast.error("Sync failed: " + (syncData.error || "Unknown error"));
+   453→              } else { toast.error("Sync request failed"); }
+   454→              await refetchGitConfig();
+   455→            })
+   456→            .catch(() => { setGitSyncing(false); toast.error("Sync request failed"); });
+   457→        }
+   458→      } else { toast.error("Failed to toggle git sync"); }
+   459→    } catch { toast.error("Failed to toggle git sync"); }
+   460→  };
+   461→
+   462→  const handleManualSync = async () => {
+   463→    setGitSyncing(true);
+   464→    try {
+   465→      const res = await authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } });
+   466→      if (res.ok) {
+   467→        const data = await res.json();
+   468→        setGitSyncing(false);
+   469→        if (data.success) toast.success(`Sync completed — ${data.filesUpdated} file(s) updated`);
+   470→        else toast.error("Sync failed: " + (data.error || "Unknown error"));
+   471→        await refetchGitConfig();
+   472→      } else {
+   473→        const errData = await res.json().catch(() => ({ error: "Request failed" }));
+   474→        toast.error(errData.error || "Failed to trigger sync");
+   475→        setGitSyncing(false);
+   476→      }
+   477→    } catch { toast.error("Failed to trigger sync"); setGitSyncing(false); }
+   478→  };
+   479→
+   480→  /* ═══════════════════════════════════════════════════════════════
+   481→     ENCRYPTION KEY HANDLERS
+   482→     ═══════════════════════════════════════════════════════════════ */
+   483→
+   484→  const handleSaveEncKey = async () => {
+   485→    const key = encKeyForm.trim();
+   486→    if (!key || key.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(key)) {
+   487→      toast.error("Encryption key must be a 64-character hex string");
+   488→      return;
+   489→    }
+   490→    setEncKeySaving(true);
+   491→    try {
+   492→      const res = await authFetch("/api/task-git-config", {
+   493→        method: "PATCH",
+   494→        headers: { "Content-Type": "application/json" },
+   495→        body: JSON.stringify({ encryptionKey: key }),
+   496→      });
+   497→      if (res.ok) {
+   498→        toast.success("Encryption key updated. Make sure to set the same key in Vercel environment variables.");
+   499→        setEncKeyForm("");
+   500→        setHasEncryptionKey(true);
+   501→      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to update encryption key")); }
+   502→    } catch { toast.error("Failed to update encryption key"); }
+   503→    setEncKeySaving(false);
+   504→  };
+   505→
+   506→  const handleGenerateKey = () => {
+   507→    const array = new Uint8Array(32);
+   508→    crypto.getRandomValues(array);
+   509→    const hex = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+   510→    setEncKeyForm(hex);
+   511→    toast.success("New key generated. Click 'Save Key' to apply.");
+   512→  };
+   513→
+   514→  /* ═══════════════════════════════════════════════════════════════
+   515→     CREDENTIAL ENCRYPTION KEY HANDLERS
+   516→     ═══════════════════════════════════════════════════════════════ */
+   517→
+   518→  const handleSaveCredEncKey = async () => {
+   519→    if (!credEncKeyForm.trim()) return;
+   520→    if (!/^[0-9a-fA-F]{64}$/.test(credEncKeyForm.trim())) {
+   521→      toast.error("Key must be exactly 64 hex characters");
+   522→      return;
+   523→    }
+   524→    setCredEncKeySaving(true);
+   525→    try {
+   526→      const res = await fetch("/api/settings/credential-key", {
+   527→        method: "PATCH",
+   528→        headers: { "Content-Type": "application/json" },
+   529→        credentials: "include",
+   530→        body: JSON.stringify({ key: credEncKeyForm.trim() }),
+   531→      });
+   532→      if (res.ok) {
+   533→        toast.success("Credential encryption key saved");
+   534→        setCredEncKeyForm("");
+   535→        fetchCredEncKeyStatus();
+   536→      } else {
+   537→        const data = await res.json().catch(() => ({}));
+   538→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to save key");
+   539→      }
+   540→    } catch {
+   541→      toast.error("Failed to save key");
+   542→    }
+   543→    setCredEncKeySaving(false);
+   544→  };
+   545→
+   546→  const fetchCredEncKeyStatus = async () => {
+   547→    try {
+   548→      const res = await fetch("/api/settings/credential-key", { credentials: "include" });
+   549→      if (res.ok) {
+   550→        const data = await res.json();
+   551→        setHasCredEncKey(data.hasKey);
+   552→        setCredEncKeyMasked(data.maskedKey || "");
+   553→      }
+   554→    } catch { /* silent */ }
+   555→  };
+   556→
+   557→  // ── Lark Integration handlers ──
+   558→  const fetchLarkConfig = async () => {
+   559→    try {
+   560→      const res = await fetch("/api/lark/settings", { credentials: "include" });
+   561→      if (res.ok) {
+   562→        const data = await res.json();
+   563→        setLarkConfig(data);
+   564→      }
+   565→    } catch { /* silent */ }
+   566→  };
+   567→
+   568→  const handleSaveLarkConfig = async () => {
+   569→    setLarkSaving(true);
+   570→    try {
+   571→      const res = await fetch("/api/lark/settings", {
+   572→        method: "POST",
+   573→        headers: { "Content-Type": "application/json" },
+   574→        credentials: "include",
+   575→        body: JSON.stringify({ ...larkForm, testConnection: true }),
+   576→      });
+   577→      if (res.ok) {
+   578→        toast.success("Lark connected successfully");
+   579→        await fetchLarkConfig();
+   580→        setLarkForm(f => ({ ...f, appSecret: "" }));
+   581→      } else {
+   582→        const data = await res.json();
+   583→        toast.error(data.error || "Failed to connect");
+   584→      }
+   585→    } catch {
+   586→      toast.error("Connection failed");
+   587→    } finally {
+   588→      setLarkSaving(false);
+   589→    }
+   590→  };
+   591→
+   592→  const handleLarkToggle = async (enabled: boolean) => {
+   593→    setLarkToggling(true);
+   594→    try {
+   595→      const res = await fetch("/api/lark/settings", {
+   596→        method: "PATCH",
+   597→        headers: { "Content-Type": "application/json" },
+   598→        credentials: "include",
+   599→        body: JSON.stringify({ enabled }),
+   600→      });
+   601→      if (res.ok) {
+   602→        toast.success(enabled ? "Lark sync enabled" : "Lark sync disabled");
+   603→        await fetchLarkConfig();
+   604→      } else {
+   605→        toast.error("Failed to toggle");
+   606→      }
+   607→    } catch {
+   608→      toast.error("Failed to toggle");
+   609→    } finally {
+   610→      setLarkToggling(false);
+   611→    }
+   612→  };
+   613→
+   614→  /* ═══════════════════════════════════════════════════════════════
+   615→     WORKSPACE TOKEN HANDLERS
+   616→     ═══════════════════════════════════════════════════════════════ */
+   617→
+   618→  const handleSaveWsConfig = async () => {
+   619→    if (!wsTokenForm.trim() && !wsLabelForm.trim()) { toast.error("Enter a token or label to save"); return; }
+   620→    setWsSaving(true);
+   621→    try {
+   622→      const body: Record<string, string> = {};
+   623→      if (wsTokenForm.trim()) body.configToken = wsTokenForm.trim();
+   624→      if (wsLabelForm.trim()) body.configTokenLabel = wsLabelForm.trim();
+   625→      const res = await authFetch("/api/workspace-config", {
+   626→        method: "PATCH",
+   627→        headers: { "Content-Type": "application/json" },
+   628→        body: JSON.stringify(body),
+   629→      });
+   630→      if (res.ok) { toast.success("Workspace config updated"); setWsTokenForm(""); await refetchWsConfig(); }
+   631→      else { const data = await res.json(); toast.error(safeText(data.error, "Failed to update")); }
+   632→    } catch { toast.error("Failed to update"); }
+   633→    setWsSaving(false);
+   634→  };
+   635→
+   636→  const handleCopyWsToken = async () => {
+   637→    const tokenToCopy = wsConfig?.configToken || null;
+   638→    if (!tokenToCopy) { toast.error("Token not available to copy"); return; }
+   639→    try {
+   640→      await navigator.clipboard.writeText(tokenToCopy);
+   641→      setCopiedWsToken(true);
+   642→      toast.success("Token copied to clipboard");
+   643→      setTimeout(() => setCopiedWsToken(false), 2000);
+   644→    } catch { toast.error("Failed to copy"); }
+   645→  };
+   646→
+   647→  /* ═══════════════════════════════════════════════════════════════
+   648→     USER CODE HANDLERS
+   649→     ═══════════════════════════════════════════════════════════════ */
+   650→
+   651→  const handleOpenSetCodeDialog = (user: UserCodeEntry) => {
+   652→    setSetCodeTarget(user);
+   653→    setSetCodeValue("");
+   654→    setSetCodeDialogOpen(true);
+   655→  };
+   656→
+   657→  const handleSaveUserCode = async () => {
+   658→    if (!setCodeTarget || !setCodeValue.trim()) { toast.error("Code is required"); return; }
+   659→    setSetCodeSaving(true);
+   660→    try {
+   661→      const res = await authFetch("/api/user-code", {
+   662→        method: "PATCH",
+   663→        headers: { "Content-Type": "application/json" },
+   664→        body: JSON.stringify({ userId: setCodeTarget.userId, code: setCodeValue.trim() }),
+   665→      });
+   666→      if (res.ok) {
+   667→        toast.success(`Code set for ${setCodeTarget.userName}`);
+   668→        setSetCodeDialogOpen(false);
+   669→        await refetchAllUserCodes();
+   670→        await refetchMyUserCode();
+   671→      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to set code")); }
+   672→    } catch { toast.error("Failed to set code"); }
+   673→    setSetCodeSaving(false);
+   674→  };
+   675→
+   676→  const handleCopyMyCode = async () => {
+   677→    if (!myUserCode?.code) { toast.error("No code available"); return; }
+   678→    try {
+   679→      await navigator.clipboard.writeText(myUserCode.code);
+   680→      setCopiedMyCode(true);
+   681→      toast.success("Code copied to clipboard");
+   682→      setTimeout(() => setCopiedMyCode(false), 2000);
+   683→    } catch { toast.error("Failed to copy"); }
+   684→  };
+   685→
+   686→  /* ═══════════════════════════════════════════════════════════════
+   687→     CREDENTIALS HANDLERS
+   688→     ═══════════════════════════════════════════════════════════════ */
+   689→
+   690→  const copyToClipboard = async (text: string, fieldId: string) => {
+   691→    try {
+   692→      await navigator.clipboard.writeText(text);
+   693→      setCopiedField(fieldId);
+   694→      setTimeout(() => setCopiedField(null), 2000);
+   695→    } catch { /* fallback */ }
+   696→  };
+   697→
+   698→  const handleCopyPassword = async (credId: string, fieldId: string) => {
+   699→    try {
+   700→      const res = await fetch(`/api/credentials/${credId}/reveal`, { credentials: "include" });
+   701→      if (res.ok) {
+   702→        const data = await res.json();
+   703→        const realPassword = data.password;
+   704→        if (realPassword) {
+   705→          await copyToClipboard(realPassword, fieldId);
+   706→        } else {
+   707→          toast.error("Password not found");
+   708→        }
+   709→      } else {
+   710→        toast.error("Failed to fetch password");
+   711→      }
+   712→    } catch {
+   713→      toast.error("Failed to copy password");
+   714→    }
+   715→  };
+   716→
+   717→  const resetCredForm = () => {
+   718→    setFormLabel("");
+   719→    setFormUsername("");
+   720→    setFormPassword("");
+   721→    setFormUrl("");
+   722→    setFormNotes("");
+   723→    setFormTargetUserId(session?.user?.id || "");
+   724→    setEditingCredential(null);
+   725→  };
+   726→
+   727→  const openAddCredDialog = () => { resetCredForm(); setShowAddDialog(true); };
+   728→
+   729→  const openEditCredDialog = (cred: Credential) => {
+   730→    setEditingCredential(cred);
+   731→    setFormLabel(cred.label);
+   732→    setFormUsername(cred.username);
+   733→    setFormPassword("");
+   734→    setFormUrl(cred.url || "");
+   735→    setFormNotes(cred.notes || "");
+   736→    setFormTargetUserId(cred.user?.id || session?.user?.id || "");
+   737→    setShowAddDialog(true);
+   738→  };
+   739→
+   740→  const handleSaveCred = async () => {
+   741→    if (!formLabel || !formUsername || (!formPassword && !editingCredential)) return;
+   742→    if (isAdmin && !formTargetUserId) return;
+   743→    setSaving(true);
+   744→    try {
+   745→      const body: Record<string, string> = {
+   746→        label: formLabel,
+   747→        username: formUsername,
+   748→        ...(formPassword && { password: formPassword }),
+   749→        url: formUrl,
+   750→        notes: formNotes,
+   751→      };
+   752→      if (editingCredential) {
+   753→        body.id = editingCredential.id;
+   754→        const res = await fetch("/api/credentials", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
+   755→        if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
+   756→      } else {
+   757→        const userId = isAdmin ? formTargetUserId : session?.user?.id;
+   758→        if (!userId) {
+   759→          toast.error("No user session found");
+   760→          return;
+   761→        }
+   762→        body.userId = userId;
+   763→        const res = await fetch("/api/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
+   764→        if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
+   765→      }
+   766→    } catch { toast.error("Failed to save credential"); }
+   767→    finally { setSaving(false); }
+   768→  };
+   769→
+   770→  const handleDeleteCred = async (id: string) => {
+   771→    try {
+   772→      const res = await fetch(`/api/credentials?id=${id}`, { method: "DELETE", credentials: "include" });
+   773→      if (res.ok) { setDeleteId(null); fetchCredentials(); }
+   774→    } catch { toast.error("Failed to delete credential"); }
+   775→  };
+   776→
+   777→  /* ═══════════════════════════════════════════════════════════════
+   778→     REFETCH HELPERS
+   779→     ═══════════════════════════════════════════════════════════════ */
+   780→
+   781→  const refetchProtocol = useCallback(async () => {
+   782→    try {
+   783→      const res = await authFetch("/api/protocol");
+   784→      if (res.ok) {
+   785→        const data = await res.json();
+   786→        if (data?.id) { setProtocol(data); setDownloadEnabled(data.downloadEnabled !== false); }
+   787→        else { setProtocol(null); setDownloadEnabled(true); }
+   788→      }
+   789→    } catch { /* silent */ }
+   790→  }, []);
+   791→
+   792→  const refetchGitConfig = useCallback(async () => {
+   793→    if (!isSuperAdmin) return;
+   794→    try {
+   795→      const res = await authFetch("/api/task-git-config");
+   796→      if (res.ok) {
+   797→        const data = await res.json();
+   798→        setGitConfig(data);
+   799→        setHasEncryptionKey(!!data.hasEncryptionKey);
+   800→        setGitForm({ repoUrl: data.repoUrl || "", token: "" });
+   801→      }
+   802→    } catch { /* silent */ }
+   803→    fetchCredEncKeyStatus();
+   804→  }, [isSuperAdmin]);
+   805→
+   806→  const refetchWsConfig = useCallback(async () => {
+   807→    try {
+   808→      const res = await authFetch("/api/workspace-config");
+   809→      if (res.ok) { const data = await res.json(); setWsConfig(data); if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel); }
+   810→    } catch { /* silent */ }
+   811→  }, []);
+   812→
+   813→  const refetchAllUserCodes = useCallback(async () => {
+   814→    if (!isSuperAdmin) return;
+   815→    setUserCodesLoading(true);
+   816→    try {
+   817→      const res = await authFetch("/api/user-code/all");
+   818→      if (res.ok) { const data = await res.json(); setAllUserCodes(data.userCodes || []); }
+   819→    } catch { /* silent */ }
+   820→    setUserCodesLoading(false);
+   821→  }, [isSuperAdmin]);
+   822→
+   823→  const refetchMyUserCode = useCallback(async () => {
+   824→    try {
+   825→      const res = await authFetch("/api/user-code");
+   826→      if (res.ok) setMyUserCode(await res.json());
+   827→    } catch { /* silent */ }
+   828→  }, []);
+   829→
+   830→  /* ═══════════════════════════════════════════════════════════════
+   831→     UTILITY
+   832→     ═══════════════════════════════════════════════════════════════ */
+   833→
+   834→  const formatSize = (bytes: number) => {
+   835→    if (bytes < 1024) return `${bytes} B`;
+   836→    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+   837→    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+   838→  };
+   839→
+   840→  const formatRelativeTime = (dateStr: string | null) => {
+   841→    if (!dateStr) return null;
+   842→    const date = new Date(dateStr);
+   843→    const now = new Date();
+   844→    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+   845→    if (seconds < 60) return "Just now";
+   846→    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+   847→    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+   848→    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+   849→    return date.toLocaleDateString();
+   850→  };
+   851→
+   852→  const labelColor = (label: string) => LABEL_COLORS[label] || LABEL_COLORS.Default;
+   853→
+   854→  const safeUrl = (url: string | null | undefined): string => {
+   855→    if (!url) return "#";
+   856→    try {
+   857→      const parsed = new URL(url);
+   858→      if (["http:", "https:"].includes(parsed.protocol)) return url;
+   859→      return "#";
+   860→    } catch { return "#"; }
+   861→  };
+   862→
+   863→  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
+   864→  const onDragLeave = () => setDragOver(false);
+   865→  const onDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) handleUpload(file); };
+   866→
+   867→  const filteredCredentials = credentials.filter((c) => {
+   868→    if (!searchQuery) return true;
+   869→    const q = searchQuery.toLowerCase();
+   870→    return (
+   871→      safeText(c.label, "").toLowerCase().includes(q) ||
+   872→      safeText(c.username, "").toLowerCase().includes(q) ||
+   873→      safeText(c.notes, "").toLowerCase().includes(q)
+   874→    );
+   875→  });
+   876→
+   877→  /* ═══════════════════════════════════════════════════════════════
+   878→     RENDER GUARD
+   879→     ═══════════════════════════════════════════════════════════════ */
+   880→
+   881→  if (status === "loading") return null;
+   882→  if (!session) return null;
+   883→
+   884→  const hasCredentials = filteredCredentials.length > 0;
+   885→
+   886→  /* ═══════════════════════════════════════════════════════════════
+   887→     SHARED UI COMPONENTS (to reduce duplication)
+   888→     ═══════════════════════════════════════════════════════════════ */
+   889→
+   890→  // Protocol PDF card (read-only)
+   891→  const ProtocolPdfCard = ({ canManage }: { canManage?: boolean }) => (
+   892→    <Card className="overflow-hidden border-border/60">
+   893→      <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
+   894→      <CardContent className="p-5">
+   895→        {protocol ? (
+   896→          <div className="space-y-4">
+   897→            <div className="flex items-start justify-between gap-3 sm:gap-4">
+   898→              <div className="flex items-center gap-3 min-w-0">
+   899→                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+   900→                  <FileText className="h-5 w-5 text-white" />
+   901→                </div>
+   902→                <div className="min-w-0">
+   903→                  <p className="font-semibold text-sm truncate">{safeText(protocol.fileName)}</p>
+   904→                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+   905→                    <Badge variant="secondary" className="text-xs bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 border-0">PDF</Badge>
+   906→                    <span className="text-xs text-muted-foreground">{formatSize(protocol.fileSize)}</span>
+   907→                  </div>
+   908→                </div>
+   909→              </div>
+   910→              <Badge variant="outline" className="text-xs flex items-center gap-1 flex-shrink-0 text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400">
+   911→                <CheckCircle2 className="h-3 w-3" /> Active
+   912→              </Badge>
+   913→            </div>
+   914→            <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+   915→              <Clock className="h-3 w-3" />
+   916→              Uploaded: {safeDate(protocol.uploadedAt)}
+   917→              {protocol.uploadedBy && (<> &middot; by {safeText(protocol.uploadedBy)}</>)}
+   918→            </div>
+   919→            <div className="flex items-center gap-2 pt-3 border-t border-border/50">
+   920→              {canManage || isAdmin ? (
+   921→                <Button onClick={handleDownload} className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm">
+   922→                  <Download className="h-4 w-4 mr-2" /> Download PDF
+   923→                </Button>
+   924→              ) : !downloadEnabled ? (
+   925→                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg w-full">
+   926→                  <Ban className="h-4 w-4 text-red-500" />
+   927→                  <span className="text-sm text-red-600 dark:text-red-400">Download disabled by administration</span>
+   928→                </div>
+   929→              ) : (
+   930→                <Button onClick={handleDownload} className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm">
+   931→                  <Download className="h-4 w-4 mr-2" /> Download PDF
+   932→                </Button>
+   933→              )}
+   934→            </div>
+   935→          </div>
+   936→        ) : (
+   937→          <div className="flex items-center gap-3">
+   938→            <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+   939→              <AlertCircle className="h-5 w-5 text-muted-foreground" />
+   940→            </div>
+   941→            <div>
+   942→              <p className="font-semibold text-sm">No protocol uploaded</p>
+   943→              <p className="text-xs text-muted-foreground">No protocol is available yet. Contact your admin.</p>
+   944→            </div>
+   945→          </div>
+   946→        )}
+   947→      </CardContent>
+   948→    </Card>
+   949→  );
+   950→
+   951→  // Workspace Token card (all users can view/copy)
+   952→  const WorkspaceTokenCard = ({ canManage }: { canManage?: boolean }) => (
+   953→    <Card className="overflow-hidden border-border/60">
+   954→      <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
+   955→      <CardHeader className="pb-3">
+   956→        <div className="flex items-center gap-2.5">
+   957→          <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+   958→            <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+   959→          </div>
+   960→          <div>
+   961→            <CardTitle className="text-sm">{safeText(wsConfig?.configTokenLabel, "Workspace Token")}</CardTitle>
+   962→            <CardDescription className="text-xs">Shared workspace configuration token</CardDescription>
+   963→          </div>
+   964→        </div>
+   965→      </CardHeader>
+   966→      <CardContent className="pt-0 space-y-3">
+   967→        {wsConfig?.hasToken ? (
+   968→          <div className="space-y-2">
+   969→            <div className="relative">
+   970→              <Input
+   971→                type={showWsToken ? "text" : "password"}
+   972→                value={showWsToken ? (wsConfig?.configToken || "") : (wsConfig?.configTokenMasked || "••••••••")}
+   973→                readOnly
+   974→                className="pr-20 font-mono text-xs bg-muted/50"
+   975→              />
+   976→              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+   977→                <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+   978→                  {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+   979→                </button>
+   980→                <Tooltip>
+   981→                  <TooltipTrigger asChild>
+   982→                    <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+   983→                      {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+   984→                    </button>
+   985→                  </TooltipTrigger>
+   986→                  <TooltipContent>Copy token</TooltipContent>
+   987→                </Tooltip>
+   988→              </div>
+   989→            </div>
+   990→          </div>
+   991→        ) : (
+   992→          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+   993→            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+   994→            <span className="text-xs text-muted-foreground">No workspace token configured yet.</span>
+   995→          </div>
+   996→        )}
+   997→      </CardContent>
+   998→    </Card>
+   999→  );
+  1000→
+  1001→  // My Code card (read-only)
+  1002→  const MyCodeCard = () => (
+  1003→    <Card className="overflow-hidden border-border/60">
+  1004→      <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+  1005→      <CardHeader className="pb-3">
+  1006→        <div className="flex items-center gap-2.5">
+  1007→          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+  1008→            <Fingerprint className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+  1009→          </div>
+  1010→          <div>
+  1011→            <CardTitle className="text-sm">Your Code</CardTitle>
+  1012→            <CardDescription className="text-xs">Your personal access code assigned by admin</CardDescription>
+  1013→          </div>
+  1014→        </div>
+  1015→      </CardHeader>
+  1016→      <CardContent className="pt-0 space-y-3">
+  1017→        {myUserCode?.hasCode ? (
+  1018→          <div className="space-y-2">
+  1019→            <div className="relative">
+  1020→              <Input
+  1021→                type={showMyCode ? "text" : "password"}
+  1022→                value={showMyCode ? (myUserCode.code || "") : (myUserCode.codeMasked || "••••••••")}
+  1023→                readOnly
+  1024→                className="pr-20 font-mono text-xs bg-muted/50"
+  1025→              />
+  1026→              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+  1027→                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+  1028→                  {showMyCode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1029→                </button>
+  1030→                <Tooltip>
+  1031→                  <TooltipTrigger asChild>
+  1032→                    <button type="button" onClick={handleCopyMyCode} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+  1033→                      {copiedMyCode ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+  1034→                    </button>
+  1035→                  </TooltipTrigger>
+  1036→                  <TooltipContent>Copy code</TooltipContent>
+  1037→                </Tooltip>
+  1038→              </div>
+  1039→            </div>
+  1040→            {myUserCode.updatedAt && (
+  1041→              <p className="text-xs text-muted-foreground">Last updated: {safeDate(myUserCode.updatedAt)}</p>
+  1042→            )}
+  1043→          </div>
+  1044→        ) : (
+  1045→          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+  1046→            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+  1047→            <span className="text-xs text-muted-foreground">No code assigned yet. Your admin will assign one.</span>
+  1048→          </div>
+  1049→        )}
+  1050→      </CardContent>
+  1051→    </Card>
+  1052→  );
+  1053→
+  1054→  /* ═══════════════════════════════════════════════════════════════
+  1055→     MAIN RENDER
+  1056→     ═══════════════════════════════════════════════════════════════ */
+  1057→
+  1058→  return (
+  1059→    <div className="space-y-6 max-w-4xl mx-auto px-1 sm:px-0">
+  1060→      <PageHeader
+  1061→        title="Access Hub"
+  1062→        description="Credentials, protocol documents, workspace tokens, and system configuration."
+  1063→      />
+  1064→
+  1065→      {isAdmin ? (
+  1066→        <Tabs value={urlTab} className="space-y-6">
+  1067→          <TabsList className="bg-muted/50 w-full sm:w-auto">
+  1068→            <TabsTrigger value="credentials" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
+  1069→              <KeyRound className="h-3.5 w-3.5" />
+  1070→              Credentials
+  1071→            </TabsTrigger>
+  1072→            <TabsTrigger value="protocol" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
+  1073→              <FileText className="h-3.5 w-3.5" />
+  1074→              Protocol &amp; Resources
+  1075→            </TabsTrigger>
+  1076→            <TabsTrigger value="lark-users" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
+  1077→              <Bird className="h-3.5 w-3.5" />
+  1078→              User Mapping
+  1079→            </TabsTrigger>
+  1080→            <TabsTrigger value="system" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
+  1081→              <Settings className="h-3.5 w-3.5" />
+  1082→              System Config
+  1083→            </TabsTrigger>
+  1084→          </TabsList>
+  1085→
+  1086→          {/* ═══════════ TAB 1: CREDENTIALS ═══════════ */}
+  1087→          <TabsContent value="credentials" className="space-y-5 mt-2">
+  1088→            {/* Admin: User filter */}
+  1089→            {isAdmin && allUsers.length > 0 && (
+  1090→              <Card>
+  1091→                <CardContent className="pt-4">
+  1092→                  <div className="flex items-center gap-3 flex-wrap">
+  1093→                    <div className="flex items-center gap-2">
+  1094→                      <Shield className="h-4 w-4 text-muted-foreground" />
+  1095→                      <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
+  1096→                    </div>
+  1097→                    <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+  1098→                      <SelectTrigger className="w-[220px]">
+  1099→                        <SelectValue placeholder="All users" />
+  1100→                      </SelectTrigger>
+  1101→                      <SelectContent>
+  1102→                        <SelectItem value="all">All Users</SelectItem>
+  1103→                        {allUsers.map((u) => (
+  1104→                          <SelectItem key={u.id} value={u.id}>
+  1105→                            {safeText(u.name, "Unknown")} ({safeText(u.email, "")})
+  1106→                          </SelectItem>
+  1107→                        ))}
+  1108→                      </SelectContent>
+  1109→                    </Select>
+  1110→                  </div>
+  1111→                </CardContent>
+  1112→              </Card>
+  1113→            )}
+  1114→
+  1115→            {/* Search */}
+  1116→            <div className="relative">
+  1117→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+  1118→              <Input
+  1119→                placeholder="Search by label, username, or notes..."
+  1120→                className="pl-9"
+  1121→                value={searchQuery}
+  1122→                onChange={(e) => setSearchQuery(e.target.value)}
+  1123→              />
+  1124→            </div>
+  1125→
+  1126→            {/* Add button */}
+  1127→            {isAdmin && (
+  1128→              <div className="flex items-center gap-2">
+  1129→                <Button size="sm" onClick={openAddCredDialog}>
+  1130→                  <Plus className="h-4 w-4 mr-1" /> Add Credential
+  1131→                </Button>
+  1132→              </div>
+  1133→            )}
+  1134→
+  1135→            {/* Error state */}
+  1136→            {credsError && (
+  1137→              <Card className="border-destructive/50">
+  1138→                <CardContent className="pt-6 pb-6">
+  1139→                  <div className="text-center">
+  1140→                    <p className="text-sm text-destructive">{credsError}</p>
+  1141→                    <Button variant="outline" size="sm" className="mt-3" onClick={() => { setCredsError(""); fetchCredentials(); }}>Retry</Button>
+  1142→                  </div>
+  1143→                </CardContent>
+  1144→              </Card>
+  1145→            )}
+  1146→
+  1147→            {/* Loading state */}
+  1148→            {credsLoading && (
+  1149→              <div className="grid gap-4 md:grid-cols-2">
+  1150→                {[1, 2, 3].map((i) => (
+  1151→                  <Card key={i}><CardContent className="p-6"><div className="space-y-3"><div className="h-4 w-24 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /></div></CardContent></Card>
+  1152→                ))}
+  1153→              </div>
+  1154→            )}
+  1155→
+  1156→            {/* Empty state */}
+  1157→            {!credsLoading && !hasCredentials && !credsError && (
+  1158→              <Card>
+  1159→                <CardContent className="pt-8 pb-8">
+  1160→                  <div className="text-center">
+  1161→                    <KeyRound className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+  1162→                    <p className="text-sm text-muted-foreground">
+  1163→                      {searchQuery
+  1164→                        ? "No credentials match your search"
+  1165→                        : "No credentials found. Click 'Add Credential' to create one."}
+  1166→                    </p>
+  1167→                  </div>
+  1168→                </CardContent>
+  1169→              </Card>
+  1170→            )}
+  1171→
+  1172→            {/* Credentials Grid */}
+  1173→            {!credsLoading && hasCredentials && (
+  1174→              <div className="grid gap-4 md:grid-cols-2">
+  1175→                {filteredCredentials.map((cred) => (
+  1176→                  <Card key={cred.id} className="group">
+  1177→                    <CardHeader className="pb-3">
+  1178→                      <div className="flex items-center justify-between">
+  1179→                        <div className="flex items-center gap-2">
+  1180→                          <Badge className={cn("text-xs", labelColor(cred.label))}>
+  1181→                            {safeText(cred.label, "Credential")}
+  1182→                          </Badge>
+  1183→                          {cred.url && (
+  1184→                            <a href={safeUrl(cred.url)} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+  1185→                              <Globe className="h-3.5 w-3.5" />
+  1186→                            </a>
+  1187→                          )}
+  1188→                        </div>
+  1189→                        {isAdmin && (
+  1190→                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+  1191→                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
+  1192→                              <Edit3 className="h-3 w-3" />
+  1193→                            </Button>
+  1194→                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(cred.id)} aria-label="Delete credential">
+  1195→                              <Trash2 className="h-3 w-3" />
+  1196→                            </Button>
+  1197→                          </div>
+  1198→                        )}
+  1199→                      </div>
+  1200→                      {isAdmin && cred.user && (
+  1201→                        <CardDescription className="text-xs">
+  1202→                          For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
+  1203→                        </CardDescription>
+  1204→                      )}
+  1205→                    </CardHeader>
+  1206→                    <CardContent className="space-y-3">
+  1207→                      <div className="space-y-1">
+  1208→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">ID / Username</p>
+  1209→                        <div className="flex items-center gap-2">
+  1210→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.username, "")}</code>
+  1211→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.username, `user-${cred.id}`)} aria-label="Copy username">
+  1212→                            {copiedField === `user-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+  1213→                          </Button>
+  1214→                        </div>
+  1215→                      </div>
+  1216→                      <div className="space-y-1">
+  1217→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
+  1218→                        <div className="flex items-center gap-2">
+  1219→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
+  1220→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
+  1221→                            {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+  1222→                          </Button>
+  1223→                        </div>
+  1224→                      </div>
+  1225→                      {cred.notes && (
+  1226→                        <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">{safeText(cred.notes, "")}</p>
+  1227→                      )}
+  1228→                    </CardContent>
+  1229→                  </Card>
+  1230→                ))}
+  1231→              </div>
+  1232→            )}
+  1233→          </TabsContent>
+  1234→
+  1235→          {/* ═══════════ TAB 2: PROTOCOL & RESOURCES ═══════════ */}
+  1236→          <TabsContent value="protocol" className="space-y-5 mt-2">
+  1237→            {/* Protocol PDF Card */}
+  1238→            <Card className="overflow-hidden border-border/60 shadow-sm">
+  1239→              <div className="h-1 bg-gradient-to-r from-rose-500 to-red-600" />
+  1240→              <CardHeader className="pb-3">
+  1241→                <div className="flex items-center gap-2.5">
+  1242→                  <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
+  1243→                    <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+  1244→                  </div>
+  1245→                  <div className="flex-1">
+  1246→                    <CardTitle className="text-sm">Protocol PDF</CardTitle>
+  1247→                    <CardDescription className="text-xs">Upload, manage, and control access to the protocol document</CardDescription>
+  1248→                  </div>
+  1249→                </div>
+  1250→              </CardHeader>
+  1251→              <CardContent className="space-y-4">
+  1252→                {protocol ? (
+  1253→                  <div className="space-y-3">
+  1254→                    <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg">
+  1255→                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center flex-shrink-0">
+  1256→                        <FileText className="h-4 w-4 text-white" />
+  1257→                      </div>
+  1258→                      <div className="min-w-0 flex-1">
+  1259→                        <p className="text-sm font-medium truncate">{safeText(protocol.fileName)}</p>
+  1260→                        <p className="text-xs text-muted-foreground">{formatSize(protocol.fileSize)} &middot; {safeDate(protocol.uploadedAt)}</p>
+  1261→                      </div>
+  1262→                      <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400 flex-shrink-0">Active</Badge>
+  1263→                    </div>
+  1264→                    <div className="flex items-center gap-2 flex-wrap">
+  1265→                      <Button onClick={handleDownload} variant="outline" size="sm" className="flex-1 min-w-[100px]">
+  1266→                        <Download className="h-3.5 w-3.5 mr-1.5" /> Download
+  1267→                      </Button>
+  1268→                      <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" className="flex-1 min-w-[100px]">
+  1269→                        <Upload className="h-3.5 w-3.5 mr-1.5" /> Replace
+  1270→                      </Button>
+  1271→                      <Button onClick={handleDeleteProtocol} variant="outline" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
+  1272→                        <Trash2 className="h-3.5 w-3.5" />
+  1273→                      </Button>
+  1274→                    </div>
+  1275→                  </div>
+  1276→                ) : (
+  1277→                  <div className="space-y-3">
+  1278→                    <p className="text-sm text-muted-foreground">No protocol uploaded yet.</p>
+  1279→                    <div
+  1280→                      onDragOver={onDragOver}
+  1281→                      onDragLeave={onDragLeave}
+  1282→                      onDrop={onDrop}
+  1283→                      onClick={() => fileInputRef.current?.click()}
+  1284→                      className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 cursor-pointer transition-all duration-200 ${dragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-muted-foreground/20 hover:border-primary/40 hover:bg-muted/30"}`}
+  1285→                    >
+  1286→                      <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-200 ${dragOver ? "bg-primary/10" : "bg-muted"}`}>
+  1287→                        <FileUp className={`h-5 w-5 transition-colors duration-200 ${dragOver ? "text-primary" : "text-muted-foreground"}`} />
+  1288→                      </div>
+  1289→                      <p className="text-sm font-medium">{dragOver ? "Drop your PDF here" : "Click to upload or drag & drop"}</p>
+  1290→                      <p className="text-xs text-muted-foreground">PDF files only, max 10MB</p>
+  1291→                    </div>
+  1292→                  </div>
+  1293→                )}
+  1294→                {protocol && (
+  1295→                  <div className="pt-3 border-t border-border/50">
+  1296→                    <div className="flex items-center justify-between">
+  1297→                      <div className="flex items-center gap-2">
+  1298→                        <Switch checked={downloadEnabled} onCheckedChange={handleToggleDownload} />
+  1299→                        <span className="text-sm font-medium">Allow downloads</span>
+  1300→                      </div>
+  1301→                      <Badge variant={downloadEnabled ? "outline" : "secondary"} className={`text-xs ${downloadEnabled ? "text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400" : "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400"}`}>
+  1302→                        {downloadEnabled ? "Enabled" : "Disabled"}
+  1303→                      </Badge>
+  1304→                    </div>
+  1305→                    <p className="text-xs text-muted-foreground mt-1">Control whether team members can download the protocol PDF</p>
+  1306→                  </div>
+  1307→                )}
+  1308→              </CardContent>
+  1309→            </Card>
+  1310→
+  1311→            {/* Workspace Config Token Management (admin) */}
+  1312→            <Card className="overflow-hidden border-border/60 shadow-sm">
+  1313→              <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
+  1314→              <CardHeader className="pb-3">
+  1315→                <div className="flex items-center gap-2.5">
+  1316→                  <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+  1317→                    <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+  1318→                  </div>
+  1319→                  <div className="flex-1">
+  1320→                    <CardTitle className="text-sm">Workspace Config Token</CardTitle>
+  1321→                    <CardDescription className="text-xs">Set a shared workspace token visible to all team members</CardDescription>
+  1322→                  </div>
+  1323→                  {wsConfig?.hasToken && (
+  1324→                    <Badge variant="outline" className="text-xs text-violet-600 border-violet-200 dark:border-violet-800 dark:text-violet-400 flex-shrink-0">
+  1325→                      <CheckCircle2 className="h-3 w-3 mr-1" /> Active
+  1326→                    </Badge>
+  1327→                  )}
+  1328→                </div>
+  1329→              </CardHeader>
+  1330→              <CardContent className="space-y-3">
+  1331→                <div className="space-y-2">
+  1332→                  <Label htmlFor="ws-token-label" className="text-xs">Token Label</Label>
+  1333→                  <Input id="ws-token-label" placeholder="e.g. ZAI Workspace Token" value={wsLabelForm} onChange={(e) => setWsLabelForm(e.target.value)} className="text-sm" />
+  1334→                </div>
+  1335→                <div className="space-y-2">
+  1336→                  <Label htmlFor="ws-token-value" className="text-xs">Token Value</Label>
+  1337→                  <div className="relative">
+  1338→                    <Input id="ws-token-value" type={showWsToken ? "text" : "password"} placeholder={wsConfig?.configTokenMasked || "Enter workspace token..."} value={wsTokenForm} onChange={(e) => setWsTokenForm(e.target.value)} className="pr-20 font-mono text-xs" />
+  1339→                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+  1340→                      <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+  1341→                        {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1342→                      </button>
+  1343→                      {isAdmin && wsConfig?.configToken && (
+  1344→                        <Tooltip>
+  1345→                          <TooltipTrigger asChild>
+  1346→                            <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+  1347→                              {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+  1348→                            </button>
+  1349→                          </TooltipTrigger>
+  1350→                          <TooltipContent>Copy token</TooltipContent>
+  1351→                        </Tooltip>
+  1352→                      )}
+  1353→                    </div>
+  1354→                  </div>
+  1355→                  {wsConfig?.configTokenMasked && !wsTokenForm && (
+  1356→                    <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
+  1357→                  )}
+  1358→                </div>
+  1359→                <Button onClick={handleSaveWsConfig} disabled={wsSaving || (!wsTokenForm.trim() && !wsLabelForm.trim())} className="w-full" size="sm">
+  1360→                  {wsSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+  1361→                  Save Configuration
+  1362→                </Button>
+  1363→              </CardContent>
+  1364→            </Card>
+  1365→
+  1366→            {/* User Codes Management (admin) */}
+  1367→            <Card className="overflow-hidden border-border/60 shadow-sm">
+  1368→              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+  1369→              <CardHeader className="pb-3">
+  1370→                <div className="flex items-center gap-2.5">
+  1371→                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+  1372→                    <UserCog className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+  1373→                  </div>
+  1374→                  <div className="flex-1">
+  1375→                    <CardTitle className="text-sm">User Codes</CardTitle>
+  1376→                    <CardDescription className="text-xs">Assign unique access codes to each team member</CardDescription>
+  1377→                  </div>
+  1378→                  <Badge variant="outline" className="text-xs flex-shrink-0">
+  1379→                    {allUserCodes.filter((u) => u.hasCode).length}/{allUserCodes.length} assigned
+  1380→                  </Badge>
+  1381→                </div>
+  1382→              </CardHeader>
+  1383→              <CardContent className="pt-0">
+  1384→                {userCodesLoading ? (
+  1385→                  <div className="flex items-center justify-center py-6">
+  1386→                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+  1387→                  </div>
+  1388→                ) : allUserCodes.length > 0 ? (
+  1389→                  <ScrollArea className="max-h-72">
+  1390→                    <div className="space-y-1.5">
+  1391→                      {allUserCodes.map((user) => (
+  1392→                        <div key={user.userId} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors group">
+  1393→                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center flex-shrink-0 text-xs font-semibold text-slate-600 dark:text-slate-300">
+  1394→                            {user.userName.charAt(0).toUpperCase()}
+  1395→                          </div>
+  1396→                          <div className="flex-1 min-w-0">
+  1397→                            <p className="text-sm font-medium truncate">{safeText(user.userName)}</p>
+  1398→                            <p className="text-xs text-muted-foreground truncate">{safeText(user.userEmail)}</p>
+  1399→                          </div>
+  1400→                          <div className="flex items-center gap-2 flex-shrink-0">
+  1401→                            {user.hasCode ? (
+  1402→                              <Badge variant="secondary" className="text-xs bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border-0">
+  1403→                                <CheckCircle2 className="h-3 w-3 mr-1" /> Set
+  1404→                              </Badge>
+  1405→                            ) : (
+  1406→                              <Badge variant="outline" className="text-xs text-muted-foreground">Not set</Badge>
+  1407→                            )}
+  1408→                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+  1409→                              <Settings className="h-3 w-3 mr-1" />
+  1410→                              {user.hasCode ? "Edit" : "Set"}
+  1411→                            </Button>
+  1412→                          </div>
+  1413→                        </div>
+  1414→                      ))}
+  1415→                    </div>
+  1416→                  </ScrollArea>
+  1417→                ) : (
+  1418→                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+  1419→                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
+  1420→                    <span className="text-xs text-muted-foreground">No users found.</span>
+  1421→                  </div>
+  1422→                )}
+  1423→              </CardContent>
+  1424→            </Card>
+  1425→          </TabsContent>
+  1426→
+  1427→          {/* ═══════════ TAB 3: USER MAPPING (Lark) ═══════════ */}
+  1428→          <TabsContent value="lark-users" className="space-y-5 mt-2">
+  1429→            <Card>
+  1430→              <CardHeader className="pb-3">
+  1431→                <div className="flex items-center justify-between flex-wrap gap-2">
+  1432→                  <div>
+  1433→                    <CardTitle className="text-base flex items-center gap-2">
+  1434→                      <Bird className="h-4 w-4" /> Lark User Mapping
+  1435→                    </CardTitle>
+  1436→                    <CardDescription className="text-xs mt-1">
+  1437→                      Match TrishulHub users with their Lark accounts for task sync
+  1438→                    </CardDescription>
+  1439→                  </div>
+  1440→                  <div className="flex gap-2">
+  1441→                    <Button
+  1442→                      size="sm"
+  1443→                      variant="outline"
+  1444→                      onClick={async () => {
+  1445→                        setLarkUsersLoading(true);
+  1446→                        setLarkUsersError("");
+  1447→                        try {
+  1448→                          // Fetch raw Lark users
+  1449→                          const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
+  1450→                          const larkData = await larkRes.json();
+  1451→                          if (larkData.allLarkUsers) setLarkUsers(larkData.allLarkUsers);
+  1452→                          if (larkData.larkError) setLarkUsersError(larkData.larkError);
+  1453→                          if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
+  1454→
+  1455→                          // Fetch existing mappings (TrishulHub users with their lark mapping info)
+  1456→                          const mapRes = await fetch("/api/lark/users", { credentials: "include" });
+  1457→                          const mapData = await mapRes.json();
+  1458→                          if (mapData.users) {
+  1459→                            const mappings: Record<string, string> = {};
+  1460→                            for (const u of mapData.users) {
+  1461→                              if (u.larkOpenId && u.larkMapped) {
+  1462→                                mappings[u.larkOpenId] = u.id;
+  1463→                              }
+  1464→                            }
+  1465→                            setLarkMappings(mappings);
+  1466→                          }
+  1467→                        } catch { setLarkUsersError("Failed to fetch Lark users"); }
+  1468→                        finally { setLarkUsersLoading(false); }
+  1469→                      }}
+  1470→                      disabled={larkUsersLoading}
+  1471→                      className="h-8 text-xs"
+  1472→                    >
+  1473→                      {larkUsersLoading ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+  1474→                      Refresh Lark Users
+  1475→                    </Button>
+  1476→                    <Button
+  1477→                      size="sm"
+  1478→                      onClick={async () => {
+  1479→                        setLarkMappingsSaving(true);
+  1480→                        try {
+  1481→                          const entries = Object.entries(larkMappings).filter(([_, val]) => val && val !== "__none__");
+  1482→                          let success = 0;
+  1483→                          for (const [larkOpenId, userId] of entries) {
+  1484→                            const larkUser = larkUsers.find(u => u.open_id === larkOpenId);
+  1485→                            const res = await fetch("/api/lark/users", {
+  1486→                              method: "POST",
+  1487→                              credentials: "include",
+  1488→                              headers: { "Content-Type": "application/json" },
+  1489→                              body: JSON.stringify({
+  1490→                                userId,
+  1491→                                larkOpenId,
+  1492→                                larkName: larkUser?.name || "",
+  1493→                                larkEmail: larkUser?.email || "",
+  1494→                                matchedBy: "manual",
+  1495→                              }),
+  1496→                            });
+  1497→                            const data = await res.json();
+  1498→                            if (data.success) success++;
+  1499→                          }
+  1500→                          toast.success(`${success} mapping${success !== 1 ? 's' : ''} saved successfully`);
+  1501→                        } catch { toast.error("Failed to save mappings"); }
+  1502→                        finally { setLarkMappingsSaving(false); }
+  1503→                      }}
+  1504→                      disabled={larkMappingsSaving}
+  1505→                      className="h-8 text-xs"
+  1506→                    >
+  1507→                      {larkMappingsSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+  1508→                      Save Mappings
+  1509→                    </Button>
+  1510→                  </div>
+  1511→                </div>
+  1512→              </CardHeader>
+  1513→              <CardContent>
+  1514→                {larkUsersError && (
+  1515→                  <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/10 dark:border-yellow-800/30">
+  1516→                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+  1517→                    <p className="text-xs text-yellow-700 dark:text-yellow-300">{larkUsersError}</p>
+  1518→                  </div>
+  1519→                )}
+  1520→                {larkUsers.length === 0 && !larkUsersLoading && !larkUsersError && (
+  1521→                  <div className="text-center py-8">
+  1522→                    <Bird className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+  1523→                    <p className="text-sm text-muted-foreground">No Lark users loaded yet.</p>
+  1524→                    <p className="text-xs text-muted-foreground/70 mt-1">Click "Refresh Lark Users" to fetch from Lark API.</p>
+  1525→                  </div>
+  1526→                )}
+  1527→                {larkUsers.length > 0 && allUsers.length > 0 && (
+  1528→                  <div className="space-y-2">
+  1529→                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+  1530→                      Lark Users ({larkUsers.length}) — map each to a TrishulHub user
+  1531→                    </p>
+  1532→                    <div className="grid gap-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+  1533→                      {larkUsers.map((lu) => (
+  1534→                        <div key={lu.open_id} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+  1535→                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+  1536→                            <span className="text-xs font-bold text-primary">{lu.name?.[0] || "?"}</span>
+  1537→                          </div>
+  1538→                          <div className="min-w-0 flex-1">
+  1539→                            <p className="text-sm font-medium truncate">{lu.name}</p>
+  1540→                            {lu.email && <p className="text-[11px] text-muted-foreground truncate">{lu.email}</p>}
+  1541→                          </div>
+  1542→                          <Select
+  1543→                            value={larkMappings[lu.open_id] || ""}
+  1544→                            onValueChange={(val) => setLarkMappings(m => ({ ...m, [lu.open_id]: val }))}
+  1545→                          >
+  1546→                            <SelectTrigger className="w-[160px] h-8 text-xs">
+  1547→                              <SelectValue placeholder="Not mapped" />
+  1548→                            </SelectTrigger>
+  1549→                            <SelectContent>
+  1550→                              <SelectItem value="__none__">Not mapped</SelectItem>
+  1551→                              {allUsers.map((u) => (
+  1552→                                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  1553→                              ))}
+  1554→                            </SelectContent>
+  1555→                          </Select>
+  1556→                        </div>
+  1557→                      ))}
+  1558→                    </div>
+  1559→                  </div>
+  1560→                )}
+  1561→                {larkUsersLoading && (
+  1562→                  <div className="flex items-center justify-center py-8">
+  1563→                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+  1564→                    <span className="ml-2 text-sm text-muted-foreground">Fetching Lark users...</span>
+  1565→                  </div>
+  1566→                )}
+  1567→              </CardContent>
+  1568→            </Card>
+  1569→          </TabsContent>
+  1570→
+  1571→          {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
+  1572→          <TabsContent value="system" className="space-y-5 mt-2">
+  1573→            {!isSuperAdmin ? (
+  1574→              <Card>
+  1575→                <CardContent className="pt-8 pb-8">
+  1576→                  <div className="text-center">
+  1577→                    <Shield className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+  1578→                    <p className="text-sm text-muted-foreground">System configuration is only available to Super Admins.</p>
+  1579→                  </div>
+  1580→                </CardContent>
+  1581→              </Card>
+  1582→            ) : (
+  1583→              <>
+  1584→                {/* Save Task System - Git Config */}
+  1585→                <Card className="overflow-hidden border-border/60 shadow-sm">
+  1586→                  <div className="h-1 bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500" />
+  1587→                  <CardHeader className="pb-3">
+  1588→                    <div className="flex items-center gap-2.5">
+  1589→                      <div className="w-8 h-8 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center">
+  1590→                        <GitBranch className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+  1591→                      </div>
+  1592→                      <div className="flex-1">
+  1593→                        <CardTitle className="text-sm">Save Task System</CardTitle>
+  1594→                        <CardDescription className="text-xs">Bind a Git repository for automatic task sync</CardDescription>
+  1595→                      </div>
+  1596→                      {gitConfig?.isEnabled && (
+  1597→                        <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400 flex-shrink-0">
+  1598→                          <CheckCircle2 className="h-3 w-3 mr-1" /> Syncing
+  1599→                        </Badge>
+  1600→                      )}
+  1601→                    </div>
+  1602→                  </CardHeader>
+  1603→                  <CardContent className="space-y-3">
+  1604→                    <div className="space-y-1.5">
+  1605→                      <Label htmlFor="git-repo-url" className="text-xs">Repository URL</Label>
+  1606→                      <Input id="git-repo-url" type="url" placeholder="https://github.com/owner/repo" value={gitForm.repoUrl} onChange={(e) => setGitForm((prev) => ({ ...prev, repoUrl: e.target.value }))} className="text-sm" />
+  1607→                    </div>
+  1608→                    <div className="space-y-1.5">
+  1609→                      <Label htmlFor="git-token" className="text-xs">Access Token</Label>
+  1610→                      <div className="relative">
+  1611→                        <Input id="git-token" type={showToken ? "text" : "password"} placeholder={gitConfig?.tokenMasked || "ghp_xxxxxxxxxxxx"} value={gitForm.token} onChange={(e) => setGitForm((prev) => ({ ...prev, token: e.target.value }))} className="pr-10 font-mono text-xs" />
+  1612→                        <button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "Hide access token" : "Show access token"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+  1613→                          {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1614→                        </button>
+  1615→                      </div>
+  1616→                      {gitConfig?.tokenMasked && !gitForm.token && (
+  1617→                        <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
+  1618→                      )}
+  1619→                    </div>
+  1620→                    <Button onClick={handleSaveGitConfig} disabled={gitSaving || !gitForm.repoUrl.trim() || (!gitForm.token && !gitConfig?.tokenMasked)} className="w-full" size="sm">
+  1621→                      {gitSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+  1622→                      Save Configuration
+  1623→                    </Button>
+  1624→                    {gitConfig?.repoUrl && (
+  1625→                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+  1626→                        <GitBranch className="h-3 w-3" />
+  1627→                        <span>Branch: <span className="font-medium text-foreground">{gitConfig.branch || "main"}</span> (auto-detected)</span>
+  1628→                      </div>
+  1629→                    )}
+  1630→                    {gitConfig && (
+  1631→                      <div className="pt-3 border-t border-border/50 space-y-2.5">
+  1632→                        <div className="flex items-center justify-between gap-2 flex-wrap">
+  1633→                          <div className="flex items-center gap-2">
+  1634→                            <Switch checked={gitConfig.isEnabled} onCheckedChange={handleToggleGitSync} disabled={!gitConfig.repoUrl} />
+  1635→                            <span className="text-sm font-medium">Auto-sync</span>
+  1636→                          </div>
+  1637→                          <Button variant="outline" size="sm" onClick={handleManualSync} disabled={gitSyncing || !gitConfig.repoUrl} className="shrink-0">
+  1638→                            {gitSyncing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+  1639→                            Sync Now
+  1640→                          </Button>
+  1641→                        </div>
+  1642→                        {gitConfig.lastSyncStatus && (
+  1643→                          <div className="flex items-center gap-2">
+  1644→                            {gitConfig.lastSyncStatus === "SUCCESS" || gitConfig.lastSyncStatus === "NO_CHANGES" ? (
+  1645→                              <>
+  1646→                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+  1647→                                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+  1648→                                  {gitConfig.lastSyncStatus === "SUCCESS" ? "Last sync successful" : "No changes since last sync"}
+  1649→                                </span>
+  1650→                              </>
+  1651→                            ) : gitConfig.lastSyncStatus === "ERROR" || gitConfig.lastSyncStatus === "FAILED" || gitConfig.lastSyncStatus === "PARTIAL" ? (
+  1652→                              <>
+  1653→                                <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+  1654→                                <span className="text-xs text-red-600 dark:text-red-400">
+  1655→                                  Last sync {gitConfig.lastSyncStatus.toLowerCase()}{gitConfig.lastSyncError ? `: ${gitConfig.lastSyncError}` : ""}
+  1656→                                </span>
+  1657→                              </>
+  1658→                            ) : gitConfig.lastSyncStatus === "PENDING" ? (
+  1659→                              <>
+  1660→                                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+  1661→                                <span className="text-xs text-amber-600 dark:text-amber-400">Sync in progress...</span>
+  1662→                              </>
+  1663→                            ) : null}
+  1664→                          </div>
+  1665→                        )}
+  1666→                        {gitConfig.lastSyncAt && (
+  1667→                          <p className="text-xs text-muted-foreground">
+  1668→                            Last synced: {formatRelativeTime(gitConfig.lastSyncAt)}
+  1669→                            {gitConfig.lastSyncAt && (<> ({safeDate(gitConfig.lastSyncAt)})</>)}
+  1670→                          </p>
+  1671→                        )}
+  1672→                      </div>
+  1673→                    )}
+  1674→                  </CardContent>
+  1675→                </Card>
+  1676→
+  1677→                {/* Encryption Key Management */}
+  1678→                <Card className="overflow-hidden border-border/60 shadow-sm">
+  1679→                  <div className="h-1 bg-gradient-to-r from-slate-500 via-gray-500 to-zinc-500" />
+  1680→                  <CardHeader className="pb-3">
+  1681→                    <div className="flex items-center gap-2.5">
+  1682→                      <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+  1683→                        <FileLock2 className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+  1684→                      </div>
+  1685→                      <div className="flex-1">
+  1686→                        <CardTitle className="text-sm">Encryption Key</CardTitle>
+  1687→                        <CardDescription className="text-xs">AES-256-GCM key for encrypting sensitive data (git tokens)</CardDescription>
+  1688→                      </div>
+  1689→                      <Badge variant={hasEncryptionKey ? "outline" : "secondary"} className={`text-xs flex-shrink-0 ${hasEncryptionKey ? "text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400" : "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400"}`}>
+  1690→                        {hasEncryptionKey ? "Configured" : "Not set"}
+  1691→                      </Badge>
+  1692→                    </div>
+  1693→                  </CardHeader>
+  1694→                  <CardContent className="space-y-3">
+  1695→                    <div className="flex items-center gap-2">
+  1696→                      {hasEncryptionKey ? (
+  1697→                        <>
+  1698→                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+  1699→                          <span className="text-xs text-emerald-600 dark:text-emerald-400">Encryption key is configured</span>
+  1700→                        </>
+  1701→                      ) : (
+  1702→                        <>
+  1703→                          <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+  1704→                          <span className="text-xs text-amber-600 dark:text-amber-400">No encryption key set — using environment variable</span>
+  1705→                        </>
+  1706→                      )}
+  1707→                    </div>
+  1708→                    <div className="space-y-1.5">
+  1709→                      <Label htmlFor="enc-key" className="text-xs">New Encryption Key (64-char hex)</Label>
+  1710→                      <div className="relative">
+  1711→                        <Input id="enc-key" type={showEncKey ? "text" : "password"} placeholder="64-character hex string" value={encKeyForm} onChange={(e) => setEncKeyForm(e.target.value)} className="pr-20 font-mono text-xs" />
+  1712→                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} aria-label={showEncKey ? "Hide encryption key" : "Show encryption key"} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+  1713→                          {showEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1714→                        </button>
+  1715→                        <Tooltip>
+  1716→                          <TooltipTrigger asChild>
+  1717→                            <button type="button" onClick={handleGenerateKey} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors">
+  1718→                              <RefreshCw className="h-3.5 w-3.5" />
+  1719→                            </button>
+  1720→                          </TooltipTrigger>
+  1721→                          <TooltipContent>Generate random key</TooltipContent>
+  1722→                        </Tooltip>
+  1723→                      </div>
+  1724→                      <p className="text-xs text-muted-foreground">Click the refresh icon to generate a new key.</p>
+  1725→                    </div>
+  1726→                    <Button onClick={handleSaveEncKey} disabled={encKeySaving || !encKeyForm.trim()} variant="outline" className="w-full" size="sm">
+  1727→                      {encKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+  1728→                      Save Key
+  1729→                    </Button>
+  1730→                  </CardContent>
+  1731→                </Card>
+  1732→
+  1733→                {/* Credential Encryption Key — for project credentials (separate from SMTP/Git) */}
+  1734→                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+  1735→                  <CardHeader className="pb-3">
+  1736→                    <div className="flex items-center justify-between">
+  1737→                      <div className="flex items-center gap-2">
+  1738→                        <Key className="h-4 w-4 text-primary" />
+  1739→                        <CardTitle className="text-sm">Credential Encryption Key</CardTitle>
+  1740→                      </div>
+  1741→                      <Badge variant={hasCredEncKey ? "default" : "secondary"} className={hasCredEncKey ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}>
+  1742→                        {hasCredEncKey ? "Configured" : "Not set"}
+  1743→                      </Badge>
+  1744→                    </div>
+  1745→                  </CardHeader>
+  1746→                  <CardContent className="space-y-3">
+  1747→                    <p className="text-xs text-muted-foreground">Separate key for encrypting project credentials (logins, passwords). Independent from the main encryption key used for SMTP and Git sync.</p>
+  1748→                    {credEncKeyMasked && (
+  1749→                      <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-xs font-mono text-muted-foreground">
+  1750→                        <span>{credEncKeyMasked}</span>
+  1751→                        <span className="text-[10px]">(stored in database)</span>
+  1752→                      </div>
+  1753→                    )}
+  1754→                    <div className="flex gap-2">
+  1755→                      <div className="relative flex-1">
+  1756→                        <Input
+  1757→                          type={showCredEncKey ? "text" : "password"}
+  1758→                          placeholder="Paste 64-char hex key or generate below"
+  1759→                          value={credEncKeyForm}
+  1760→                          onChange={(e) => setCredEncKeyForm(e.target.value)}
+  1761→                          className="h-8 text-xs font-mono pr-16"
+  1762→                        />
+  1763→                        <button
+  1764→                          type="button"
+  1765→                          className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+  1766→                          onClick={() => setShowCredEncKey(!showCredEncKey)}
+  1767→                        >
+  1768→                          {showCredEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+  1769→                        </button>
+  1770→                        <button
+  1771→                          type="button"
+  1772→                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+  1773→                          onClick={() => {
+  1774→                            const bytes = new Uint8Array(32);
+  1775→                            crypto.getRandomValues(bytes);
+  1776→                            setCredEncKeyForm(Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""));
+  1777→                            setShowCredEncKey(true);
+  1778→                          }}
+  1779→                          title="Generate random key"
+  1780→                        >
+  1781→                          <RefreshCw className="h-3.5 w-3.5" />
+  1782→                        </button>
+  1783→                      </div>
+  1784→                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
+  1785→                        {credEncKeySaving ? "Saving..." : "Save Key"}
+  1786→                      </Button>
+  1787→                    </div>
+  1788→                  </CardContent>
+  1789→                </Card>
+  1790→
+  1791→                {/* ━━ Lark Integration ━━ */}
+  1792→                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+  1793→                  <CardHeader className="pb-3">
+  1794→                    <div className="flex items-center justify-between">
+  1795→                      <div className="flex items-center gap-2">
+  1796→                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+  1797→                          <Bird className="h-4 w-4 text-blue-500" />
+  1798→                        </div>
+  1799→                        <div>
+  1800→                          <CardTitle className="text-sm">Lark (Feishu) Integration</CardTitle>
+  1801→                          <CardDescription className="text-[11px]">2-way task sync with Lark</CardDescription>
+  1802→                        </div>
+  1803→                      </div>
+  1804→                      <div className="flex items-center gap-2">
+  1805→                        {larkConfig?.connected && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>}
+  1806→                        <Switch
+  1807→                          checked={larkConfig?.enabled ?? false}
+  1808→                          onCheckedChange={handleLarkToggle}
+  1809→                          disabled={larkToggling || !larkConfig?.configured}
+  1810→                        />
+  1811→                      </div>
+  1812→                    </div>
+  1813→                  </CardHeader>
+  1814→                  <CardContent className="space-y-3">
+  1815→                    {larkConfig?.connected ? null : larkConfig?.configured ? (
+  1816→                      <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
+  1817→                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+  1818→                        <span>Connection failed — check App ID and Secret</span>
+  1819→                      </div>
+  1820→                    ) : null}
+  1821→
+  1822→                    {/* ── Setup Guide (collapsible) ── */}
+  1823→                    <div className="rounded-lg border border-blue-200/60 dark:border-blue-500/20 bg-blue-50/50 dark:bg-blue-500/5 overflow-hidden">
+  1824→                      <button
+  1825→                        onClick={() => setLarkSetupExpanded(!larkSetupExpanded)}
+  1826→                        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-blue-100/50 dark:hover:bg-blue-500/10 transition-colors"
+  1827→                      >
+  1828→                        <div className="flex items-center gap-2">
+  1829→                          <Lightbulb className="h-3.5 w-3.5 text-blue-500" />
+  1830→                          <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Setup Guide — 4 Steps to Connect</span>
+  1831→                        </div>
+  1832→                        {larkSetupExpanded ? <ChevronDown className="h-3.5 w-3.5 text-blue-500" /> : <ChevronRight className="h-3.5 w-3.5 text-blue-500" />}
+  1833→                      </button>
+  1834→
+  1835→                      {larkSetupExpanded && (
+  1836→                        <div className="px-3 pb-3 space-y-2.5">
+  1837→                          {/* Step 1 */}
+  1838→                          <div className="flex gap-2.5">
+  1839→                            <div className={cn(
+  1840→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+  1841→                              larkConfig?.connected ? "bg-emerald-500 text-white" : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+  1842→                            )}>
+  1843→                              {larkConfig?.connected ? <Check className="h-3 w-3" /> : "1"}
+  1844→                            </div>
+  1845→                            <div className="min-w-0">
+  1846→                              <p className="text-xs font-medium">Save App ID & Secret</p>
+  1847→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+  1848→                                Paste your Lark App ID and App Secret below, then click <b>Save & Test</b>. This verifies the connection to Lark.
+  1849→                              </p>
+  1850→                              {!larkConfig?.connected && (
+  1851→                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+  1852→                                  Find these in: Lark Developer Console → your app → Credentials
+  1853→                                </p>
+  1854→                              )}
+  1855→                            </div>
+  1856→                          </div>
+  1857→
+  1858→                          {/* Step 2 */}
+  1859→                          <div className="flex gap-2.5">
+  1860→                            <div className={cn(
+  1861→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+  1862→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+  1863→                            )}>
+  1864→                              2
+  1865→                            </div>
+  1866→                            <div className="min-w-0">
+  1867→                              <p className="text-xs font-medium">Configure Webhook in Lark</p>
+  1868→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+  1869→                                In Lark Developer Console → <b>Events & Callbacks</b>, select <b>"Send notifications to developer's server"</b> (second option).
+  1870→                              </p>
+  1871→                              <div className="mt-1.5 px-2 py-1.5 rounded bg-background/80 border border-border/50 text-[11px] font-mono break-all">
+  1872→                                Request URL: <span className="text-blue-600 dark:text-blue-400 font-semibold">https://trishulhub.com/api/lark/webhook</span>
+  1873→                              </div>
+  1874→                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+  1875→                                Leave <b>Encryption Strategy</b> as "No encryption" (default). Do NOT enable encrypt key unless needed.
+  1876→                              </p>
+  1877→                            </div>
+  1878→                          </div>
+  1879→
+  1880→                          {/* Step 3 */}
+  1881→                          <div className="flex gap-2.5">
+  1882→                            <div className={cn(
+  1883→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+  1884→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+  1885→                            )}>
+  1886→                              3
+  1887→                            </div>
+  1888→                            <div className="min-w-0">
+  1889→                              <p className="text-xs font-medium">Add the Event Subscription</p>
+  1890→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+  1891→                                After the URL is verified, add this event under "Event Subscription":
+  1892→                              </p>
+  1893→                              <div className="mt-1 flex flex-wrap gap-1">
+  1894→                                <Badge variant="secondary" className="text-[10px] font-mono">task.task.updated_v1</Badge>
+  1895→                              </div>
+  1896→                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+  1897→                                Path: Event Subscription → Add Event → search "task.task.updated" → select the V1 version
+  1898→                              </p>
+  1899→                            </div>
+  1900→                          </div>
+  1901→
+  1902→                          {/* Step 4 */}
+  1903→                          <div className="flex gap-2.5">
+  1904→                            <div className={cn(
+  1905→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+  1906→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+  1907→                            )}>
+  1908→                              4
+  1909→                            </div>
+  1910→                            <div className="min-w-0">
+  1911→                              <p className="text-xs font-medium">Map Users & Enable Sync</p>
+  1912→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+  1913→                                Go to <button onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")} className="text-primary hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
+  1914→                                Then toggle the switch above to <b>Enable</b> 2-way sync.
+  1915→                              </p>
+  1916→                            </div>
+  1917→                          </div>
+  1918→                        </div>
+  1919→                      )}
+  1920→                    </div>
+  1921→
+  1922→                    {/* ── Credentials Form ── */}
+  1923→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+  1924→                      <div className="space-y-1">
+  1925→                        <Label className="text-[11px] text-muted-foreground">App ID</Label>
+  1926→                        <Input
+  1927→                          placeholder="cli_xxxxxxxxxxxxx"
+  1928→                          value={larkForm.appId}
+  1929→                          onChange={(e) => setLarkForm(f => ({ ...f, appId: e.target.value }))}
+  1930→                          className="h-8 text-xs font-mono"
+  1931→                        />
+  1932→                      </div>
+  1933→                      <div className="space-y-1">
+  1934→                        <Label className="text-[11px] text-muted-foreground">App Secret</Label>
+  1935→                        <Input
+  1936→                          type={showLarkSecret ? "text" : "password"}
+  1937→                          placeholder="••••••••••••••••"
+  1938→                          value={larkForm.appSecret}
+  1939→                          onChange={(e) => setLarkForm(f => ({ ...f, appSecret: e.target.value }))}
+  1940→                          className="h-8 text-xs font-mono"
+  1941→                        />
+  1942→                      </div>
+  1943→                    </div>
+  1944→
+  1945→                    <div className="space-y-1">
+  1946→                      <Label className="text-[11px] text-muted-foreground">
+  1947→                        Webhook Encrypt Key
+  1948→                        <span className="ml-1 text-[10px] text-muted-foreground/60">(leave empty unless using encryption in Lark)</span>
+  1949→                      </Label>
+  1950→                      <Input
+  1951→                        type={showLarkEncrypt ? "text" : "password"}
+  1952→                        placeholder="Leave empty — use 'No encryption' in Lark"
+  1953→                        value={larkForm.encryptKey}
+  1954→                        onChange={(e) => setLarkForm(f => ({ ...f, encryptKey: e.target.value }))}
+  1955→                        className="h-8 text-xs font-mono"
+  1956→                      />
+  1957→                    </div>
+  1958→
+  1959→                    <div className="flex items-center gap-2 pt-1">
+  1960→                      <Button
+  1961→                        size="sm"
+  1962→                        onClick={handleSaveLarkConfig}
+  1963→                        disabled={larkSaving || !larkForm.appId.trim() || !larkForm.appSecret.trim()}
+  1964→                        className="h-8 text-xs"
+  1965→                      >
+  1966→                        {larkSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+  1967→                        Save & Test
+  1968→                      </Button>
+  1969→                      {larkConfig?.configured && (
+  1970→                        <Button
+  1971→                          size="sm"
+  1972→                          variant="outline"
+  1973→                          onClick={() => setShowLarkSecret(!showLarkSecret)}
+  1974→                          className="h-8 text-xs"
+  1975→                        >
+  1976→                          {showLarkSecret ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+  1977→                          Secret
+  1978→                        </Button>
+  1979→                      )}
+  1980→                    </div>
+  1981→
+  1982→                    {larkConfig?.taskLists && larkConfig.taskLists.length > 0 && (
+  1983→                      <div className="space-y-1.5 pt-1">
+  1984→                        <p className="text-[11px] text-muted-foreground font-medium">Lark Task Lists ({larkConfig.taskLists.length})</p>
+  1985→                        <div className="flex flex-wrap gap-1.5">
+  1986→                          {larkConfig.taskLists.map((tl: { id: string; name: string }) => (
+  1987→                            <Badge key={tl.id} variant="secondary" className="text-[10px] font-normal">
+  1988→                              {tl.name}
+  1989→                            </Badge>
+  1990→                          ))}
+  1991→                        </div>
+  1992→                      </div>
+  1993→                    )}
+  1994→
+  1995→                    {/* Quick links */}
+  1996→                    <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+  1997→                      <a href="https://open.larksuite.com/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+  1998→                        <Globe className="h-3 w-3" /> Lark Developer Console
+  1999→                      </a>
+  2000→                      <span className="text-border">|</span>
+
+[showing lines 1-2000 of 2262; use offset=2001 with limit to continue reading]

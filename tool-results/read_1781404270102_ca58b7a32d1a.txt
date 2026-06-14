@@ -1,0 +1,1035 @@
+     1→@import "tailwindcss";
+     2→@import "tw-animate-css";
+     3→
+     4→@custom-variant dark (&:is(.dark *));
+     5→
+     6→@theme inline {
+     7→  --color-background: var(--background);
+     8→  --color-foreground: var(--foreground);
+     9→  --font-sans: var(--font-geist-sans);
+    10→  --font-mono: var(--font-geist-mono);
+    11→  --color-sidebar-ring: var(--sidebar-ring);
+    12→  --color-sidebar-border: var(--sidebar-border);
+    13→  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    14→  --color-sidebar-accent: var(--sidebar-accent);
+    15→  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    16→  --color-sidebar-primary: var(--sidebar-primary);
+    17→  --color-sidebar-foreground: var(--sidebar-foreground);
+    18→  --color-sidebar: var(--sidebar);
+    19→  --color-chart-5: var(--chart-5);
+    20→  --color-chart-4: var(--chart-4);
+    21→  --color-chart-3: var(--chart-3);
+    22→  --color-chart-2: var(--chart-2);
+    23→  --color-chart-1: var(--chart-1);
+    24→  --color-ring: var(--ring);
+    25→  --color-input: var(--input);
+    26→  --color-border: var(--border);
+    27→  --color-destructive: var(--destructive);
+    28→  --color-accent-foreground: var(--accent-foreground);
+    29→  --color-accent: var(--accent);
+    30→  --color-muted-foreground: var(--muted-foreground);
+    31→  --color-muted: var(--muted);
+    32→  --color-secondary-foreground: var(--secondary-foreground);
+    33→  --color-secondary: var(--secondary);
+    34→  --color-primary-foreground: var(--primary-foreground);
+    35→  --color-primary: var(--primary);
+    36→  --color-popover-foreground: var(--popover-foreground);
+    37→  --color-popover: var(--popover);
+    38→  --color-card-foreground: var(--card-foreground);
+    39→  --color-card: var(--card);
+    40→  --radius-sm: calc(var(--radius) - 4px);
+    41→  --radius-md: calc(var(--radius) - 2px);
+    42→  --radius-lg: var(--radius);
+    43→  --radius-xl: calc(var(--radius) + 4px);
+    44→}
+    45→
+    46→/* ══════════════════════════════════════════════════════════════
+    47→   LIGHT MODE — Green-Blue brand palette
+    48→   ══════════════════════════════════════════════════════════════ */
+    49→:root {
+    50→  --radius: 0.625rem;
+    51→  --background: oklch(0.985 0.002 185);
+    52→  --foreground: oklch(0.145 0.005 190);
+    53→  --card: oklch(1 0 0 / 78%);
+    54→  --card-foreground: oklch(0.145 0.005 190);
+    55→  --popover: oklch(1 0 0 / 82%);
+    56→  --popover-foreground: oklch(0.145 0.005 190);
+    57→  --primary: oklch(0.55 0.15 145);
+    58→  --primary-foreground: oklch(0.985 0 0);
+    59→  --secondary: oklch(0.955 0.015 190);
+    60→  --secondary-foreground: oklch(0.25 0.02 190);
+    61→  --muted: oklch(0.96 0.005 190);
+    62→  --muted-foreground: oklch(0.48 0.01 190);
+    63→  --accent: oklch(0.94 0.02 190);
+    64→  --accent-foreground: oklch(0.25 0.04 190);
+    65→  --destructive: oklch(0.577 0.245 27.325);
+    66→  --border: oklch(0.88 0.008 190);
+    67→  --input: oklch(0.88 0.008 190);
+    68→  --ring: oklch(0.55 0.15 145);
+    69→  --chart-1: oklch(0.55 0.15 148);
+    70→  --chart-2: oklch(0.6 0.15 145);
+    71→  --chart-3: oklch(0.5 0.15 260);
+    72→  --chart-4: oklch(0.65 0.14 180);
+    73→  --chart-5: oklch(0.6 0.18 330);
+    74→  --sidebar: oklch(0.97 0.004 190);
+    75→  --sidebar-foreground: oklch(0.145 0.005 190);
+    76→  --sidebar-primary: oklch(0.55 0.15 145);
+    77→  --sidebar-primary-foreground: oklch(0.985 0 0);
+    78→  --sidebar-accent: oklch(0.93 0.018 190);
+    79→  --sidebar-accent-foreground: oklch(0.25 0.04 190);
+    80→  --sidebar-border: oklch(0.89 0.01 190);
+    81→  --sidebar-ring: oklch(0.55 0.15 145);
+    82→}
+    83→
+    84→/* ══════════════════════════════════════════════════════════════
+    85→   DARK MODE — Deeper green-blue, softer glow
+    86→   ══════════════════════════════════════════════════════════════ */
+    87→.dark {
+    88→  --background: oklch(0.13 0.006 190);
+    89→  --foreground: oklch(0.985 0.002 185);
+    90→  --card: oklch(0.18 0.006 185 / 75%);
+    91→  --card-foreground: oklch(0.985 0.002 185);
+    92→  --popover: oklch(0.18 0.006 185 / 80%);
+    93→  --popover-foreground: oklch(0.985 0.002 185);
+    94→  --primary: oklch(0.65 0.2 25);
+    95→  --primary-foreground: oklch(0.98 0.005 25);
+    96→  --secondary: oklch(0.25 0.015 185);
+    97→  --secondary-foreground: oklch(0.985 0.002 185);
+    98→  --muted: oklch(0.25 0.008 185);
+    99→  --muted-foreground: oklch(0.65 0.01 185);
+   100→  --accent: oklch(0.28 0.02 185);
+   101→  --accent-foreground: oklch(0.985 0.002 185);
+   102→  --destructive: oklch(0.704 0.191 22.216);
+   103→  --border: oklch(1 0 0 / 10%);
+   104→  --input: oklch(1 0 0 / 15%);
+   105→  --ring: oklch(0.65 0.2 25);
+   106→  --chart-1: oklch(0.65 0.2 25);
+   107→  --chart-2: oklch(0.6 0.18 350);
+   108→  --chart-3: oklch(0.6 0.15 260);
+   109→  --chart-4: oklch(0.75 0.13 180);
+   110→  --chart-5: oklch(0.7 0.18 330);
+   111→  --sidebar: oklch(0.15 0.008 185);
+   112→  --sidebar-foreground: oklch(0.985 0.002 185);
+   113→  --sidebar-primary: oklch(0.65 0.2 25);
+   114→  --sidebar-primary-foreground: oklch(0.98 0.005 25);
+   115→  --sidebar-accent: oklch(0.25 0.02 185);
+   116→  --sidebar-accent-foreground: oklch(0.985 0.002 185);
+   117→  --sidebar-border: oklch(1 0 0 / 10%);
+   118→  --sidebar-ring: oklch(0.65 0.2 25);
+   119→}
+   120→
+   121→/* ══════════════════════════════════════════════════════════════
+   122→   BLUE LIGHT MODE — Warm amber tint with brand accent
+   123→   ══════════════════════════════════════════════════════════════ */
+   124→.bluelight {
+   125→  --background: oklch(0.95 0.015 75);
+   126→  --foreground: oklch(0.22 0.02 60);
+   127→  --card: oklch(0.97 0.012 75 / 78%);
+   128→  --card-foreground: oklch(0.22 0.02 60);
+   129→  --popover: oklch(0.97 0.012 75 / 82%);
+   130→  --popover-foreground: oklch(0.22 0.02 60);
+   131→  --primary: oklch(0.52 0.12 145);
+   132→  --primary-foreground: oklch(0.97 0.01 75);
+   133→  --secondary: oklch(0.88 0.025 75);
+   134→  --secondary-foreground: oklch(0.30 0.03 60);
+   135→  --muted: oklch(0.90 0.018 75);
+   136→  --muted-foreground: oklch(0.48 0.02 60);
+   137→  --accent: oklch(0.86 0.03 75);
+   138→  --accent-foreground: oklch(0.30 0.04 60);
+   139→  --destructive: oklch(0.577 0.245 27.325);
+   140→  --border: oklch(0.82 0.018 75);
+   141→  --input: oklch(0.84 0.018 75);
+   142→  --ring: oklch(0.52 0.12 145);
+   143→  --chart-1: oklch(0.52 0.12 158);
+   144→  --chart-2: oklch(0.62 0.14 145);
+   145→  --chart-3: oklch(0.48 0.12 260);
+   146→  --chart-4: oklch(0.68 0.12 80);
+   147→  --chart-5: oklch(0.62 0.16 330);
+   148→  --sidebar: oklch(0.93 0.018 75);
+   149→  --sidebar-foreground: oklch(0.22 0.02 60);
+   150→  --sidebar-primary: oklch(0.52 0.12 145);
+   151→  --sidebar-primary-foreground: oklch(0.97 0.01 75);
+   152→  --sidebar-accent: oklch(0.88 0.03 75);
+   153→  --sidebar-accent-foreground: oklch(0.30 0.04 60);
+   154→  --sidebar-border: oklch(0.82 0.018 75);
+   155→  --sidebar-ring: oklch(0.52 0.12 145);
+   156→}
+   157→
+   158→/* Blue light scrollbar override */
+   159→.bluelight .custom-scrollbar::-webkit-scrollbar-thumb {
+   160→  background: oklch(0.65 0.03 75);
+   161→}
+   162→
+   163→/* ══════════════════════════════════════════════════════════════
+   164→   BRAND GRADIENT — Green → Blue (TrishulHub logo colors)
+   165→   ══════════════════════════════════════════════════════════════ */
+   166→:root {
+   167→  --brand-gradient: linear-gradient(135deg, oklch(0.62 0.15 145), oklch(0.55 0.12 200));
+   168→  --brand-gradient-hover: linear-gradient(135deg, oklch(0.57 0.17 145), oklch(0.50 0.14 200));
+   169→  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.62 0.06 145 / 15%), oklch(0.55 0.05 200 / 15%));
+   170→  --brand-blue: oklch(0.55 0.12 200);
+   171→  --brand-green: oklch(0.62 0.15 145);
+   172→}
+   173→.dark {
+   174→  --brand-gradient: linear-gradient(135deg, oklch(0.65 0.2 25), oklch(0.6 0.1 200));
+   175→  --brand-gradient-hover: linear-gradient(135deg, oklch(0.6 0.22 25), oklch(0.55 0.11 200));
+   176→  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.65 0.08 25 / 12%), oklch(0.6 0.04 200 / 12%));
+   177→  --brand-blue: oklch(0.6 0.1 200);
+   178→  --brand-green: oklch(0.65 0.2 25);
+   179→}
+   180→.bluelight {
+   181→  --brand-gradient: linear-gradient(135deg, oklch(0.58 0.13 145), oklch(0.50 0.10 200));
+   182→  --brand-gradient-hover: linear-gradient(135deg, oklch(0.53 0.14 145), oklch(0.45 0.11 200));
+   183→  --brand-gradient-subtle: linear-gradient(135deg, oklch(0.58 0.05 145 / 12%), oklch(0.50 0.04 200 / 12%));
+   184→  --brand-blue: oklch(0.50 0.10 200);
+   185→  --brand-green: oklch(0.58 0.13 145);
+   186→}
+   187→
+   188→.brand-gradient-bar {
+   189→  background: var(--brand-gradient);
+   190→}
+   191→
+   192→/* ══════════════════════════════════════════════════════════════
+   193→   LIQUID GLASS — Apple-style glassmorphism system-wide
+   194→   Applied globally to all Cards, Popovers, Dialogs, Dropdowns
+   195→   ══════════════════════════════════════════════════════════════ */
+   196→
+   197→/* ── Core glass mixin properties ── */
+   198→/* Light mode: white frosted glass with green-blue tint */
+   199→.liquid-glass {
+   200→  background: oklch(1 0 0 / 65%);
+   201→  backdrop-filter: blur(24px) saturate(1.6) brightness(1.02);
+   202→  -webkit-backdrop-filter: blur(24px) saturate(1.6) brightness(1.02);
+   203→  border: 1px solid oklch(1 0 0 / 45%);
+   204→  box-shadow:
+   205→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   206→    0 2px 8px oklch(0 0 0 / 3%),
+   207→    0 8px 32px oklch(0 0 0 / 2%),
+   208→    inset 0 1px 0 oklch(1 0 0 / 60%),
+   209→    inset 0 -1px 0 oklch(0 0 0 / 3%);
+   210→}
+   211→.dark .liquid-glass {
+   212→  background: oklch(0.2 0.005 185 / 55%);
+   213→  backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
+   214→  -webkit-backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
+   215→  border: 1px solid oklch(1 0 0 / 10%);
+   216→  box-shadow:
+   217→    0 0 0 0.5px oklch(1 0 0 / 5%),
+   218→    0 2px 12px oklch(0 0 0 / 18%),
+   219→    0 8px 32px oklch(0 0 0 / 10%),
+   220→    inset 0 1px 0 oklch(1 0 0 / 8%);
+   221→}
+   222→.bluelight .liquid-glass {
+   223→  background: oklch(0.97 0.01 75 / 68%);
+   224→  backdrop-filter: blur(24px) saturate(1.4);
+   225→  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+   226→  border: 1px solid oklch(0.85 0.02 75 / 50%);
+   227→  box-shadow:
+   228→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   229→    0 2px 8px oklch(0 0 0 / 4%),
+   230→    inset 0 1px 0 oklch(1 0 0 / 40%);
+   231→}
+   232→
+   233→/* ── Glass sidebar ── */
+   234→.liquid-glass-sidebar {
+   235→  background: oklch(0.98 0.003 185 / 82%);
+   236→  backdrop-filter: blur(32px) saturate(1.5) brightness(1.01);
+   237→  -webkit-backdrop-filter: blur(32px) saturate(1.5) brightness(1.01);
+   238→  border-right: 1px solid oklch(1 0 0 / 30%);
+   239→  box-shadow:
+   240→    1px 0 0 0.5px oklch(0 0 0 / 3%),
+   241→    2px 0 16px oklch(0 0 0 / 2%),
+   242→    inset -1px 0 0 oklch(1 0 0 / 20%);
+   243→}
+   244→.dark .liquid-glass-sidebar {
+   245→  background: oklch(0.14 0.006 185 / 82%);
+   246→  backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
+   247→  -webkit-backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
+   248→  border-right: 1px solid oklch(1 0 0 / 8%);
+   249→  box-shadow:
+   250→    1px 0 0 0.5px oklch(0 0 0 / 8%),
+   251→    2px 0 20px oklch(0 0 0 / 12%);
+   252→}
+   253→.bluelight .liquid-glass-sidebar {
+   254→  background: oklch(0.95 0.012 75 / 82%);
+   255→  border-right: 1px solid oklch(0.82 0.02 75 / 50%);
+   256→}
+   257→
+   258→/* ── Glass cards — refined for content areas ── */
+   259→.liquid-glass-card {
+   260→  background: oklch(1 0 0 / 72%);
+   261→  backdrop-filter: blur(20px) saturate(1.4) brightness(1.01);
+   262→  -webkit-backdrop-filter: blur(20px) saturate(1.4) brightness(1.01);
+   263→  border: 1px solid oklch(1 0 0 / 40%);
+   264→  box-shadow:
+   265→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   266→    0 1px 4px oklch(0 0 0 / 2%),
+   267→    0 4px 16px oklch(0 0 0 / 2%),
+   268→    inset 0 1px 0 oklch(1 0 0 / 55%);
+   269→}
+   270→.dark .liquid-glass-card {
+   271→  background: oklch(0.18 0.005 185 / 68%);
+   272→  border: 1px solid oklch(1 0 0 / 10%);
+   273→  box-shadow:
+   274→    0 0 0 0.5px oklch(1 0 0 / 5%),
+   275→    0 1px 6px oklch(0 0 0 / 14%),
+   276→    0 4px 20px oklch(0 0 0 / 8%),
+   277→    inset 0 1px 0 oklch(1 0 0 / 6%);
+   278→}
+   279→
+   280→/* ── GLOBAL GLASS: Apply to all shadcn/ui Cards ── */
+   281→/* This automatically makes every Card in the system glassy */
+   282→[class*="bg-card"],
+   283→[data-slot="card"] {
+   284→  backdrop-filter: blur(20px) saturate(1.3);
+   285→  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+   286→  border: 1px solid oklch(1 0 0 / 35%);
+   287→  box-shadow:
+   288→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   289→    0 1px 3px oklch(0 0 0 / 2%),
+   290→    inset 0 1px 0 oklch(1 0 0 / 45%);
+   291→}
+   292→.dark [class*="bg-card"],
+   293→.dark [data-slot="card"] {
+   294→  border: 1px solid oklch(1 0 0 / 9%);
+   295→  box-shadow:
+   296→    0 0 0 0.5px oklch(0 0 0 / 6%),
+   297→    0 1px 6px oklch(0 0 0 / 12%),
+   298→    inset 0 1px 0 oklch(1 0 0 / 5%);
+   299→}
+   300→.bluelight [class*="bg-card"],
+   301→.bluelight [data-slot="card"] {
+   302→  border: 1px solid oklch(0.85 0.02 75 / 45%);
+   303→}
+   304→
+   305→/* ── GLOBAL GLASS: Popovers & Dropdown menus ── */
+   306→[data-radix-popper-content-wrapper] > [role="dialog"],
+   307→[role="menu"],
+   308→[data-slot="popover-content"] {
+   309→  backdrop-filter: blur(28px) saturate(1.5) brightness(1.02);
+   310→  -webkit-backdrop-filter: blur(28px) saturate(1.5) brightness(1.02);
+   311→  border: 1px solid oklch(1 0 0 / 50%) !important;
+   312→  box-shadow:
+   313→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   314→    0 4px 16px oklch(0 0 0 / 6%),
+   315→    0 16px 48px oklch(0 0 0 / 4%),
+   316→    inset 0 1px 0 oklch(1 0 0 / 60%) !important;
+   317→}
+   318→.dark [data-radix-popper-content-wrapper] > [role="dialog"],
+   319→.dark [role="menu"],
+   320→.dark [data-slot="popover-content"] {
+   321→  backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
+   322→  -webkit-backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
+   323→  border: 1px solid oklch(1 0 0 / 10%) !important;
+   324→  box-shadow:
+   325→    0 0 0 0.5px oklch(0 0 0 / 8%),
+   326→    0 4px 16px oklch(0 0 0 / 20%),
+   327→    0 16px 48px oklch(0 0 0 / 12%),
+   328→    inset 0 1px 0 oklch(1 0 0 / 7%) !important;
+   329→}
+   330→
+   331→/* ── GLOBAL GLASS: Dialog / Modal panels ── */
+   332→[data-radix-dialog-content] {
+   333→  backdrop-filter: blur(32px) saturate(1.5) brightness(1.02);
+   334→  -webkit-backdrop-filter: blur(32px) saturate(1.5) brightness(1.02);
+   335→  border: 1px solid oklch(1 0 0 / 45%) !important;
+   336→  box-shadow:
+   337→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   338→    0 8px 32px oklch(0 0 0 / 8%),
+   339→    0 24px 64px oklch(0 0 0 / 5%),
+   340→    inset 0 1px 0 oklch(1 0 0 / 55%) !important;
+   341→}
+   342→.dark [data-radix-dialog-content] {
+   343→  backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
+   344→  -webkit-backdrop-filter: blur(32px) saturate(1.4) brightness(0.95);
+   345→  border: 1px solid oklch(1 0 0 / 10%) !important;
+   346→  box-shadow:
+   347→    0 0 0 0.5px oklch(0 0 0 / 8%),
+   348→    0 8px 32px oklch(0 0 0 / 22%),
+   349→    0 24px 64px oklch(0 0 0 / 14%),
+   350→    inset 0 1px 0 oklch(1 0 0 / 6%) !important;
+   351→}
+   352→
+   353→/* ── GLOBAL GLASS: Dialog overlay (backdrop) ── */
+   354→[data-radix-dialog-overlay] {
+   355→  background: oklch(0 0 0 / 25%) !important;
+   356→  backdrop-filter: blur(4px) brightness(0.95);
+   357→  -webkit-backdrop-filter: blur(4px) brightness(0.95);
+   358→}
+   359→.dark [data-radix-dialog-overlay] {
+   360→  background: oklch(0 0 0 / 55%) !important;
+   361→  backdrop-filter: blur(6px);
+   362→  -webkit-backdrop-filter: blur(6px);
+   363→}
+   364→
+   365→/* ── GLOBAL GLASS: Sheet (side panels) ── */
+   366→[data-radix-dialog-content][data-state="open"][style*="translate"] {
+   367→  backdrop-filter: blur(32px) saturate(1.5);
+   368→  -webkit-backdrop-filter: blur(32px) saturate(1.5);
+   369→}
+   370→
+   371→/* ── GLOBAL GLASS: Input fields ── */
+   372→input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+   373→textarea,
+   374→select {
+   375→  backdrop-filter: blur(8px) saturate(1.2);
+   376→  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+   377→}
+   378→.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+   379→.dark textarea,
+   380→.dark select {
+   381→  backdrop-filter: blur(8px) saturate(1.2);
+   382→  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+   383→}
+   384→
+   385→/* ── GLOBAL GLASS: Topbar / header bar ── */
+   386→.glass-topbar {
+   387→  background: oklch(1 0 0 / 70%);
+   388→  backdrop-filter: blur(24px) saturate(1.5) brightness(1.01);
+   389→  -webkit-backdrop-filter: blur(24px) saturate(1.5) brightness(1.01);
+   390→  border-bottom: 1px solid oklch(1 0 0 / 30%);
+   391→  box-shadow:
+   392→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   393→    0 1px 8px oklch(0 0 0 / 2%),
+   394→    inset 0 -1px 0 oklch(0 0 0 / 2%),
+   395→    inset 0 1px 0 oklch(1 0 0 / 50%);
+   396→}
+   397→.dark .glass-topbar {
+   398→  background: oklch(0.14 0.005 185 / 75%);
+   399→  backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
+   400→  -webkit-backdrop-filter: blur(24px) saturate(1.4) brightness(0.95);
+   401→  border-bottom: 1px solid oklch(1 0 0 / 7%);
+   402→  box-shadow:
+   403→    0 0 0 0.5px oklch(0 0 0 / 6%),
+   404→    0 1px 12px oklch(0 0 0 / 10%);
+   405→}
+   406→.bluelight .glass-topbar {
+   407→  background: oklch(0.95 0.012 75 / 75%);
+   408→  border-bottom: 1px solid oklch(0.82 0.02 75 / 50%);
+   409→}
+   410→
+   411→/* ── GLOBAL GLASS: Table rows / data cells ── */
+   412→table tbody tr {
+   413→  transition: background 0.15s ease, backdrop-filter 0.15s ease;
+   414→}
+   415→table tbody tr:hover {
+   416→  background: oklch(1 0 0 / 50%) !important;
+   417→  backdrop-filter: blur(8px);
+   418→  -webkit-backdrop-filter: blur(8px);
+   419→}
+   420→.dark table tbody tr:hover {
+   421→  background: oklch(1 0 0 / 5%) !important;
+   422→}
+   423→
+   424→/* ── GLOBAL GLASS: Tabs ── */
+   425→[role="tablist"] {
+   426→  backdrop-filter: blur(12px) saturate(1.3);
+   427→  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+   428→}
+   429→[role="tab"][data-state="active"] {
+   430→  background: oklch(1 0 0 / 60%);
+   431→  backdrop-filter: blur(8px);
+   432→  -webkit-backdrop-filter: blur(8px);
+   433→  box-shadow:
+   434→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   435→    inset 0 1px 0 oklch(1 0 0 / 50%);
+   436→}
+   437→.dark [role="tab"][data-state="active"] {
+   438→  background: oklch(1 0 0 / 8%);
+   439→  box-shadow:
+   440→    0 0 0 0.5px oklch(1 0 0 / 5%),
+   441→    inset 0 1px 0 oklch(1 0 0 / 6%);
+   442→}
+   443→
+   444→/* Reduced motion for accessibility */
+   445→@media (prefers-reduced-motion: reduce) {
+   446→  .liquid-glass,
+   447→  .liquid-glass-sidebar,
+   448→  .liquid-glass-card,
+   449→  .glass-topbar,
+   450→  [class*="bg-card"],
+   451→  [data-slot="card"],
+   452→  [data-radix-dialog-content],
+   453→  [role="menu"],
+   454→  [data-slot="popover-content"] {
+   455→    backdrop-filter: none;
+   456→    -webkit-backdrop-filter: none;
+   457→  }
+   458→}
+   459→
+   460→/* ══════════════════════════════════════════════════════════════
+   461→   BASE LAYER
+   462→   ══════════════════════════════════════════════════════════════ */
+   463→@layer base {
+   464→  * {
+   465→    @apply border-border outline-ring/50;
+   466→  }
+   467→  body {
+   468→    @apply bg-background text-foreground;
+   469→  }
+   470→}
+   471→
+   472→/* Custom scrollbar */
+   473→.custom-scrollbar::-webkit-scrollbar {
+   474→  width: 6px;
+   475→}
+   476→.custom-scrollbar::-webkit-scrollbar-track {
+   477→  background: transparent;
+   478→}
+   479→.custom-scrollbar::-webkit-scrollbar-thumb {
+   480→  background: oklch(0.7 0.01 185);
+   481→  border-radius: 3px;
+   482→}
+   483→.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+   484→  background: oklch(0.5 0.01 185);
+   485→}
+   486→
+   487→.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+   488→  background: oklch(0.4 0.01 185);
+   489→}
+   490→
+   491→/* ScrollArea viewport safety */
+   492→[data-radix-scroll-area-viewport] {
+   493→  min-height: 0;
+   494→}
+   495→
+   496→/* Blue light filter overlay for images and media */
+   497→.bluelight img,
+   498→.bluelight video {
+   499→  filter: sepia(0.08) saturate(0.92);
+   500→}
+   501→
+   502→/* Blue light mode: softer shadows */
+   503→.bluelight .shadow-sm,
+   504→.bluelight .shadow {
+   505→  --tw-shadow-color: oklch(0.7 0.02 75 / 8%);
+   506→}
+   507→
+   508→/* ══════════════════════════════════════════════════════════════
+   509→   ANIMATIONS
+   510→   ══════════════════════════════════════════════════════════════ */
+   511→
+   512→@keyframes fade-in {
+   513→  0% { opacity: 0; transform: translateY(6px); }
+   514→  100% { opacity: 1; transform: translateY(0); }
+   515→}
+   516→
+   517→@keyframes shimmer {
+   518→  0% { transform: translateX(-100%); }
+   519→  100% { transform: translateX(100%); }
+   520→}
+   521→
+   522→@keyframes card-enter {
+   523→  0% { opacity: 0; transform: translateY(12px) scale(0.98); }
+   524→  100% { opacity: 1; transform: translateY(0) scale(1); }
+   525→}
+   526→
+   527→@keyframes fadeIn {
+   528→  0% { opacity: 0; transform: translateY(8px); }
+   529→  100% { opacity: 1; transform: translateY(0); }
+   530→}
+   531→
+   532→@keyframes loading-dot-pulse {
+   533→  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+   534→  40% { opacity: 1; transform: scale(1.15); }
+   535→}
+   536→
+   537→/* ══════════════════════════════════════════════════════════════
+   538→   LOGIN PAGE — Premium glassmorphism login with brand colors
+   539→   ══════════════════════════════════════════════════════════════ */
+   540→
+   541→.login-page-wrapper {
+   542→  position: relative;
+   543→  height: 100dvh;
+   544→  height: 100vh;
+   545→  overflow: hidden;
+   546→  display: flex;
+   547→  align-items: center;
+   548→  justify-content: center;
+   549→  background: var(--background);
+   550→}
+   551→
+   552→/* Animated gradient mesh — brand green & blue orbs */
+   553→.login-bg-mesh {
+   554→  position: absolute;
+   555→  inset: 0;
+   556→  pointer-events: none;
+   557→  overflow: hidden;
+   558→}
+   559→
+   560→.login-bg-orb {
+   561→  position: absolute;
+   562→  border-radius: 50%;
+   563→  filter: blur(80px);
+   564→  opacity: 0.5;
+   565→}
+   566→
+   567→/* Brand teal orb (top center) */
+   568→.login-bg-orb-1 {
+   569→  width: 420px;
+   570→  height: 420px;
+   571→  top: -12%;
+   572→  left: 50%;
+   573→  transform: translateX(-50%);
+   574→  background: oklch(0.58 0.12 185 / 0.10);
+   575→  animation: login-orb-float 12s ease-in-out infinite;
+   576→}
+   577→
+   578→/* Brand green orb (bottom right) */
+   579→.login-bg-orb-2 {
+   580→  width: 320px;
+   581→  height: 320px;
+   582→  bottom: 8%;
+   583→  right: -8%;
+   584→  background: oklch(0.72 0.19 145 / 0.14);
+   585→  animation: login-orb-float 15s ease-in-out infinite reverse;
+   586→  animation-delay: -4s;
+   587→}
+   588→
+   589→/* Subtle purple orb (bottom left, for depth) */
+   590→.login-bg-orb-3 {
+   591→  width: 260px;
+   592→  height: 260px;
+   593→  bottom: -5%;
+   594→  left: -8%;
+   595→  background: oklch(0.55 0.1 260 / 0.06);
+   596→  animation: login-orb-float 18s ease-in-out infinite;
+   597→  animation-delay: -8s;
+   598→}
+   599→
+   600→@keyframes login-orb-float {
+   601→  0%, 100% { transform: translate(0, 0) scale(1); }
+   602→  33% { transform: translate(30px, -20px) scale(1.05); }
+   603→  66% { transform: translate(-20px, 15px) scale(0.95); }
+   604→}
+   605→
+   606→/* Subtle dot grid pattern overlay */
+   607→.login-grid-pattern {
+   608→  position: absolute;
+   609→  inset: 0;
+   610→  pointer-events: none;
+   611→  opacity: 0.25;
+   612→  background-image: radial-gradient(oklch(0.5 0.01 185 / 0.12) 1px, transparent 1px);
+   613→  background-size: 24px 24px;
+   614→}
+   615→
+   616→/* Bottom gradient fade */
+   617→.login-bottom-fade {
+   618→  position: absolute;
+   619→  bottom: 0;
+   620→  left: 0;
+   621→  right: 0;
+   622→  height: 120px;
+   623→  pointer-events: none;
+   624→  background: linear-gradient(to top, var(--background), transparent);
+   625→  opacity: 0.4;
+   626→}
+   627→
+   628→/* Content area */
+   629→.login-content {
+   630→  position: relative;
+   631→  z-index: 1;
+   632→  width: 100%;
+   633→  max-width: 400px;
+   634→  padding: 1rem;
+   635→}
+   636→
+   637→.login-card-area {
+   638→  display: flex;
+   639→  flex-direction: column;
+   640→  gap: 0.75rem;
+   641→}
+   642→
+   643→/* ── Brand ── */
+   644→.login-brand {
+   645→  text-align: center;
+   646→  margin-bottom: 0.25rem;
+   647→}
+   648→
+   649→.login-logo-wrap {
+   650→  position: relative;
+   651→  width: 140px;
+   652→  height: 56px;
+   653→  margin: 0 auto;
+   654→}
+   655→
+   656→/* Logo glow — uses brand green-blue gradient */
+   657→.login-logo-glow {
+   658→  position: absolute;
+   659→  inset: -10px;
+   660→  border-radius: 18px;
+   661→  background: var(--brand-gradient);
+   662→  filter: blur(18px);
+   663→  opacity: 0.4;
+   664→  animation: login-logo-pulse 3s ease-in-out infinite;
+   665→}
+   666→
+   667→@keyframes login-logo-pulse {
+   668→  0%, 100% { opacity: 0.3; transform: scale(0.95); }
+   669→  50% { opacity: 0.55; transform: scale(1.03); }
+   670→}
+   671→
+   672→.login-logo-img {
+   673→  position: relative;
+   674→  z-index: 1;
+   675→  border-radius: 12px;
+   676→  object-fit: contain;
+   677→}
+   678→
+   679→.login-brand-text {
+   680→  margin-top: 0.5rem;
+   681→}
+   682→
+   683→.login-title {
+   684→  font-size: 1.75rem;
+   685→  font-weight: 900;
+   686→  letter-spacing: -0.025em;
+   687→  color: var(--primary);
+   688→  line-height: 1.2;
+   689→}
+   690→
+   691→.login-subtitle {
+   692→  font-size: 0.75rem;
+   693→  font-weight: 600;
+   694→  color: var(--muted-foreground);
+   695→  margin-top: 2px;
+   696→}
+   697→
+   698→.login-tagline {
+   699→  font-size: 0.6875rem;
+   700→  color: var(--muted-foreground);
+   701→  margin-top: 0.375rem;
+   702→}
+   703→
+   704→/* ── Login Cards — LIQUID GLASS ── */
+   705→.login-main-card {
+   706→  background: oklch(1 0 0 / 72%);
+   707→  backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
+   708→  -webkit-backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
+   709→  border: 1px solid oklch(1 0 0 / 50%);
+   710→  box-shadow:
+   711→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   712→    0 2px 8px oklch(0 0 0 / 3%),
+   713→    0 12px 40px oklch(0 0 0 / 3%),
+   714→    inset 0 1px 0 oklch(1 0 0 / 65%);
+   715→  transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+   716→}
+   717→
+   718→.login-main-card:hover {
+   719→  border-color: oklch(0.58 0.1 148 / 0.25);
+   720→  box-shadow:
+   721→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   722→    0 2px 8px oklch(0 0 0 / 3%),
+   723→    0 16px 48px oklch(0 0 0 / 5%),
+   724→    inset 0 1px 0 oklch(1 0 0 / 65%);
+   725→  transform: translateY(-1px);
+   726→}
+   727→
+   728→.login-setup-card {
+   729→  background: oklch(1 0 0 / 70%);
+   730→  backdrop-filter: blur(20px) saturate(1.4);
+   731→  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+   732→  border: 1px solid oklch(0.75 0.06 60 / 40%);
+   733→  box-shadow:
+   734→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   735→    0 4px 16px oklch(0 0 0 / 3%),
+   736→    inset 0 1px 0 oklch(1 0 0 / 55%);
+   737→}
+   738→
+   739→.login-session-card {
+   740→  background: oklch(1 0 0 / 70%);
+   741→  backdrop-filter: blur(20px) saturate(1.4);
+   742→  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+   743→  border: 1px solid oklch(0.58 0.08 148 / 30%);
+   744→  box-shadow:
+   745→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   746→    0 4px 16px oklch(0 0 0 / 3%),
+   747→    inset 0 1px 0 oklch(1 0 0 / 55%);
+   748→}
+   749→
+   750→/* ── Inputs — glass style ── */
+   751→.login-input-wrap {
+   752→  position: relative;
+   753→}
+   754→
+   755→.login-input {
+   756→  background: oklch(1 0 0 / 60%) !important;
+   757→  backdrop-filter: blur(8px) saturate(1.2);
+   758→  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+   759→  border: 1px solid oklch(1 0 0 / 40%) !important;
+   760→  box-shadow:
+   761→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   762→    inset 0 1px 0 oklch(1 0 0 / 40%);
+   763→  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+   764→}
+   765→
+   766→.login-input:focus {
+   767→  border-color: oklch(0.58 0.12 148 / 0.5) !important;
+   768→  box-shadow:
+   769→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   770→    0 0 0 3px oklch(0.58 0.12 148 / 0.12),
+   771→    inset 0 1px 0 oklch(1 0 0 / 50%) !important;
+   772→  background: oklch(1 0 0 / 80%) !important;
+   773→}
+   774→
+   775→.login-eye-btn {
+   776→  position: absolute;
+   777→  right: 4px;
+   778→  top: 50%;
+   779→  transform: translateY(-50%);
+   780→  height: 28px;
+   781→  width: 28px;
+   782→}
+   783→
+   784→/* ── Submit Button — Brand gradient with glass ── */
+   785→.login-submit-btn {
+   786→  position: relative;
+   787→  overflow: hidden;
+   788→  background: var(--brand-gradient) !important;
+   789→  color: oklch(0.985 0 0);
+   790→  border: 1px solid oklch(1 0 0 / 20%);
+   791→  box-shadow:
+   792→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   793→    0 2px 8px oklch(0.58 0.12 148 / 0.2),
+   794→    inset 0 1px 0 oklch(1 0 0 / 25%);
+   795→  transition: all 0.25s ease;
+   796→}
+   797→
+   798→.login-submit-btn:hover:not(:disabled) {
+   799→  background: var(--brand-gradient-hover) !important;
+   800→  box-shadow:
+   801→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   802→    0 4px 16px oklch(0.58 0.12 148 / 0.3),
+   803→    0 8px 32px oklch(0.72 0.19 145 / 0.15),
+   804→    inset 0 1px 0 oklch(1 0 0 / 30%);
+   805→  transform: translateY(-1px);
+   806→}
+   807→
+   808→.login-submit-btn:active:not(:disabled) {
+   809→  transform: translateY(0);
+   810→  box-shadow:
+   811→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   812→    0 1px 4px oklch(0.58 0.12 148 / 0.2),
+   813→    inset 0 1px 0 oklch(1 0 0 / 20%);
+   814→}
+   815→
+   816→.login-submit-btn::after {
+   817→  content: '';
+   818→  position: absolute;
+   819→  inset: 0;
+   820→  background: linear-gradient(
+   821→    105deg,
+   822→    transparent 40%,
+   823→    oklch(1 0 0 / 0.2) 45%,
+   824→    oklch(1 0 0 / 0.2) 55%,
+   825→    transparent 60%
+   826→  );
+   827→  transform: translateX(-100%);
+   828→  transition: none;
+   829→}
+   830→
+   831→.login-submit-btn:hover:not(:disabled)::after {
+   832→  animation: login-btn-shimmer 0.6s ease-out;
+   833→}
+   834→
+   835→@keyframes login-btn-shimmer {
+   836→  0% { transform: translateX(-100%); }
+   837→  100% { transform: translateX(100%); }
+   838→}
+   839→
+   840→/* Loading state spinner */
+   841→.login-loading-wrap {
+   842→  display: inline-flex;
+   843→  align-items: center;
+   844→  gap: 0.5rem;
+   845→}
+   846→
+   847→.login-loading-spinner {
+   848→  display: inline-block;
+   849→  width: 14px;
+   850→  height: 14px;
+   851→  border: 2px solid oklch(1 0 0 / 0.3);
+   852→  border-top-color: oklch(1 0 0);
+   853→  border-radius: 50%;
+   854→  animation: login-spin 0.6s linear infinite;
+   855→}
+   856→
+   857→@keyframes login-spin {
+   858→  to { transform: rotate(360deg); }
+   859→}
+   860→
+   861→/* ── Entrance Animations ── */
+   862→@keyframes login-fade-up {
+   863→  0% { opacity: 0; transform: translateY(12px); }
+   864→  100% { opacity: 1; transform: translateY(0); }
+   865→}
+   866→
+   867→@keyframes login-scale-in {
+   868→  0% { opacity: 0; transform: scale(0.96) translateY(8px); }
+   869→  100% { opacity: 1; transform: scale(1) translateY(0); }
+   870→}
+   871→
+   872→.animate-login-fade-up {
+   873→  animation: login-fade-up 0.5s ease-out both;
+   874→}
+   875→
+   876→.animate-login-scale-in {
+   877→  animation: login-scale-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+   878→}
+   879→
+   880→/* ── Dark mode login adjustments ── */
+   881→.dark .login-bg-orb-1 {
+   882→  background: oklch(0.63 0.1 185 / 0.07);
+   883→}
+   884→
+   885→.dark .login-bg-orb-2 {
+   886→  background: oklch(0.72 0.14 145 / 0.10);
+   887→}
+   888→
+   889→.dark .login-bg-orb-3 {
+   890→  background: oklch(0.55 0.1 260 / 0.05);
+   891→}
+   892→
+   893→.dark .login-grid-pattern {
+   894→  opacity: 0.12;
+   895→  background-image: radial-gradient(oklch(0.8 0.01 185 / 0.08) 1px, transparent 1px);
+   896→}
+   897→
+   898→.dark .login-main-card {
+   899→  background: oklch(0.18 0.005 185 / 68%);
+   900→  backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
+   901→  -webkit-backdrop-filter: blur(28px) saturate(1.4) brightness(0.95);
+   902→  border-color: oklch(1 0 0 / 10%);
+   903→  box-shadow:
+   904→    0 0 0 0.5px oklch(0 0 0 / 6%),
+   905→    0 2px 8px oklch(0 0 0 / 12%),
+   906→    0 12px 40px oklch(0 0 0 / 8%),
+   907→    inset 0 1px 0 oklch(1 0 0 / 8%);
+   908→}
+   909→
+   910→.dark .login-main-card:hover {
+   911→  border-color: oklch(0.63 0.1 148 / 0.2);
+   912→  box-shadow:
+   913→    0 0 0 0.5px oklch(0 0 0 / 6%),
+   914→    0 2px 8px oklch(0 0 0 / 12%),
+   915→    0 16px 48px oklch(0 0 0 / 10%),
+   916→    inset 0 1px 0 oklch(1 0 0 / 8%);
+   917→}
+   918→
+   919→.dark .login-input {
+   920→  background: oklch(0.15 0.005 185 / 70%) !important;
+   921→  border-color: oklch(1 0 0 / 10%) !important;
+   922→  box-shadow:
+   923→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   924→    inset 0 1px 0 oklch(1 0 0 / 5%);
+   925→}
+   926→
+   927→.dark .login-input:focus {
+   928→  border-color: oklch(0.63 0.1 148 / 0.4) !important;
+   929→  box-shadow:
+   930→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   931→    0 0 0 3px oklch(0.63 0.1 148 / 0.12),
+   932→    inset 0 1px 0 oklch(1 0 0 / 6%) !important;
+   933→  background: oklch(0.15 0.005 185 / 85%) !important;
+   934→}
+   935→
+   936→.dark .login-submit-btn {
+   937→  box-shadow:
+   938→    0 0 0 0.5px oklch(0 0 0 / 8%),
+   939→    0 2px 8px oklch(0.63 0.1 148 / 0.15),
+   940→    inset 0 1px 0 oklch(1 0 0 / 10%);
+   941→}
+   942→
+   943→.dark .login-submit-btn:hover:not(:disabled) {
+   944→  box-shadow:
+   945→    0 0 0 0.5px oklch(0 0 0 / 8%),
+   946→    0 4px 16px oklch(0.63 0.1 148 / 0.25),
+   947→    0 8px 32px oklch(0.72 0.14 145 / 0.12),
+   948→    inset 0 1px 0 oklch(1 0 0 / 12%);
+   949→}
+   950→
+   951→.dark .login-setup-card {
+   952→  background: oklch(0.18 0.005 185 / 65%);
+   953→  border-color: oklch(0.75 0.06 60 / 25%);
+   954→  box-shadow:
+   955→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   956→    0 4px 16px oklch(0 0 0 / 10%),
+   957→    inset 0 1px 0 oklch(1 0 0 / 5%);
+   958→}
+   959→
+   960→.dark .login-session-card {
+   961→  background: oklch(0.18 0.005 185 / 65%);
+   962→  border-color: oklch(0.58 0.08 148 / 20%);
+   963→  box-shadow:
+   964→    0 0 0 0.5px oklch(0 0 0 / 5%),
+   965→    0 4px 16px oklch(0 0 0 / 10%),
+   966→    inset 0 1px 0 oklch(1 0 0 / 5%);
+   967→}
+   968→
+   969→/* ── Blue light mode login adjustments ── */
+   970→.bluelight .login-bg-orb-1 {
+   971→  background: oklch(0.55 0.08 185 / 0.06);
+   972→}
+   973→
+   974→.bluelight .login-bg-orb-2 {
+   975→  background: oklch(0.65 0.12 145 / 0.08);
+   976→}
+   977→
+   978→.bluelight .login-bg-orb-3 {
+   979→  background: oklch(0.5 0.08 260 / 0.04);
+   980→}
+   981→
+   982→.bluelight .login-main-card {
+   983→  background: oklch(0.97 0.01 75 / 72%);
+   984→  border-color: oklch(0.82 0.02 75 / 45%);
+   985→  box-shadow:
+   986→    0 0 0 0.5px oklch(0 0 0 / 3%),
+   987→    0 4px 16px oklch(0 0 0 / 4%),
+   988→    inset 0 1px 0 oklch(1 0 0 / 40%);
+   989→}
+   990→
+   991→.bluelight .login-submit-btn {
+   992→  box-shadow:
+   993→    0 0 0 0.5px oklch(0 0 0 / 4%),
+   994→    0 2px 8px oklch(0.55 0.08 158 / 0.15),
+   995→    inset 0 1px 0 oklch(1 0 0 / 20%);
+   996→}
+   997→
+   998→.bluelight .login-submit-btn:hover:not(:disabled) {
+   999→  box-shadow:
+  1000→    0 0 0 0.5px oklch(0 0 0 / 4%),
+  1001→    0 4px 16px oklch(0.55 0.08 158 / 0.25),
+  1002→    inset 0 1px 0 oklch(1 0 0 / 25%);
+  1003→}
+  1004→
+  1005→/* ── Responsive tweaks ── */
+  1006→@media (max-height: 700px) {
+  1007→  .login-content {
+  1008→    padding: 0.5rem;
+  1009→  }
+  1010→  .login-card-area {
+  1011→    gap: 0.5rem;
+  1012→  }
+  1013→  .login-logo-wrap {
+  1014→    width: 120px;
+  1015→    height: 48px;
+  1016→  }
+  1017→  .login-title {
+  1018→    font-size: 1.5rem;
+  1019→  }
+  1020→  .login-brand {
+  1021→    margin-bottom: 0;
+  1022→  }
+  1023→  .login-main-card .space-y-4 > * + * {
+  1024→    margin-top: 0.75rem;
+  1025→  }
+  1026→}
+  1027→
+  1028→@media (max-height: 580px) {
+  1029→  .login-tagline {
+  1030→    display: none;
+  1031→  }
+  1032→  .login-brand-text {
+  1033→    margin-top: 0.25rem;
+  1034→  }
+  1035→}

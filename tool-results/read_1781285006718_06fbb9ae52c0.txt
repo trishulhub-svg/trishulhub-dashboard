@@ -1,0 +1,863 @@
+     1→import { NextRequest, NextResponse } from "next/server"
+     2→import { getServerSession } from "next-auth"
+     3→import { authOptions } from "@/lib/auth"
+     4→import { db } from "@/lib/db"
+     5→import { Prisma } from "@prisma/client"
+     6→import bcrypt from "bcryptjs"
+     7→import { isAdmin } from "@/lib/rbac"
+     8→import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+     9→import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
+    10→
+    11→// [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
+    12→function toLocalDateStr(d: Date): string {
+    13→  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    14→}
+    15→
+    16→// [T4/T6] Valid role values
+    17→const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
+    18→
+    19→// [W15] Helper: verify user account is still active
+    20→async function requireActiveUser(userId: string): Promise<NextResponse | null> {
+    21→  const currentUser = await db.user.findUnique({
+    22→    where: { id: userId },
+    23→    select: { isActive: true },
+    24→  })
+    25→  if (!currentUser?.isActive) {
+    26→    return NextResponse.json({ error: "Account deactivated" }, { status: 403 })
+    27→  }
+    28→  return null
+    29→}
+    30→
+    31→// GET /api/team - List team data
+    32→export async function GET(req: NextRequest) {
+    33→  try {
+    34→    const session = await getServerSession(authOptions)
+    35→    if (!session?.user) {
+    36→      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    37→    }
+    38→
+    39→    // [T1] Rate limiting
+    40→    const rl = rateLimit('team-get-' + session.user.id, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    41→    if (!rl.success) {
+    42→      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    43→    }
+    44→
+    45→    // [W15] Verify user is still active
+    46→    const activeCheck = await requireActiveUser(session.user.id)
+    47→    if (activeCheck) return activeCheck
+    48→
+    49→    const { searchParams } = new URL(req.url)
+    50→    const type = searchParams.get("type")
+    51→
+    52→    if (type === "users") {
+    53→      // SUPER_ADMIN and ADMIN: list all users for team management
+    54→      const userRole = session.user.role
+    55→      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    56→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    57→      }
+    58→      // TODO: Add cursor-based pagination for large datasets
+    59→      const users = await db.user.findMany({
+    60→        where: { role: { not: "CLIENT" } },
+    61→        select: {
+    62→          id: true,
+    63→          name: true,
+    64→          email: true,
+    65→          role: true,
+    66→          department: true,
+    67→          isActive: true,
+    68→          avatar: true, // [T7] Add avatar to user list
+    69→          createdAt: true,
+    70→        },
+    71→        orderBy: { name: "asc" },
+    72→        take: 100,
+    73→      })
+    74→      return NextResponse.json(users)
+    75→    }
+    76→
+    77→    if (type === "attendance") {
+    78→      // Admin-only: computed attendance from Time Tracking + Availability + Leaves
+    79→      const userRole = session.user.role
+    80→      if (!isAdmin(userRole)) {
+    81→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    82→      }
+    83→
+    84→      const dateFromStr = searchParams.get("from")
+    85→      const dateToStr = searchParams.get("to")
+    86→
+    87→      // [W12] Default: last 30 days when no explicit date provided
+    88→      const today = new Date()
+    89→      let dateFrom: Date
+    90→      if (dateFromStr) {
+    91→        dateFrom = new Date(dateFromStr)
+    92→        dateFrom.setHours(0, 0, 0, 0)
+    93→      } else {
+    94→        dateFrom = new Date(today)
+    95→        dateFrom.setDate(dateFrom.getDate() - 30)
+    96→        dateFrom.setHours(0, 0, 0, 0)
+    97→      }
+    98→
+    99→      const dateTo = dateToStr ? new Date(dateToStr) : new Date(today)
+   100→      dateTo.setHours(23, 59, 59, 999)
+   101→
+   102→      // [W13] Enforce maximum date range of 90 days
+   103→      const rangeDays = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24))
+   104→      if (rangeDays > 90) {
+   105→        return NextResponse.json({ error: "Date range cannot exceed 90 days" }, { status: 400 })
+   106→      }
+   107→
+   108→      // 1. Fetch all active non-CLIENT users (must be first to get IDs for subsequent queries)
+   109→      const activeUsers = await db.user.findMany({
+   110→        where: { role: { not: "CLIENT" }, isActive: true },
+   111→        select: { id: true, name: true, email: true, role: true, avatar: true },
+   112→        orderBy: { name: "asc" },
+   113→      })
+   114→      const userIds = activeUsers.map(u => u.id)
+   115→
+   116→      // 2-5. Fetch remaining data sources in parallel for performance
+   117→      const [allAvailability, leaveRequests, leaves, timeEntries, manualAttendance] = await Promise.all([
+   118→        // 2. Fetch all availability schedules for these users
+   119→        db.availability.findMany({
+   120→          where: { userId: { in: userIds }, isAvailable: true },
+   121→        }),
+   122→        // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
+   123→        db.leaveRequest.findMany({
+   124→          where: {
+   125→            userId: { in: userIds },
+   126→            status: "APPROVED",
+   127→            startDate: { lte: dateTo },
+   128→            endDate: { gte: dateFrom },
+   129→          },
+   130→        }),
+   131→        db.leave.findMany({
+   132→          where: {
+   133→            userId: { in: userIds },
+   134→            status: "APPROVED",
+   135→            startDate: { lte: dateTo },
+   136→            endDate: { gte: dateFrom },
+   137→          },
+   138→        }),
+   139→        // 4. Fetch all COMPLETED time entries in the date range
+   140→        db.timeEntry.findMany({
+   141→          where: {
+   142→            userId: { in: userIds },
+   143→            status: "COMPLETED",
+   144→            clockIn: { gte: dateFrom, lt: new Date(dateTo.getTime() + 86400000) },
+   145→          },
+   146→          select: { id: true, userId: true, clockIn: true, clockOut: true, totalHours: true, date: true },
+   147→        }),
+   148→        // 5. Fetch existing manual attendance records
+   149→        db.attendance.findMany({
+   150→          where: {
+   151→            date: { gte: dateFrom, lte: dateTo },
+   152→          },
+   153→        }),
+   154→      ])
+   155→
+   156→      // 6. Build lookup maps
+   157→      const availByUserDay = new Map<string, { startTime: string; endTime: string }[]>()
+   158→      for (const a of allAvailability) {
+   159→        const key = `${a.userId}-${a.dayOfWeek}`
+   160→        const existing = availByUserDay.get(key) || []
+   161→        existing.push({ startTime: a.startTime, endTime: a.endTime })
+   162→        availByUserDay.set(key, existing)
+   163→      }
+   164→
+   165→      const leaveDaysByUser = new Map<string, Set<string>>()
+   166→      for (const lr of leaveRequests) {
+   167→        const key = lr.userId
+   168→        const set = leaveDaysByUser.get(key) || new Set<string>()
+   169→        const start = new Date(lr.startDate)
+   170→        const end = new Date(lr.endDate)
+   171→        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+   172→          set.add(toLocalDateStr(d))
+   173→        }
+   174→        leaveDaysByUser.set(key, set)
+   175→      }
+   176→      for (const l of leaves) {
+   177→        const key = l.userId
+   178→        const set = leaveDaysByUser.get(key) || new Set<string>()
+   179→        const start = new Date(l.startDate)
+   180→        const end = new Date(l.endDate)
+   181→        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+   182→          set.add(toLocalDateStr(d))
+   183→        }
+   184→        leaveDaysByUser.set(key, set)
+   185→      }
+   186→
+   187→      // Group time entries by userId + date string
+   188→      const timeByUserDay = new Map<string, { totalHours: number; clockIn: Date | null; clockOut: Date | null; entryCount: number }>()
+   189→      for (const te of timeEntries) {
+   190→        const dayStr = toLocalDateStr(new Date(te.date))
+   191→        const key = `${te.userId}-${dayStr}`
+   192→        const existing = timeByUserDay.get(key) || { totalHours: 0, clockIn: null as Date | null, clockOut: null as Date | null, entryCount: 0 }
+   193→        existing.totalHours += te.totalHours || 0
+   194→        existing.entryCount++
+   195→        // Track earliest clock-in and latest clock-out
+   196→        if (!existing.clockIn || te.clockIn < existing.clockIn) existing.clockIn = te.clockIn
+   197→        if (!existing.clockOut || (te.clockOut && te.clockOut > existing.clockOut)) existing.clockOut = te.clockOut
+   198→        timeByUserDay.set(key, existing)
+   199→      }
+   200→
+   201→      // Manual attendance override map: "userId-dateStr" -> Attendance record
+   202→      const manualByUserDay = new Map<string, typeof manualAttendance[0]>()
+   203→      for (const ma of manualAttendance) {
+   204→        const dayStr = toLocalDateStr(new Date(ma.date))
+   205→        manualByUserDay.set(`${ma.userId}-${dayStr}`, ma)
+   206→      }
+   207→
+   208→      // Helper: calculate required hours for a user on a given day of week
+   209→      function getRequiredHours(userId: string, dayOfWeek: number): number {
+   210→        const slots = availByUserDay.get(`${userId}-${dayOfWeek}`)
+   211→        if (!slots || slots.length === 0) return 0 // No schedule = not required
+   212→        let totalMinutes = 0
+   213→        for (const slot of slots) {
+   214→          const [sh, sm] = slot.startTime.split(":").map(Number)
+   215→          const [eh, em] = slot.endTime.split(":").map(Number)
+   216→          let diff = (eh * 60 + em) - (sh * 60 + sm)
+   217→          if (diff < 0) diff += 24 * 60 // Overnight shift (e.g. 19:59 - 23:59)
+   218→          totalMinutes += diff
+   219→        }
+   220→        return totalMinutes / 60
+   221→      }
+   222→
+   223→      // 7. Generate computed attendance records for each day × each user
+   224→      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   225→      const records: Record<string, any>[] = []
+   226→
+   227→      for (let d = new Date(dateFrom); d <= dateTo; d.setDate(d.getDate() + 1)) {
+   228→        const dayStr = toLocalDateStr(d)
+   229→        const dow = d.getDay()
+   230→
+   231→        for (const user of activeUsers) {
+   232→          // Check manual override first
+   233→          const manualRecord = manualByUserDay.get(`${user.id}-${dayStr}`)
+   234→          if (manualRecord) {
+   235→            records.push({
+   236→              id: manualRecord.id,
+   237→              userId: user.id,
+   238→              date: manualRecord.date.toISOString(),
+   239→              checkIn: manualRecord.checkIn?.toISOString() || null,
+   240→              checkOut: manualRecord.checkOut?.toISOString() || null,
+   241→              status: manualRecord.status,
+   242→              notes: manualRecord.notes,
+   243→              isManual: true,
+   244→              requiredHours: null,
+   245→              workedHours: null,
+   246→              user,
+   247→            })
+   248→            continue
+   249→          }
+   250→
+   251→          // Check if on approved leave FIRST (before skip logic)
+   252→          const userLeaveDays = leaveDaysByUser.get(user.id)
+   253→          if (userLeaveDays && userLeaveDays.has(dayStr)) {
+   254→            records.push({
+   255→              id: `computed-${user.id}-${dayStr}`,
+   256→              userId: user.id,
+   257→              date: d.toISOString(),
+   258→              checkIn: null,
+   259→              checkOut: null,
+   260→              status: "LEAVE",
+   261→              notes: "Auto-detected from approved leave",
+   262→              isManual: false,
+   263→              requiredHours: getRequiredHours(user.id, dow),
+   264→              workedHours: 0,
+   265→              user,
+   266→            })
+   267→            continue
+   268→          }
+   269→
+   270→          // Check time tracking data
+   271→          const timeData = timeByUserDay.get(`${user.id}-${dayStr}`)
+   272→          const requiredHours = getRequiredHours(user.id, dow)
+   273→          const workedHours = timeData?.totalHours || 0
+   274→
+   275→          // Skip days where the employee has NO availability schedule AND no time entries
+   276→          // (don't hard-skip Sundays — employees may work any day per their availability)
+   277→          if (requiredHours === 0 && workedHours === 0) continue
+   278→
+   279→          // Determine status
+   280→          let status: string
+   281→          if (requiredHours === 0) {
+   282→            // No availability schedule for this day but has time entries
+   283→            // Mark as NO_SCHEDULE so admin knows there's no expected schedule
+   284→            status = "NO_SCHEDULE"
+   285→          } else if (workedHours >= requiredHours) {
+   286→            status = "PRESENT"
+   287→          } else if (workedHours >= requiredHours * 0.5) {
+   288→            status = "HALF_DAY"
+   289→          } else if (workedHours > 0) {
+   290→            status = "HALF_DAY"
+   291→          } else {
+   292→            status = "ABSENT"
+   293→          }
+   294→
+   295→          records.push({
+   296→            id: `computed-${user.id}-${dayStr}`,
+   297→            userId: user.id,
+   298→            date: d.toISOString(),
+   299→            checkIn: timeData?.clockIn?.toISOString() || null,
+   300→            checkOut: timeData?.clockOut?.toISOString() || null,
+   301→            status,
+   302→            notes: timeData ? `${timeData.entryCount} time entry(s) logged` : "No time entries",
+   303→            isManual: false,
+   304→            requiredHours: Math.round(requiredHours * 100) / 100,
+   305→            workedHours: Math.round(workedHours * 100) / 100,
+   306→            user,
+   307→          })
+   308→        }
+   309→      }
+   310→
+   311→      // Sort by date desc, then user name
+   312→      records.sort((a, b) => {
+   313→        const dateCompare = new Date(b.date as string).getTime() - new Date(a.date as string).getTime()
+   314→        if (dateCompare !== 0) return dateCompare
+   315→        return String((a.user as unknown as Record<string, unknown>)?.name).localeCompare(String((b.user as unknown as Record<string, unknown>)?.name))
+   316→      })
+   317→
+   318→      // Limit to 500 records
+   319→      return NextResponse.json(records.slice(0, 500))
+   320→    }
+   321→
+   322→    if (type === "leaves") {
+   323→      // Admin-only: all leave requests; developers see own only
+   324→      const userRole = session.user.role
+   325→      const userId = session.user.id
+   326→      if (!isAdmin(userRole)) {
+   327→        // TODO: Add cursor-based pagination for large datasets
+   328→        const leaves = await db.leaveRequest.findMany({
+   329→          where: { userId },
+   330→          include: {
+   331→            user: { select: { id: true, name: true, email: true, role: true } },
+   332→          },
+   333→          orderBy: { createdAt: "desc" },
+   334→          take: 100,
+   335→        })
+   336→        return NextResponse.json(leaves)
+   337→      }
+   338→      // TODO: Add cursor-based pagination for large datasets
+   339→      const leaves = await db.leaveRequest.findMany({
+   340→        include: {
+   341→          user: { select: { id: true, name: true, email: true, role: true } },
+   342→        },
+   343→        orderBy: { createdAt: "desc" },
+   344→        take: 100,
+   345→      })
+   346→      return NextResponse.json(leaves)
+   347→    }
+   348→
+   349→    // Default: return team members (admin-only)
+   350→    const userRole = session.user.role
+   351→    if (!isAdmin(userRole)) {
+   352→      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+   353→    }
+   354→    // TODO: Add cursor-based pagination for large datasets
+   355→    const users = await db.user.findMany({
+   356→      where: { role: { not: "CLIENT" } },
+   357→      include: {
+   358→        _count: { select: { leaveRequests: true } },
+   359→      },
+   360→      orderBy: { name: "asc" },
+   361→      take: 100,
+   362→    })
+   363→    return NextResponse.json(users)
+   364→  } catch (error: unknown) {
+   365→    // [T2] Fixed error: any → error: unknown
+   366→    console.error("[team] GET error:", error instanceof Error ? error.message : String(error))
+   367→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   368→  }
+   369→}
+   370→
+   371→// POST /api/team - Create records
+   372→export async function POST(req: NextRequest) {
+   373→  try {
+   374→    const session = await getServerSession(authOptions)
+   375→    if (!session?.user) {
+   376→      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   377→    }
+   378→
+   379→    // [T1] Rate limiting
+   380→    const rl = rateLimit('team-post-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   381→    if (!rl.success) {
+   382→      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+   383→    }
+   384→
+   385→    // [W15] Verify user is still active
+   386→    const activeCheck = await requireActiveUser(session.user.id)
+   387→    if (activeCheck) return activeCheck
+   388→
+   389→    // [T3] try/catch on req.json()
+   390→    let body: Record<string, unknown>
+   391→    try {
+   392→      body = await req.json()
+   393→    } catch {
+   394→      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+   395→    }
+   396→    const { type, ...data } = body
+   397→
+   398→    if (type === "leave") {
+   399→      // SECURITY: Non-admin users can only create leave for themselves
+   400→      const sessionUserId = session.user.id
+   401→      const sessionUserRole = session.user.role
+   402→      const leaveUserId = !isAdmin(sessionUserRole) ? sessionUserId : (data.userId || sessionUserId)
+   403→
+   404→      // [FIX C3: Validate start/end dates]
+   405→      if (!data.startDate || !data.endDate) {
+   406→        return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
+   407→      }
+   408→      const parsedStart = new Date(data.startDate as string)
+   409→      const parsedEnd = new Date(data.endDate as string)
+   410→      if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
+   411→        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+   412→      }
+   413→      if (parsedStart > parsedEnd) {
+   414→        return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
+   415→      }
+   416→
+   417→      // [T9] Limit leave duration to 30 days
+   418→      const diffDays = Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+   419→      if (diffDays > 30) {
+   420→        return NextResponse.json({ error: "Leave duration cannot exceed 30 days" }, { status: 400 })
+   421→      }
+   422→
+   423→      // [FIX H7: Validate leave type against allowed values]
+   424→      const validLeaveTypes = ["CASUAL", "SICK", "PAID"]
+   425→      const leaveType = (data.leaveType as string) || "CASUAL"
+   426→      if (!validLeaveTypes.includes(leaveType)) {
+   427→        return NextResponse.json({ error: "Invalid leave type. Must be CASUAL, SICK, or PAID" }, { status: 400 })
+   428→      }
+   429→
+   430→      // [W11] Audit log when admin creates leave on behalf of another user
+   431→      if (leaveUserId !== sessionUserId) {
+   432→        console.log(`[team] Admin ${sessionUserId} creating leave for user ${leaveUserId}`);
+   433→      }
+   434→
+   435→      const leave = await db.leaveRequest.create({
+   436→        data: {
+   437→          userId: leaveUserId as string,
+   438→          type: leaveType,
+   439→          startDate: parsedStart,
+   440→          endDate: parsedEnd,
+   441→          reason: (data.reason as string)?.slice(0, 1000) || null,
+   442→          status: "PENDING",
+   443→        },
+   444→      })
+   445→
+   446→      // Notify admins about new leave request (fire-and-forget — non-blocking)
+   447→      try {
+   448→        const admins = await db.user.findMany({
+   449→          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+   450→        })
+   451→        const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
+   452→        // TODO: Use db.notification.createMany for batch insert
+   453→        for (const admin of admins) {
+   454→          await db.notification.create({
+   455→            data: {
+   456→              userId: admin.id,
+   457→              title: "New Leave Request",
+   458→              message: `${user?.name || "A team member"} requested ${leaveType} leave from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
+   459→              type: "INFO",
+   460→              link: "/dashboard/team",
+   461→              metadata: JSON.stringify({ leaveId: leave.id }),
+   462→            }
+   463→          })
+   464→        }
+   465→      } catch (notifyErr: unknown) {
+   466→        // [T2] Fixed error: any → error: unknown
+   467→        console.error("[team] leave notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
+   468→      }
+   469→
+   470→      return NextResponse.json(leave, { status: 201 })
+   471→    }
+   472→
+   473→    if (type === "attendance") {
+   474→      // SECURITY: Only admins can create attendance records
+   475→      const attendanceUserRole = session.user.role
+   476→      if (!isAdmin(attendanceUserRole)) {
+   477→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+   478→      }
+   479→      // [FIX H8: Validate attendance status against allowed values]
+   480→      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "NO_SCHEDULE"]
+   481→      const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
+   482→      if (attStatus && !validAttStatuses.includes(attStatus as string)) {
+   483→        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, LEAVE, or NO_SCHEDULE" }, { status: 400 })
+   484→      }
+   485→      if (!date) {
+   486→        return NextResponse.json({ error: "Date is required" }, { status: 400 })
+   487→      }
+   488→      // [W14] Validate date format
+   489→      if (isNaN(new Date(date as string).getTime())) {
+   490→        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+   491→      }
+   492→
+   493→      // Validate checkIn/checkOut date format if provided
+   494→      if (checkIn && isNaN(new Date(checkIn as string).getTime())) {
+   495→        return NextResponse.json({ error: "Invalid checkIn date format" }, { status: 400 })
+   496→      }
+   497→      if (checkOut && isNaN(new Date(checkOut as string).getTime())) {
+   498→        return NextResponse.json({ error: "Invalid checkOut date format" }, { status: 400 })
+   499→      }
+   500→
+   501→      // [T10] Validate userId exists before creating attendance record
+   502→      if (attUserId) {
+   503→        const targetUser = await db.user.findUnique({ where: { id: attUserId as string } })
+   504→        if (!targetUser) {
+   505→          return NextResponse.json({ error: "User not found" }, { status: 404 })
+   506→        }
+   507→      }
+   508→
+   509→      const attendance = await db.attendance.create({
+   510→        data: {
+   511→          date: new Date(date as string),
+   512→          userId: (attUserId || session.user.id) as string,
+   513→          ...(attStatus ? { status: attStatus as string } : {}),
+   514→          ...(checkIn ? { checkIn: checkIn as string } : {}),
+   515→          ...(checkOut ? { checkOut: checkOut as string } : {}),
+   516→          ...(notes ? { notes: (notes as string)?.slice(0, 1000) || null } : {}),
+   517→        },
+   518→      })
+   519→      return NextResponse.json(attendance, { status: 201 })
+   520→    }
+   521→
+   522→
+   523→
+   524→    if (type === "user") {
+   525→      // SUPER_ADMIN and ADMIN: Create a new team member
+   526→      const userRole = session.user.role
+   527→      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+   528→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+   529→      }
+   530→
+   531→      const { name, email, role, department, password } = data
+   532→      if (!name || !email || !password) {
+   533→        return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
+   534→      }
+   535→
+   536→      if ((password as string).length < 8) {
+   537→        return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+   538→      }
+   539→
+   540→      // [W14] Password complexity: must contain at least one letter and one number
+   541→      if (!/[a-zA-Z]/.test(password as string) || !/[0-9]/.test(password as string)) {
+   542→        return NextResponse.json({ error: "Password must contain at least one letter and one number" }, { status: 400 })
+   543→      }
+   544→
+   545→      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+   546→      if (!emailRegex.test(email as string)) {
+   547→        return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+   548→      }
+   549→
+   550→      // [T4/T6] Validate role value
+   551→      if (role && !VALID_ROLES.includes(role as typeof VALID_ROLES[number])) {
+   552→        return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+   553→      }
+   554→
+   555→      // [T5] Validate department value (allow null/empty)
+   556→      if (department && !VALID_DEPARTMENT_VALUES.includes(department as string)) {
+   557→        return NextResponse.json({ error: "Invalid department" }, { status: 400 });
+   558→      }
+   559→
+   560→      // Only SUPER_ADMIN can create other SUPER_ADMIN or ADMIN users
+   561→      if ((role === "SUPER_ADMIN" || role === "ADMIN") && userRole !== "SUPER_ADMIN") {
+   562→        return NextResponse.json({ error: "Only Super Admins can create Admin or Super Admin users" }, { status: 403 });
+   563→      }
+   564→
+   565→      // Check if email already exists
+   566→      const existing = await db.user.findUnique({ where: { email: email as string } })
+   567→      if (existing) {
+   568→        return NextResponse.json({ error: "Email already in use" }, { status: 409 })
+   569→      }
+   570→
+   571→      const hashedPassword = await bcrypt.hash(password as string, 12)
+   572→      const user = await db.user.create({
+   573→        data: {
+   574→          name: name as string,
+   575→          email: email as string,
+   576→          password: hashedPassword,
+   577→          role: (role as string) || "DEVELOPER",
+   578→          department: (department as string) || null,
+   579→          isActive: true,
+   580→        }
+   581→      })
+   582→
+   583→      return NextResponse.json({ id: user.id, name: user.name, email: user.email, role: user.role }, { status: 201 })
+   584→    }
+   585→
+   586→    return NextResponse.json({ error: "Invalid type" }, { status: 400 })
+   587→  } catch (error: unknown) {
+   588→    // [C5] Handle race condition on email uniqueness
+   589→    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+   590→      return NextResponse.json({ error: "Email already in use" }, { status: 409 })
+   591→    }
+   592→    // [T2] Fixed error: any → error: unknown
+   593→    console.error("[team] POST error:", error instanceof Error ? error.message : String(error))
+   594→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   595→  }
+   596→}
+   597→
+   598→// PATCH /api/team - Update records
+   599→export async function PATCH(req: NextRequest) {
+   600→  try {
+   601→    const session = await getServerSession(authOptions)
+   602→    if (!session?.user) {
+   603→      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   604→    }
+   605→
+   606→    // [T1] Rate limiting
+   607→    const rl = rateLimit('team-patch-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   608→    if (!rl.success) {
+   609→      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+   610→    }
+   611→
+   612→    // [W15] Verify user is still active
+   613→    const activeCheck = await requireActiveUser(session.user.id)
+   614→    if (activeCheck) return activeCheck
+   615→
+   616→    // [T3] try/catch on req.json()
+   617→    let body: Record<string, unknown>
+   618→    try {
+   619→      body = await req.json()
+   620→    } catch {
+   621→      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+   622→    }
+   623→    const { type, id, ...data } = body
+   624→
+   625→    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
+   626→
+   627→    // [W18] Explicitly reject email changes on this endpoint
+   628→    if (data.email) {
+   629→      return NextResponse.json({ error: "Email changes are not allowed here. Use /api/email-change." }, { status: 400 })
+   630→    }
+   631→
+   632→    if (type === "leave") {
+   633→      // [FIX C5: Validate leave status against allowed values]
+   634→      const validLeaveStatuses = ["PENDING", "APPROVED", "REJECTED"]
+   635→      if (data.status && !validLeaveStatuses.includes(data.status as string)) {
+   636→        return NextResponse.json({ error: "Invalid leave status. Must be PENDING, APPROVED, or REJECTED" }, { status: 400 })
+   637→      }
+   638→      // SECURITY: Only admins can approve/reject leave requests
+   639→      const leavePatchRole = session.user.role
+   640→      if (data.status && !isAdmin(leavePatchRole)) {
+   641→        return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
+   642→      }
+   643→      // [FIX H9: Prevent admin from approving their own leave]
+   644→      if (data.status === "APPROVED" || data.status === "REJECTED") {
+   645→        const targetLeave = await db.leaveRequest.findUnique({ where: { id: id as string } })
+   646→        if (!targetLeave) {
+   647→          return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
+   648→        }
+   649→        if (targetLeave.userId === session.user.id) {
+   650→          return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
+   651→        }
+   652→        // Prevent updating already-decided leaves
+   653→        if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
+   654→          return NextResponse.json({ error: `Leave request is already ${targetLeave.status.toLowerCase()}` }, { status: 400 })
+   655→        }
+   656→      }
+   657→      // [T8] Sanitize and length-limit feedback (500 chars max)
+   658→      const sanitizedFeedback = typeof data.feedback === 'string'
+   659→        ? data.feedback.trim().slice(0, 500) || undefined
+   660→        : undefined
+   661→
+   662→      // SECURITY: Set approvedBy ONLY when status actually changes
+   663→      const updatePayload: Prisma.LeaveRequestUncheckedUpdateInput = { feedback: sanitizedFeedback }
+   664→      if (data.status && data.status !== "PENDING") {
+   665→        updatePayload.status = data.status as string
+   666→        updatePayload.approvedBy = session.user.id
+   667→      }
+   668→
+   669→      // Wrap leave approve/reject in transaction to prevent TOCTOU
+   670→      const leave = await db.$transaction(async (tx) => {
+   671→        if (data.status && (data.status === "APPROVED" || data.status === "REJECTED")) {
+   672→          const targetLeave = await tx.leaveRequest.findUnique({ where: { id: id as string } })
+   673→          if (!targetLeave) return null
+   674→          if (targetLeave.userId === session.user.id) {
+   675→            throw new Error("You cannot approve or reject your own leave request")
+   676→          }
+   677→          if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
+   678→            throw new Error(`Leave request is already ${targetLeave.status.toLowerCase()}`)
+   679→          }
+   680→        }
+   681→        return await tx.leaveRequest.update({
+   682→          where: { id: id as string },
+   683→          data: updatePayload,
+   684→        })
+   685→      })
+   686→
+   687→      if (!leave) {
+   688→        return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
+   689→      }
+   690→
+   691→      // Notify the user about leave decision (fire-and-forget — non-blocking)
+   692→      try {
+   693→        await db.notification.create({
+   694→          data: {
+   695→            userId: leave.userId,
+   696→            title: `Leave ${data.status}`,
+   697→            message: `Your ${leave.type} leave request has been ${(data.status as string)?.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
+   698→            type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
+   699→            link: "/dashboard/team",
+   700→            metadata: JSON.stringify({ leaveId: leave.id }),
+   701→          }
+   702→        })
+   703→      } catch (notifyErr: unknown) {
+   704→        // [T2] Fixed error: any → error: unknown
+   705→        console.error("[team] leave decision notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
+   706→      }
+   707→
+   708→      return NextResponse.json(leave)
+   709→    }
+   710→
+   711→    if (type === "attendance") {
+   712→      // SECURITY: Only admins can update attendance records
+   713→      const attPatchRole = session.user.role
+   714→      if (!isAdmin(attPatchRole)) {
+   715→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+   716→      }
+   717→      // SECURITY: Sanitize attendance update data
+   718→      const allowedAttFields = ["status", "checkIn", "checkOut", "notes"]
+   719→      const sanitizedAttData: Record<string, any> = {}
+   720→      for (const key of allowedAttFields) {
+   721→        if (data[key] !== undefined) sanitizedAttData[key] = data[key]
+   722→      }
+   723→      const attendanceRecord = await db.attendance.update({ where: { id: id as string }, data: sanitizedAttData })
+   724→      return NextResponse.json(attendanceRecord)
+   725→    }
+   726→
+   727→
+   728→
+   729→    // Authorization: users can only update their own profile unless they're SUPER_ADMIN
+   730→    const sessionUserId = session.user.id;
+   731→    const sessionUserRole = session.user.role;
+   732→
+   733→    // SECURITY: For self-profile updates (name only, no role/isActive),
+   734→    // always use the session user's ID — don't trust the body `id`.
+   735→    // This prevents IDOR where an ADMIN could modify another user's name.
+   736→    const isSelfProfileUpdate = !data.role && data.isActive === undefined && !!data.name;
+   737→    const effectiveId = isSelfProfileUpdate ? sessionUserId : (id as string);
+   738→
+   739→    if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
+   740→      return NextResponse.json({ error: "Forbidden: You can only update your own profile" }, { status: 403 });
+   741→    }
+   742→
+   743→    // Update user (SUPER_ADMIN only for role/active changes)
+   744→    if (data.role !== undefined || data.isActive !== undefined) {
+   745→      const userRole = session.user.role
+   746→      if (userRole !== "SUPER_ADMIN") {
+   747→        return NextResponse.json({ error: "Forbidden: Only SUPER_ADMIN can change user role or status" }, { status: 403 })
+   748→      }
+   749→
+   750→      // Prevent changing role of SUPER_ADMIN users
+   751→      const targetUser = await db.user.findUnique({ where: { id: id as string } })
+   752→      if (!targetUser) {
+   753→        return NextResponse.json({ error: "User not found" }, { status: 404 })
+   754→      }
+   755→      if (targetUser.role === "SUPER_ADMIN" && data.role && data.role !== "SUPER_ADMIN") {
+   756→        return NextResponse.json({ error: "Cannot change role of SUPER_ADMIN users" }, { status: 403 })
+   757→      }
+   758→      if (targetUser.role === "SUPER_ADMIN" && data.isActive === false) {
+   759→        return NextResponse.json({ error: "Cannot deactivate SUPER_ADMIN users" }, { status: 403 })
+   760→      }
+   761→    }
+   762→
+   763→    // [T4/T6] Validate role value on update
+   764→    if (data.role && !VALID_ROLES.includes(data.role as typeof VALID_ROLES[number])) {
+   765→      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+   766→    }
+   767→
+   768→    // [T5] Validate department value on update (allow null/empty)
+   769→    if (data.department && !VALID_DEPARTMENT_VALUES.includes(data.department as string)) {
+   770→      return NextResponse.json({ error: "Invalid department" }, { status: 400 });
+   771→    }
+   772→
+   773→    const updateData: Record<string, any> = {}
+   774→    if (data.name) {
+   775→      // Validate name: trim, length limit, no control characters
+   776→      const trimmedName = (data.name as string).trim()
+   777→      if (trimmedName.length < 1 || trimmedName.length > 100) {
+   778→        return NextResponse.json({ error: "Name must be between 1 and 100 characters" }, { status: 400 })
+   779→      }
+   780→      if (/[\x00-\x1f\x7f]/.test(trimmedName)) {
+   781→        return NextResponse.json({ error: "Name cannot contain control characters" }, { status: 400 })
+   782→      }
+   783→      updateData.name = trimmedName
+   784→    }
+   785→    if (data.department) updateData.department = data.department
+   786→    if (data.role) updateData.role = data.role
+   787→    if (data.isActive !== undefined) updateData.isActive = data.isActive
+   788→    // Password updates NOT allowed here — use /api/password-change or /api/password-reset
+   789→
+   790→    const user = await db.user.update({
+   791→      where: { id: effectiveId },
+   792→      data: updateData,
+   793→      select: { id: true, name: true, email: true, role: true, department: true, isActive: true },
+   794→    })
+   795→    return NextResponse.json(user)
+   796→  } catch (error: unknown) {
+   797→    // Handle authorization/validation errors thrown inside transaction
+   798→    if (error instanceof Error) {
+   799→      const msg = error.message
+   800→      if (msg.includes("cannot approve or reject your own")) {
+   801→        console.error("[team] PATCH error:", msg)
+   802→        return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
+   803→      }
+   804→      if (msg.includes("already ")) {
+   805→        console.error("[team] PATCH error:", msg)
+   806→        return NextResponse.json({ error: "Leave request is already decided" }, { status: 400 })
+   807→      }
+   808→    }
+   809→    // [T2] Fixed error: any → error: unknown
+   810→    console.error("[team] PATCH error:", error instanceof Error ? error.message : String(error))
+   811→    return NextResponse.json({ error: "Team operation failed" }, { status: 500 })
+   812→  }
+   813→}
+   814→
+   815→// DELETE /api/team - Remove agent access
+   816→export async function DELETE(req: NextRequest) {
+   817→  try {
+   818→    const session = await getServerSession(authOptions)
+   819→    if (!session?.user) {
+   820→      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   821→    }
+   822→
+   823→    // [T1] Rate limiting
+   824→    const rl = rateLimit('team-del-' + session.user.id, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   825→    if (!rl.success) {
+   826→      return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+   827→    }
+   828→
+   829→    // [W15] Verify user is still active
+   830→    const activeCheck = await requireActiveUser(session.user.id)
+   831→    if (activeCheck) return activeCheck
+   832→
+   833→    const { searchParams } = new URL(req.url)
+   834→    const type = searchParams.get("type")
+   835→    const id = searchParams.get("id")
+   836→
+   837→    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
+   838→
+   839→
+   840→
+   841→    if (type === "attendance") {
+   842→      // SECURITY: Only admins can delete attendance records
+   843→      const deleteAttRole = session.user.role
+   844→      if (!isAdmin(deleteAttRole)) {
+   845→        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+   846→      }
+   847→      // Verify record exists before deleting
+   848→      const record = await db.attendance.findUnique({ where: { id } })
+   849→      if (!record) {
+   850→        return NextResponse.json({ error: "Attendance record not found" }, { status: 404 })
+   851→      }
+   852→      await db.attendance.delete({ where: { id } })
+   853→      return NextResponse.json({ success: true })
+   854→    }
+   855→
+   856→    return NextResponse.json({ error: "Invalid type" }, { status: 400 })
+   857→  } catch (error: unknown) {
+   858→    // [T2] Fixed error: any → error: unknown
+   859→    console.error("[team] DELETE error:", error instanceof Error ? error.message : String(error))
+   860→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   861→  }
+   862→}
+   863→

@@ -1,0 +1,1084 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useCallback } from "react";
+     4→import { useSession } from "next-auth/react";
+     5→import {
+     6→  Kanban, Plus, Search, Filter, Loader2, Calendar, Bot, User, Clock,
+     7→  ShieldCheck, ArrowRight, MessageSquare, Phone, ArrowUpCircle, UserPlus,
+     8→  Building2, Trash2, Pencil, ExternalLink,
+     9→} from "lucide-react";
+    10→import { Button } from "@/components/ui/button";
+    11→import { Card, CardContent } from "@/components/ui/card";
+    12→import { Badge } from "@/components/ui/badge";
+    13→import { Input } from "@/components/ui/input";
+    14→import {
+    15→  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+    16→} from "@/components/ui/select";
+    17→import {
+    18→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+    19→} from "@/components/ui/dialog";
+    20→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    21→import { ScrollArea } from "@/components/ui/scroll-area";
+    22→import { Separator } from "@/components/ui/separator";
+    23→import { toast } from "sonner";
+    24→import { cn, safeText, safeDate, deepSanitize, extractStr } from "@/lib/utils";
+    25→
+    26→// ── Types ──
+    27→interface TeamUser {
+    28→  id: string;
+    29→  name: string;
+    30→  email: string;
+    31→  role: string;
+    32→  department: string | null;
+    33→}
+    34→
+    35→// ── Status constants (match project board exactly) ──
+    36→const TASK_COLUMNS = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"] as const;
+    37→
+    38→const taskStatusColors: Record<string, string> = {
+    39→  TODO: "bg-gray-100 dark:bg-gray-800/50",
+    40→  IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
+    41→  REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
+    42→  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
+    43→  DONE: "bg-green-50 dark:bg-green-900/20",
+    44→};
+    45→
+    46→const taskStatusAccentColors: Record<string, string> = {
+    47→  TODO: "bg-gray-400",
+    48→  IN_PROGRESS: "bg-blue-400",
+    49→  REVIEW: "bg-yellow-400",
+    50→  AWAITING_APPROVAL: "bg-orange-400",
+    51→  DONE: "bg-green-400",
+    52→};
+    53→
+    54→const taskStatusTextColors: Record<string, string> = {
+    55→  TODO: "text-gray-600 dark:text-gray-400",
+    56→  IN_PROGRESS: "text-blue-600 dark:text-blue-400",
+    57→  REVIEW: "text-yellow-600 dark:text-yellow-400",
+    58→  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+    59→  DONE: "text-green-600 dark:text-green-400",
+    60→};
+    61→
+    62→const priorityBorderColors: Record<string, string> = {
+    63→  LOW: "border-l-gray-300 dark:border-l-gray-600",
+    64→  MEDIUM: "border-l-blue-400 dark:border-l-blue-500",
+    65→  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+    66→  URGENT: "border-l-red-400 dark:border-l-red-500",
+    67→};
+    68→
+    69→const priorityColors: Record<string, string> = {
+    70→  LOW: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+    71→  MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    72→  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    73→  URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+    74→};
+    75→
+    76→// ── Category config ──
+    77→const CATEGORY_COLORS: Record<string, string> = {
+    78→  MEETING: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+    79→  FOLLOW_UP: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    80→  UPGRADE: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+    81→  CUSTOMER: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+    82→  INTERNAL: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+    83→};
+    84→
+    85→const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+    86→  MEETING: <MessageSquare className="h-2.5 w-2.5" />,
+    87→  FOLLOW_UP: <Phone className="h-2.5 w-2.5" />,
+    88→  UPGRADE: <ArrowUpCircle className="h-2.5 w-2.5" />,
+    89→  CUSTOMER: <UserPlus className="h-2.5 w-2.5" />,
+    90→  INTERNAL: <Building2 className="h-2.5 w-2.5" />,
+    91→};
+    92→
+    93→// ── Helpers ──
+    94→function getInitials(name: string): string {
+    95→  return name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+    96→}
+    97→
+    98→// ═══════════════════════════════════════════════════════════════
+    99→// Global Task Board Page
+   100→// ═══════════════════════════════════════════════════════════════
+   101→export default function GlobalTaskBoardPage() {
+   102→  const { data: session, status: sessionStatus } = useSession();
+   103→
+   104→  // ── State ──
+   105→  const [tasks, setTasks] = useState<Record<string, unknown>[]>([]);
+   106→  const [projects, setProjects] = useState<Record<string, unknown>[]>([]);
+   107→  const [users, setUsers] = useState<TeamUser[]>([]);
+   108→  const [loading, setLoading] = useState(true);
+   109→  const [search, setSearch] = useState("");
+   110→  const [statusFilter, setStatusFilter] = useState("ALL");
+   111→  const [priorityFilter, setPriorityFilter] = useState("ALL");
+   112→  const [projectFilter, setProjectFilter] = useState("ALL");
+   113→  const [addOpen, setAddOpen] = useState(false);
+   114→  const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
+   115→  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+   116→  const [editOpen, setEditOpen] = useState(false);
+   117→  const [editForm, setEditForm] = useState<Record<string, string>>({});
+   118→  const [editSaving, setEditSaving] = useState(false);
+   119→  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
+   120→  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+   121→
+   122→  // ── Derived ──
+   123→  const userRole = session?.user?.role || "DEVELOPER";
+   124→  const userId = session?.user?.id || "";
+   125→  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   126→
+   127→  // ── Project name lookup map ──
+   128→  const projectNameMap = new Map<string, string>(
+   129→    (projects as Record<string, unknown>[]).map((p) => [
+   130→      extractStr(p, "id", ""),
+   131→      extractStr(p, "name", "Unknown"),
+   132→    ])
+   133→  );
+   134→
+   135→  // ── User name lookup map ──
+   136→  const userNameMap = new Map<string, string>(users.map((u) => [u.id, u.name]));
+   137→
+   138→  // ── Fetch tasks ──
+   139→  const fetchTasks = useCallback(async () => {
+   140→    setLoading(true);
+   141→    try {
+   142→      const params = new URLSearchParams();
+   143→      params.set("page", "1");
+   144→      params.set("limit", "100");
+   145→
+   146→      // Developers only see their own assigned/created tasks (enforced server-side by RBAC)
+   147→      // No forced assignedTo filter needed — the API restricts visibility automatically
+   148→
+   149→      // Apply filters
+   150→      if (statusFilter !== "ALL") params.set("status", statusFilter);
+   151→      if (priorityFilter !== "ALL") params.set("priority", priorityFilter);
+   152→      if (projectFilter !== "ALL") params.set("projectId", projectFilter);
+   153→
+   154→      const res = await fetch(`/api/tasks?${params.toString()}`, {
+   155→        credentials: "include",
+   156→      });
+   157→      if (res.status === 401) {
+   158→        window.location.href = "/login";
+   159→        return;
+   160→      }
+   161→      if (!res.ok) throw new Error("Failed to fetch tasks");
+   162→      const raw = deepSanitize(await res.json());
+   163→      const list = Array.isArray((raw as Record<string, unknown>)?.tasks)
+   164→        ? (raw as Record<string, unknown>).tasks as unknown[]
+   165→        : Array.isArray(raw)
+   166→          ? raw
+   167→          : Array.isArray((raw as Record<string, unknown>)?.data)
+   168→            ? (raw as Record<string, unknown>).data as unknown[]
+   169→            : [];
+   170→      setTasks(list as Record<string, unknown>[]);
+   171→    } catch {
+   172→      toast.error("Failed to load tasks");
+   173→    } finally {
+   174→      setLoading(false);
+   175→    }
+   176→  }, [isAdminUser, statusFilter, priorityFilter, projectFilter]);
+   177→
+   178→  // ── Fetch projects (for filter dropdown) ──
+   179→  const fetchProjects = useCallback(async () => {
+   180→    try {
+   181→      const res = await fetch("/api/projects", { credentials: "include" });
+   182→      if (res.status === 401) { window.location.href = "/login"; return; }
+   183→      if (!res.ok) return;
+   184→      const raw = deepSanitize(await res.json());
+   185→      const list = Array.isArray(raw)
+   186→        ? raw
+   187→        : Array.isArray((raw as Record<string, unknown>)?.data)
+   188→          ? (raw as Record<string, unknown>).data as unknown[]
+   189→          : [];
+   190→      setProjects(list as Record<string, unknown>[]);
+   191→    } catch {
+   192→      // Silent fail for projects
+   193→    }
+   194→  }, []);
+   195→
+   196→  // ── Fetch users (for assignee dropdown) ──
+   197→  const fetchUsers = useCallback(async () => {
+   198→    try {
+   199→      const res = await fetch("/api/team?type=users", { credentials: "include" });
+   200→      if (res.status === 401) { window.location.href = "/login"; return; }
+   201→      if (!res.ok) return;
+   202→      const raw = deepSanitize(await res.json());
+   203→      const list = Array.isArray(raw) ? raw : [];
+   204→      setUsers(list as TeamUser[]);
+   205→    } catch {
+   206→      // Silent fail
+   207→    }
+   208→  }, []);
+   209→
+   210→  useEffect(() => {
+   211→    if (sessionStatus === "loading") return;
+   212→    fetchTasks();
+   213→    // All users need project list for filtering; only admins need user list
+   214→    fetchProjects();
+   215→    if (isAdminUser) {
+   216→      fetchUsers();
+   217→    }
+   218→  }, [sessionStatus, fetchTasks, fetchProjects, fetchUsers, isAdminUser]);
+   219→
+   220→  // ── Client-side search filter ──
+   221→  const filteredTasks = search.trim()
+   222→    ? tasks.filter((t) =>
+   223→        extractStr(t, "title", "").toLowerCase().includes(search.toLowerCase())
+   224→      )
+   225→    : tasks;
+   226→
+   227→  // ── Move task handler ──
+   228→  const handleMoveTask = async (taskId: string, newStatus: string) => {
+   229→    setMovingTaskId(taskId);
+   230→    try {
+   231→      const res = await fetch("/api/tasks", {
+   232→        method: "PATCH",
+   233→        headers: { "Content-Type": "application/json" },
+   234→        credentials: "include",
+   235→        body: JSON.stringify({ id: taskId, status: newStatus }),
+   236→      });
+   237→      if (res.ok) {
+   238→        toast.success(`Task moved to ${newStatus.replace("_", " ")}`);
+   239→        fetchTasks();
+   240→      } else {
+   241→        if (res.status === 401) { window.location.href = "/login"; return; }
+   242→        const err = await res.json().catch(() => null);
+   243→        toast.error(err?.error || "Failed to move task");
+   244→      }
+   245→    } catch {
+   246→      toast.error("Failed to move task");
+   247→    } finally {
+   248→      setMovingTaskId(null);
+   249→    }
+   250→  };
+   251→
+   252→  // ── Create task handler ──
+   253→  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+   254→    e.preventDefault();
+   255→    const form = new FormData(e.currentTarget);
+   256→    const data: Record<string, unknown> = {
+   257→      title: String(form.get("title") || ""),
+   258→      description: String(form.get("description") || "") || undefined,
+   259→      priority: String(form.get("priority") || "MEDIUM"),
+   260→      category: String(form.get("category") || "GENERAL"),
+   261→      projectId: String(form.get("projectId") || "") || undefined,
+   262→      assignedTo: String(form.get("assignedTo") || "") || undefined,
+   263→      deadline: String(form.get("deadline") || "") || undefined,
+   264→    };
+   265→    if (!data.title) { toast.error("Title is required"); return; }
+   266→    try {
+   267→      const res = await fetch("/api/tasks", {
+   268→        method: "POST",
+   269→        headers: { "Content-Type": "application/json" },
+   270→        credentials: "include",
+   271→        body: JSON.stringify(data),
+   272→      });
+   273→      if (res.ok) {
+   274→        toast.success("Task created");
+   275→        setAddOpen(false);
+   276→        fetchTasks();
+   277→      } else {
+   278→        if (res.status === 401) { window.location.href = "/login"; return; }
+   279→        const err = await res.json().catch(() => null);
+   280→        toast.error(err?.error || "Failed to create task");
+   281→      }
+   282→    } catch {
+   283→      toast.error("Failed to create task");
+   284→    }
+   285→  };
+   286→
+   287→  // ── Edit task handlers ──
+   288→  const openEditDialog = (task: Record<string, unknown>) => {
+   289→    setEditForm({
+   290→      id: extractStr(task, "id", ""),
+   291→      title: extractStr(task, "title", ""),
+   292→      description: extractStr(task, "description", ""),
+   293→      priority: extractStr(task, "priority", "MEDIUM"),
+   294→      category: extractStr(task, "category", "GENERAL"),
+   295→      assignedTo: extractStr(task, "assignedTo", ""),
+   296→      projectId: extractStr(task, "projectId", ""),
+   297→      deadline: extractStr(task, "deadline", "") ? extractStr(task, "deadline", "").split("T")[0] : "",
+   298→    });
+   299→    setEditOpen(true);
+   300→  };
+   301→
+   302→  const handleEditSave = async () => {
+   303→    if (!editForm.id) return;
+   304→    setEditSaving(true);
+   305→    const data: Record<string, unknown> = {
+   306→      id: editForm.id,
+   307→      title: editForm.title,
+   308→      description: editForm.description || undefined,
+   309→      priority: editForm.priority,
+   310→      category: editForm.category,
+   311→      assignedTo: editForm.assignedTo || undefined,
+   312→      projectId: editForm.projectId || undefined,
+   313→      deadline: editForm.deadline ? new Date(editForm.deadline).toISOString() : null,
+   314→    };
+   315→    try {
+   316→      const res = await fetch("/api/tasks", {
+   317→        method: "PATCH",
+   318→        headers: { "Content-Type": "application/json" },
+   319→        credentials: "include",
+   320→        body: JSON.stringify(data),
+   321→      });
+   322→      if (res.ok) {
+   323→        toast.success("Task updated");
+   324→        setEditOpen(false);
+   325→        setTaskDetailOpen(false);
+   326→        fetchTasks();
+   327→      } else {
+   328→        const err = await res.json().catch(() => null);
+   329→        toast.error(err?.error || "Failed to update task");
+   330→      }
+   331→    } catch {
+   332→      toast.error("Failed to update task");
+   333→    } finally {
+   334→      setEditSaving(false);
+   335→    }
+   336→  };
+   337→
+   338→  // ── Delete task handler ──
+   339→  const handleDeleteTask = async (taskId: string) => {
+   340→    if (!confirm("Are you sure you want to delete this task? This action cannot be undone.")) return;
+   341→    setDeletingTaskId(taskId);
+   342→    try {
+   343→      const res = await fetch(`/api/tasks?id=${taskId}`, {
+   344→        method: "DELETE",
+   345→        credentials: "include",
+   346→      });
+   347→      if (res.ok) {
+   348→        toast.success("Task deleted");
+   349→        setTaskDetailOpen(false);
+   350→        setSelectedTask(null);
+   351→        fetchTasks();
+   352→      } else {
+   353→        const err = await res.json().catch(() => null);
+   354→        toast.error(err?.error || "Failed to delete task");
+   355→      }
+   356→    } catch {
+   357→      toast.error("Failed to delete task");
+   358→    } finally {
+   359→      setDeletingTaskId(null);
+   360→    }
+   361→  };
+   362→
+   363→  // ── Loading ──
+   364→  if (sessionStatus === "loading" || loading) {
+   365→    return (
+   366→      <div className="space-y-5">
+   367→        <div className="flex items-center gap-3">
+   368→          <div className="h-10 w-10 rounded-xl bg-muted/50 animate-pulse" />
+   369→          <div className="space-y-2 flex-1">
+   370→            <div className="h-6 w-52 bg-muted/50 rounded-lg animate-pulse" />
+   371→            <div className="h-3.5 w-80 bg-muted/40 rounded-lg animate-pulse" />
+   372→          </div>
+   373→        </div>
+   374→        <div className="flex items-center gap-2">
+   375→          <div className="h-9 w-64 bg-muted/40 rounded-lg animate-pulse" />
+   376→          <div className="h-9 w-36 bg-muted/40 rounded-lg animate-pulse" />
+   377→          <div className="h-9 w-36 bg-muted/40 rounded-lg animate-pulse" />
+   378→        </div>
+   379→        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+   380→          {Array.from({ length: 5 }).map((_, i) => (
+   381→            <div key={i} className="h-72 bg-muted/30 rounded-xl animate-pulse" />
+   382→          ))}
+   383→        </div>
+   384→      </div>
+   385→    );
+   386→  }
+   387→
+   388→  return (
+   389→    <div className="space-y-4" style={{ animation: "fade-in 0.35s ease-out both" }}>
+   390→      {/* ═══════ Page Header ═══════ */}
+   391→      <div
+   392→        className="flex items-center justify-between flex-wrap gap-3"
+   393→        style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}
+   394→      >
+   395→        <div className="flex items-center gap-3">
+   396→          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500/15 to-blue-500/10 flex items-center justify-center">
+   397→            <Kanban className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+   398→          </div>
+   399→          <div>
+   400→            <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+   401→              Global Task Board
+   402→              <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">
+   403→                {String(filteredTasks.length)}
+   404→              </Badge>
+   405→            </h1>
+   406→            <p className="text-sm text-muted-foreground/70">
+   407→              {isAdminUser
+   408→                ? "All tasks across every project"
+   409→                : "Your personal tasks across all projects"}
+   410→            </p>
+   411→          </div>
+   412→        </div>
+   413→
+   414→        {isAdminUser && (
+   415→          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   416→            <DialogTrigger asChild>
+   417→              <Button size="sm" className="gap-1.5 h-8 text-xs px-3.5 shadow-sm">
+   418→                <Plus className="h-3.5 w-3.5" /> Add Task
+   419→              </Button>
+   420→            </DialogTrigger>
+   421→            <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   422→              <DialogHeader>
+   423→                <DialogTitle className="text-base font-bold">Add Task</DialogTitle>
+   424→              </DialogHeader>
+   425→              <form onSubmit={handleCreateTask} className="space-y-3">
+   426→                <div className="space-y-1">
+   427→                  <label className="text-xs font-medium">Title *</label>
+   428→                  <Input name="title" required className="h-8 text-sm" placeholder="Task title..." />
+   429→                </div>
+   430→                <div className="space-y-1">
+   431→                  <label className="text-xs font-medium">Description</label>
+   432→                  <Input name="description" className="h-8 text-sm" placeholder="Optional details..." />
+   433→                </div>
+   434→                <div className="grid grid-cols-2 gap-3">
+   435→                  <div className="space-y-1">
+   436→                    <label className="text-xs font-medium">Priority</label>
+   437→                    <select
+   438→                      name="priority"
+   439→                      defaultValue="MEDIUM"
+   440→                      className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+   441→                    >
+   442→                      <option value="LOW">Low</option>
+   443→                      <option value="MEDIUM">Medium</option>
+   444→                      <option value="HIGH">High</option>
+   445→                      <option value="URGENT">Urgent</option>
+   446→                    </select>
+   447→                  </div>
+   448→                  <div className="space-y-1">
+   449→                    <label className="text-xs font-medium">Category</label>
+   450→                    <select
+   451→                      name="category"
+   452→                      defaultValue="GENERAL"
+   453→                      className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+   454→                    >
+   455→                      <option value="GENERAL">General</option>
+   456→                      <option value="MEETING">Meeting</option>
+   457→                      <option value="FOLLOW_UP">Follow Up</option>
+   458→                      <option value="UPGRADE">Upgrade</option>
+   459→                      <option value="CUSTOMER">Customer</option>
+   460→                      <option value="INTERNAL">Internal</option>
+   461→                    </select>
+   462→                  </div>
+   463→                </div>
+   464→                <div className="grid grid-cols-2 gap-3">
+   465→                  <div className="space-y-1">
+   466→                    <label className="text-xs font-medium">Project</label>
+   467→                    <select
+   468→                      name="projectId"
+   469→                      defaultValue=""
+   470→                      className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+   471→                    >
+   472→                      <option value="">No project</option>
+   473→                      {projects.map((p) => (
+   474→                        <option key={extractStr(p, "id", "")} value={extractStr(p, "id", "")}>
+   475→                          {safeText(extractStr(p, "name", "Unknown"))}
+   476→                        </option>
+   477→                      ))}
+   478→                    </select>
+   479→                  </div>
+   480→                  <div className="space-y-1">
+   481→                    <label className="text-xs font-medium">Assigned To</label>
+   482→                    <select
+   483→                      name="assignedTo"
+   484→                      defaultValue=""
+   485→                      className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+   486→                    >
+   487→                      <option value="">Unassigned</option>
+   488→                      {users.map((u) => (
+   489→                        <option key={u.id} value={u.id}>
+   490→                          {u.name} {u.department ? `(${u.department})` : ""}
+   491→                        </option>
+   492→                      ))}
+   493→                    </select>
+   494→                  </div>
+   495→                </div>
+   496→                <div className="space-y-1">
+   497→                  <label className="text-xs font-medium">Deadline</label>
+   498→                  <Input name="deadline" type="date" className="h-8 text-sm" />
+   499→                </div>
+   500→                <div className="flex justify-end gap-2 pt-1">
+   501→                  <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(false)}>
+   502→                    Cancel
+   503→                  </Button>
+   504→                  <Button type="submit" size="sm">Create</Button>
+   505→                </div>
+   506→              </form>
+   507→            </DialogContent>
+   508→          </Dialog>
+   509→        )}
+   510→      </div>
+   511→
+   512→      {/* ═══════ Filter Bar ═══════ */}
+   513→      <div
+   514→        className="flex items-center gap-2 flex-wrap"
+   515→        style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "120ms" }}
+   516→      >
+   517→        {/* Search */}
+   518→        <div className="relative flex-1 min-w-[200px] max-w-xs">
+   519→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+   520→          <Input
+   521→            placeholder="Search tasks..."
+   522→            value={search}
+   523→            onChange={(e) => setSearch(e.target.value)}
+   524→            className="h-8 text-xs pl-8 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10"
+   525→          />
+   526→        </div>
+   527→
+   528→        {/* Status filter */}
+   529→        <Select value={statusFilter} onValueChange={setStatusFilter}>
+   530→          <SelectTrigger className="h-8 w-[130px] text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10">
+   531→            <Filter className="h-3 w-3 mr-1.5 text-muted-foreground/60" />
+   532→            <SelectValue placeholder="Status" />
+   533→          </SelectTrigger>
+   534→          <SelectContent>
+   535→            <SelectItem value="ALL">All Statuses</SelectItem>
+   536→            {TASK_COLUMNS.map((s) => (
+   537→              <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+   538→            ))}
+   539→          </SelectContent>
+   540→        </Select>
+   541→
+   542→        {/* Priority filter */}
+   543→        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+   544→          <SelectTrigger className="h-8 w-[120px] text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10">
+   545→            <SelectValue placeholder="Priority" />
+   546→          </SelectTrigger>
+   547→          <SelectContent>
+   548→            <SelectItem value="ALL">All Priorities</SelectItem>
+   549→            <SelectItem value="LOW">Low</SelectItem>
+   550→            <SelectItem value="MEDIUM">Medium</SelectItem>
+   551→            <SelectItem value="HIGH">High</SelectItem>
+   552→            <SelectItem value="URGENT">Urgent</SelectItem>
+   553→          </SelectContent>
+   554→        </Select>
+   555→
+   556→        {/* Project filter (admin only) */}
+   557→        {isAdminUser && projects.length > 0 && (
+   558→          <Select value={projectFilter} onValueChange={setProjectFilter}>
+   559→            <SelectTrigger className="h-8 w-[160px] text-xs bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10">
+   560→              <SelectValue placeholder="All Projects" />
+   561→            </SelectTrigger>
+   562→            <SelectContent>
+   563→              <SelectItem value="ALL">All Projects</SelectItem>
+   564→              {projects.map((p) => (
+   565→                <SelectItem key={extractStr(p, "id", "")} value={extractStr(p, "id", "")}>
+   566→                  {safeText(extractStr(p, "name", "Unknown"))}
+   567→                </SelectItem>
+   568→              ))}
+   569→            </SelectContent>
+   570→          </Select>
+   571→        )}
+   572→      </div>
+   573→
+   574→      {/* ═══════ Kanban Board ═══════ */}
+   575→      <div
+   576→        className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2"
+   577→        style={{ animation: "fade-in 0.5s ease-out both", animationDelay: "200ms" }}
+   578→      >
+   579→        {TASK_COLUMNS.map((status, colIdx) => {
+   580→          const statusStr = String(status);
+   581→          const columnTasks = filteredTasks.filter(
+   582→            (t) => extractStr(t, "status", "") === statusStr
+   583→          );
+   584→          const accentColor = taskStatusAccentColors[statusStr] || "bg-gray-400";
+   585→          const textColor = taskStatusTextColors[statusStr] || "text-gray-500";
+   586→
+   587→          return (
+   588→            <div
+   589→              key={statusStr}
+   590→              className="flex flex-col min-w-0"
+   591→              style={{
+   592→                animation: "card-enter 0.45s ease-out both",
+   593→                animationDelay: `${220 + colIdx * 60}ms`,
+   594→              }}
+   595→            >
+   596→              {/* Column Header */}
+   597→              <div
+   598→                className={cn(
+   599→                  "rounded-t-xl px-3 py-2 flex items-center gap-1.5 relative overflow-hidden",
+   600→                  taskStatusColors[statusStr] || "",
+   601→                  "border border-b-0 border-gray-200/60 dark:border-gray-700/40"
+   602→                )}
+   603→              >
+   604→                <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
+   605→                <div className={cn("h-2.5 w-2.5 rounded-full", accentColor)} />
+   606→                <h3 className="font-bold text-[11px] tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
+   607→                <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
+   608→                  {String(columnTasks.length)}
+   609→                </span>
+   610→              </div>
+   611→
+   612→              {/* Column Card List */}
+   613→              <div className="flex-1 space-y-1.5 p-1.5 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[140px] max-h-[calc(100vh-300px)] overflow-y-auto">
+   614→                {columnTasks.length === 0 && (
+   615→                  <div className="flex items-center justify-center py-8 text-[10px] text-muted-foreground/50">
+   616→                    No tasks
+   617→                  </div>
+   618→                )}
+   619→
+   620→                {columnTasks.map((task) => {
+   621→                  const tId = extractStr(task, "id", "");
+   622→                  const tTitle = extractStr(task, "title", "Untitled");
+   623→                  const tPriority = extractStr(task, "priority", "MEDIUM");
+   624→                  const tAssigneeType = extractStr(task, "assigneeType", "HUMAN");
+   625→                  const tDeadline = extractStr(task, "deadline", "");
+   626→                  const tAssignedToName = extractStr(task, "assignedToName", "");
+   627→                  const tAssignedTo = extractStr(task, "assignedTo", "");
+   628→                  const tCategory = extractStr(task, "category", "GENERAL");
+   629→                  const tProjectId = extractStr(task, "projectId", "");
+   630→                  const tApprovedBy = extractStr(task, "approvedBy", "");
+   631→                  const tLarkTaskId = extractStr(task, "larkTaskId", "");
+   632→
+   633→                  const tAssignedName = tAssignedToName
+   634→                    || (tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned");
+   635→
+   636→                  const isAwaiting = statusStr === "AWAITING_APPROVAL";
+   637→                  const canApprove = isAdminUser && isAwaiting;
+   638→                  const isMoving = movingTaskId === tId;
+   639→                  const borderL = priorityBorderColors[tPriority] || "border-l-gray-300 dark:border-l-gray-600";
+   640→
+   641→                  return (
+   642→                    <Card
+   643→                      key={tId}
+   644→                      className={cn(
+   645→                        "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px] group",
+   646→                        borderL,
+   647→                        "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10"
+   648→                      )}
+   649→                      onClick={() => {
+   650→                        setSelectedTask(task);
+   651→                        setTaskDetailOpen(true);
+   652→                      }}
+   653→                    >
+   654→                      <CardContent className="p-2.5 space-y-2">
+   655→                        {/* Title + Lark indicator */}
+   656→                        <div className="flex items-start gap-1.5">
+   657→                          <div className={cn("h-2 w-2 rounded-full mt-1 shrink-0", accentColor)} />
+   658→                          <p className="text-[11px] font-semibold leading-tight line-clamp-2 flex-1">
+   659→                            {safeText(tTitle, "Untitled")}
+   660→                          </p>
+   661→                          {/* Lark sync indicator */}
+   662→                          {tLarkTaskId && (
+   663→                            <span
+   664→                              className="shrink-0 h-4 w-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 text-[8px] font-bold"
+   665→                              title="Synced with Lark"
+   666→                            >
+   667→                              L
+   668→                            </span>
+   669→                          )}
+   670→                        </div>
+   671→
+   672→                        {/* Category badge */}
+   673→                        {tCategory && tCategory !== "GENERAL" && CATEGORY_COLORS[tCategory] && (
+   674→                          <div className="flex items-center gap-1">
+   675→                            <Badge
+   676→                              className={cn(
+   677→                                "text-[9px] font-medium gap-0.5 h-4 px-1.5",
+   678→                                CATEGORY_COLORS[tCategory]
+   679→                              )}
+   680→                            >
+   681→                              {CATEGORY_ICONS[tCategory]}
+   682→                              {tCategory.replace("_", " ")}
+   683→                            </Badge>
+   684→                          </div>
+   685→                        )}
+   686→
+   687→                        {/* Assignee + Deadline row (assignee hidden for non-admin: they only see their own tasks) */}
+   688→                        <div className="flex items-center justify-between gap-1">
+   689→                          {isAdminUser && (
+   690→                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+   691→                              {tAssigneeType === "AI" ? (
+   692→                                <Bot className="h-2.5 w-2.5 shrink-0" />
+   693→                              ) : (
+   694→                                <User className="h-2.5 w-2.5 shrink-0" />
+   695→                              )}
+   696→                              <span className="truncate max-w-[72px]">{safeText(tAssignedName)}</span>
+   697→                            </div>
+   698→                          )}
+   699→                          {tDeadline && (
+   700→                            <span className="text-[9px] text-muted-foreground/70 flex items-center gap-0.5 shrink-0">
+   701→                              <Calendar className="h-2.5 w-2.5" />
+   702→                              {safeDate(tDeadline, "")}
+   703→                            </span>
+   704→                          )}
+   705→                        </div>
+   706→
+   707→                        {/* Project name (if multi-project context) */}
+   708→                        {tProjectId && (
+   709→                          <div className="flex items-center gap-1 text-[9px] text-muted-foreground/60 truncate">
+   710→                            <ArrowRight className="h-2 w-2 shrink-0" />
+   711→                            <span className="truncate">{projectNameMap.get(tProjectId) || "Unknown"}</span>
+   712→                          </div>
+   713→                        )}
+   714→
+   715→                        {/* Approved by badge on DONE */}
+   716→                        {statusStr === "DONE" && tApprovedBy && (
+   717→                          <div className="flex items-center gap-1 text-[9px] text-green-600 dark:text-green-400 font-medium">
+   718→                            <ShieldCheck className="h-2.5 w-2.5" />
+   719→                            <span>by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
+   720→                          </div>
+   721→                        )}
+   722→
+   723→                        {/* Action buttons */}
+   724→                        <div className="flex gap-0.5 flex-wrap opacity-60 group-hover:opacity-100 transition-opacity">
+   725→                          {isAwaiting ? (
+   726→                            canApprove ? (
+   727→                              <>
+   728→                                <Button
+   729→                                  variant="ghost"
+   730→                                  size="sm"
+   731→                                  className="h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 font-semibold"
+   732→                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "DONE"); }}
+   733→                                  disabled={isMoving}
+   734→                                >
+   735→                                  {isMoving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />}
+   736→                                  Approve
+   737→                                </Button>
+   738→                                <Button
+   739→                                  variant="ghost"
+   740→                                  size="sm"
+   741→                                  className="h-5 text-[9px] px-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
+   742→                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "REVIEW"); }}
+   743→                                  disabled={isMoving}
+   744→                                >
+   745→                                  Back
+   746→                                </Button>
+   747→                              </>
+   748→                            ) : (
+   749→                              <span className="text-[9px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
+   750→                                <Clock className="h-2.5 w-2.5" /> Awaiting approval
+   751→                              </span>
+   752→                            )
+   753→                          ) : statusStr !== "DONE" ? (
+   754→                            <Button
+   755→                              variant="ghost"
+   756→                              size="sm"
+   757→                              className="h-5 text-[9px] px-1.5 text-primary hover:bg-primary/10 font-semibold"
+   758→                              onClick={(e) => {
+   759→                                e.stopPropagation();
+   760→                                const currentIdx = TASK_COLUMNS.indexOf(status as typeof TASK_COLUMNS[number]);
+   761→                                if (currentIdx < TASK_COLUMNS.length - 1) {
+   762→                                  handleMoveTask(tId, TASK_COLUMNS[currentIdx + 1]);
+   763→                                }
+   764→                              }}
+   765→                              disabled={isMoving}
+   766→                            >
+   767→                              {isMoving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : (
+   768→                                <>
+   769→                                  <ArrowRight className="h-2.5 w-2.5 mr-0.5" />
+   770→                                  Next
+   771→                                </>
+   772→                              )}
+   773→                            </Button>
+   774→                          ) : null}
+   775→                        </div>
+   776→                      </CardContent>
+   777→                    </Card>
+   778→                  );
+   779→                })}
+   780→              </div>
+   781→            </div>
+   782→          );
+   783→        })}
+   784→      </div>
+   785→
+   786→      {/* ═══════ Board Summary Footer ═══════ */}
+   787→      <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground/70">
+   788→        <span>
+   789→          {String(filteredTasks.length)} tasks across {String(TASK_COLUMNS.length)} columns
+   790→          {!isAdminUser && " (your tasks)"}
+   791→        </span>
+   792→        {filteredTasks.length > 0 && (
+   793→          <div className="flex items-center gap-2">
+   794→            <span>{String(filteredTasks.filter((t) => extractStr(t, "status", "") === "DONE").length)} completed</span>
+   795→            <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
+   796→              <div
+   797→                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+   798→                style={{
+   799→                  width: `${Math.round(
+   800→                    (filteredTasks.filter((t) => extractStr(t, "status", "") === "DONE").length / filteredTasks.length) * 100
+   801→                  )}%`,
+   802→                }}
+   803→              />
+   804→            </div>
+   805→          </div>
+   806→        )}
+   807→      </div>
+   808→
+   809→      {/* ═══════ Task Detail Dialog ═══════ */}
+   810→      <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>
+   811→        <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   812→          <DialogHeader>
+   813→            <div className="flex items-center justify-between pr-6">
+   814→              <DialogTitle className="text-base font-bold truncate pr-4">
+   815→                {safeText(selectedTask ? extractStr(selectedTask, "title", "Untitled") : "Task Detail")}
+   816→              </DialogTitle>
+   817→              {isAdminUser && selectedTask && (
+   818→                <div className="flex items-center gap-1 shrink-0">
+   819→                  <Button
+   820→                    variant="ghost"
+   821→                    size="icon"
+   822→                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+   823→                    onClick={() => { setTaskDetailOpen(false); openEditDialog(selectedTask); }}
+   824→                    title="Edit task"
+   825→                  >
+   826→                    <Pencil className="h-3.5 w-3.5" />
+   827→                  </Button>
+   828→                  <Button
+   829→                    variant="ghost"
+   830→                    size="icon"
+   831→                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+   832→                    onClick={() => handleDeleteTask(extractStr(selectedTask, "id", ""))}
+   833→                    disabled={deletingTaskId === extractStr(selectedTask, "id", "")}
+   834→                    title="Delete task"
+   835→                  >
+   836→                    {deletingTaskId === extractStr(selectedTask, "id", "") ? (
+   837→                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+   838→                    ) : (
+   839→                      <Trash2 className="h-3.5 w-3.5" />
+   840→                    )}
+   841→                  </Button>
+   842→                </div>
+   843→              )}
+   844→            </div>
+   845→          </DialogHeader>
+   846→          {selectedTask && (
+   847→            <ScrollArea className="max-h-[60vh]">
+   848→              <div className="space-y-4 pr-2">
+   849→                {/* Description */}
+   850→                {extractStr(selectedTask, "description", "") && (
+   851→                  <div>
+   852→                    <p className="text-xs text-muted-foreground mb-1 font-medium">Description</p>
+   853→                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+   854→                      {safeText(extractStr(selectedTask, "description", ""))}
+   855→                    </p>
+   856→                  </div>
+   857→                )}
+   858→
+   859→                {/* Meta grid */}
+   860→                <div className="grid grid-cols-2 gap-3">
+   861→                  <div className="space-y-1">
+   862→                    <p className="text-xs text-muted-foreground font-medium">Status</p>
+   863→                    <Badge className={cn("text-[10px] font-medium", taskStatusColors[extractStr(selectedTask, "status", "")] || "")}>
+   864→                      {extractStr(selectedTask, "status", "").replace(/_/g, " ")}
+   865→                    </Badge>
+   866→                  </div>
+   867→                  <div className="space-y-1">
+   868→                    <p className="text-xs text-muted-foreground font-medium">Priority</p>
+   869→                    <Badge className={cn("text-[10px] font-medium", priorityColors[extractStr(selectedTask, "priority", "MEDIUM")] || "")}>
+   870→                      {extractStr(selectedTask, "priority", "MEDIUM")}
+   871→                    </Badge>
+   872→                  </div>
+   873→                  {isAdminUser && (
+   874→                    <div className="space-y-1">
+   875→                      <p className="text-xs text-muted-foreground font-medium">Assignee</p>
+   876→                      <div className="flex items-center gap-1.5">
+   877→                        {extractStr(selectedTask, "assigneeType", "HUMAN") === "AI" ? (
+   878→                          <Bot className="h-3.5 w-3.5 text-violet-500" />
+   879→                        ) : (
+   880→                          <Avatar className="h-5 w-5">
+   881→                            <AvatarFallback className="text-[8px] bg-gradient-to-br from-slate-500 to-slate-600 text-white">
+   882→                              {getInitials(extractStr(selectedTask, "assignedToName", "Un"))}
+   883→                            </AvatarFallback>
+   884→                          </Avatar>
+   885→                        )}
+   886→                        <span className="text-xs font-medium">
+   887→                          {safeText(extractStr(selectedTask, "assignedToName", "") || "Unassigned")}
+   888→                        </span>
+   889→                      </div>
+   890→                    </div>
+   891→                  )}
+   892→                  <div className="space-y-1">
+   893→                    <p className="text-xs text-muted-foreground font-medium">Deadline</p>
+   894→                    <span className="text-xs flex items-center gap-1">
+   895→                      <Calendar className="h-3 w-3 text-muted-foreground" />
+   896→                      {extractStr(selectedTask, "deadline", "") ? safeDate(extractStr(selectedTask, "deadline", "")) : "No deadline"}
+   897→                    </span>
+   898→                  </div>
+   899→                  <div className="space-y-1">
+   900→                    <p className="text-xs text-muted-foreground font-medium">Category</p>
+   901→                    {extractStr(selectedTask, "category", "GENERAL") !== "GENERAL" && CATEGORY_COLORS[extractStr(selectedTask, "category", "")] ? (
+   902→                      <Badge className={cn("text-[10px] font-medium gap-1", CATEGORY_COLORS[extractStr(selectedTask, "category", "")] || "")}>
+   903→                        {CATEGORY_ICONS[extractStr(selectedTask, "category", "")]}
+   904→                        {extractStr(selectedTask, "category", "").replace(/_/g, " ")}
+   905→                      </Badge>
+   906→                    ) : (
+   907→                      <span className="text-xs text-muted-foreground">General</span>
+   908→                    )}
+   909→                  </div>
+   910→                  <div className="space-y-1">
+   911→                    <p className="text-xs text-muted-foreground font-medium">Project</p>
+   912→                    <span className="text-xs font-medium">
+   913→                      {projectNameMap.get(extractStr(selectedTask, "projectId", "")) || "No project"}
+   914→                    </span>
+   915→                  </div>
+   916→                  <div className="space-y-1">
+   917→                    <p className="text-xs text-muted-foreground font-medium">Created By</p>
+   918→                    <span className="text-xs">
+   919→                      {safeText(extractStr(selectedTask, "createdByName", "") || "Unknown")}
+   920→                    </span>
+   921→                  </div>
+   922→                  <div className="space-y-1">
+   923→                    <p className="text-xs text-muted-foreground font-medium">Created</p>
+   924→                    <span className="text-xs">
+   925→                      {extractStr(selectedTask, "createdAt", "") ? safeDate(extractStr(selectedTask, "createdAt", "")) : "—"}
+   926→                    </span>
+   927→                  </div>
+   928→                </div>
+   929→
+   930→                {/* Lark indicator */}
+   931→                {extractStr(selectedTask, "larkTaskId", "") && (
+   932→                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200/60 dark:border-blue-800/30">
+   933→                    <span className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 text-[9px] font-bold shrink-0">
+   934→                      L
+   935→                    </span>
+   936→                    <span className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">Synced with Lark</span>
+   937→                  </div>
+   938→                )}
+   939→
+   940→                {/* Quick status change */}
+   941→                <div className="space-y-2 pt-2 border-t border-gray-200/60 dark:border-gray-700/40">
+   942→                  <p className="text-xs text-muted-foreground font-medium">Move to</p>
+   943→                  <div className="flex flex-wrap gap-1.5">
+   944→                    {TASK_COLUMNS.map((s) => {
+   945→                      const currentStatus = extractStr(selectedTask, "status", "");
+   946→                      return (
+   947→                        <Button
+   948→                          key={s}
+   949→                          variant="outline"
+   950→                          size="sm"
+   951→                          className={cn(
+   952→                            "h-7 text-[10px] px-2",
+   953→                            currentStatus === s && "ring-1 ring-primary"
+   954→                          )}
+   955→                          disabled={currentStatus === s || movingTaskId === extractStr(selectedTask, "id", "")}
+   956→                          onClick={() => handleMoveTask(extractStr(selectedTask, "id", ""), s)}
+   957→                        >
+   958→                          {movingTaskId === extractStr(selectedTask, "id", "") && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+   959→                          {s.replace(/_/g, " ")}
+   960→                        </Button>
+   961→                      );
+   962→                    })}
+   963→                  </div>
+   964→                </div>
+   965→              </div>
+   966→            </ScrollArea>
+   967→          )}
+   968→        </DialogContent>
+   969→      </Dialog>
+   970→
+   971→      {/* ═══════ Edit Task Dialog ═══════ */}
+   972→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   973→        <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   974→          <DialogHeader>
+   975→            <DialogTitle className="text-base font-bold flex items-center gap-2">
+   976→              <Pencil className="h-4 w-4" /> Edit Task
+   977→            </DialogTitle>
+   978→          </DialogHeader>
+   979→          <div className="space-y-3">
+   980→            <div className="space-y-1">
+   981→              <label className="text-xs font-medium">Title *</label>
+   982→              <Input
+   983→                value={editForm.title || ""}
+   984→                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+   985→                className="h-8 text-sm"
+   986→                placeholder="Task title..."
+   987→              />
+   988→            </div>
+   989→            <div className="space-y-1">
+   990→              <label className="text-xs font-medium">Description</label>
+   991→              <Input
+   992→                value={editForm.description || ""}
+   993→                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+   994→                className="h-8 text-sm"
+   995→                placeholder="Optional details..."
+   996→              />
+   997→            </div>
+   998→            <div className="grid grid-cols-2 gap-3">
+   999→              <div className="space-y-1">
+  1000→                <label className="text-xs font-medium">Priority</label>
+  1001→                <select
+  1002→                  value={editForm.priority || "MEDIUM"}
+  1003→                  onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value }))}
+  1004→                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+  1005→                >
+  1006→                  <option value="LOW">Low</option>
+  1007→                  <option value="MEDIUM">Medium</option>
+  1008→                  <option value="HIGH">High</option>
+  1009→                  <option value="URGENT">Urgent</option>
+  1010→                </select>
+  1011→              </div>
+  1012→              <div className="space-y-1">
+  1013→                <label className="text-xs font-medium">Category</label>
+  1014→                <select
+  1015→                  value={editForm.category || "GENERAL"}
+  1016→                  onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
+  1017→                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+  1018→                >
+  1019→                  <option value="GENERAL">General</option>
+  1020→                  <option value="MEETING">Meeting</option>
+  1021→                  <option value="FOLLOW_UP">Follow Up</option>
+  1022→                  <option value="UPGRADE">Upgrade</option>
+  1023→                  <option value="CUSTOMER">Customer</option>
+  1024→                  <option value="INTERNAL">Internal</option>
+  1025→                </select>
+  1026→              </div>
+  1027→            </div>
+  1028→            <div className="grid grid-cols-2 gap-3">
+  1029→              <div className="space-y-1">
+  1030→                <label className="text-xs font-medium">Project</label>
+  1031→                <select
+  1032→                  value={editForm.projectId || ""}
+  1033→                  onChange={(e) => setEditForm((f) => ({ ...f, projectId: e.target.value }))}
+  1034→                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+  1035→                >
+  1036→                  <option value="">No project</option>
+  1037→                  {projects.map((p) => (
+  1038→                    <option key={extractStr(p, "id", "")} value={extractStr(p, "id", "")}>
+  1039→                      {safeText(extractStr(p, "name", "Unknown"))}
+  1040→                    </option>
+  1041→                  ))}
+  1042→                </select>
+  1043→              </div>
+  1044→              <div className="space-y-1">
+  1045→                <label className="text-xs font-medium">Assigned To</label>
+  1046→                <select
+  1047→                  value={editForm.assignedTo || ""}
+  1048→                  onChange={(e) => setEditForm((f) => ({ ...f, assignedTo: e.target.value }))}
+  1049→                  className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full"
+  1050→                >
+  1051→                  <option value="">Unassigned</option>
+  1052→                  {users.map((u) => (
+  1053→                    <option key={u.id} value={u.id}>
+  1054→                      {u.name} {u.department ? `(${u.department})` : ""}
+  1055→                    </option>
+  1056→                  ))}
+  1057→                </select>
+  1058→              </div>
+  1059→            </div>
+  1060→            <div className="space-y-1">
+  1061→              <label className="text-xs font-medium">Deadline</label>
+  1062→              <Input
+  1063→                type="date"
+  1064→                value={editForm.deadline || ""}
+  1065→                onChange={(e) => setEditForm((f) => ({ ...f, deadline: e.target.value }))}
+  1066→                className="h-8 text-sm"
+  1067→              />
+  1068→            </div>
+  1069→            <Separator />
+  1070→            <div className="flex justify-end gap-2">
+  1071→              <Button variant="outline" size="sm" onClick={() => setEditOpen(false)}>
+  1072→                Cancel
+  1073→              </Button>
+  1074→              <Button size="sm" onClick={handleEditSave} disabled={editSaving || !editForm.title?.trim()}>
+  1075→                {editSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
+  1076→                Save Changes
+  1077→              </Button>
+  1078→            </div>
+  1079→          </div>
+  1080→        </DialogContent>
+  1081→      </Dialog>
+  1082→    </div>
+  1083→  );
+  1084→}
