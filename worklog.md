@@ -116,3 +116,21 @@ Stage Summary:
 - Remove member button now always visible (no longer hidden behind hover)
 - Lark done-status reverts fixed with 3-layer protection: dedup + delay + circular guard
 
+---
+Task ID: 1
+Agent: main
+Task: Fix 5 issues - capsule restore, task board speed, no data in iframe, Lark sync
+
+Work Log:
+- Analyzed screenshot 1026: PC floating windows show project names but empty dark content areas
+- Root cause for "no data": loading gate blocked entire page render until ALL 4 queries (project, tasks, members, teamUsers) finished. The slow teamUsers query (loads ALL users) was blocking the task board from rendering
+- Root cause for capsule restore: event listeners on window capture phase fired for ALL capsules, plus onRestore/onPositionChange callback changes caused useEffect to re-register listeners every render
+- Root cause for slow loading: Lark task ID lookup ran unconditionally on every GET, user name resolution was sequential with Lark lookup
+
+Stage Summary:
+- Fixed capsule restore: global restore lock + stopImmediatePropagation + stable callback refs
+- Fixed "no data in iframe": removed loading gate, only session+project loading shows skeleton
+- Sped up API: conditional Lark lookup, parallel user+Lark resolution, increased cache times
+- Lark sync verified: already creates project-named groups, assigns per-user correctly
+- Pushed to GitHub: commit a5aacd8
+
