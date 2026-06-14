@@ -11,6 +11,7 @@ import { syncTaskToLark } from "@/lib/lark/sync"
 import { syncTaskUpdateToLark } from "@/lib/lark/sync"
 import { syncTaskDeleteToLark } from "@/lib/lark/sync"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
+import { getLarkConfig } from "@/lib/lark/auth"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -137,24 +138,22 @@ export async function GET(req: NextRequest) {
       db.task.count({ where }),
     ])
 
-    // Resolve userIds to names for assignee, approver, and creator
+    // Resolve userIds to names + fetch Lark IDs in parallel (fast)
     const userIds = new Set<string>()
     for (const t of tasks) {
       if (t.assignedTo) userIds.add(t.assignedTo)
       if (t.approvedBy) userIds.add(t.approvedBy)
       if (t.createdBy) userIds.add(t.createdBy)
     }
-    let userMap: Record<string, string> = {}
-    if (userIds.size > 0) {
-      const users = await db.user.findMany({
-        where: { id: { in: Array.from(userIds) } },
-        select: { id: true, name: true }
-      })
-      for (const u of users) userMap[u.id] = u.name
-    }
-
-    // Fetch Lark task IDs for all returned tasks
-    const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+    const [users, larkIds] = await Promise.all([
+      userIds.size > 0
+        ? db.user.findMany({ where: { id: { in: Array.from(userIds) } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      // Only fetch Lark IDs if Lark is enabled (avoids unnecessary DB query)
+      getLarkConfig().then(cfg => cfg?.enabled ? getLarkTaskIds(tasks.map(t => t.id)) : Promise.resolve({})),
+    ])
+    const userMap: Record<string, string> = {}
+    for (const u of users) userMap[u.id] = u.name
 
     const enriched = tasks.map(t => ({
       ...serializeTask(t),
@@ -232,24 +231,21 @@ export async function GET(req: NextRequest) {
     db.task.count({ where }),
   ])
 
-  // Resolve userIds to names for assignee, approver, and creator
+  // Resolve userIds to names + fetch Lark IDs in parallel (fast)
   const userIds = new Set<string>()
   for (const t of tasks) {
     if (t.assignedTo) userIds.add(t.assignedTo)
     if (t.approvedBy) userIds.add(t.approvedBy)
     if (t.createdBy) userIds.add(t.createdBy)
   }
-  let userMap: Record<string, string> = {}
-  if (userIds.size > 0) {
-    const users = await db.user.findMany({
-      where: { id: { in: Array.from(userIds) } },
-      select: { id: true, name: true }
-    })
-    for (const u of users) userMap[u.id] = u.name
-  }
-
-  // Fetch Lark task IDs for all returned tasks
-  const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+  const [users, larkIds] = await Promise.all([
+    userIds.size > 0
+      ? db.user.findMany({ where: { id: { in: Array.from(userIds) } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    getLarkConfig().then(cfg => cfg?.enabled ? getLarkTaskIds(tasks.map(t => t.id)) : Promise.resolve({})),
+  ])
+  const userMap: Record<string, string> = {}
+  for (const u of users) userMap[u.id] = u.name
 
   const enriched = tasks.map(t => ({
     ...serializeTask(t),

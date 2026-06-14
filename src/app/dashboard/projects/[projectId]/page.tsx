@@ -142,7 +142,7 @@ export default function ProjectDetailPage() {
   const dragValueRef = useRef<number>(0);
   const [dragProgress, setDragProgress] = useState<number | null>(null);
 
-  // ── React Query: Project data with caching ──
+  // ── React Query: Project data with aggressive caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => {
@@ -159,8 +159,8 @@ export default function ProjectDetailPage() {
       return null;
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -176,7 +176,7 @@ export default function ProjectDetailPage() {
       return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
+    staleTime: 15 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -193,8 +193,8 @@ export default function ProjectDetailPage() {
       return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -209,8 +209,8 @@ export default function ProjectDetailPage() {
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: isAdminUser,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -220,15 +220,15 @@ export default function ProjectDetailPage() {
     queryKey: ["project-websites", projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const res = await fetch(`/api/projects/${projectId}/websites`, { credentials: "include" });
+      const res = await fetch(`/api/projects/${projectId}/websites", { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) return [];
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
     enabled: !!projectId && isAdminUser,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -391,11 +391,15 @@ export default function ProjectDetailPage() {
     return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
   }, [teamUsers, memberUserIds]);
 
-  // Fix: Include tasksLoading and membersLoading to prevent layout shift
-  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+  // CRITICAL FIX: Only gate on session + project loading.
+  // Do NOT block on tasksLoading/membersLoading — show the board immediately
+  // with tasks/members populating in as they arrive. This fixes:
+  // 1. "No data visible" in floating task board iframes (was blocked by slow teamUsers query)
+  // 2. Slow perceived loading (page was blank until ALL 4 queries finished)
+  const isInitialLoading = sessionStatus === "loading" || projectLoading;
 
-  // ── Loading state ──
-  if (isLoading) {
+  // ── Loading state — only for session/project (not tasks/members) ──
+  if (isInitialLoading) {
     return (
       <div className="space-y-5">
         <div className="flex items-center gap-3">
@@ -405,12 +409,6 @@ export default function ProjectDetailPage() {
             <Skeleton className="h-3.5 w-72" />
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-9 w-28 rounded-full" />
-          ))}
-        </div>
-        <Skeleton className="h-5 w-40" />
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-72 rounded-xl" />)}
         </div>

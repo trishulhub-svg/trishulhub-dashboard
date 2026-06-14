@@ -109,6 +109,10 @@ function useDragResize(
   return { startDrag, startResize };
 }
 
+// ─── Global restore lock — prevents concurrent capsule restores ─────────
+let _globalRestoreLock = 0;
+const RESTORE_LOCK_MS = 350;
+
 // ─── Minimized Capsule ────────────────────────────────────────────────
 function MinimizedCapsule({
   board,
@@ -129,8 +133,15 @@ function MinimizedCapsule({
   const isMobile = useIsMobile();
   const hasMoved = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
-  // Prevent double-fire: ignore restore if called within 300ms
+  // Prevent double-fire: ignore restore if called within 400ms
   const lastRestoreRef = useRef(0);
+  // Stable refs for callbacks — avoid effect re-running on every render
+  const onRestoreRef = useRef(onRestore);
+  const onPositionChangeRef = useRef(onPositionChange);
+  onRestoreRef.current = onRestore;
+  onPositionChangeRef.current = onPositionChange;
+  // Track if this capsule's touch is active
+  const touchActiveRef = useRef(false);
 
   const bottomOffset = isMobile ? 24 + boardIndex * 48 : 16;
   const topPos = typeof window !== "undefined"
@@ -151,6 +162,7 @@ function MinimizedCapsule({
         : { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
       dragStartPos.current = { x: pt.x, y: pt.y, dx: displayX, dy: displayY };
       hasMoved.current = false;
+      touchActiveRef.current = true;
     };
 
     const handleMove = (e: MouseEvent | TouchEvent) => {
@@ -175,20 +187,26 @@ function MinimizedCapsule({
     };
 
     const handleEnd = (e: Event) => {
+      // Only handle if THIS capsule's touch is active
+      if (!touchActiveRef.current) return;
+      touchActiveRef.current = false;
       if (!dragStartPos.current || !el) return;
-      // Stop propagation to prevent the window's touchstart from firing
+      // CRITICAL: stopImmediatePropagation to prevent ALL other capsule
+      // listeners (registered on window capture) from firing
+      e.stopImmediatePropagation();
       e.stopPropagation();
       if (!hasMoved.current) {
-        // Debounce restore
+        // Global restore lock — only one capsule can restore at a time
         const now = Date.now();
-        if (now - lastRestoreRef.current > 300) {
-          lastRestoreRef.current = now;
-          onRestore();
-        }
+        if (now - _globalRestoreLock < RESTORE_LOCK_MS) return;
+        if (now - lastRestoreRef.current < 400) return;
+        _globalRestoreLock = now;
+        lastRestoreRef.current = now;
+        onRestoreRef.current();
       } else {
         const fx = parseInt(el.style.left) || dragStartPos.current.dx;
         const fy = parseInt(el.style.top) || dragStartPos.current.dy;
-        onPositionChange({ x: fx, y: fy });
+        onPositionChangeRef.current({ x: fx, y: fy });
       }
       dragStartPos.current = null;
     };
@@ -202,6 +220,7 @@ function MinimizedCapsule({
     window.addEventListener("touchcancel", handleEnd, true);
 
     return () => {
+      touchActiveRef.current = false;
       el.removeEventListener("mousedown", handleStart);
       el.removeEventListener("touchstart", handleStart);
       window.removeEventListener("mousemove", handleMove);
@@ -210,7 +229,7 @@ function MinimizedCapsule({
       window.removeEventListener("touchend", handleEnd, true);
       window.removeEventListener("touchcancel", handleEnd, true);
     };
-  }, [displayX, displayY, topPos, onRestore, onPositionChange]);
+  }, [displayX, displayY, topPos]);
 
   return (
     <div
@@ -323,7 +342,8 @@ function FloatingBoardWindow({
         }
         onMouseDown={onBringToFront}
         onTouchStart={(e) => {
-          // Only bring to front, don't interfere with restore
+          // Only bring to front when window is visible — never when minimized
+          // (prevents interference with capsule touch events)
           if (!board.minimized) onBringToFront();
         }}
       >
