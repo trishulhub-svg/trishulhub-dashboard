@@ -929,7 +929,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={async () => {
                   // Auto-minimize all floating boards before logout
-                  try { window.__trishulhub_signalLogout?.(); } catch { /* */ }
+                  try { (window as unknown as Record<string, unknown>).__trishulhub_signalLogout?.(); } catch { /* */ }
                   await signOut({ redirect: false });
                   router.push("/login");
                 }}>
