@@ -280,7 +280,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE — Remove a user mapping
+// DELETE — Remove a user mapping / Invalidate cache
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -288,7 +288,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
-    const { searchParams } = new URL(req.url)
+    // Allow cache invalidation via DELETE with action query param
+    const { searchParams } = new URL(req.url);
+    if (searchParams.get("action") === "invalidate") {
+      invalidateLarkUsersCache();
+      return NextResponse.json({ success: true });
+    }
+
     const userId = searchParams.get("userId")
 
     if (!userId) {

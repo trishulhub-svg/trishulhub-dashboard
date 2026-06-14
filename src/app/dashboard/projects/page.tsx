@@ -38,6 +38,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+import { useFloatingBoards, FloatingBoardWindow } from "@/components/floating-task-board";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -870,6 +871,19 @@ export default function ProjectsPage() {
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
+  // ━━ Floating Task Board Windows ━━
+  const {
+    boards: floatingBoards,
+    openBoard: openFloatingBoard,
+    closeBoard: closeFloatingBoard,
+    closeAll: closeAllFloatingBoards,
+    minimizeBoard: minimizeFloatingBoard,
+    restoreBoard: restoreFloatingBoard,
+    bringToFront: bringBoardToFront,
+    updatePosition: updateBoardPosition,
+    updateSize: updateBoardSize,
+  } = useFloatingBoards();
+
   // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
   const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
@@ -1652,8 +1666,12 @@ export default function ProjectsPage() {
                   projects={col.projects}
                   isAdminUser={isAdminUser}
                   onCardClick={(project) => {
-                    const pId = safeText(project.id, "");
-                    router.push(`/dashboard/projects/${pId}`);
+                    if (isAdminUser) {
+                      openFloatingBoard(safeText(project.id, ""), safeText(project.name, "Project"));
+                    } else {
+                      const pId = safeText(project.id, "");
+                      router.push(`/dashboard/projects/${pId}`);
+                    }
                   }}
                   onEdit={openEditDialog}
                   onDelete={openDeleteDialog}
@@ -1698,20 +1716,55 @@ export default function ProjectsPage() {
                 project={project}
                 isAdminUser={isAdminUser}
                 onView={() => {
-                  handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  if (isAdminUser) {
+                    openFloatingBoard(pId, safeText(project.name, "Project"));
+                  } else {
+                    handlePrefetchProject(pId);
+                    router.push(`/dashboard/projects/${pId}`);
+                  }
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
                 pendingCount={pendingTaskCounts[pId]}
                 onPendingClick={() => {
-                  handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  if (isAdminUser) {
+                    openFloatingBoard(pId, safeText(project.name, "Project"));
+                  } else {
+                    handlePrefetchProject(pId);
+                    router.push(`/dashboard/projects/${pId}`);
+                  }
                 }}
               />
             );
           })}
         </div>
+      )}
+
+      {/* ━━━━ Floating Task Board Windows (Admin/SuperAdmin only) ━━━━ */}
+      {isAdminUser && floatingBoards.length > 0 && (
+        <>
+          {floatingBoards.some(b => !b.minimized) && (
+            <button
+              onClick={closeAllFloatingBoards}
+              className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-600 text-white text-[11px] font-medium shadow-lg backdrop-blur-sm transition-colors"
+              title="Close all floating task boards"
+            >
+              <X className="h-3 w-3" />
+              Close All
+            </button>
+          )}
+          {floatingBoards.map((board) => (
+            <FloatingBoardWindow
+              key={board.projectId}
+              board={board}
+              onClose={() => closeFloatingBoard(board.projectId)}
+              onMinimize={() => minimizeFloatingBoard(board.projectId)}
+              onBringToFront={() => bringBoardToFront(board.projectId)}
+              onPositionChange={(pos) => updateBoardPosition(board.projectId, pos)}
+              onSizeChange={(size) => updateBoardSize(board.projectId, size)}
+            />
+          ))}
+        </>
       )}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}

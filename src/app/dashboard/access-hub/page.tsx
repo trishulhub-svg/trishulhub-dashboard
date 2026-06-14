@@ -187,6 +187,7 @@ function AccessHubContent() {
   const [showLarkSecret, setShowLarkSecret] = useState(false);
   const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
   const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
+  const [larkConfigLoading, setLarkConfigLoading] = useState(true);
 
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
@@ -277,6 +278,45 @@ function AccessHubContent() {
       .finally(() => { if (!cancelled) setProtocolLoading(false); });
     return () => { cancelled = true; };
   }, [status]);
+
+  // ── Auto-load Lark users when lark-users tab is active ──
+  useEffect(() => {
+    if (status !== "authenticated" || urlTab !== "lark-users") return;
+    if (larkUsers.length > 0) return; // Already loaded
+    let cancelled = false;
+    setLarkUsersLoading(true);
+    setLarkUsersError("");
+    (async () => {
+      try {
+        // Fetch raw Lark users
+        const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
+        const larkData = await larkRes.json();
+        if (cancelled) return;
+        if (larkData.allLarkUsers) setLarkUsers(larkData.allLarkUsers);
+        if (larkData.larkError) setLarkUsersError(larkData.larkError);
+        if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
+
+        // Fetch existing mappings
+        const mapRes = await fetch("/api/lark/users", { credentials: "include" });
+        const mapData = await mapRes.json();
+        if (cancelled) return;
+        if (mapData.users) {
+          const mappings: Record<string, string> = {};
+          for (const u of mapData.users) {
+            if (u.larkOpenId && u.larkMapped) {
+              mappings[u.larkOpenId] = u.id;
+            }
+          }
+          setLarkMappings(mappings);
+        }
+      } catch {
+        if (!cancelled) setLarkUsersError("Failed to fetch Lark users");
+      } finally {
+        if (!cancelled) setLarkUsersLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [status, urlTab]);
 
   // ── Fetch credentials ──
   const fetchCredentials = useCallback(async () => {
@@ -556,6 +596,7 @@ function AccessHubContent() {
 
   // ── Lark Integration handlers ──
   const fetchLarkConfig = async () => {
+    setLarkConfigLoading(true);
     try {
       const res = await fetch("/api/lark/settings", { credentials: "include" });
       if (res.ok) {
@@ -563,6 +604,7 @@ function AccessHubContent() {
         setLarkConfig(data);
       }
     } catch { /* silent */ }
+    finally { setLarkConfigLoading(false); }
   };
 
   const handleSaveLarkConfig = async () => {
@@ -1497,6 +1539,8 @@ function AccessHubContent() {
                             const data = await res.json();
                             if (data.success) success++;
                           }
+                          // Invalidate server-side cache so next load is fresh
+                          await fetch("/api/lark/users?action=invalidate", { method: "DELETE", credentials: "include" });
                           toast.success(`${success} mapping${success !== 1 ? 's' : ''} saved successfully`);
                         } catch { toast.error("Failed to save mappings"); }
                         finally { setLarkMappingsSaving(false); }
@@ -1802,17 +1846,21 @@ function AccessHubContent() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {larkConfig?.connected && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>}
+                        {larkConfigLoading ? (
+                          <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]"><Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />Checking...</Badge>
+                        ) : larkConfig?.connected ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>
+                        ) : null}
                         <Switch
                           checked={larkConfig?.enabled ?? false}
                           onCheckedChange={handleLarkToggle}
-                          disabled={larkToggling || !larkConfig?.configured}
+                          disabled={larkToggling || larkConfigLoading || !larkConfig?.configured}
                         />
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {larkConfig?.connected ? null : larkConfig?.configured ? (
+                    {larkConfigLoading ? null : larkConfig?.connected ? null : larkConfig?.configured ? (
                       <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
                         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                         <span>Connection failed — check App ID and Secret</span>

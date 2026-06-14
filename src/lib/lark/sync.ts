@@ -253,8 +253,24 @@ export async function syncTaskToLark(
     if (data.projectId) {
       const project = await db.project.findUnique({ where: { id: data.projectId }, select: { name: true } })
       if (project) {
-        const result = await getOrCreateProjectTaskList(data.projectId, project.name)
-        if (result) tasklistId = result.tasklistId
+        // Try to get or create the project task list (retry once on failure)
+        let result = await getOrCreateProjectTaskList(data.projectId, project.name)
+        if (!result) {
+          // Retry once — transient API errors can cause first attempt to fail
+          console.warn(`[lark/sync] Retrying task list creation for project ${data.projectId} (${project.name})`)
+          result = await getOrCreateProjectTaskList(data.projectId, project.name)
+        }
+        if (result) {
+          tasklistId = result.tasklistId
+          if (result.created) {
+            console.log(`[lark/sync] Created new Lark task list for project: ${project.name}`)
+          }
+        } else {
+          console.error(`[lark/sync] FAILED to get/create task list for project ${data.projectId} (${project.name}) — aborting sync, task will NOT fall to default list`)
+          await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Failed to create project task list for "${project.name}"` })
+          // Don't fall back to default — if the task has a project, it MUST go to that project's list
+          return
+        }
       }
     }
 
@@ -262,7 +278,7 @@ export async function syncTaskToLark(
       // No project — use a default "TrishulHub Tasks" list
       const defaultResult = await getOrCreateProjectTaskList("__default__", "TrishulHub Tasks")
       if (!defaultResult) {
-        await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: "Failed to get/create task list" })
+        await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: "Failed to get/create default task list" })
         return
       }
       tasklistId = defaultResult.tasklistId
