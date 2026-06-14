@@ -40,6 +40,13 @@ export async function processWebhook(payload: LarkWebhookPayload): Promise<{ cod
   }
 
   console.log(`[lark/webhook] Processing event: ${eventType} (id: ${eventId}) for task: ${eventData.task_id}`)
+  // Log full event for debugging (truncate if too long)
+  const eventStr = JSON.stringify(payload.event)
+  if (eventStr.length < 2000) {
+    console.log(`[lark/webhook] Event body: ${eventStr}`)
+  } else {
+    console.log(`[lark/webhook] Event body (truncated): ${eventStr.substring(0, 2000)}...`)
+  }
 
   const result = await handleLarkWebhookEvent(
     eventId || `unknown_${Date.now()}`,

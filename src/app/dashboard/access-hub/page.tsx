@@ -235,10 +235,22 @@ function AccessHubContent() {
   const [saving, setSaving] = useState(false);
 
   // ── Lark User Mapping state ──
-  const [larkUsers, setLarkUsers] = useState<Array<{ open_id: string; name: string; email?: string }>>([]);
+  const [larkUsers, setLarkUsers] = useState<Array<{ open_id: string; name: string; email?: string }>>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = localStorage.getItem('trishulhub_lark_users');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [larkUsersLoading, setLarkUsersLoading] = useState(false);
   const [larkUsersError, setLarkUsersError] = useState("");
-  const [larkMappings, setLarkMappings] = useState<Record<string, string>>({});
+  const [larkMappings, setLarkMappings] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const cached = localStorage.getItem('trishulhub_lark_mappings');
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
   const [larkMappingsLoading, setLarkMappingsLoading] = useState(false);
   const [larkMappingsSaving, setLarkMappingsSaving] = useState(false);
 
@@ -278,45 +290,6 @@ function AccessHubContent() {
       .finally(() => { if (!cancelled) setProtocolLoading(false); });
     return () => { cancelled = true; };
   }, [status]);
-
-  // ── Auto-load Lark users when lark-users tab is active ──
-  useEffect(() => {
-    if (status !== "authenticated" || urlTab !== "lark-users") return;
-    if (larkUsers.length > 0) return; // Already loaded
-    let cancelled = false;
-    setLarkUsersLoading(true);
-    setLarkUsersError("");
-    (async () => {
-      try {
-        // Fetch raw Lark users
-        const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
-        const larkData = await larkRes.json();
-        if (cancelled) return;
-        if (larkData.allLarkUsers) setLarkUsers(larkData.allLarkUsers);
-        if (larkData.larkError) setLarkUsersError(larkData.larkError);
-        if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
-
-        // Fetch existing mappings
-        const mapRes = await fetch("/api/lark/users", { credentials: "include" });
-        const mapData = await mapRes.json();
-        if (cancelled) return;
-        if (mapData.users) {
-          const mappings: Record<string, string> = {};
-          for (const u of mapData.users) {
-            if (u.larkOpenId && u.larkMapped) {
-              mappings[u.larkOpenId] = u.id;
-            }
-          }
-          setLarkMappings(mappings);
-        }
-      } catch {
-        if (!cancelled) setLarkUsersError("Failed to fetch Lark users");
-      } finally {
-        if (!cancelled) setLarkUsersLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [status, urlTab]);
 
   // ── Fetch credentials ──
   const fetchCredentials = useCallback(async () => {
@@ -1490,7 +1463,10 @@ function AccessHubContent() {
                           // Fetch raw Lark users
                           const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
                           const larkData = await larkRes.json();
-                          if (larkData.allLarkUsers) setLarkUsers(larkData.allLarkUsers);
+                          if (larkData.allLarkUsers) {
+                            setLarkUsers(larkData.allLarkUsers);
+                            localStorage.setItem('trishulhub_lark_users', JSON.stringify(larkData.allLarkUsers));
+                          }
                           if (larkData.larkError) setLarkUsersError(larkData.larkError);
                           if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
 
@@ -1505,6 +1481,7 @@ function AccessHubContent() {
                               }
                             }
                             setLarkMappings(mappings);
+                            localStorage.setItem('trishulhub_lark_mappings', JSON.stringify(mappings));
                           }
                         } catch { setLarkUsersError("Failed to fetch Lark users"); }
                         finally { setLarkUsersLoading(false); }
@@ -1541,6 +1518,7 @@ function AccessHubContent() {
                           }
                           // Invalidate server-side cache so next load is fresh
                           await fetch("/api/lark/users?action=invalidate", { method: "DELETE", credentials: "include" });
+                          localStorage.setItem('trishulhub_lark_mappings', JSON.stringify(larkMappings));
                           toast.success(`${success} mapping${success !== 1 ? 's' : ''} saved successfully`);
                         } catch { toast.error("Failed to save mappings"); }
                         finally { setLarkMappingsSaving(false); }

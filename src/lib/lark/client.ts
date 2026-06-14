@@ -327,8 +327,9 @@ export async function getTask(tasklistId: string, taskId: string): Promise<LarkT
     const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`)
     const raw = res.data?.task
     return raw ? normalizeTask(raw) : null
-  } catch {
-    // Completed tasks may not be fetchable (99404) — return null gracefully
+  } catch (err) {
+    // Lark returns 99404 for completed tasks on free tier — treat as null
+    console.warn(`[lark/client] getTask failed for ${taskId}:`, err instanceof Error ? err.message : err)
     return null
   }
 }

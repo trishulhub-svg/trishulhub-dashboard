@@ -205,6 +205,10 @@ function LoginForm() {
             <p className="login-tagline animate-login-fade-up" style={{ animationDelay: '150ms' }}>
               Sign in to manage your projects, team, and workflow
             </p>
+            <div className="login-security-badge animate-login-fade-up" style={{ animationDelay: '200ms' }}>
+              <Shield className="h-2.5 w-2.5" />
+              <span>Secured with end-to-end encryption</span>
+            </div>
           </div>
 
           {/* Show setup button if database is not ready */}

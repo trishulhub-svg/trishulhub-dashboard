@@ -478,10 +478,13 @@ export async function handleLarkWebhookEvent(
   markEventProcessed(eventId)
 
   const { task_id, tasklist_id } = eventData
+  console.log(`[lark/sync] Processing event: ${eventType} (id: ${eventId}) for task: ${task_id}`)
+  console.log(`[lark/sync] Event details: tasklist_id=${tasklist_id}, operator=${eventData.operator?.open_id || 'none'}`)
 
   try {
     // Find existing mapping
     const thTaskId = await getTaskIdByLarkId(task_id)
+    console.log(`[lark/sync] Mapping lookup: larkTaskId=${task_id} → thTaskId=${thTaskId || 'NOT FOUND'}`)
 
     if (eventType === "task.task.deleted") {
       if (!thTaskId) {
@@ -498,19 +501,27 @@ export async function handleLarkWebhookEvent(
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
     const larkTask = await getTask(tasklist_id, task_id)
+    if (larkTask) {
+      console.log(`[lark/sync] Fetched from Lark: title="${larkTask.title}", status="${larkTask.status}", priority="${larkTask.priority}", assignee="${larkTask.assignee?.open_id || 'none'}"`)
+    } else {
+      console.warn(`[lark/sync] getTask returned null for task ${task_id} in list ${tasklist_id}`)
+    }
 
     // Fallback: if getTask returns null (e.g. completed tasks return 99404),
-    // but we have a mapping, mark the task as DONE
+    // but we have a mapping, infer status from event type instead of blindly marking DONE
     if (!larkTask) {
       if (thTaskId) {
-        // We have a mapping but can't fetch the task — likely completed
-        await db.task.update({
-          where: { id: thTaskId },
-          data: {
-            status: "DONE",
-            completedAt: new Date(),
-          },
-        })
+        // Lark API returns null/error for completed tasks on free tier (error 99404).
+        // Only mark as DONE if the event type suggests completion.
+        const likelyCompleted = eventType.includes("done") || eventType.includes("complete") || eventType.includes("finish");
+        const newStatus = likelyCompleted ? "DONE" : "IN_PROGRESS";
+        const fallbackData: Record<string, unknown> = { status: newStatus };
+        if (newStatus === "DONE") fallbackData.completedAt = new Date();
+
+        const existingTask = await db.task.findUnique({ where: { id: thTaskId }, select: { status: true } });
+        console.warn(`[lark/sync] getTask returned null for mapped task ${thTaskId}. Event: ${eventType}. Assuming status="${newStatus}" (was "${existingTask?.status || 'unknown'}")`);
+
+        await db.task.update({ where: { id: thTaskId }, data: fallbackData })
         markSyncGuard(thTaskId, "FROM_LARK")
         await logSync({
           direction: "FROM_LARK",
@@ -519,8 +530,9 @@ export async function handleLarkWebhookEvent(
           taskId: thTaskId,
           larkTaskId: task_id,
           larkTaskListId: tasklist_id,
+          metadata: { inferredStatus: newStatus, eventType },
         })
-        return { success: true, message: `Task ${thTaskId} marked DONE (getTask returned null, assumed completed)` }
+        return { success: true, message: `Task ${thTaskId} updated to ${newStatus} (getTask returned null, inferred from event type)` }
       }
       return { success: false, message: "Failed to fetch task from Lark and no existing mapping" }
     }
@@ -535,6 +547,7 @@ export async function handleLarkWebhookEvent(
     const title = larkTask.title
     const description = larkTask.description
     const status = STATUS_FROM_LARK[larkTask.status] || "TODO"
+    console.log(`[lark/sync] Status mapping: lark="${larkTask.status}" → th="${status}"`)
     const priority = PRIORITY_FROM_LARK[larkTask.priority] || "MEDIUM"
 
     // Resolve assignee
@@ -562,6 +575,7 @@ export async function handleLarkWebhookEvent(
       }
 
       await db.task.update({ where: { id: thTaskId }, data: updateData })
+      console.log(`[lark/sync] Updated TH task ${thTaskId}: status=${updateData.status}, priority=${updateData.priority}, assignedTo=${updateData.assignedTo || 'unchanged'}`)
 
       // Mark circular guard so our update handler doesn't echo back
       markSyncGuard(thTaskId, "FROM_LARK")

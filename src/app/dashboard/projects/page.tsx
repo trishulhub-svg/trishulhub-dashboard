@@ -1746,7 +1746,13 @@ export default function ProjectsPage() {
           {floatingBoards.some(b => !b.minimized) && (
             <button
               onClick={closeAllFloatingBoards}
-              className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-600 text-white text-[11px] font-medium shadow-lg backdrop-blur-sm transition-colors"
+              className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+                bg-red-500/80 hover:bg-red-500 text-white text-[11px] font-medium
+                backdrop-blur-2xl saturate-[1.8]
+                border border-white/20
+                shadow-[0_2px_12px_rgba(239,68,68,0.25),inset_0_0.5px_0_rgba(255,255,255,0.3)]
+                hover:shadow-[0_4px_20px_rgba(239,68,68,0.35),inset_0_0.5px_0_rgba(255,255,255,0.4)]
+                transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               title="Close all floating task boards"
             >
               <X className="h-3 w-3" />

@@ -130,8 +130,8 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     return response
   }
 
-  // Prevent framing (clickjacking protection)
-  response.headers.set("X-Frame-Options", "DENY")
+  // Prevent framing (clickjacking protection) — allow same-origin for floating task boards
+  response.headers.set("X-Frame-Options", "SAMEORIGIN")
   // Prevent MIME type sniffing
   response.headers.set("X-Content-Type-Options", "nosniff")
   // Enforce HTTPS for all subdomains for 1 year
@@ -151,7 +151,7 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     "img-src 'self' data: blob:; " +
     "font-src 'self' data:; " +
     "connect-src 'self' https://api.openai.com https://*.turso.tech; " +
-    "frame-ancestors 'none'"
+    "frame-ancestors 'self'"
   )
   return response
 }
