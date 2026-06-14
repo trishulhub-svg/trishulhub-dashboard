@@ -31,7 +31,6 @@ function useDragResize(
       if ((e.target as HTMLElement).closest("button")) return;
       const isMouseEvent = "clientX" in e;
       if (!isMouseEvent) {
-        // touch — prevent scroll while dragging
         (e as React.TouchEvent).preventDefault();
       } else {
         (e as React.MouseEvent).preventDefault();
@@ -46,7 +45,7 @@ function useDragResize(
 
   const startResize = useCallback(
     (e: React.MouseEvent, origW: number, origH: number) => {
-      if (isMobile) return; // No resize on mobile
+      if (isMobile) return;
       e.preventDefault();
       e.stopPropagation();
       resizeState.current = { sx: e.clientX, sy: e.clientY, ow: origW, oh: origH };
@@ -92,10 +91,8 @@ function useDragResize(
       }
     };
 
-    // Mouse events
     window.addEventListener("mousemove", onPointerMove);
     window.addEventListener("mouseup", onPointerUp);
-    // Touch events
     window.addEventListener("touchmove", onPointerMove, { passive: false });
     window.addEventListener("touchend", onPointerUp);
     window.addEventListener("touchcancel", onPointerUp);
@@ -133,18 +130,14 @@ function MinimizedCapsule({
   const hasMoved = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
 
-  // Use left/top for consistent drag behavior
-  // Position.y for capsules = distance from bottom of viewport
   const bottomOffset = isMobile ? 24 + boardIndex * 48 : 16;
   const topPos = typeof window !== "undefined"
-    ? window.innerHeight - bottomOffset - 40 // 40 = approximate capsule height
+    ? window.innerHeight - bottomOffset - 40
     : 0;
 
-  // Initialize position if it looks like default (not yet dragged)
   const displayX = board.position.x;
   const displayY = board.position.y < 100 ? topPos : board.position.y;
 
-  // ── Touch/Mouse drag handler ──
   useEffect(() => {
     const el = capsuleRef.current;
     if (!el) return;
@@ -166,7 +159,6 @@ function MinimizedCapsule({
       const dx = pt.x - dragStartPos.current.x;
       const dy = pt.y - dragStartPos.current.y;
 
-      // Only start dragging after 5px movement (to distinguish from tap)
       if (!hasMoved.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
         hasMoved.current = true;
       }
@@ -183,10 +175,8 @@ function MinimizedCapsule({
     const handleEnd = () => {
       if (!dragStartPos.current || !el) return;
       if (!hasMoved.current) {
-        // It was a tap → restore
         onRestore();
       } else {
-        // Drag ended → save position
         const fx = parseInt(el.style.left) || dragStartPos.current.dx;
         const fy = parseInt(el.style.top) || dragStartPos.current.dy;
         onPositionChange({ x: fx, y: fy });
@@ -264,6 +254,9 @@ function MinimizedCapsule({
 }
 
 // ─── Main Floating Window ─────────────────────────────────────────────
+// KEY: The iframe is ALWAYS rendered (never unmounted). When minimized,
+// the window is hidden with display:none and only the capsule is shown.
+// This makes restore INSTANT — no iframe reload, no spinner, no network.
 function FloatingBoardWindow({
   board,
   boardIndex,
@@ -271,6 +264,7 @@ function FloatingBoardWindow({
   onClose,
   onMinimize,
   onBringToFront,
+  onRestoreBoard,
   onPositionChange,
   onSizeChange,
 }: {
@@ -280,6 +274,7 @@ function FloatingBoardWindow({
   onClose: () => void;
   onMinimize: () => void;
   onBringToFront: () => void;
+  onRestoreBoard: () => void;
   onPositionChange: (pos: { x: number; y: number }) => void;
   onSizeChange: (size: { width: number; height: number }) => void;
 }) {
@@ -287,147 +282,146 @@ function FloatingBoardWindow({
   const isMobile = useIsMobile();
   const { startDrag, startResize } = useDragResize(elRef, onPositionChange, onSizeChange, isMobile);
   const [iframeReady, setIframeReady] = useState(false);
+  const iframeSrc = `/dashboard/projects/${board.projectId}`;
 
-  if (board.minimized) {
-    return (
-      <MinimizedCapsule
-        board={board}
-        boardIndex={boardIndex}
-        totalCapsules={totalCapsules}
-        onClose={onClose}
-        onRestore={onBringToFront}
-        onPositionChange={onPositionChange}
-      />
-    );
-  }
-
-  // Mobile: full screen overlay
-  if (isMobile) {
-    return (
-      <div
-        className="fixed inset-0 z-[10000] flex flex-col animate-in fade-in duration-150
-          bg-white dark:bg-[#0a0a0a]"
-        style={{ zIndex: board.zIndex }}
-      >
-        {/* Mobile title bar */}
-        <div className="flex items-center justify-between px-3 py-2.5 shrink-0 select-none
-          bg-white/80 dark:bg-white/[0.06]
-          border-b border-black/[0.06] dark:border-white/[0.08]
-          backdrop-blur-xl">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={onMinimize}
-                className="w-8 h-8 rounded-full bg-yellow-400/20 active:bg-yellow-400/40 flex items-center justify-center transition-colors"
-                title="Minimize"
-              >
-                <Minus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
-              </button>
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-red-400/20 active:bg-red-400/40 flex items-center justify-center transition-colors"
-                title="Close"
-              >
-                <X className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-              </button>
-            </div>
-            <span className="text-[12px] font-semibold text-foreground/80 dark:text-white/70 truncate ml-1">
-              {board.projectName}
-            </span>
-          </div>
-        </div>
-
-        {/* Mobile content — iframe fills remaining space */}
-        <div className="flex-1 relative overflow-hidden">
-          {!iframeReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/90 dark:bg-black/70 z-10">
-              <div className="w-5 h-5 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
-            </div>
-          )}
-          <iframe
-            src={`/dashboard/projects/${board.projectId}`}
-            className="absolute inset-0 w-full h-full border-0"
-            title={`${board.projectName}`}
-            onLoad={() => setIframeReady(true)}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Desktop: floating draggable window with liquid glass
   return (
-    <div
-      ref={elRef}
-      className="fixed flex flex-col overflow-hidden animate-in fade-in zoom-in-[0.97] duration-200 ease-out
-        rounded-2xl
-        bg-white/75 dark:bg-black/40
-        backdrop-blur-2xl saturate-[1.8]
-        border border-white/40 dark:border-white/[0.1]
-        shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5)]
-        dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]"
-      style={{
-        left: board.position.x,
-        top: board.position.y,
-        width: board.size.width,
-        height: board.size.height,
-        zIndex: board.zIndex,
-      }}
-      onMouseDown={onBringToFront}
-      onTouchStart={onBringToFront}
-    >
-      {/* ── Title Bar ── */}
+    <>
+      {/* ── The actual window (hidden when minimized, iframe stays alive) ── */}
       <div
-        className="flex items-center justify-between px-3 py-2 shrink-0 select-none cursor-move
-          bg-white/50 dark:bg-white/[0.04]
-          border-b border-black/[0.04] dark:border-white/[0.06]
-          touch-none"
-        onMouseDown={(e) => startDrag(e, board.position.x, board.position.y)}
-        onTouchStart={(e) => startDrag(e, board.position.x, board.position.y)}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Traffic light dots */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={onClose} className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(255,95,87,0.4)]" title="Close" />
-            <button onClick={onMinimize} className="w-[11px] h-[11px] rounded-full bg-[#febc2e] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(254,188,46,0.4)]" title="Minimize" />
-            <div className="w-[11px] h-[11px] rounded-full bg-[#28c840]/40" />
-          </div>
-          <span className="text-[11px] font-semibold text-foreground/80 dark:text-white/70 truncate select-none">
-            {board.projectName}
-          </span>
-        </div>
-        <span className="text-[8px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-foreground/50 dark:text-white/40 rounded px-1.5 h-4 flex items-center shrink-0">
-          Task Board
-        </span>
-      </div>
-
-      {/* ── Content ── */}
-      <div className="flex-1 relative bg-white dark:bg-[#0a0a0a] rounded-b-2xl overflow-hidden">
-        {!iframeReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-black/60 backdrop-blur-sm z-10">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
-              <span className="text-[10px] text-muted-foreground">Loading board...</span>
-            </div>
-          </div>
-        )}
-        <iframe
-          src={`/dashboard/projects/${board.projectId}`}
-          className="absolute inset-0 w-full h-full border-0"
-          title={`${board.projectName} — Task Board`}
-          onLoad={() => setIframeReady(true)}
-        />
-      </div>
-
-      {/* ── Resize Handle (desktop only) ── */}
-      <div
-        onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
-        className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-20"
+        ref={elRef}
         style={{
-          background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.08) 55%, transparent 55%, transparent 65%, rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.08) 70%, transparent 70%)',
+          display: board.minimized ? "none" : isMobile ? undefined : "flex",
+          left: board.position.x,
+          top: board.position.y,
+          width: board.size.width,
+          height: board.size.height,
+          zIndex: board.zIndex,
         }}
-      />
-    </div>
+        className={isMobile
+          ? `fixed inset-0 z-[10000] flex-col ${board.minimized ? "hidden" : "flex"} animate-in fade-in duration-150 bg-white dark:bg-[#0a0a0a]`
+          : `fixed flex-col overflow-hidden animate-in fade-in zoom-in-[0.97] duration-200 ease-out
+             rounded-2xl
+             bg-white/75 dark:bg-black/40
+             backdrop-blur-2xl saturate-[1.8]
+             border border-white/40 dark:border-white/[0.1]
+             shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5)]
+             dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]`
+        }
+        onMouseDown={onBringToFront}
+        onTouchStart={onBringToFront}
+      >
+        {isMobile ? (
+          /* ── Mobile: full screen overlay ── */
+          <>
+            <div className="flex items-center justify-between px-3 py-2.5 shrink-0 select-none
+              bg-white/80 dark:bg-white/[0.06]
+              border-b border-black/[0.06] dark:border-white/[0.08]
+              backdrop-blur-xl">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={onMinimize}
+                    className="w-8 h-8 rounded-full bg-yellow-400/20 active:bg-yellow-400/40 flex items-center justify-center transition-colors"
+                    title="Minimize"
+                  >
+                    <Minus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="w-8 h-8 rounded-full bg-red-400/20 active:bg-red-400/40 flex items-center justify-center transition-colors"
+                    title="Close"
+                  >
+                    <X className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  </button>
+                </div>
+                <span className="text-[12px] font-semibold text-foreground/80 dark:text-white/70 truncate ml-1">
+                  {board.projectName}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1 relative overflow-hidden">
+              {!iframeReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/90 dark:bg-black/70 z-10">
+                  <div className="w-5 h-5 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+                </div>
+              )}
+              <iframe
+                src={iframeSrc}
+                className="absolute inset-0 w-full h-full border-0"
+                title={board.projectName}
+                onLoad={() => setIframeReady(true)}
+              />
+            </div>
+          </>
+        ) : (
+          /* ── Desktop: floating draggable window with liquid glass ── */
+          <>
+            {/* Title Bar */}
+            <div
+              className="flex items-center justify-between px-3 py-2 shrink-0 select-none cursor-move
+                bg-white/50 dark:bg-white/[0.04]
+                border-b border-black/[0.04] dark:border-white/[0.06]
+                touch-none"
+              onMouseDown={(e) => startDrag(e, board.position.x, board.position.y)}
+              onTouchStart={(e) => startDrag(e, board.position.x, board.position.y)}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={onClose} className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(255,95,87,0.4)]" title="Close" />
+                  <button onClick={onMinimize} className="w-[11px] h-[11px] rounded-full bg-[#febc2e] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(254,188,46,0.4)]" title="Minimize" />
+                  <div className="w-[11px] h-[11px] rounded-full bg-[#28c840]/40" />
+                </div>
+                <span className="text-[11px] font-semibold text-foreground/80 dark:text-white/70 truncate select-none">
+                  {board.projectName}
+                </span>
+              </div>
+              <span className="text-[8px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-foreground/50 dark:text-white/40 rounded px-1.5 h-4 flex items-center shrink-0">
+                Task Board
+              </span>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 relative bg-white dark:bg-[#0a0a0a] rounded-b-2xl overflow-hidden">
+              {!iframeReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-black/60 backdrop-blur-sm z-10">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+                    <span className="text-[10px] text-muted-foreground">Loading board...</span>
+                  </div>
+                </div>
+              )}
+              <iframe
+                src={iframeSrc}
+                className="absolute inset-0 w-full h-full border-0"
+                title={`${board.projectName} — Task Board`}
+                onLoad={() => setIframeReady(true)}
+              />
+            </div>
+
+            {/* Resize Handle (desktop only) */}
+            <div
+              onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
+              className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-20"
+              style={{
+                background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.08) 55%, transparent 55%, transparent 65%, rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.08) 70%, transparent 70%)',
+              }}
+            />
+          </>
+        )}
+      </div>
+
+      {/* ── Capsule shown only when minimized (iframe stays alive in hidden div above) ── */}
+      {board.minimized && (
+        <MinimizedCapsule
+          board={board}
+          boardIndex={boardIndex}
+          totalCapsules={totalCapsules}
+          onClose={onClose}
+          onRestore={onRestoreBoard}
+          onPositionChange={onPositionChange}
+        />
+      )}
+    </>
   );
 }
 
@@ -438,20 +432,19 @@ export function FloatingBoardRenderer() {
     closeBoard,
     minimizeBoard,
     bringToFront,
+    restoreBoard,
     updatePosition,
     updateSize,
     closeAll,
     isAdmin,
   } = useFloatingBoards();
 
-  // Only render for admin users
   if (!isAdmin || boards.length === 0) return null;
 
   const hasOpenBoard = boards.some((b) => !b.minimized);
 
   return (
     <>
-      {/* Close All button — only when at least one board is open */}
       {hasOpenBoard && (
         <button
           onClick={closeAll}
@@ -471,21 +464,21 @@ export function FloatingBoardRenderer() {
         </button>
       )}
 
-      {/* Render each board */}
       {boards.map((board, idx) => {
         const minIdx = boards.slice(0, idx + 1).filter(b => b.minimized).length - 1;
         return (
-        <FloatingBoardWindow
-          key={board.projectId}
-          board={board}
-          boardIndex={board.minimized ? Math.max(0, minIdx) : 0}
-          totalCapsules={boards.filter(b => b.minimized).length}
-          onClose={() => closeBoard(board.projectId)}
-          onMinimize={() => minimizeBoard(board.projectId)}
-          onBringToFront={() => bringToFront(board.projectId)}
-          onPositionChange={(pos) => updatePosition(board.projectId, pos)}
-          onSizeChange={(size) => updateSize(board.projectId, size)}
-        />
+          <FloatingBoardWindow
+            key={board.projectId}
+            board={board}
+            boardIndex={board.minimized ? Math.max(0, minIdx) : 0}
+            totalCapsules={boards.filter(b => b.minimized).length}
+            onClose={() => closeBoard(board.projectId)}
+            onMinimize={() => minimizeBoard(board.projectId)}
+            onBringToFront={() => bringToFront(board.projectId)}
+            onRestoreBoard={() => restoreBoard(board.projectId)}
+            onPositionChange={(pos) => updatePosition(board.projectId, pos)}
+            onSizeChange={(size) => updateSize(board.projectId, size)}
+          />
         );
       })}
     </>

@@ -271,6 +271,11 @@ export async function syncTaskToLark(
           // Don't fall back to default — if the task has a project, it MUST go to that project's list
           return
         }
+      } else {
+        // Project exists in task data but not found in DB — don't silently fall to default
+        console.error(`[lark/sync] Project ${data.projectId} not found in DB — aborting sync`)
+        await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Project ${data.projectId} not found in database` })
+        return
       }
     }
 
@@ -493,6 +498,24 @@ export async function handleLarkWebhookEvent(
       // Delete the TrishulHub task
       await db.task.delete({ where: { id: thTaskId } })
       await removeLarkTaskMapping(thTaskId)
+
+      try {
+        const { logAudit } = await import("@/lib/audit-log")
+        await logAudit({
+          userId: eventData.operator?.open_id || "lark-webhook",
+          userName: "Lark Webhook",
+          userRole: "SYSTEM",
+          department: "TEAM_WORK",
+          page: "tasks",
+          action: "DELETE",
+          entityType: "Task",
+          entityId: thTaskId,
+          description: `Task deleted via Lark sync`,
+          status: "SUCCESS",
+          metadata: JSON.stringify({ source: "lark_webhook", eventType, larkTaskId: task_id }),
+        })
+      } catch { /* audit log is best-effort */ }
+
       return { success: true, message: "Task deleted from TrishulHub" }
     }
 
@@ -507,22 +530,109 @@ export async function handleLarkWebhookEvent(
       console.warn(`[lark/sync] getTask returned null for task ${task_id} in list ${tasklist_id}`)
     }
 
-    // Fallback: if getTask returns null (e.g. completed tasks return 99404),
-    // but we have a mapping, infer status from event type instead of blindly marking DONE
+    // Fallback: if getTask returns null (e.g. completed tasks return 99404 on free tier),
+    // retry once after a short delay, then inspect event body for status clues.
     if (!larkTask) {
       if (thTaskId) {
-        // Lark API returns null/error for completed tasks on free tier (error 99404).
-        // Only mark as DONE if the event type suggests completion.
-        const likelyCompleted = eventType.includes("done") || eventType.includes("complete") || eventType.includes("finish");
+        // Retry getTask once after 2s — Lark eventual consistency may need more time
+        console.warn(`[lark/sync] getTask returned null for mapped task ${thTaskId}, retrying...`)
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const retryTask = await getTask(tasklist_id, task_id)
+
+        if (retryTask) {
+          // Retry succeeded — process normally via the update path below
+          // Rewrite larkTask so the code below handles it
+          Object.assign(eventData, { _retryTask: retryTask })
+          // Fall through to the main update logic — we'll read from retryTask
+          const title = retryTask.title
+          const description = retryTask.description
+          const status = STATUS_FROM_LARK[retryTask.status] || "TODO"
+          const priority = PRIORITY_FROM_LARK[retryTask.priority] || "MEDIUM"
+
+          let assignedTo: string | undefined
+          if (retryTask.assignee?.open_id) {
+            assignedTo = await getUserIdByLarkOpenId(retryTask.assignee.open_id) || undefined
+          }
+
+          const deadline = retryTask.due?.timestamp ? new Date(parseInt(retryTask.due.timestamp)) : null
+
+          const updateData: Record<string, unknown> = {}
+          if (title) updateData.title = title
+          if (description !== undefined) updateData.description = description
+          updateData.status = status
+          updateData.priority = priority
+          if (assignedTo !== undefined) updateData.assignedTo = assignedTo
+          if (deadline !== null) updateData.deadline = deadline
+          if (status === "DONE") updateData.completedAt = new Date()
+
+          await db.task.update({ where: { id: thTaskId }, data: updateData })
+          markSyncGuard(thTaskId, "FROM_LARK")
+
+          const { logAudit } = await import("@/lib/audit-log")
+          await logAudit({
+            userId: eventData.operator?.open_id || "lark-webhook",
+            userName: "Lark Webhook",
+            userRole: "SYSTEM",
+            department: "TEAM_WORK",
+            page: "tasks",
+            action: "STATUS_CHANGE",
+            entityType: "Task",
+            entityId: thTaskId,
+            description: `Task status changed to "${status}" via Lark sync (retried)`,
+            newValue: status,
+            status: "SUCCESS",
+            metadata: JSON.stringify({ source: "lark_webhook", eventType, larkTaskId: task_id, larkStatus: retryTask.status }),
+          })
+
+          await logSync({
+            direction: "FROM_LARK",
+            action: "STATUS_CHANGE",
+            status: "SUCCESS",
+            taskId: thTaskId,
+            larkTaskId: task_id,
+            larkTaskListId: tasklist_id,
+            metadata: { inferredStatus: status, eventType, retried: true },
+          })
+          return { success: true, message: `Task ${thTaskId} updated to ${status} (retried getTask)` }
+        }
+
+        // Both getTask calls failed — inspect event body for status change clues.
+        const eventBody = (eventData as Record<string, unknown>)
+        const changedFields = eventBody.changed_fields as string[] | undefined
+
+        // Determine if this is likely a completion:
+        // 1. Event type contains done/complete/finish keywords
+        // 2. OR changed_fields includes "status" (something changed, likely to done since getTask fails)
+        const likelyCompleted =
+          eventType.includes("done") || eventType.includes("complete") || eventType.includes("finish") ||
+          (Array.isArray(changedFields) && changedFields.includes("status"))
+
         const newStatus = likelyCompleted ? "DONE" : "IN_PROGRESS";
         const fallbackData: Record<string, unknown> = { status: newStatus };
         if (newStatus === "DONE") fallbackData.completedAt = new Date();
 
         const existingTask = await db.task.findUnique({ where: { id: thTaskId }, select: { status: true } });
-        console.warn(`[lark/sync] getTask returned null for mapped task ${thTaskId}. Event: ${eventType}. Assuming status="${newStatus}" (was "${existingTask?.status || 'unknown'}")`);
+        console.warn(`[lark/sync] getTask returned null twice for mapped task ${thTaskId}. Event: ${eventType}. Assuming status="${newStatus}" (was "${existingTask?.status || 'unknown'}")`);
 
         await db.task.update({ where: { id: thTaskId }, data: fallbackData })
         markSyncGuard(thTaskId, "FROM_LARK")
+
+        const { logAudit } = await import("@/lib/audit-log")
+        await logAudit({
+          userId: eventData.operator?.open_id || "lark-webhook",
+          userName: "Lark Webhook",
+          userRole: "SYSTEM",
+          department: "TEAM_WORK",
+          page: "tasks",
+          action: "STATUS_CHANGE",
+          entityType: "Task",
+          entityId: thTaskId,
+          description: `Task status changed to "${newStatus}" via Lark sync (inferred — getTask failed)`,
+          newValue: newStatus,
+          status: "SUCCESS",
+          metadata: JSON.stringify({ source: "lark_webhook", eventType, larkTaskId: task_id, inferred: true, previousStatus: existingTask?.status }),
+        })
+
         await logSync({
           direction: "FROM_LARK",
           action: "STATUS_CHANGE",
@@ -530,9 +640,9 @@ export async function handleLarkWebhookEvent(
           taskId: thTaskId,
           larkTaskId: task_id,
           larkTaskListId: tasklist_id,
-          metadata: { inferredStatus: newStatus, eventType },
+          metadata: { inferredStatus: newStatus, eventType, retried: true },
         })
-        return { success: true, message: `Task ${thTaskId} updated to ${newStatus} (getTask returned null, inferred from event type)` }
+        return { success: true, message: `Task ${thTaskId} updated to ${newStatus} (getTask null, inferred from event + changed_fields)` }
       }
       return { success: false, message: "Failed to fetch task from Lark and no existing mapping" }
     }
@@ -580,14 +690,33 @@ export async function handleLarkWebhookEvent(
       // Mark circular guard so our update handler doesn't echo back
       markSyncGuard(thTaskId, "FROM_LARK")
 
+      // Log to both LarkSyncLog and AuditLog
       await logSync({
         direction: "FROM_LARK",
-        action: "UPDATE",
+        action: status === "DONE" ? "STATUS_CHANGE" : "UPDATE",
         status: "SUCCESS",
         taskId: thTaskId,
         larkTaskId: task_id,
         larkTaskListId: tasklist_id,
       })
+
+      try {
+        const { logAudit } = await import("@/lib/audit-log")
+        await logAudit({
+          userId: eventData.operator?.open_id || "lark-webhook",
+          userName: "Lark Webhook",
+          userRole: "SYSTEM",
+          department: "TEAM_WORK",
+          page: "tasks",
+          action: status === "DONE" ? "STATUS_CHANGE" : "UPDATE",
+          entityType: "Task",
+          entityId: thTaskId,
+          description: `Task ${status === "DONE" ? "marked as DONE" : "updated"} via Lark sync`,
+          newValue: status,
+          status: "SUCCESS",
+          metadata: JSON.stringify({ source: "lark_webhook", eventType, larkTaskId: task_id, larkStatus: larkTask.status }),
+        })
+      } catch { /* audit log is best-effort */ }
 
       return { success: true, message: `Task ${thTaskId} updated from Lark` }
     } else {
@@ -611,6 +740,24 @@ export async function handleLarkWebhookEvent(
 
       // Mark guard for the newly created task
       markSyncGuard(newTask.id, "FROM_LARK")
+
+      try {
+        const { logAudit } = await import("@/lib/audit-log")
+        await logAudit({
+          userId: eventData.operator?.open_id || "lark-webhook",
+          userName: "Lark Webhook",
+          userRole: "SYSTEM",
+          department: "TEAM_WORK",
+          page: "tasks",
+          action: "CREATE",
+          entityType: "Task",
+          entityId: newTask.id,
+          description: `Task created from Lark: "${title}"`,
+          newValue: status,
+          status: "SUCCESS",
+          metadata: JSON.stringify({ source: "lark_webhook", eventType, larkTaskId: task_id }),
+        })
+      } catch { /* audit log is best-effort */ }
 
       return { success: true, message: `New task ${newTask.id} created from Lark` }
     }

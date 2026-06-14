@@ -244,13 +244,13 @@ export async function createTask(
   if (params.description) body.description = params.description
   if (params.dueTimestamp) body.due = { timestamp: String(params.dueTimestamp) }
 
-  // Lark v2 expects members as an array of {type, id, role}
+  // Lark v2 create task API expects {member_type, open_id} (no role field).
+  // NOTE: add_members/remove_members endpoints use {type, id, role} instead.
   if (params.assigneeOpenId) {
     body.members = [
       {
-        type: "user",
-        id: params.assigneeOpenId,
-        role: "assignee",
+        member_type: "user",
+        open_id: params.assigneeOpenId,
       },
     ]
   }
