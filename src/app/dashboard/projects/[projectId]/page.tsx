@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
-  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
+  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -118,6 +118,7 @@ export default function ProjectDetailPage() {
 
   // ── State: UI-only state (dialogs, selections) ──
   const [addOpen, setAddOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
@@ -300,6 +301,8 @@ export default function ProjectDetailPage() {
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     const form = new FormData(e.currentTarget);
     const data = {
       title: String(form.get("title") || ""),
@@ -314,6 +317,7 @@ export default function ProjectDetailPage() {
       if (res.ok) { toast.success("Task created"); setAddOpen(false); invalidateAll(); }
       else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
     } catch { toast.error("Failed to create task"); }
+    finally { setCreating(false); }
   };
 
   const handleMoveTask = async (taskId: string, newStatus: string) => {
@@ -836,7 +840,9 @@ export default function ProjectDetailPage() {
                     })}
                   </select>
                 </div>
-                <Button type="submit" className="w-full h-8 text-xs">Create Task</Button>
+                <Button type="submit" className="w-full h-8 text-xs" disabled={creating}>
+                  {creating ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Creating...</> : "Create Task"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>

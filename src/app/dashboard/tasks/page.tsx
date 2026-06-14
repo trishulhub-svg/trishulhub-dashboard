@@ -111,6 +111,7 @@ export default function GlobalTaskBoardPage() {
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [projectFilter, setProjectFilter] = useState("ALL");
   const [addOpen, setAddOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -252,6 +253,8 @@ export default function GlobalTaskBoardPage() {
   // ── Create task handler ──
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     const form = new FormData(e.currentTarget);
     const data: Record<string, unknown> = {
       title: String(form.get("title") || ""),
@@ -262,7 +265,7 @@ export default function GlobalTaskBoardPage() {
       assignedTo: String(form.get("assignedTo") || "") || undefined,
       deadline: String(form.get("deadline") || "") || undefined,
     };
-    if (!data.title) { toast.error("Title is required"); return; }
+    if (!data.title) { toast.error("Title is required"); setCreating(false); return; }
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -281,7 +284,7 @@ export default function GlobalTaskBoardPage() {
       }
     } catch {
       toast.error("Failed to create task");
-    }
+    } finally { setCreating(false); }
   };
 
   // ── Edit task handlers ──
@@ -501,7 +504,9 @@ export default function GlobalTaskBoardPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm">Create</Button>
+                  <Button type="submit" size="sm" disabled={creating}>
+                    {creating ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Creating...</> : "Create"}
+                  </Button>
                 </div>
               </form>
             </DialogContent>

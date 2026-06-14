@@ -137,7 +137,7 @@ export async function addTaskListMember(
       method: "POST",
       body: JSON.stringify({
         members: members.map((m) => ({
-          type: "open_id" as const,
+          type: "user" as const,
           id: m.id,
           role: m.role || "editor",
         })),
@@ -160,7 +160,7 @@ export async function removeTaskListMember(
       method: "POST",
       body: JSON.stringify({
         members: members.map((m) => ({
-          type: "open_id" as const,
+          type: "user" as const,
           id: m.id,
         })),
       }),
@@ -248,7 +248,7 @@ export async function createTask(
   if (params.assigneeOpenId) {
     body.members = [
       {
-        type: "open_id",
+        type: "user",
         id: params.assigneeOpenId,
         role: "assignee",
       },
@@ -345,7 +345,7 @@ export async function addTaskMember(
       method: "POST",
       body: JSON.stringify({
         members: members.map((m) => ({
-          type: "open_id" as const,
+          type: "user" as const,
           id: m.id,
           role: m.role || "assignee",
         })),
@@ -370,7 +370,7 @@ export async function removeTaskMember(
       method: "POST",
       body: JSON.stringify({
         members: members.map((m) => ({
-          type: "open_id" as const,
+          type: "user" as const,
           id: m.id,
         })),
       }),
