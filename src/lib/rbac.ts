@@ -171,7 +171,7 @@ export function canExportAuditTrail(role: string): boolean {
 
 /** Get accessible departments for audit trail based on role */
 export function getAccessibleDepartments(role: string, userDepartment?: string): string[] {
-  const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM", "INTEGRATION"]
+  const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM"]
   if (["SUPER_ADMIN", "ADMIN"].includes(role)) return depts
   // DEVELOPER and VIEWER can only see their own department
   if (userDepartment) return [userDepartment]
