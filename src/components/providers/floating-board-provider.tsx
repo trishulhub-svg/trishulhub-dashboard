@@ -116,24 +116,30 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
 
   const openBoard = useCallback((projectId: string, projectName: string) => {
     setBoards(prev => {
-      const existing = prev.find(b => b.projectId === projectId);
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+      // On mobile: only ONE board can be open at a time — auto-minimize others
+      let updated = isMobile
+        ? prev.map(b => ({ ...b, minimized: true }))
+        : prev;
+
+      const existing = updated.find(b => b.projectId === projectId);
       if (existing) {
         // Restore if minimized, bring to front
-        return prev.map(b =>
+        return updated.map(b =>
           b.projectId === projectId
             ? { ...b, minimized: false, zIndex: Date.now() }
             : b
         );
       }
-      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
       const newBoard: FloatingBoard = {
         projectId,
         projectName,
         position: isMobile
           ? { x: 0, y: 0 }
           : {
-              x: Math.min(100 + prev.length * 28, (typeof window !== "undefined" ? window.innerWidth : 1200) - 600),
-              y: Math.min(60 + prev.length * 28, (typeof window !== "undefined" ? window.innerHeight : 800) - 450),
+              x: Math.min(100 + updated.length * 28, (typeof window !== "undefined" ? window.innerWidth : 1200) - 600),
+              y: Math.min(60 + updated.length * 28, (typeof window !== "undefined" ? window.innerHeight : 800) - 450),
             },
         size: isMobile
           ? { width: typeof window !== "undefined" ? window.innerWidth : 375, height: typeof window !== "undefined" ? window.innerHeight : 667 }
@@ -144,7 +150,7 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
         minimized: false,
         zIndex: Date.now(),
       };
-      return [...prev, newBoard];
+      return [...updated, newBoard];
     });
   }, []);
 
@@ -164,13 +170,24 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const restoreBoard = useCallback((projectId: string) => {
-    setBoards(prev =>
-      prev.map(b =>
+    setBoards(prev => {
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+      // On mobile: only ONE board open at a time — minimize all others first
+      if (isMobile) {
+        return prev.map(b =>
+          b.projectId === projectId
+            ? { ...b, minimized: false, zIndex: Date.now() }
+            : { ...b, minimized: true }
+        );
+      }
+
+      return prev.map(b =>
         b.projectId === projectId
           ? { ...b, minimized: false, zIndex: Date.now() }
           : b
-      )
-    );
+      );
+    });
   }, []);
 
   const bringToFront = useCallback((projectId: string) => {

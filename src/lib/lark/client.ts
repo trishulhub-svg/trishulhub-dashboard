@@ -224,15 +224,15 @@ export async function getOrCreateProjectTaskList(
 
 /** Create a task in Lark.
  *  Lark v2 create API: POST /task/v2/tasks
- *  Supported body fields: tasklist_id, summary, description?, due?, members?
- *  NOTE: `status`, `priority`, `extra` are NOT supported on create — must update after.
+ *  Supported body fields: tasklist_id, summary, description?, due?
+ *  NOTE: `status`, `priority`, `members`, `extra` are NOT supported on create.
+ *        Assign members via addTaskMember() AFTER creation.
  */
 export async function createTask(
   tasklistId: string,
   params: {
     title: string
     description?: string
-    assigneeOpenId?: string
     dueTimestamp?: number // unix ms
   }
 ): Promise<LarkTask | null> {
@@ -243,17 +243,6 @@ export async function createTask(
 
   if (params.description) body.description = params.description
   if (params.dueTimestamp) body.due = { timestamp: String(params.dueTimestamp) }
-
-  // Lark v2 create task API expects {member_type, open_id} (no role field).
-  // NOTE: add_members/remove_members endpoints use {type, id, role} instead.
-  if (params.assigneeOpenId) {
-    body.members = [
-      {
-        member_type: "user",
-        open_id: params.assigneeOpenId,
-      },
-    ]
-  }
 
   const res = await larkFetch<{ task: Record<string, unknown> }>("/task/v2/tasks", {
     method: "POST",

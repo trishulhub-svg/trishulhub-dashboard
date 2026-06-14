@@ -301,18 +301,24 @@ export async function syncTaskToLark(
       dueTimestamp = new Date(data.deadline).getTime()
     }
 
-    // Create task — NO extra, NO status, NO priority (not supported by Lark create API)
+    // Create task — bare creation only (no members, no status, no priority on create API)
     const larkTask = await createTask(tasklistId, {
       title: data.title,
       description: data.description,
-      assigneeOpenId,
       dueTimestamp,
     })
 
     if (larkTask) {
       await saveLarkTaskMapping(taskId, larkTask.task_id, tasklistId)
 
-      // Now set status & priority via separate update
+      // Assign member via add_members endpoint (create API doesn't support members field)
+      if (assigneeOpenId) {
+        await addTaskMember(larkTask.task_id, [
+          { id: assigneeOpenId, role: "assignee" },
+        ])
+      }
+
+      // Set status & priority via separate update (create API doesn't support these)
       await updateTask(larkTask.task_id, {
         status: data.status,
         priority: data.priority,
