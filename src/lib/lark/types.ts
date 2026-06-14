@@ -34,11 +34,16 @@ export interface LarkUser {
   }
 }
 
-/** Lark task (from task API v2) */
+/** Lark task (from task API v2).
+ *  IMPORTANT: Lark API uses `summary` for the task title, NOT `title`.
+ *  The `getTask`/`createTask` functions normalize this via `normalizeTask()`
+ *  so that downstream code can use `.title` safely.
+ */
 export interface LarkTask {
   task_id: string
   tasklist_id: string
-  title: string
+  title: string       // normalized from API's `summary`
+  summary?: string    // raw field from Lark API
   description?: string
   status: "todo" | "in_progress" | "done"
   priority: "normal" | "high" | "urgent"
@@ -64,7 +69,6 @@ export interface LarkTask {
   updated_at?: {
     timestamp: string
   }
-  extra?: string // JSON string for custom fields
   origin?: string
   parent_id?: string
 }
@@ -117,16 +121,19 @@ export const PRIORITY_FROM_LARK: Record<string, string> = {
   urgent: "URGENT",
 }
 
-/** Webhook event types (Lark free tier only provides updated_v1) */
-export type LarkWebhookEvent =
-  | "task.task.updated_v1"
+/** Webhook event types.
+ *  Lark free tier only provides `task.task.updated_v1` for status/title/priority changes.
+ *  We use a broad string type because Lark may send other event types
+ *  (e.g. `task.task.deleted`, `task.task.created_v1`) that we handle generically.
+ */
+export type LarkWebhookEvent = string
 
 /** Webhook event payload (outer wrapper) */
 export interface LarkWebhookPayload {
   schema?: string
   header: {
     event_id: string
-    event_type: LarkWebhookEvent
+    event_type: string
     token: string
     create_time: string
     tenant_key: string

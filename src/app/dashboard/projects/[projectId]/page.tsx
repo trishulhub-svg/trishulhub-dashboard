@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
-  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
+  CheckCircle2, ShieldCheck, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
   ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";

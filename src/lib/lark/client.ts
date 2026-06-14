@@ -41,6 +41,34 @@ async function larkFetch<T = Record<string, unknown>>(
   return json
 }
 
+// ━━ TASK NORMALIZATION ━━
+
+/**
+ * Lark API v2 returns `summary` for the task name, but our internal code
+ * uses `.title`. This helper normalizes every task response so that
+ * `.title` always contains the actual summary value.
+ * Also normalizes `tasklist_id` (Lark may return it at top level or nested).
+ */
+function normalizeTask(raw: Record<string, unknown>): LarkTask {
+  return {
+    task_id: (raw.task_id as string) || "",
+    tasklist_id: (raw.tasklist_id as string) || "",
+    title: (raw.summary as string) || (raw.title as string) || "",
+    summary: raw.summary as string | undefined,
+    description: raw.description as string | undefined,
+    status: (raw.status as LarkTask["status"]) || "todo",
+    priority: (raw.priority as LarkTask["priority"]) || "normal",
+    creator: raw.creator as LarkTask["creator"],
+    assignee: raw.assignee as LarkTask["assignee"],
+    due: raw.due as LarkTask["due"],
+    completed_at: raw.completed_at as LarkTask["completed_at"],
+    created_at: raw.created_at as LarkTask["created_at"],
+    updated_at: raw.updated_at as LarkTask["updated_at"],
+    origin: raw.origin as string | undefined,
+    parent_id: raw.parent_id as string | undefined,
+  }
+}
+
 // ━━ TASK LIST NORMALIZATION ━━
 
 /**
@@ -227,20 +255,13 @@ export async function createTask(
     ]
   }
 
-  const res = await larkFetch<{ task: LarkTask }>("/task/v2/tasks", {
+  const res = await larkFetch<{ task: Record<string, unknown> }>("/task/v2/tasks", {
     method: "POST",
     body: JSON.stringify(body),
   })
 
-  const task = res.data?.task
-
-  // After creating, set status & priority via separate update call
-  if (task) {
-    // We don't set status/priority on create — those will be handled by the caller
-    // via a follow-up updateTask call if needed
-  }
-
-  return task || null
+  const raw = res.data?.task
+  return raw ? normalizeTask(raw) : null
 }
 
 /** Update a task in Lark.
@@ -272,12 +293,13 @@ export async function updateTask(
     body.priority = PRIORITY_TO_LARK[params.priority] || "normal"
   }
 
-  const res = await larkFetch<{ task: LarkTask }>(`/task/v2/tasks/${taskId}`, {
+  const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
     method: "PATCH",
     body: JSON.stringify(body),
   })
 
-  return res.data?.task || null
+  const raw = res.data?.task
+  return raw ? normalizeTask(raw) : null
 }
 
 /** Delete a task in Lark */
@@ -294,15 +316,17 @@ export async function deleteTask(tasklistId: string, taskId: string): Promise<bo
 
 /** Get tasks from a task list */
 export async function getTasks(tasklistId: string): Promise<LarkTask[]> {
-  const res = await larkFetch<{ items: LarkTask[] }>(`/task/v2/tasks?tasklist_id=${tasklistId}`)
-  return res.data?.items || []
+  const res = await larkFetch<{ items: Record<string, unknown>[] }>(`/task/v2/tasks?tasklist_id=${tasklistId}`)
+  const items = res.data?.items || []
+  return items.map(normalizeTask)
 }
 
 /** Get a single task */
 export async function getTask(tasklistId: string, taskId: string): Promise<LarkTask | null> {
   try {
-    const res = await larkFetch<{ task: LarkTask }>(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`)
-    return res.data?.task || null
+    const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}?tasklist_id=${tasklistId}`)
+    const raw = res.data?.task
+    return raw ? normalizeTask(raw) : null
   } catch {
     // Completed tasks may not be fetchable (99404) — return null gracefully
     return null
