@@ -129,6 +129,8 @@ function MinimizedCapsule({
   const isMobile = useIsMobile();
   const hasMoved = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
+  // Prevent double-fire: ignore restore if called within 300ms
+  const lastRestoreRef = useRef(0);
 
   const bottomOffset = isMobile ? 24 + boardIndex * 48 : 16;
   const topPos = typeof window !== "undefined"
@@ -172,10 +174,17 @@ function MinimizedCapsule({
       }
     };
 
-    const handleEnd = () => {
+    const handleEnd = (e: Event) => {
       if (!dragStartPos.current || !el) return;
+      // Stop propagation to prevent the window's touchstart from firing
+      e.stopPropagation();
       if (!hasMoved.current) {
-        onRestore();
+        // Debounce restore
+        const now = Date.now();
+        if (now - lastRestoreRef.current > 300) {
+          lastRestoreRef.current = now;
+          onRestore();
+        }
       } else {
         const fx = parseInt(el.style.left) || dragStartPos.current.dx;
         const fy = parseInt(el.style.top) || dragStartPos.current.dy;
@@ -188,25 +197,25 @@ function MinimizedCapsule({
     el.addEventListener("touchstart", handleStart, { passive: true });
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("mouseup", handleEnd);
-    window.addEventListener("touchend", handleEnd);
-    window.addEventListener("touchcancel", handleEnd);
+    window.addEventListener("mouseup", handleEnd, true);
+    window.addEventListener("touchend", handleEnd, true);
+    window.addEventListener("touchcancel", handleEnd, true);
 
     return () => {
       el.removeEventListener("mousedown", handleStart);
       el.removeEventListener("touchstart", handleStart);
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("mouseup", handleEnd);
-      window.removeEventListener("touchend", handleEnd);
-      window.removeEventListener("touchcancel", handleEnd);
+      window.removeEventListener("mouseup", handleEnd, true);
+      window.removeEventListener("touchend", handleEnd, true);
+      window.removeEventListener("touchcancel", handleEnd, true);
     };
   }, [displayX, displayY, topPos, onRestore, onPositionChange]);
 
   return (
     <div
       ref={capsuleRef}
-      className="fixed z-[9999] animate-in slide-in-from-bottom-3 fade-in duration-200 select-none"
+      className="fixed z-[9999] select-none"
       style={{
         left: displayX,
         top: displayY,
@@ -218,10 +227,10 @@ function MinimizedCapsule({
           bg-white/80 dark:bg-white/[0.08]
           backdrop-blur-2xl saturate-[1.8]
           border border-white/30 dark:border-white/[0.12]
-          shadow-[0_2px_20px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_0.5px_0_rgba(255,255,255,0.6)]
-          dark:shadow-[0_2px_20px_rgba(0,0,0,0.3),0_0_0_0.5px_rgba(255,255,255,0.05),inset_0_0.5px_0_rgba(255,255,255,0.08)]
+          shadow-[0_2px_20px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_0.5px_0_rgba(255,255,255,0.6),inset_0_1px_0_rgba(255,255,255,0.4),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
+          dark:shadow-[0_2px_20px_rgba(0,0,0,0.3),0_0_0_0.5px_rgba(255,255,255,0.05),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]
           cursor-pointer
-          hover:shadow-[0_4px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04),inset_0_0.5px_0_rgba(255,255,255,0.7)]
+          hover:shadow-[0_4px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5)]
           dark:hover:shadow-[0_4px_28px_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(255,255,255,0.06),inset_0_0.5px_0_rgba(255,255,255,0.1)]
           transition-shadow duration-200 ease-out
           active:scale-[0.96]
@@ -255,8 +264,8 @@ function MinimizedCapsule({
 
 // ─── Main Floating Window ─────────────────────────────────────────────
 // KEY: The iframe is ALWAYS rendered (never unmounted). When minimized,
-// the window is hidden with display:none and only the capsule is shown.
-// This makes restore INSTANT — no iframe reload, no spinner, no network.
+// the window is hidden with visibility:hidden + pointer-events:none.
+// Capsule renders conditionally. This makes restore INSTANT.
 function FloatingBoardWindow({
   board,
   boardIndex,
@@ -284,13 +293,18 @@ function FloatingBoardWindow({
   const [iframeReady, setIframeReady] = useState(false);
   const iframeSrc = `/dashboard/projects/${board.projectId}`;
 
+  // Use visibility instead of display:none to keep layout alive
+  // This is instant — no reflow, no paint, no re-render
+  const windowVisible = !board.minimized;
+
   return (
     <>
-      {/* ── The actual window (hidden when minimized, iframe stays alive) ── */}
+      {/* ── The actual window (instantly hidden/shown via visibility) ── */}
       <div
         ref={elRef}
         style={{
-          display: board.minimized ? "none" : isMobile ? undefined : "flex",
+          visibility: windowVisible ? "visible" : "hidden",
+          pointerEvents: windowVisible ? "auto" : "none",
           left: board.position.x,
           top: board.position.y,
           width: board.size.width,
@@ -298,17 +312,20 @@ function FloatingBoardWindow({
           zIndex: board.zIndex,
         }}
         className={isMobile
-          ? `fixed inset-0 z-[10000] flex-col ${board.minimized ? "hidden" : "flex"} animate-in fade-in duration-150 bg-white dark:bg-[#0a0a0a]`
-          : `fixed flex-col overflow-hidden animate-in fade-in zoom-in-[0.97] duration-200 ease-out
+          ? `fixed inset-0 z-[10000] flex-col ${windowVisible ? "flex" : "hidden"} bg-white dark:bg-[#0a0a0a]`
+          : `fixed flex-col overflow-hidden
              rounded-2xl
              bg-white/75 dark:bg-black/40
              backdrop-blur-2xl saturate-[1.8]
              border border-white/40 dark:border-white/[0.1]
-             shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5)]
+             shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
              dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]`
         }
         onMouseDown={onBringToFront}
-        onTouchStart={onBringToFront}
+        onTouchStart={(e) => {
+          // Only bring to front, don't interfere with restore
+          if (!board.minimized) onBringToFront();
+        }}
       >
         {isMobile ? (
           /* ── Mobile: full screen overlay ── */
@@ -320,14 +337,14 @@ function FloatingBoardWindow({
               <div className="flex items-center gap-2 min-w-0">
                 <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={onMinimize}
+                    onClick={(e) => { e.stopPropagation(); onMinimize(); }}
                     className="w-8 h-8 rounded-full bg-yellow-400/20 active:bg-yellow-400/40 flex items-center justify-center transition-colors"
                     title="Minimize"
                   >
                     <Minus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
                   </button>
                   <button
-                    onClick={onClose}
+                    onClick={(e) => { e.stopPropagation(); onClose(); }}
                     className="w-8 h-8 rounded-full bg-red-400/20 active:bg-red-400/40 flex items-center justify-center transition-colors"
                     title="Close"
                   >
@@ -410,7 +427,7 @@ function FloatingBoardWindow({
         )}
       </div>
 
-      {/* ── Capsule shown only when minimized (iframe stays alive in hidden div above) ── */}
+      {/* ── Capsule shown ONLY when minimized (no animation, instant swap) ── */}
       {board.minimized && (
         <MinimizedCapsule
           board={board}

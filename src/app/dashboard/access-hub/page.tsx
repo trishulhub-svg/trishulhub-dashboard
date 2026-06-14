@@ -1071,7 +1071,7 @@ function AccessHubContent() {
      ═══════════════════════════════════════════════════════════════ */
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto px-3 sm:px-0">
+    <div className="space-y-6 max-w-5xl mx-auto px-3 sm:px-4 lg:px-0">
       <PageHeader
         title="Access Hub"
         description="Credentials, protocol documents, workspace tokens, and system configuration."
@@ -1079,20 +1079,20 @@ function AccessHubContent() {
 
       {isAdmin ? (
         <Tabs value={urlTab} className="space-y-6">
-          <TabsList className="bg-muted/50 w-full sm:w-auto">
-            <TabsTrigger value="credentials" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
+          <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto flex-nowrap">
+            <TabsTrigger value="credentials" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
               <KeyRound className="h-3.5 w-3.5" />
               Credentials
             </TabsTrigger>
-            <TabsTrigger value="protocol" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
+            <TabsTrigger value="protocol" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
               <FileText className="h-3.5 w-3.5" />
               Protocol &amp; Resources
             </TabsTrigger>
-            <TabsTrigger value="lark-users" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
+            <TabsTrigger value="lark-users" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
               <Bird className="h-3.5 w-3.5" />
               User Mapping
             </TabsTrigger>
-            <TabsTrigger value="system" className="gap-1.5" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
+            <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
               <Settings className="h-3.5 w-3.5" />
               System Config
             </TabsTrigger>
@@ -1140,8 +1140,8 @@ function AccessHubContent() {
 
             {/* Add button */}
             {isAdmin && (
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={openAddCredDialog}>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 mr-1" /> Add Credential
                 </Button>
               </div>
@@ -1202,7 +1202,7 @@ function AccessHubContent() {
                           )}
                         </div>
                         {isAdmin && (
-                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1 opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
                               <Edit3 className="h-3 w-3" />
                             </Button>
@@ -1420,7 +1420,7 @@ function AccessHubContent() {
                             ) : (
                               <Badge variant="outline" className="text-xs text-muted-foreground">Not set</Badge>
                             )}
-                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs opacity-100 transition-opacity">
                               <Settings className="h-3 w-3 mr-1" />
                               {user.hasCode ? "Edit" : "Set"}
                             </Button>
@@ -1755,7 +1755,7 @@ function AccessHubContent() {
                 {/* Credential Encryption Key — for project credentials (separate from SMTP/Git) */}
                 <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-primary" />
                         <CardTitle className="text-sm">Credential Encryption Key</CardTitle>
@@ -1773,14 +1773,14 @@ function AccessHubContent() {
                         <span className="text-[10px]">(stored in database)</span>
                       </div>
                     )}
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <div className="relative flex-1">
                         <Input
                           type={showCredEncKey ? "text" : "password"}
                           placeholder="Paste 64-char hex key or generate below"
                           value={credEncKeyForm}
                           onChange={(e) => setCredEncKeyForm(e.target.value)}
-                          className="h-8 text-xs font-mono pr-16"
+                          className="h-8 text-xs font-mono pr-16 w-full"
                         />
                         <button
                           type="button"
@@ -1803,7 +1803,7 @@ function AccessHubContent() {
                           <RefreshCw className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
+                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8 w-full sm:w-auto">
                         {credEncKeySaving ? "Saving..." : "Save Key"}
                       </Button>
                     </div>
@@ -1813,7 +1813,7 @@ function AccessHubContent() {
                 {/* ━━ Lark Integration ━━ */}
                 <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
                           <Bird className="h-4 w-4 text-blue-500" />
@@ -1982,7 +1982,7 @@ function AccessHubContent() {
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <Button
                         size="sm"
                         onClick={handleSaveLarkConfig}

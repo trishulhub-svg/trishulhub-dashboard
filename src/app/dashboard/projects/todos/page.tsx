@@ -258,7 +258,7 @@ function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
         "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
         priorityBorder,
         isDone && "opacity-50", isAwaiting && "opacity-60",
-        "animate-slide-up",
+        "animate-slide-up flex-wrap",
       )}
       style={{ animationDelay: `${index * 50}ms` }}
     >
@@ -284,7 +284,7 @@ function PersonalTaskItem({ task, togglingId, onToggleDone, index = 0 }: {
           {safeText(title)}
         </p>
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex flex-wrap items-center gap-2.5 sm:shrink-0 w-full sm:w-auto mt-1.5 sm:mt-0">
         <CategoryBadge category={category} />
         <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
         {deadline && (
@@ -335,7 +335,7 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
         "hover:bg-white dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.005]",
         priorityBorder,
         isDone && "opacity-50", isAwaiting && "opacity-60",
-        "animate-slide-up",
+        "animate-slide-up flex-wrap",
       )}
       style={{ animationDelay: `${index * 50}ms` }}
     >
@@ -368,7 +368,7 @@ function TeamTaskRow({ task, projectNameMap, teamMembers, onDelete, onReassign, 
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:shrink-0 mt-1.5 sm:mt-0">
         <CategoryBadge category={category} />
         <span className={cn("h-2 w-2 rounded-full shrink-0", priorityDot)} title={priority} />
         {deadline && (
@@ -704,7 +704,7 @@ function CreateTaskFAB({ onClick }: { onClick: () => void }) {
       type="button"
       onClick={onClick}
       className={cn(
-        "fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full",
+        "fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 h-14 w-14 rounded-full",
         "bg-gradient-to-r from-violet-600 to-purple-600",
         "text-white shadow-lg shadow-violet-500/25",
         "flex items-center justify-center",
@@ -757,7 +757,7 @@ function PersonalTodosView({
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <GlassStatCard label="Active" value={totalActive} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
         <GlassStatCard label="Overdue" value={overdueTasks} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
         <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
@@ -1052,9 +1052,21 @@ export default function GlobalTodosPage() {
   }, [projectsData]);
 
   // Personal view
-  const activeTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [myTasksData]);
+  const activeTasks = useMemo(() => myTasksData.filter((t: unknown) => {
+    if (extractStr(t, "status", "") === "DONE") return false;
+    // Filter out tasks from deleted projects
+    const pid = extractStr(t, "projectId", "");
+    if (pid && !projectNameMap.has(pid)) return false;
+    return true;
+  }), [myTasksData, projectNameMap]);
 
-  const completedTasks = useMemo(() => myTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [myTasksData]);
+  const completedTasks = useMemo(() => myTasksData.filter((t: unknown) => {
+    if (extractStr(t, "status", "") !== "DONE") return false;
+    // Filter out tasks from deleted projects
+    const pid = extractStr(t, "projectId", "");
+    if (pid && !projectNameMap.has(pid)) return false;
+    return true;
+  }), [myTasksData, projectNameMap]);
 
   const activeTraining = useMemo(() => trainingData.filter((t: unknown) => {
     const s = extractStr(t, "status", "");
@@ -1114,7 +1126,22 @@ export default function GlobalTodosPage() {
   const awaitingApproval = activeTasks.filter((t: unknown) => extractStr(t, "status", "") === "AWAITING_APPROVAL").length;
 
   // Team view
-  const teamActiveTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") !== "DONE"), [allTasksData]);
+  // Build set of active member IDs for filtering
+  const teamActiveMemberIds = useMemo(() => {
+    return new Set(
+      (teamMembers as Record<string, unknown>[])
+        .filter((m) => m.isActive !== false)
+        .map((m) => extractStr(m, "id", ""))
+    );
+  }, [teamMembers]);
+
+  const teamActiveTasks = useMemo(() => allTasksData.filter((t: unknown) => {
+    if (extractStr(t, "status", "") === "DONE") return false;
+    // Filter out tasks assigned to inactive users
+    const assignedTo = extractStr(t, "assignedTo", "");
+    if (assignedTo && teamActiveMemberIds.size > 0 && !teamActiveMemberIds.has(assignedTo)) return false;
+    return true;
+  }), [allTasksData, teamActiveMemberIds]);
 
   const teamCompletedTasks = useMemo(() => allTasksData.filter((t: unknown) => extractStr(t, "status", "") === "DONE"), [allTasksData]);
 
@@ -1330,7 +1357,7 @@ export default function GlobalTodosPage() {
         <div className="rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 h-10 flex items-center px-4">
           <Skeleton className="h-4 w-48" />
         </div>
-        <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
         <Card className="bg-white/40 dark:bg-white/[0.02] backdrop-blur-sm border-white/20 dark:border-white/10">
           <CardContent className="p-4 sm:p-5 space-y-5">
             <Skeleton className="h-6 w-32 rounded-lg" />
@@ -1377,7 +1404,7 @@ export default function GlobalTodosPage() {
         {/* Admin: Tabs view */}
         {isAdminUser && (
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 w-full">
               <TabsTrigger value="my" className="gap-1.5">
                 <ListTodo className="h-3.5 w-3.5" />
                 My Todos
@@ -1486,14 +1513,14 @@ function TeamTodosContent({ teamStats, teamFilteredTasks, teamFilteredCompletedT
     <>
       {allTasksLoading || teamLoading ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px] w-full rounded-xl" />)}</div>
           <Skeleton className="h-10 w-full rounded-xl" />
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
         </div>
       ) : (
         <div className="space-y-4">
           {/* Team Stats */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <GlassStatCard label="Active" value={teamStats.total} color="text-violet-700 dark:text-violet-300" icon={<ListTodo className="h-4 w-4 text-violet-500" />} delay={0} />
             <GlassStatCard label="Overdue" value={teamStats.overdue} color="text-red-700 dark:text-red-300" icon={<AlertTriangle className="h-4 w-4 text-red-500" />} delay={80} />
             <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />

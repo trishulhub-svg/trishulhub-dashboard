@@ -224,25 +224,25 @@ export async function getOrCreateProjectTaskList(
 
 /** Create a task in Lark.
  *  Lark v2 create API: POST /task/v2/tasks
- *  Supported body fields: tasklist_id, summary, description?, due?
- *  NOTE: `status`, `priority`, `members`, `extra` are NOT supported on create.
- *        Assign members via addTaskMember() AFTER creation.
+ *  IMPORTANT: Only `tasklist_id` and `summary` are safe on create.
+ *  - `description` requires rich text format (NOT plain string) — causes 99992402
+ *  - `due` may cause validation errors on some Lark plans
+ *  - `status`, `priority`, `members`, `extra` are NOT supported on create.
+ *  All additional fields are set via updateTask() AFTER creation.
  */
 export async function createTask(
   tasklistId: string,
   params: {
     title: string
     description?: string
-    dueTimestamp?: number // unix ms
+    dueTimestamp?: number // unix ms — set via updateTask after create
   }
 ): Promise<LarkTask | null> {
+  // Bare minimum body — description & due cause 99992402 on create
   const body: Record<string, unknown> = {
     tasklist_id: tasklistId,
     summary: params.title,
   }
-
-  if (params.description) body.description = params.description
-  if (params.dueTimestamp) body.due = { timestamp: String(params.dueTimestamp) }
 
   const res = await larkFetch<{ task: Record<string, unknown> }>("/task/v2/tasks", {
     method: "POST",
@@ -272,7 +272,10 @@ export async function updateTask(
   const body: Record<string, unknown> = {}
 
   if (params.title !== undefined) body.summary = params.title
-  if (params.description !== undefined) body.description = params.description
+  if (params.description !== undefined) {
+    // Lark v2 expects rich text format for description, not plain string
+    body.description = [{ tag: "text", text: params.description }]
+  }
   if (params.dueTimestamp !== undefined) body.due = { timestamp: String(params.dueTimestamp) }
 
   if (params.status !== undefined) {

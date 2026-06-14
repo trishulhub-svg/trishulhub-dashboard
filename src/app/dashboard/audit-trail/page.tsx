@@ -163,6 +163,13 @@ function syncStatusBadge(status: string): string {
   return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
 }
 
+/** Text color for Lark sync status */
+function syncStatusTextColor(status: string): string {
+  if (status === "SUCCESS") return "text-green-700 dark:text-green-400"
+  if (status === "FAILED") return "text-red-700 dark:text-red-400"
+  return "text-amber-700 dark:text-amber-400"
+}
+
 /** Icon for Lark sync status */
 function SyncStatusIcon({ status }: { status: string }) {
   if (status === "SUCCESS") return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
@@ -175,6 +182,154 @@ function DirectionIcon({ direction }: { direction: string }) {
   if (direction === "TO_LARK") return <ArrowRight className="h-3 w-3" />
   if (direction === "FROM_LARK") return <ArrowLeft className="h-3 w-3" />
   return <ArrowRightLeft className="h-3 w-3" />
+}
+
+// ── Mobile Card Components ──
+
+/** Mobile card for a single audit log entry */
+function AuditLogCard({ log }: { log: AuditLogEntry }) {
+  return (
+    <Card className="p-3 space-y-2">
+      {/* Timestamp + Status */}
+      <div className="flex items-center justify-between gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-xs text-muted-foreground cursor-help">{formatRelativeTime(log.createdAt)}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+          </TooltipContent>
+        </Tooltip>
+        <Badge
+          variant="outline"
+          className={cn("text-[10px] shrink-0", STATUS_COLORS[log.status || ""] || "")}
+        >
+          {log.status || "—"}
+        </Badge>
+      </div>
+
+      {/* User info */}
+      <div className="flex items-center gap-2">
+        <Avatar className="h-7 w-7">
+          <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
+            {getInitials(log.userName)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{log.userName || "Unknown"}</p>
+          <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
+        </div>
+      </div>
+
+      {/* Action + description */}
+      <div className="flex items-center gap-2">
+        <Badge
+          variant="secondary"
+          className={cn("text-[10px] font-semibold shrink-0", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
+        >
+          {log.action || "—"}
+        </Badge>
+        {log.description && (
+          <p className="text-xs text-muted-foreground truncate" title={log.description}>
+            {log.description}
+          </p>
+        )}
+      </div>
+
+      {/* Page */}
+      {log.page && (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium">Page:</span> {log.page}
+        </p>
+      )}
+    </Card>
+  )
+}
+
+/** Mobile card for a single Lark sync log entry */
+function SyncLogCard({ log }: { log: LarkSyncLogEntry }) {
+  return (
+    <Card className="p-3 space-y-2">
+      {/* Direction badge + Action badge */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Badge
+          variant="secondary"
+          className={cn("text-[10px] font-semibold flex items-center gap-1", directionBadge(log.direction))}
+        >
+          <DirectionIcon direction={log.direction} />
+          {log.direction === "TO_LARK" ? "To Lark" : log.direction === "FROM_LARK" ? "From Lark" : log.direction}
+        </Badge>
+        <Badge
+          variant="secondary"
+          className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action] || ACTION_COLORS.UPDATE)}
+        >
+          {log.action}
+        </Badge>
+      </div>
+
+      {/* Status with icon */}
+      <div className="flex items-center gap-1.5">
+        <SyncStatusIcon status={log.status} />
+        <span className={cn("text-xs font-semibold", syncStatusTextColor(log.status))}>
+          {log.status}
+        </span>
+      </div>
+
+      {/* Task ID and Lark Task ID */}
+      <div className="space-y-1">
+        {log.taskId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground shrink-0">Task:</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="font-mono truncate cursor-help">{log.taskId}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-[10px] font-mono">{log.taskId}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+        {log.larkTaskId && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground shrink-0">Lark:</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="font-mono truncate cursor-help">{log.larkTaskId}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-[10px] font-mono">{log.larkTaskId}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+      </div>
+
+      {/* Error message */}
+      {log.error && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <p className="text-xs text-red-600 dark:text-red-400 line-clamp-2 cursor-help">
+              {log.error}
+            </p>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-xs">{log.error}</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Relative time */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p className="text-xs text-muted-foreground cursor-help">{formatRelativeTime(log.createdAt)}</p>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+        </TooltipContent>
+      </Tooltip>
+    </Card>
+  )
 }
 
 /**
@@ -257,15 +412,28 @@ export default function AuditTrailPage() {
   const [error, setError] = useState<string | null>(null)
   const userRole = session?.user?.role || "DEVELOPER"
 
+  // ── Mobile detection ──
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
+  }, [])
+
   const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
   const isAdmin = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
 
   // ── Lark Sync State ──
   const [syncLogs, setSyncLogs] = useState<LarkSyncLogEntry[]>([])
   const [syncLoading, setSyncLoading] = useState(false)
+  const [syncLoadingMore, setSyncLoadingMore] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncDirectionFilter, setSyncDirectionFilter] = useState<string>("")
   const [syncStatusFilter, setSyncStatusFilter] = useState<string>("")
+  const [syncSearch, setSyncSearch] = useState("")
+  const [syncOffset, setSyncOffset] = useState(0)
+  const [syncHasMore, setSyncHasMore] = useState(false)
   const [larkEnabled, setLarkEnabled] = useState(false)
 
   // Fetch stats
@@ -357,9 +525,11 @@ export default function AuditTrailPage() {
   const fetchSyncLogs = useCallback(async () => {
     setSyncLoading(true)
     setSyncError(null)
+    setSyncOffset(0)
     try {
       const params = new URLSearchParams()
-      params.set("limit", "100")
+      params.set("limit", "10")
+      params.set("offset", "0")
       if (syncDirectionFilter) params.set("direction", syncDirectionFilter)
       if (syncStatusFilter) params.set("status", syncStatusFilter)
 
@@ -368,6 +538,8 @@ export default function AuditTrailPage() {
         const data = await res.json()
         const items: LarkSyncLogEntry[] = Array.isArray(data?.logs) ? data.logs : []
         setSyncLogs(items)
+        setSyncOffset(10)
+        setSyncHasMore(items.length >= 10)
         setLarkEnabled(data?.config?.enabled === true)
       } else if (res.status === 403) {
         setSyncLogs([])
@@ -383,12 +555,54 @@ export default function AuditTrailPage() {
     }
   }, [syncDirectionFilter, syncStatusFilter])
 
+  // Load more sync logs (append)
+  const loadMoreSyncLogs = async () => {
+    if (syncLoadingMore) return
+    setSyncLoadingMore(true)
+    setSyncError(null)
+    try {
+      const params = new URLSearchParams()
+      params.set("limit", "10")
+      params.set("offset", String(syncOffset))
+      if (syncDirectionFilter) params.set("direction", syncDirectionFilter)
+      if (syncStatusFilter) params.set("status", syncStatusFilter)
+
+      const res = await fetch(`/api/lark/sync?${params.toString()}`, { credentials: "include" })
+      if (res.ok) {
+        const data = await res.json()
+        const items: LarkSyncLogEntry[] = Array.isArray(data?.logs) ? data.logs : []
+        setSyncLogs(prev => [...prev, ...items])
+        setSyncOffset(prev => prev + 10)
+        setSyncHasMore(items.length >= 10)
+      } else {
+        setSyncError(`Failed to load more sync logs (HTTP ${res.status})`)
+      }
+    } catch (err) {
+      setSyncError("Network error loading more Lark sync logs")
+    } finally {
+      setSyncLoadingMore(false)
+    }
+  }
+
   // Fetch sync logs when switching to lark-sync tab or filters change
   useEffect(() => {
     if (activeView === "lark-sync" && isAdmin) {
       fetchSyncLogs()
     }
   }, [activeView, fetchSyncLogs, isAdmin])
+
+  // Client-side filtered sync logs (by search)
+  const filteredSyncLogs = useMemo(() => {
+    if (!syncSearch.trim()) return syncLogs
+    const q = syncSearch.toLowerCase()
+    return syncLogs.filter(log =>
+      (log.error && log.error.toLowerCase().includes(q)) ||
+      (log.taskId && log.taskId.toLowerCase().includes(q)) ||
+      (log.larkTaskId && log.larkTaskId.toLowerCase().includes(q)) ||
+      (log.action && log.action.toLowerCase().includes(q)) ||
+      (log.status && log.status.toLowerCase().includes(q))
+    )
+  }, [syncLogs, syncSearch])
 
   // Department counts from stats
   const deptCounts = useMemo(() => {
@@ -490,12 +704,12 @@ export default function AuditTrailPage() {
     <TooltipProvider>
     <div className="space-y-6">
       {/* View Toggle Tabs */}
-      <div className="flex items-center gap-3">
-        <div className="flex bg-muted rounded-lg p-1">
+      <div className="flex items-center gap-3 overflow-x-auto pb-1">
+        <div className="flex bg-muted rounded-lg p-1 shrink-0">
           <button
             onClick={() => setActiveView("audit")}
             className={cn(
-              "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+              "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap",
               activeView === "audit"
                 ? "bg-background shadow-sm text-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -508,7 +722,7 @@ export default function AuditTrailPage() {
             <button
               onClick={() => setActiveView("lark-sync")}
               className={cn(
-                "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+                "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap",
                 activeView === "lark-sync"
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -523,7 +737,7 @@ export default function AuditTrailPage() {
           )}
         </div>
         {activeView === "lark-sync" && (
-          <Badge variant={larkEnabled ? "default" : "secondary"} className="text-xs">
+          <Badge variant={larkEnabled ? "default" : "secondary"} className="text-xs shrink-0">
             {larkEnabled ? (
               <><CheckCircle2 className="h-3 w-3 mr-1" /> Sync Active</>
             ) : (
@@ -554,35 +768,66 @@ export default function AuditTrailPage() {
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Entries</p>
-                    <p className="text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
+                    <p className="text-xl md:text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Today</p>
-                    <p className="text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
+                    <p className="text-xl md:text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Most Active Dept</p>
-                    <p className="text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
+                    <p className="text-xl md:text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Success Rate</p>
-                    <p className="text-2xl font-bold">{successRate}</p>
+                    <p className="text-xl md:text-2xl font-bold">{successRate}</p>
                   </CardContent>
                 </Card>
               </>
             )}
           </div>
 
+          {/* Mobile Department Chips — horizontal scrollable */}
+          <div className="lg:hidden">
+            <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width]:none">
+              <button
+                className={cn(
+                  "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap",
+                  !selectedDept
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border hover:bg-muted"
+                )}
+                onClick={() => setSelectedDept("")}
+              >
+                All Departments
+              </button>
+              {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => (
+                <button
+                  key={key}
+                  className={cn(
+                    "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap",
+                    selectedDept === key
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background border-border hover:bg-muted"
+                  )}
+                  onClick={() => setSelectedDept(selectedDept === key ? "" : key)}
+                >
+                  {dept.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Main Content */}
           <div className="flex flex-col lg:flex-row gap-6">
-            {/* Left Sidebar — Department Cards */}
-            <div className="lg:w-64 shrink-0 space-y-3">
+            {/* Left Sidebar — Department Cards (hidden on mobile) */}
+            <div className="hidden lg:block lg:w-64 shrink-0 space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
                 <Shield className="h-4 w-4" />
                 Departments
@@ -656,8 +901,8 @@ export default function AuditTrailPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Select value={actionFilter} onValueChange={setActionFilter}>
-                        <SelectTrigger className="w-[140px] h-10">
-                          <Filter className="h-4 w-4 mr-2" />
+                        <SelectTrigger className="w-auto min-w-[120px] h-10">
+                          <Filter className="h-4 w-4 mr-2 shrink-0" />
                           <SelectValue placeholder="Actions" />
                         </SelectTrigger>
                         <SelectContent>
@@ -677,7 +922,7 @@ export default function AuditTrailPage() {
                         </SelectContent>
                       </Select>
                       <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-[120px] h-10">
+                        <SelectTrigger className="w-auto min-w-[100px] h-10">
                           <SelectValue placeholder="Status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -687,8 +932,8 @@ export default function AuditTrailPage() {
                         </SelectContent>
                       </Select>
                       <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-                        <SelectTrigger className="w-[100px] h-10">
-                          <Calendar className="h-4 w-4 mr-2" />
+                        <SelectTrigger className="w-auto min-w-[90px] h-10">
+                          <Calendar className="h-4 w-4 mr-2 shrink-0" />
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -706,7 +951,7 @@ export default function AuditTrailPage() {
                           </Button>
                           <Button variant="default" size="sm" className="h-10 bg-primary" onClick={exportPdf} disabled={exportingPdf}>
                             {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
-                            PDF Report
+                            PDF
                           </Button>
                         </>
                       )}
@@ -720,11 +965,11 @@ export default function AuditTrailPage() {
                 <Card className="border-red-200 dark:border-red-900/50">
                   <CardContent className="p-4 flex items-center gap-3">
                     <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-red-600 dark:text-red-400">Error loading audit logs</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 break-words">{error}</p>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => fetchLogs()}>
+                    <Button variant="outline" size="sm" onClick={() => fetchLogs()} className="shrink-0">
                       <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
                     </Button>
                   </CardContent>
@@ -745,136 +990,201 @@ export default function AuditTrailPage() {
                     </>
                   )}
                 </span>
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 shrink-0">
                   <Clock className="h-3.5 w-3.5" />
                   Updated just now
                 </span>
               </div>
 
-              {/* Audit Logs Table */}
-              <Card>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[160px]">Timestamp</TableHead>
-                          <TableHead className="w-[160px]">User</TableHead>
-                          <TableHead className="w-[100px]">Action</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead className="w-[80px]">Page</TableHead>
-                          <TableHead className="w-[80px]">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {loading && logs.length === 0 ? (
-                          <>
-                            {[...Array(10)].map((_, i) => (
-                              <TableRow key={i}>
-                                <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
-                                <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
-                                <TableCell><Skeleton className="h-6 w-[70px]" /></TableCell>
-                                <TableCell><Skeleton className="h-4 w-full" /></TableCell>
-                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                <TableCell><Skeleton className="h-6 w-[60px]" /></TableCell>
-                              </TableRow>
-                            ))}
-                          </>
-                        ) : logs.length === 0 ? (
+              {/* Audit Logs — Mobile Cards */}
+              <div className="md:hidden space-y-3">
+                {loading && logs.length === 0 ? (
+                  <>
+                    {[...Array(5)].map((_, i) => (
+                      <Card key={i} className="p-3 space-y-3">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-3 w-16" />
+                          <Skeleton className="h-5 w-14" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-7 w-7 rounded-full" />
+                          <div className="space-y-1">
+                            <Skeleton className="h-3 w-24" />
+                            <Skeleton className="h-2 w-16" />
+                          </div>
+                        </div>
+                        <Skeleton className="h-4 w-full" />
+                      </Card>
+                    ))}
+                  </>
+                ) : logs.length === 0 ? (
+                  <Card className="p-8">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Activity className="h-8 w-8 opacity-20" />
+                      <p className="text-sm">No audit logs found</p>
+                    </div>
+                  </Card>
+                ) : (
+                  logs.map((log) => (
+                    <AuditLogCard key={log.id} log={log} />
+                  ))
+                )}
+
+                {/* Load More — Mobile */}
+                {hasMore && (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={loadMore}
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 mr-2" />
+                      )}
+                      Load More
+                    </Button>
+                  </div>
+                )}
+
+                {/* No more data indicator — Mobile */}
+                {!hasMore && logs.length > 0 && (
+                  <div className="flex justify-center py-2">
+                    <p className="text-xs text-muted-foreground">
+                      Showing {logs.length} of {total.toLocaleString()} entries
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Audit Logs — Desktop Table */}
+              <div className="hidden md:block">
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
                           <TableRow>
-                            <TableCell colSpan={6} className="h-32 text-center">
-                              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                <Activity className="h-8 w-8 opacity-20" />
-                                <p className="text-sm">No audit logs found</p>
-                              </div>
-                            </TableCell>
+                            <TableHead className="w-[160px]">Timestamp</TableHead>
+                            <TableHead className="w-[160px]">User</TableHead>
+                            <TableHead className="w-[100px]">Action</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="w-[80px]">Page</TableHead>
+                            <TableHead className="w-[80px]">Status</TableHead>
                           </TableRow>
-                        ) : (
-                          logs.map((log) => (
-                            <TableRow key={log.id} className="hover:bg-muted/50">
-                              <TableCell className="text-xs">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Avatar className="h-7 w-7">
-                                    <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
-                                      {getInitials(log.userName)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
-                                    <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
-                                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {loading && logs.length === 0 ? (
+                            <>
+                              {[...Array(10)].map((_, i) => (
+                                <TableRow key={i}>
+                                  <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+                                  <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+                                  <TableCell><Skeleton className="h-6 w-[70px]" /></TableCell>
+                                  <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                                  <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                  <TableCell><Skeleton className="h-6 w-[60px]" /></TableCell>
+                                </TableRow>
+                              ))}
+                            </>
+                          ) : logs.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="h-32 text-center">
+                                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                  <Activity className="h-8 w-8 opacity-20" />
+                                  <p className="text-sm">No audit logs found</p>
                                 </div>
                               </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="secondary"
-                                  className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
-                                >
-                                  {log.action || "—"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
-                                  {log.description || "—"}
-                                </p>
-                              </TableCell>
-                              <TableCell>
-                                <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
-                                >
-                                  {log.status || "—"}
-                                </Badge>
-                              </TableCell>
                             </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Load More */}
-                  {hasMore && (
-                    <div className="flex justify-center p-4 border-t">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={loadMore}
-                        disabled={loading}
-                      >
-                        {loading ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4 mr-2" />
-                        )}
-                        Load More
-                      </Button>
+                          ) : (
+                            logs.map((log) => (
+                              <TableRow key={log.id} className="hover:bg-muted/50">
+                                <TableCell className="text-xs">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Avatar className="h-7 w-7">
+                                      <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
+                                        {getInitials(log.userName)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
+                                      <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="secondary"
+                                    className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
+                                  >
+                                    {log.action || "—"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
+                                    {log.description || "—"}
+                                  </p>
+                                </TableCell>
+                                <TableCell>
+                                  <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
+                                  >
+                                    {log.status || "—"}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
                     </div>
-                  )}
 
-                  {/* No more data indicator */}
-                  {!hasMore && logs.length > 0 && (
-                    <div className="flex justify-center p-4 border-t">
-                      <p className="text-xs text-muted-foreground">
-                        Showing {logs.length} of {total.toLocaleString()} entries
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    {/* Load More */}
+                    {hasMore && (
+                      <div className="flex justify-center p-4 border-t">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={loadMore}
+                          disabled={loading}
+                        >
+                          {loading ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 mr-2" />
+                          )}
+                          Load More
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* No more data indicator */}
+                    {!hasMore && logs.length > 0 && (
+                      <div className="flex justify-center p-4 border-t">
+                        <p className="text-xs text-muted-foreground">
+                          Showing {logs.length} of {total.toLocaleString()} entries
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
         </>
@@ -884,14 +1194,14 @@ export default function AuditTrailPage() {
       {activeView === "lark-sync" && isAdmin && (
         <div className="space-y-6">
           {/* Lark Sync Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {syncLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            {syncLoading && syncOffset === 0 ? (
               <>
                 {[...Array(5)].map((_, i) => (
                   <Card key={i}>
                     <CardContent className="p-4">
                       <Skeleton className="h-4 w-20 mb-2" />
-                      <Skeleton className="h-8 w-12" />
+                      <Skeleton className="h-7 w-12" />
                     </CardContent>
                   </Card>
                 ))}
@@ -901,19 +1211,19 @@ export default function AuditTrailPage() {
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Syncs</p>
-                    <p className="text-2xl font-bold tabular-nums">{syncStats.total.toLocaleString()}</p>
+                    <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.total.toLocaleString()}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide">Successful</p>
-                    <p className="text-2xl font-bold tabular-nums text-green-700 dark:text-green-400">{syncStats.success}</p>
+                    <p className="text-xl md:text-2xl font-bold tabular-nums text-green-700 dark:text-green-400">{syncStats.success}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide">Failed</p>
-                    <p className="text-2xl font-bold tabular-nums text-red-700 dark:text-red-400">{syncStats.failed}</p>
+                    <p className="text-xl md:text-2xl font-bold tabular-nums text-red-700 dark:text-red-400">{syncStats.failed}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -921,7 +1231,7 @@ export default function AuditTrailPage() {
                     <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">To Lark</p>
                     <div className="flex items-center gap-1.5">
                       <ArrowRight className="h-4 w-4 text-blue-500" />
-                      <p className="text-2xl font-bold tabular-nums">{syncStats.toLark}</p>
+                      <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.toLark}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -930,7 +1240,7 @@ export default function AuditTrailPage() {
                     <p className="text-xs font-medium text-violet-600 dark:text-violet-400 uppercase tracking-wide">From Lark</p>
                     <div className="flex items-center gap-1.5">
                       <ArrowLeft className="h-4 w-4 text-violet-500" />
-                      <p className="text-2xl font-bold tabular-nums">{syncStats.fromLark}</p>
+                      <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.fromLark}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -941,40 +1251,52 @@ export default function AuditTrailPage() {
           {/* Sync Logs Section */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-base">Sync Operations</CardTitle>
-                  <Badge variant="outline" className="text-xs font-mono">
-                    LarkSyncLog
-                  </Badge>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">Sync Operations</CardTitle>
+                    <Badge variant="outline" className="text-xs font-mono">
+                      LarkSyncLog
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={syncDirectionFilter} onValueChange={(v) => setSyncDirectionFilter(v === "ALL" ? "" : v)}>
+                      <SelectTrigger className="w-auto min-w-[120px] h-9 text-xs">
+                        <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                        <SelectValue placeholder="Direction" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Directions</SelectItem>
+                        <SelectItem value="TO_LARK">To Lark</SelectItem>
+                        <SelectItem value="FROM_LARK">From Lark</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={syncStatusFilter} onValueChange={(v) => setSyncStatusFilter(v === "ALL" ? "" : v)}>
+                      <SelectTrigger className="w-auto min-w-[100px] h-9 text-xs">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Status</SelectItem>
+                        <SelectItem value="SUCCESS">Success</SelectItem>
+                        <SelectItem value="FAILED">Failed</SelectItem>
+                        <SelectItem value="SKIPPED">Skipped</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" className="h-9" onClick={fetchSyncLogs} disabled={syncLoading}>
+                      <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncLoading && "animate-spin")} />
+                      Refresh
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select value={syncDirectionFilter} onValueChange={(v) => setSyncDirectionFilter(v === "ALL" ? "" : v)}>
-                    <SelectTrigger className="w-[140px] h-9 text-xs">
-                      <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
-                      <SelectValue placeholder="Direction" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Directions</SelectItem>
-                      <SelectItem value="TO_LARK">To Lark</SelectItem>
-                      <SelectItem value="FROM_LARK">From Lark</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={syncStatusFilter} onValueChange={(v) => setSyncStatusFilter(v === "ALL" ? "" : v)}>
-                    <SelectTrigger className="w-[120px] h-9 text-xs">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Status</SelectItem>
-                      <SelectItem value="SUCCESS">Success</SelectItem>
-                      <SelectItem value="FAILED">Failed</SelectItem>
-                      <SelectItem value="SKIPPED">Skipped</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button variant="outline" size="sm" className="h-9" onClick={fetchSyncLogs} disabled={syncLoading}>
-                    <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncLoading && "animate-spin")} />
-                    Refresh
-                  </Button>
+                {/* Search bar for Lark Sync */}
+                <div className="relative w-full sm:max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search sync logs..."
+                    className="pl-10 h-9 text-sm"
+                    value={syncSearch}
+                    onChange={(e) => setSyncSearch(e.target.value)}
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -983,16 +1305,50 @@ export default function AuditTrailPage() {
               {syncError && (
                 <div className="p-4 border-b border-red-200 dark:border-red-900/50 flex items-center gap-3">
                   <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-red-600 dark:text-red-400">{syncError}</p>
                   </div>
-                  <Button variant="outline" size="sm" onClick={fetchSyncLogs}>
+                  <Button variant="outline" size="sm" onClick={fetchSyncLogs} className="shrink-0">
                     <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
                   </Button>
                 </div>
               )}
 
-              <div className="overflow-x-auto">
+              {/* Mobile Sync Log Cards */}
+              <div className="md:hidden p-3 space-y-3">
+                {syncLoading && syncOffset === 0 ? (
+                  <>
+                    {[...Array(5)].map((_, i) => (
+                      <Card key={i} className="p-3 space-y-2">
+                        <div className="flex gap-2">
+                          <Skeleton className="h-5 w-16" />
+                          <Skeleton className="h-5 w-12" />
+                        </div>
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-24" />
+                      </Card>
+                    ))}
+                  </>
+                ) : filteredSyncLogs.length === 0 ? (
+                  <Card className="p-8">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <ArrowRightLeft className="h-8 w-8 opacity-20" />
+                      <p className="text-sm">
+                        {syncSearch ? "No sync logs match your search" : "No Lark sync logs found"}
+                      </p>
+                      <p className="text-xs">Sync logs appear here when tasks are created, updated, or synced between TrishulHub and Lark.</p>
+                    </div>
+                  </Card>
+                ) : (
+                  filteredSyncLogs.map((log) => (
+                    <SyncLogCard key={log.id} log={log} />
+                  ))
+                )}
+              </div>
+
+              {/* Desktop Sync Log Table */}
+              <div className="hidden md:block overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1006,7 +1362,7 @@ export default function AuditTrailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {syncLoading && syncLogs.length === 0 ? (
+                    {syncLoading && syncOffset === 0 ? (
                       <>
                         {[...Array(10)].map((_, i) => (
                           <TableRow key={i}>
@@ -1020,18 +1376,20 @@ export default function AuditTrailPage() {
                           </TableRow>
                         ))}
                       </>
-                    ) : syncLogs.length === 0 ? (
+                    ) : filteredSyncLogs.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="h-32 text-center">
                           <div className="flex flex-col items-center gap-2 text-muted-foreground">
                             <ArrowRightLeft className="h-8 w-8 opacity-20" />
-                            <p className="text-sm">No Lark sync logs found</p>
+                            <p className="text-sm">
+                              {syncSearch ? "No sync logs match your search" : "No Lark sync logs found"}
+                            </p>
                             <p className="text-xs">Sync logs appear here when tasks are created, updated, or synced between TrishulHub and Lark.</p>
                           </div>
                         </TableCell>
                       </TableRow>
                     ) : (
-                      syncLogs.map((log) => (
+                      filteredSyncLogs.map((log) => (
                         <TableRow key={log.id} className="hover:bg-muted/50">
                           <TableCell className="text-xs">
                             <Tooltip>
@@ -1063,7 +1421,7 @@ export default function AuditTrailPage() {
                           <TableCell>
                             <div className="flex items-center gap-1.5">
                               <SyncStatusIcon status={log.status} />
-                              <span className={cn("text-[10px] font-semibold", syncStatusBadge(log.status).includes("green") ? "text-green-700 dark:text-green-400" : syncStatusBadge(log.status).includes("red") ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400")}>
+                              <span className={cn("text-[10px] font-semibold", syncStatusTextColor(log.status))}>
                                 {log.status}
                               </span>
                             </div>
@@ -1123,15 +1481,35 @@ export default function AuditTrailPage() {
                 </Table>
               </div>
 
+              {/* Load More — Sync Logs */}
+              {syncHasMore && (
+                <div className="flex justify-center p-4 border-t">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadMoreSyncLogs}
+                    disabled={syncLoadingMore}
+                  >
+                    {syncLoadingMore ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 mr-2" />
+                    )}
+                    Load More
+                  </Button>
+                </div>
+              )}
+
               {/* Sync logs footer */}
               {syncLogs.length > 0 && (
-                <div className="flex items-center justify-between p-4 border-t text-xs text-muted-foreground">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-t text-xs text-muted-foreground gap-2">
                   <span>
-                    Showing {syncLogs.length} sync operations
+                    Showing {filteredSyncLogs.length} of {syncLogs.length} sync operations
                     {syncDirectionFilter && <> — filtered by {syncDirectionFilter === "TO_LARK" ? "To Lark" : "From Lark"}</>}
                     {syncStatusFilter && <> — {syncStatusFilter}</>}
+                    {syncSearch && <> — search: &quot;{syncSearch}&quot;</>}
                   </span>
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 shrink-0">
                     <Clock className="h-3.5 w-3.5" />
                     Last refreshed just now
                   </span>

@@ -94,6 +94,8 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
   });
   const [nextZ, setNextZ] = useState(100);
   const mountedRef = useRef(false);
+  // Prevent rapid duplicate state updates (e.g. double-tap)
+  const lastActionTimeRef = useRef<Record<string, number>>({});
 
   // On first mount, ensure all restored boards are minimized
   useEffect(() => {
@@ -170,6 +172,12 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const restoreBoard = useCallback((projectId: string) => {
+    // Debounce: ignore if same action happened within 200ms
+    const now = Date.now();
+    const lastTime = lastActionTimeRef.current[`restore:${projectId}`] || 0;
+    if (now - lastTime < 200) return;
+    lastActionTimeRef.current[`restore:${projectId}`] = now;
+
     setBoards(prev => {
       const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 

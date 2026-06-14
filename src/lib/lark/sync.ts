@@ -311,18 +311,21 @@ export async function syncTaskToLark(
     if (larkTask) {
       await saveLarkTaskMapping(taskId, larkTask.task_id, tasklistId)
 
-      // Assign member via add_members endpoint (create API doesn't support members field)
+      // Set description, due, status & priority via separate update
+      // (create API only accepts tasklist_id + summary)
+      await updateTask(larkTask.task_id, {
+        description: data.description,
+        status: data.status,
+        priority: data.priority,
+        dueTimestamp,
+      })
+
+      // Assign member via add_members endpoint (create API doesn't support members)
       if (assigneeOpenId) {
         await addTaskMember(larkTask.task_id, [
           { id: assigneeOpenId, role: "assignee" },
         ])
       }
-
-      // Set status & priority via separate update (create API doesn't support these)
-      await updateTask(larkTask.task_id, {
-        status: data.status,
-        priority: data.priority,
-      })
 
       // Add assignee as tasklist member (editor role) so the tasklist
       // appears in the user's Lark Task Center
