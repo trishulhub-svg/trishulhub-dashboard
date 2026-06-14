@@ -131,7 +131,7 @@ function MinimizedCapsule({
   const capsuleRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const hasMoved = useRef(false);
-  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+  const dragStartPos = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
 
   // Use left/top for consistent drag behavior
   // Position.y for capsules = distance from bottom of viewport
@@ -154,7 +154,7 @@ function MinimizedCapsule({
       const pt = "touches" in e
         ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
         : { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY };
-      dragStartPos.current = { x: pt.x, y: pt.y, ...displayX !== undefined ? { dx: displayX, dy: displayY } : { dx: 0, dy: topPos } };
+      dragStartPos.current = { x: pt.x, y: pt.y, dx: displayX, dy: displayY };
       hasMoved.current = false;
     };
 
