@@ -16,12 +16,12 @@ import LoadingScreen from "@/components/ui/loading-screen";
 const sessionReasonMessages: Record<string, { title: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
   timeout: {
     title: "Session Expired",
-    description: "Your session has expired due to 15 minutes of inactivity. Please sign in again.",
+    description: "Your session has expired. Please sign in again.",
     icon: Clock,
   },
   kicked: {
     title: "Signed Out",
-    description: "You have been signed out because your account was logged in from another device. Only one device can be active at a time.",
+    description: "You have been signed out because your account was logged in on another device. You can be logged in on up to 2 devices at a time — the oldest session is removed when a 3rd device connects.",
     icon: LogOut,
   },
   email_changed: {

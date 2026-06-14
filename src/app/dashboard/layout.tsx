@@ -929,7 +929,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={async () => {
                   // Auto-minimize all floating boards before logout
-                  try { (window as unknown as Record<string, unknown>).__trishulhub_signalLogout?.(); } catch { /* */ }
+                  window.dispatchEvent(new CustomEvent("trishulhub:logout"));
                   await signOut({ redirect: false });
                   router.push("/login");
                 }}>
@@ -954,14 +954,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 
-// ─── Bridge: Exposes signalLogout to window for signOut handler ───────
+// ─── Bridge: Listens for logout event to auto-minimize floating boards ──
 function LogoutBridge() {
   const { signalLogout } = useFloatingBoards();
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__trishulhub_signalLogout = signalLogout;
-    return () => {
-      delete (window as unknown as Record<string, unknown>).__trishulhub_signalLogout;
-    };
+    const handler = () => signalLogout();
+    window.addEventListener("trishulhub:logout", handler);
+    return () => window.removeEventListener("trishulhub:logout", handler);
   }, [signalLogout]);
   return null;
 }

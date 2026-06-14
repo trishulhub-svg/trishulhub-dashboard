@@ -111,13 +111,8 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
     }
   }, [boards, sessionStatus]);
 
-  // Clear stored boards when user logs out
-  useEffect(() => {
-    if (sessionStatus === "unauthenticated") {
-      clearStorage();
-      setBoards([]);
-    }
-  }, [sessionStatus]);
+  // Clear stored boards when user explicitly closes all (NOT on logout — capsules persist)
+  // The signalLogout function handles minimizing before logout.
 
   const openBoard = useCallback((projectId: string, projectName: string) => {
     setBoards(prev => {

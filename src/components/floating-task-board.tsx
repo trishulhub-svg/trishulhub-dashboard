@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useCallback, useEffect, useState } from "react";
-import { X, FolderKanban } from "lucide-react";
+import { X, FolderKanban, Minus } from "lucide-react";
 import { useFloatingBoards, type FloatingBoard } from "./providers/floating-board-provider";
 
 // ─── Mobile detection hook ────────────────────────────────────────────
@@ -315,17 +315,21 @@ function FloatingBoardWindow({
           border-b border-black/[0.06] dark:border-white/[0.08]
           backdrop-blur-xl">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={onMinimize}
-                className="w-[11px] h-[11px] rounded-full bg-[#febc2e] active:opacity-70 transition-opacity"
+                className="w-8 h-8 rounded-full bg-yellow-400/20 active:bg-yellow-400/40 flex items-center justify-center transition-colors"
                 title="Minimize"
-              />
+              >
+                <Minus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
+              </button>
               <button
                 onClick={onClose}
-                className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] active:opacity-70 transition-opacity"
+                className="w-8 h-8 rounded-full bg-red-400/20 active:bg-red-400/40 flex items-center justify-center transition-colors"
                 title="Close"
-              />
+              >
+                <X className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+              </button>
             </div>
             <span className="text-[12px] font-semibold text-foreground/80 dark:text-white/70 truncate ml-1">
               {board.projectName}
@@ -469,14 +473,13 @@ export function FloatingBoardRenderer() {
 
       {/* Render each board */}
       {boards.map((board, idx) => {
-        const minimizedCount = boards.filter(b => b.minimized).length;
-        const minIdx = boards.filter((b, i) => b.minimized && i <= idx).length - 1;
+        const minIdx = boards.slice(0, idx + 1).filter(b => b.minimized).length - 1;
         return (
         <FloatingBoardWindow
           key={board.projectId}
           board={board}
           boardIndex={board.minimized ? Math.max(0, minIdx) : 0}
-          totalCapsules={minimizedCount}
+          totalCapsules={boards.filter(b => b.minimized).length}
           onClose={() => closeBoard(board.projectId)}
           onMinimize={() => minimizeBoard(board.projectId)}
           onBringToFront={() => bringToFront(board.projectId)}

@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Check for session errors set by the JWT callback
-  // SessionKicked = another device logged in, email changed, or session invalidated
+  // SessionKicked = another device logged in (max 2 exceeded, oldest kicked), email changed, or session invalidated
   if (token?.error === "SessionKicked") {
     // For pages: redirect to login with kicked reason
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
