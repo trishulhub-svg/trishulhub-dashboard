@@ -38,7 +38,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
-import { useFloatingBoards, FloatingBoardWindow } from "@/components/floating-task-board";
+import { useFloatingBoards } from "@/components/floating-task-board";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -871,17 +871,9 @@ export default function ProjectsPage() {
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
 
-  // ━━ Floating Task Board Windows ━━
+  // ━━ Floating Task Board Windows (from context — rendered in layout) ━━
   const {
-    boards: floatingBoards,
     openBoard: openFloatingBoard,
-    closeBoard: closeFloatingBoard,
-    closeAll: closeAllFloatingBoards,
-    minimizeBoard: minimizeFloatingBoard,
-    restoreBoard: restoreFloatingBoard,
-    bringToFront: bringBoardToFront,
-    updatePosition: updateBoardPosition,
-    updateSize: updateBoardSize,
   } = useFloatingBoards();
 
   // Feature 3: Credentials state
@@ -1740,38 +1732,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* ━━━━ Floating Task Board Windows (Admin/SuperAdmin only) ━━━━ */}
-      {isAdminUser && floatingBoards.length > 0 && (
-        <>
-          {floatingBoards.some(b => !b.minimized) && (
-            <button
-              onClick={closeAllFloatingBoards}
-              className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
-                bg-red-500/80 hover:bg-red-500 text-white text-[11px] font-medium
-                backdrop-blur-2xl saturate-[1.8]
-                border border-white/20
-                shadow-[0_2px_12px_rgba(239,68,68,0.25),inset_0_0.5px_0_rgba(255,255,255,0.3)]
-                hover:shadow-[0_4px_20px_rgba(239,68,68,0.35),inset_0_0.5px_0_rgba(255,255,255,0.4)]
-                transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-              title="Close all floating task boards"
-            >
-              <X className="h-3 w-3" />
-              Close All
-            </button>
-          )}
-          {floatingBoards.map((board) => (
-            <FloatingBoardWindow
-              key={board.projectId}
-              board={board}
-              onClose={() => closeFloatingBoard(board.projectId)}
-              onMinimize={() => minimizeFloatingBoard(board.projectId)}
-              onBringToFront={() => bringBoardToFront(board.projectId)}
-              onPositionChange={(pos) => updateBoardPosition(board.projectId, pos)}
-              onSizeChange={(size) => updateBoardSize(board.projectId, size)}
-            />
-          ))}
-        </>
-      )}
+      {/* ━━━━ Floating Task Boards are now rendered in DashboardLayout ━━━━ */}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>

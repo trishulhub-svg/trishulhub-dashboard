@@ -108,6 +108,9 @@ export default function ProjectDetailPage() {
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
+  // Detect if loaded inside floating board iframe — hide back button & reduce padding
+  const isInIframe = typeof window !== "undefined" && window.self !== window.top;
+
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
       window.location.href = "/login";
@@ -446,9 +449,10 @@ export default function ProjectDetailPage() {
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
   return (
-    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both" }}>
+    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both", padding: isInIframe ? "8px" : undefined }}>
       {/* ═══════ Compact Header ═══════ */}
       <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
+        {!isInIframe && (
         <Button
           variant="ghost"
           size="icon"
@@ -458,6 +462,7 @@ export default function ProjectDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>

@@ -2,6 +2,9 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import { FloatingBoardProvider } from "@/components/providers/floating-board-provider";
+import { FloatingBoardRenderer } from "@/components/floating-task-board";
+import { useFloatingBoards } from "@/components/providers/floating-board-provider";
 import {
   LayoutDashboard,
   Bot,
@@ -699,6 +702,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (userRole === "CLIENT") return null;
 
   return (
+    <FloatingBoardProvider>
+    <LogoutBridge />
     <div className="min-h-screen flex bg-background">
       {/* Desktop Sidebar - wider and more spacious */}
       <aside
@@ -922,7 +927,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Settings className="mr-2 h-4 w-4" /> Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
+                <DropdownMenuItem onClick={async () => {
+                  // Auto-minimize all floating boards before logout
+                  try { window.__trishulhub_signalLogout?.(); } catch { /* */ }
+                  await signOut({ redirect: false });
+                  router.push("/login");
+                }}>
                   <LogOut className="mr-2 h-4 w-4" /> Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -936,6 +946,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Agentation — visual feedback tool (all users) */}
       <Agentation />
+
+      {/* Floating Task Boards — accessible from all dashboard pages */}
+      <FloatingBoardRenderer />
     </div>
+    </FloatingBoardProvider>
   );
+}
+
+// ─── Bridge: Exposes signalLogout to window for signOut handler ───────
+function LogoutBridge() {
+  const { signalLogout } = useFloatingBoards();
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__trishulhub_signalLogout = signalLogout;
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__trishulhub_signalLogout;
+    };
+  }, [signalLogout]);
+  return null;
 }
