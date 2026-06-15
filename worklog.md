@@ -134,3 +134,24 @@ Stage Summary:
 - Lark sync verified: already creates project-named groups, assigns per-user correctly
 - Pushed to GitHub: commit a5aacd8
 
+---
+Task ID: 1
+Agent: main
+Task: Fix 5 remaining issues in TrishulHub Dashboard
+
+Work Log:
+- Read and analyzed floating-task-board.tsx, floating-board-provider.tsx, project detail page, tasks API route, Lark client/sync files
+- Identified root cause of Issue 3 (PC empty task board): desktop floating window missing "flex" class - flex-col only sets flex-direction without display:flex, causing content area with flex-1 to have 0 height
+- Fixed Issue 3 by adding "flex" to desktop className
+- Identified Issue 1 (mobile capsule double display): CSS specificity conflict between Tailwind hidden/flex classes
+- Fixed Issue 1 by replacing class-based show/hide with inline style display control (mobile: display:none/flex, desktop: visibility:hidden/visible)
+- Implemented Issue 5 (Lark per-user task groups): Added getOrCreateUserProjectTaskList() function in client.ts, updated syncTaskToLark to use per-user task lists named "ProjectName — UserName"
+- Optimized speed (Issues 2 & 4): Added 30s in-memory cache for Lark config, replaced raw SQL with Prisma query for LarkTaskMapping lookups
+- Viewport maximumScale was already fixed to 1
+- Committed and pushed to GitHub
+
+Stage Summary:
+- 5 files modified: floating-task-board.tsx, tasks/route.ts, lark/auth.ts, lark/client.ts, lark/sync.ts
+- Pushed as commit 7d7602a to trishulhub-svg/trishulhub-dashboard main branch
+- All TypeScript checks pass (pre-existing errors only in unrelated files/ directory)
+
