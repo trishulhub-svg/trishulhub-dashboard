@@ -312,17 +312,21 @@ function FloatingBoardWindow({
   const [iframeReady, setIframeReady] = useState(false);
   const iframeSrc = `/dashboard/projects/${board.projectId}`;
 
-  // Use visibility instead of display:none to keep layout alive
-  // This is instant — no reflow, no paint, no re-render
+  // Use inline display/visibility for reliable show/hide control.
+  // Mobile: display:none/flex (completely removes from layout when minimized)
+  // Desktop: visibility:hidden/visible (keeps layout alive, iframe persists)
   const windowVisible = !board.minimized;
 
   return (
     <>
-      {/* ── The actual window (instantly hidden/shown via visibility) ── */}
+      {/* ── The actual window ── */}
       <div
         ref={elRef}
         style={{
-          visibility: windowVisible ? "visible" : "hidden",
+          // Mobile: use display for complete removal; Desktop: always flex
+          display: isMobile ? (windowVisible ? "flex" : "none") : "flex",
+          // Desktop: use visibility to hide without unmounting iframe
+          visibility: isMobile ? "visible" : (windowVisible ? "visible" : "hidden"),
           pointerEvents: windowVisible ? "auto" : "none",
           left: board.position.x,
           top: board.position.y,
@@ -331,7 +335,7 @@ function FloatingBoardWindow({
           zIndex: board.zIndex,
         }}
         className={isMobile
-          ? `fixed inset-0 z-[10000] flex-col ${windowVisible ? "flex" : "hidden"} bg-white dark:bg-[#0a0a0a]`
+          ? `fixed inset-0 z-[10000] flex-col bg-white dark:bg-[#0a0a0a]`
           : `fixed flex-col overflow-hidden
              rounded-2xl
              bg-white/75 dark:bg-black/40

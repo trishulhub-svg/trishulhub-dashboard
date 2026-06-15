@@ -220,6 +220,58 @@ export async function getOrCreateProjectTaskList(
   return null
 }
 
+/** Find or create a per-user task list for a project.
+ * Each user gets their own Lark task list per project so that
+ * tasks are grouped by user in Lark Task Center.
+ * Format: "${projectName} — ${userName}"
+ * Stores the mapping in AppSetting with key: lark_tasklist_${projectId}_${userId}
+ */
+export async function getOrCreateUserProjectTaskList(
+  projectId: string,
+  projectName: string,
+  userId: string,
+  userName: string
+): Promise<{ tasklistId: string; created: boolean } | null> {
+  const config = await getLarkConfig()
+  if (!config?.enabled) return null
+
+  const { getAppSetting, setAppSetting } = await import("@/lib/db")
+  const settingKey = `lark_tasklist_${projectId}_${userId}`
+  const existingMapping = await getAppSetting(settingKey)
+
+  if (existingMapping) {
+    try {
+      const parsed = JSON.parse(existingMapping)
+      if (parsed.tasklistId) {
+        return { tasklistId: parsed.tasklistId, created: false }
+      }
+    } catch {
+      // Invalid mapping, continue to find/create
+    }
+  }
+
+  // Build the task list name: "ProjectName — UserName"
+  const listName = `${projectName} — ${userName}`
+
+  // Search existing task lists for a match
+  const taskLists = await getTaskLists()
+  const existing = taskLists.find((tl) => tl.name === listName)
+
+  if (existing) {
+    await setAppSetting(settingKey, JSON.stringify({ tasklistId: existing.tasklist_id }))
+    return { tasklistId: existing.tasklist_id, created: false }
+  }
+
+  // Create new task list
+  const newTaskList = await createTaskList(listName, `Tasks for ${userName} on project: ${projectName}`)
+  if (newTaskList) {
+    await setAppSetting(settingKey, JSON.stringify({ tasklistId: newTaskList.tasklist_id }))
+    return { tasklistId: newTaskList.tasklist_id, created: true }
+  }
+
+  return null
+}
+
 // ━━ TASK OPERATIONS ━━
 
 /** Create a task in Lark.

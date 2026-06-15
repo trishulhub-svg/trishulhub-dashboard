@@ -42,10 +42,10 @@ function serializeTask(t: any) {
 async function getLarkTaskIds(taskIds: string[]): Promise<Record<string, string>> {
   if (taskIds.length === 0) return {}
   try {
-    const rows = await db.$queryRawUnsafe<Array<{ taskId: string; larkTaskId: string }>>(
-      'SELECT "taskId", "larkTaskId" FROM "LarkTaskMapping" WHERE "taskId" IN (?)',
-      taskIds
-    )
+    const rows = await db.larkTaskMapping.findMany({
+      where: { taskId: { in: taskIds } },
+      select: { taskId: true, larkTaskId: true },
+    })
     const map: Record<string, string> = {}
     for (const r of rows) map[r.taskId] = r.larkTaskId
     return map
@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
     assignedTo: task.assignedTo || undefined,
     projectId: task.projectId || undefined,
     deadline: task.deadline || undefined,
-  }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
+  }, userId, session.user.name || undefined).catch((err) => console.error("[tasks] Lark sync error:", err))
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
   void logAudit({
     userId, userName: session.user.name || "unknown", userRole,

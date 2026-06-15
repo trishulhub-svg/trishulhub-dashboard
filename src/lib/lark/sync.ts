@@ -6,6 +6,7 @@ import {
   updateTask,
   deleteTask as larkDeleteTask,
   getOrCreateProjectTaskList,
+  getOrCreateUserProjectTaskList,
   getAllUsers,
   lookupUserByEmail,
   addTaskMember,
@@ -241,38 +242,38 @@ export async function syncTaskToLark(
     projectId?: string
     deadline?: string | Date
   },
-  userId: string
+  userId: string,
+  userName?: string
 ): Promise<void> {
   const config = await getLarkConfig()
   if (!config?.enabled) return
 
   try {
-    // Get or create the task list for the project
+    // Get or create the per-user task list for the project
     let tasklistId: string | undefined
 
     if (data.projectId) {
       const project = await db.project.findUnique({ where: { id: data.projectId }, select: { name: true } })
       if (project) {
-        // Try to get or create the project task list (retry once on failure)
-        let result = await getOrCreateProjectTaskList(data.projectId, project.name)
+        // Use per-user task list: "ProjectName — UserName"
+        const creatorName = userName || (await db.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || userId
+        let result = await getOrCreateUserProjectTaskList(data.projectId, project.name, userId, creatorName)
         if (!result) {
           // Retry once — transient API errors can cause first attempt to fail
-          console.warn(`[lark/sync] Retrying task list creation for project ${data.projectId} (${project.name})`)
-          result = await getOrCreateProjectTaskList(data.projectId, project.name)
+          console.warn(`[lark/sync] Retrying per-user task list creation for project ${data.projectId} (${project.name}) user ${creatorName}`)
+          result = await getOrCreateUserProjectTaskList(data.projectId, project.name, userId, creatorName)
         }
         if (result) {
           tasklistId = result.tasklistId
           if (result.created) {
-            console.log(`[lark/sync] Created new Lark task list for project: ${project.name}`)
+            console.log(`[lark/sync] Created new per-user Lark task list: ${project.name} — ${creatorName}`)
           }
         } else {
-          console.error(`[lark/sync] FAILED to get/create task list for project ${data.projectId} (${project.name}) — aborting sync, task will NOT fall to default list`)
-          await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Failed to create project task list for "${project.name}"` })
-          // Don't fall back to default — if the task has a project, it MUST go to that project's list
+          console.error(`[lark/sync] FAILED to get/create per-user task list for project ${data.projectId} user ${userId} — aborting sync`)
+          await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Failed to create per-user task list for "${project.name}"` })
           return
         }
       } else {
-        // Project exists in task data but not found in DB — don't silently fall to default
         console.error(`[lark/sync] Project ${data.projectId} not found in DB — aborting sync`)
         await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: `Project ${data.projectId} not found in database` })
         return
@@ -281,7 +282,8 @@ export async function syncTaskToLark(
 
     if (!tasklistId) {
       // No project — use a default "TrishulHub Tasks" list
-      const defaultResult = await getOrCreateProjectTaskList("__default__", "TrishulHub Tasks")
+      const creatorName = userName || (await db.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || userId
+      const defaultResult = await getOrCreateUserProjectTaskList("__default__", "TrishulHub Tasks", userId, creatorName)
       if (!defaultResult) {
         await logSync({ direction: "TO_LARK", action: "CREATE", status: "FAILED", taskId, userId, error: "Failed to get/create default task list" })
         return
