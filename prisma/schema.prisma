@@ -497,6 +497,15 @@ model Task {
   @@index([category])
 }
 
+// ━━ Lark Integration ━━
+model LarkTaskMapping {
+  id             String   @id @default(cuid())
+  taskId         String   @unique
+  larkTaskId     String   @unique
+  larkTaskListId String
+  createdAt      DateTime @default(now())
+}
+
 // ━━ Invoices ━━
 // TODO: Convert these String fields to Prisma enums for DB-level validation:
 // InvoiceStatus, PaymentStatus, PaymentMethod, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
