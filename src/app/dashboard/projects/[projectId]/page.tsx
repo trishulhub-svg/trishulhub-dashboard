@@ -208,14 +208,14 @@ export default function ProjectDetailPage() {
       const ud = deepSanitize(await res.json());
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
-    enabled: isAdminUser,
+    enabled: !isInIframe && isAdminUser,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
 
-  // ── React Query: Websites with caching ──
+  // ── React Query: Websites — SKIP in iframe (not needed for task board)
   const { data: websitesData = [] } = useQuery({
     queryKey: ["project-websites", projectId],
     queryFn: async () => {
@@ -226,7 +226,7 @@ export default function ProjectDetailPage() {
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
-    enabled: !!projectId && isAdminUser,
+    enabled: !isInIframe && !!projectId && isAdminUser,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,

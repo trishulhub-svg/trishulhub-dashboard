@@ -310,6 +310,9 @@ export async function createTask(
  *  Supported body fields: summary?, description?, due?, status?, priority?
  *  NOTE: `assignee` changes go through addTaskMember/removeTaskMember, NOT here.
  *  NOTE: `extra` is NOT a valid field — causes 400.
+ *  NOTE: `due` expects timestamp in SECONDS, not milliseconds.
+ *  NOTE: `description` must be rich text format (array of content blocks).
+ *        If description is empty/whitespace-only, skip it to avoid 99992402.
  */
 export async function updateTask(
   taskId: string,
@@ -321,29 +324,69 @@ export async function updateTask(
     dueTimestamp?: number
   }
 ): Promise<LarkTask | null> {
-  const body: Record<string, unknown> = {}
+  // Build update fields individually — send each in its own request
+  // to avoid one bad field breaking the entire update (99992402)
+  const fields: Array<{ field: string; body: Record<string, unknown> }> = []
 
-  if (params.title !== undefined) body.summary = params.title
-  if (params.description !== undefined) {
-    // Lark v2 expects rich text format for description, not plain string
-    body.description = [{ tag: "text", text: params.description }]
+  if (params.title !== undefined && params.title.trim()) {
+    fields.push({ field: "summary", body: { summary: params.title } })
   }
-  if (params.dueTimestamp !== undefined) body.due = { timestamp: String(params.dueTimestamp) }
+
+  if (params.description !== undefined && params.description.trim()) {
+    // Lark v2 expects rich text format for description
+    fields.push({
+      field: "description",
+      body: { description: [{ tag: "text", text: params.description }] }
+    })
+  }
+
+  if (params.dueTimestamp !== undefined) {
+    // Lark expects timestamp in SECONDS, not milliseconds
+    const tsSeconds = Math.floor(params.dueTimestamp / 1000)
+    fields.push({
+      field: "due",
+      body: { due: { timestamp: String(tsSeconds) } }
+    })
+  }
 
   if (params.status !== undefined) {
-    body.status = STATUS_TO_LARK[params.status] || "todo"
+    fields.push({
+      field: "status",
+      body: { status: STATUS_TO_LARK[params.status] || "todo" }
+    })
   }
+
   if (params.priority !== undefined) {
-    body.priority = PRIORITY_TO_LARK[params.priority] || "normal"
+    fields.push({
+      field: "priority",
+      body: { priority: PRIORITY_TO_LARK[params.priority] || "normal" }
+    })
   }
 
-  const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  })
+  // If no fields to update, fetch and return current task
+  if (fields.length === 0) {
+    return null
+  }
 
-  const raw = res.data?.task
-  return raw ? normalizeTask(raw) : null
+  let lastTask: LarkTask | null = null
+
+  // Apply each field update separately — one failure won't block others
+  for (const { field, body } of fields) {
+    try {
+      const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      })
+      if (res.data?.task) {
+        lastTask = normalizeTask(res.data.task)
+      }
+    } catch (err) {
+      // Log but don't throw — continue with remaining fields
+      console.warn(`[lark/client] updateTask: failed to update field "${field}" for task ${taskId}:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  return lastTask
 }
 
 /** Delete a task in Lark */
