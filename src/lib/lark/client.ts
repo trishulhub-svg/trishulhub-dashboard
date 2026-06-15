@@ -313,6 +313,8 @@ export async function createTask(
  *  NOTE: `due` expects timestamp in SECONDS, not milliseconds.
  *  NOTE: `description` must be rich text format (array of content blocks).
  *        If description is empty/whitespace-only, skip it to avoid 99992402.
+ *  Strategy: Send all safe fields in ONE PATCH. If it fails, retry without
+ *  description (the most likely problem field).
  */
 export async function updateTask(
   taskId: string,
@@ -324,69 +326,84 @@ export async function updateTask(
     dueTimestamp?: number
   }
 ): Promise<LarkTask | null> {
-  // Build update fields individually — send each in its own request
-  // to avoid one bad field breaking the entire update (99992402)
-  const fields: Array<{ field: string; body: Record<string, unknown> }> = []
+  // Build the update body — skip empty/unset fields
+  const body: Record<string, unknown> = {}
 
   if (params.title !== undefined && params.title.trim()) {
-    fields.push({ field: "summary", body: { summary: params.title } })
+    body.summary = params.title
   }
 
+  // Only include description if it has actual content
+  // Empty/whitespace-only description causes 99992402 field validation error
   if (params.description !== undefined && params.description.trim()) {
-    // Lark v2 expects rich text format for description
-    fields.push({
-      field: "description",
-      body: { description: [{ tag: "text", text: params.description }] }
-    })
+    body.description = [{ tag: "text", text: params.description }]
   }
 
+  // Lark expects timestamp in SECONDS, not milliseconds
   if (params.dueTimestamp !== undefined) {
-    // Lark expects timestamp in SECONDS, not milliseconds
-    const tsSeconds = Math.floor(params.dueTimestamp / 1000)
-    fields.push({
-      field: "due",
-      body: { due: { timestamp: String(tsSeconds) } }
-    })
+    body.due = { timestamp: String(Math.floor(params.dueTimestamp / 1000)) }
   }
 
   if (params.status !== undefined) {
-    fields.push({
-      field: "status",
-      body: { status: STATUS_TO_LARK[params.status] || "todo" }
-    })
+    body.status = STATUS_TO_LARK[params.status] || "todo"
   }
 
   if (params.priority !== undefined) {
-    fields.push({
-      field: "priority",
-      body: { priority: PRIORITY_TO_LARK[params.priority] || "normal" }
-    })
+    body.priority = PRIORITY_TO_LARK[params.priority] || "normal"
   }
 
-  // If no fields to update, fetch and return current task
-  if (fields.length === 0) {
+  if (Object.keys(body).length === 0) {
     return null
   }
 
-  let lastTask: LarkTask | null = null
+  // First attempt: send all fields
+  try {
+    const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })
+    const raw = res.data?.task
+    return raw ? normalizeTask(raw) : null
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
 
-  // Apply each field update separately — one failure won't block others
-  for (const { field, body } of fields) {
-    try {
-      const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      })
-      if (res.data?.task) {
-        lastTask = normalizeTask(res.data.task)
+    // If the error is 99992402 (field validation) and we sent a description,
+    // retry WITHOUT description — it's the most common failure cause
+    if (msg.includes("99992402") && body.description) {
+      console.warn(`[lark/client] updateTask: 99992402 error, retrying without description for task ${taskId}`)
+      const { description: _desc, ...bodyWithoutDesc } = body
+      try {
+        const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify(bodyWithoutDesc),
+        })
+        const raw = res.data?.task
+        return raw ? normalizeTask(raw) : null
+      } catch (retryErr) {
+        // If retry also fails with 99992402, try without due date too
+        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr)
+        if (retryMsg.includes("99992402") && bodyWithoutDesc.due) {
+          console.warn(`[lark/client] updateTask: 99992402 still failing, retrying without due for task ${taskId}`)
+          const { due: _due, ...bodyMinimal } = bodyWithoutDesc as Record<string, unknown>
+          delete bodyMinimal.description
+          try {
+            const res = await larkFetch<{ task: Record<string, unknown> }>(`/task/v2/tasks/${taskId}`, {
+              method: "PATCH",
+              body: JSON.stringify(bodyMinimal),
+            })
+            const raw = res.data?.task
+            return raw ? normalizeTask(raw) : null
+          } catch (finalErr) {
+            console.error(`[lark/client] updateTask: all retry attempts failed for task ${taskId}:`, finalErr instanceof Error ? finalErr.message : finalErr)
+            throw finalErr
+          }
+        }
+        throw retryErr
       }
-    } catch (err) {
-      // Log but don't throw — continue with remaining fields
-      console.warn(`[lark/client] updateTask: failed to update field "${field}" for task ${taskId}:`, err instanceof Error ? err.message : err)
     }
-  }
 
-  return lastTask
+    throw err
+  }
 }
 
 /** Delete a task in Lark */

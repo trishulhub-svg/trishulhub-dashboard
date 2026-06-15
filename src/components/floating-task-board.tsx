@@ -16,31 +16,82 @@ function useIsMobile() {
   return isMobile;
 }
 
-// ─── Touch + Mouse drag/resize helpers ─────────────────────────────────
+// ─── Imperative drag/resize (outside React lifecycle — no stale closures) ─
 function useDragResize(
   elRef: React.RefObject<HTMLDivElement | null>,
   onPositionChange: (pos: { x: number; y: number }) => void,
   onSizeChange: (size: { width: number; height: number }) => void,
   isMobile: boolean,
 ) {
-  const dragState = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
-  const resizeState = useRef<{ sx: number; sy: number; ow: number; oh: number } | null>(null);
+  // Keep latest callbacks in refs so imperative handlers always have fresh values
+  const onPosRef = useRef(onPositionChange);
+  const onSzRef = useRef(onSizeChange);
+  onPosRef.current = onPositionChange;
+  onSzRef.current = onSizeChange;
 
   const startDrag = useCallback(
     (e: React.MouseEvent | React.TouchEvent, origX: number, origY: number) => {
       if ((e.target as HTMLElement).closest("button")) return;
-      const isMouseEvent = "clientX" in e;
-      if (!isMouseEvent) {
-        (e as React.TouchEvent).preventDefault();
-      } else {
-        (e as React.MouseEvent).preventDefault();
-      }
-      const pt = isMouseEvent
-        ? { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY }
-        : { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      dragState.current = { sx: pt.x, sy: pt.y, ox: origX, oy: origY };
+      const isMouse = "clientX" in e;
+      if (!isMouse) (e as React.TouchEvent).preventDefault();
+
+      const el = elRef.current;
+      if (!el) return;
+
+      const startX = isMouse ? (e as React.MouseEvent).clientX : e.touches[0].clientX;
+      const startY = isMouse ? (e as React.MouseEvent).clientY : e.touches[0].clientY;
+      let hasMoved = false;
+      let lastX = origX;
+      let lastY = origY;
+
+      // Block iframe pointer events during drag
+      const iframe = el.querySelector("iframe") as HTMLIFrameElement | null;
+      if (iframe) iframe.style.pointerEvents = "none";
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        const cx = "clientX" in ev
+          ? (ev as MouseEvent).clientX
+          : (ev as TouchEvent).touches[0].clientX;
+        const cy = "clientY" in ev
+          ? (ev as MouseEvent).clientY
+          : (ev as TouchEvent).touches[0].clientY;
+        const dx = cx - startX;
+        const dy = cy - startY;
+
+        // Require 5px movement before starting actual drag (prevents accidental drags)
+        if (!hasMoved) {
+          if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+          hasMoved = true;
+          if (isMouse) (ev as MouseEvent).preventDefault();
+        }
+
+        const nx = Math.max(0, Math.min(window.innerWidth - 60, origX + dx));
+        const ny = Math.max(0, Math.min(window.innerHeight - 50, origY + dy));
+        el.style.left = nx + "px";
+        el.style.top = ny + "px";
+        lastX = nx;
+        lastY = ny;
+      };
+
+      const onUp = () => {
+        if (iframe) iframe.style.pointerEvents = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        window.removeEventListener("touchmove", onMove);
+        window.removeEventListener("touchend", onUp);
+        window.removeEventListener("touchcancel", onUp);
+        if (hasMoved) {
+          onPosRef.current({ x: lastX, y: lastY });
+        }
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      window.addEventListener("touchmove", onMove, { passive: false });
+      window.addEventListener("touchend", onUp);
+      window.addEventListener("touchcancel", onUp);
     },
-    []
+    [elRef]
   );
 
   const startResize = useCallback(
@@ -48,64 +99,43 @@ function useDragResize(
       if (isMobile) return;
       e.preventDefault();
       e.stopPropagation();
-      const pt = { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY };
-      resizeState.current = { sx: pt.x, sy: pt.y, ow: origW, oh: origH };
+
+      const el = elRef.current;
+      if (!el) return;
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let lastW = origW;
+      let lastH = origH;
+
+      // Block iframe pointer events during resize — prevents iframe from stealing mouseup
+      const iframe = el.querySelector("iframe") as HTMLIFrameElement | null;
+      if (iframe) iframe.style.pointerEvents = "none";
+
+      const onMove = (ev: MouseEvent) => {
+        const nw = Math.max(420, origW + (ev.clientX - startX));
+        const nh = Math.max(260, origH + (ev.clientY - startY));
+        el.style.width = nw + "px";
+        el.style.height = nh + "px";
+        lastW = nw;
+        lastH = nh;
+      };
+
+      const onUp = () => {
+        // ALWAYS restore iframe and clean up — even if mouse was captured
+        if (iframe) iframe.style.pointerEvents = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        onSzRef.current({ width: lastW, height: lastH });
+      };
+
+      // Use DOCUMENT level with capture for mouseup — more reliable than window
+      // This ensures we catch the mouseup even if iframe briefly captures it
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp, true); // capture phase
     },
-    [isMobile]
+    [elRef, isMobile]
   );
-
-  useEffect(() => {
-    const onPointerMove = (e: Event) => {
-      const isMouseEvent = e instanceof MouseEvent;
-      const pt = isMouseEvent
-        ? { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY }
-        : { x: (e as TouchEvent).touches[0].clientX, y: (e as TouchEvent).touches[0].clientY };
-
-      if (dragState.current && elRef.current) {
-        const { sx, sy, ox, oy } = dragState.current;
-        const nx = Math.max(0, Math.min(window.innerWidth - 60, ox + (pt.x - sx)));
-        const ny = Math.max(0, Math.min(window.innerHeight - 50, oy + (pt.y - sy)));
-        elRef.current.style.left = nx + "px";
-        elRef.current.style.top = ny + "px";
-      }
-      if (resizeState.current && elRef.current && !isMobile) {
-        const { sx, sy, ow, oh } = resizeState.current;
-        const nw = Math.max(420, ow + (pt.x - sx));
-        const nh = Math.max(260, oh + (pt.y - sy));
-        elRef.current.style.width = nw + "px";
-        elRef.current.style.height = nh + "px";
-      }
-    };
-
-    const onPointerUp = () => {
-      if (dragState.current && elRef.current) {
-        const fx = parseInt(elRef.current.style.left) || dragState.current.ox;
-        const fy = parseInt(elRef.current.style.top) || dragState.current.oy;
-        onPositionChange({ x: fx, y: fy });
-        dragState.current = null;
-      }
-      if (resizeState.current && elRef.current) {
-        const fw = parseInt(elRef.current.style.width) || resizeState.current.ow;
-        const fh = parseInt(elRef.current.style.height) || resizeState.current.oh;
-        onSizeChange({ width: fw, height: fh });
-        resizeState.current = null;
-      }
-    };
-
-    window.addEventListener("mousemove", onPointerMove);
-    window.addEventListener("mouseup", onPointerUp);
-    window.addEventListener("touchmove", onPointerMove, { passive: false });
-    window.addEventListener("touchend", onPointerUp);
-    window.addEventListener("touchcancel", onPointerUp);
-
-    return () => {
-      window.removeEventListener("mousemove", onPointerMove);
-      window.removeEventListener("mouseup", onPointerUp);
-      window.removeEventListener("touchmove", onPointerMove);
-      window.removeEventListener("touchend", onPointerUp);
-      window.removeEventListener("touchcancel", onPointerUp);
-    };
-  }, [elRef, onPositionChange, onSizeChange, isMobile]);
 
   return { startDrag, startResize };
 }
@@ -189,13 +219,10 @@ function SmartCapsuleHub({
   const hasMovedRef = useRef(false);
   const touchActiveRef = useRef(false);
 
-  // Calculate bottom position — fixed to bottom-right area
   const bottomOffset = isMobile ? 24 : 16;
   const defaultY = typeof window !== "undefined"
     ? window.innerHeight - bottomOffset - 40
     : 0;
-
-  // Use first board's stored X position or default
   const defaultX = typeof window !== "undefined"
     ? Math.min(position.x, window.innerWidth - (expanded ? 220 : 180))
     : 16;
@@ -205,7 +232,7 @@ function SmartCapsuleHub({
     const y = window.innerHeight - bottomOffset - 40;
     const x = Math.min(position.x, window.innerWidth - (expanded ? 220 : 180));
     setPosition({ x, y });
-  }, [expanded]);
+  }, [expanded, bottomOffset]);
 
   // Close expanded panel when clicking outside
   useEffect(() => {
@@ -215,7 +242,6 @@ function SmartCapsuleHub({
         setExpanded(false);
       }
     };
-    // Delay to prevent immediate close
     const timer = setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("touchstart", handleClickOutside);
@@ -227,13 +253,13 @@ function SmartCapsuleHub({
     };
   }, [expanded]);
 
-  // Drag support for the collapsed capsule
+  // Drag support for collapsed capsule
   useEffect(() => {
     const el = hubRef.current;
     if (!el) return;
 
     const handleStart = (e: MouseEvent) => {
-      if (expanded) return; // No drag when expanded
+      if (expanded) return;
       if ((e.target as HTMLElement).closest("button")) return;
       dragStartRef.current = { sx: e.clientX, sy: e.clientY, ox: defaultX, oy: defaultY };
       hasMovedRef.current = false;
@@ -252,41 +278,28 @@ function SmartCapsuleHub({
       if (!dragStartRef.current || !el) return;
       const dx = e.clientX - dragStartRef.current.sx;
       const dy = e.clientY - dragStartRef.current.sy;
-
-      if (!hasMovedRef.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
-        hasMovedRef.current = true;
-      }
-
-      if (hasMovedRef.current) {
-        const nx = Math.max(0, Math.min(window.innerWidth - 80, dragStartRef.current.ox + dx));
-        const ny = Math.max(0, Math.min(window.innerHeight - 50, dragStartRef.current.oy + dy));
-        setPosition({ x: nx, y: ny });
-      }
+      if (!hasMovedRef.current && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return;
+      hasMovedRef.current = true;
+      const nx = Math.max(0, Math.min(window.innerWidth - 80, dragStartRef.current.ox + dx));
+      const ny = Math.max(0, Math.min(window.innerHeight - 50, dragStartRef.current.oy + dy));
+      setPosition({ x: nx, y: ny });
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!dragStartRef.current || !el) return;
       const dx = e.touches[0].clientX - dragStartRef.current.sx;
       const dy = e.touches[0].clientY - dragStartRef.current.sy;
-
-      if (!hasMovedRef.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
-        hasMovedRef.current = true;
-      }
-
-      if (hasMovedRef.current) {
-        e.preventDefault();
-        const nx = Math.max(0, Math.min(window.innerWidth - 80, dragStartRef.current.ox + dx));
-        const ny = Math.max(0, Math.min(window.innerHeight - 50, dragStartRef.current.oy + dy));
-        setPosition({ x: nx, y: ny });
-      }
+      if (!hasMovedRef.current && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return;
+      hasMovedRef.current = true;
+      e.preventDefault();
+      const nx = Math.max(0, Math.min(window.innerWidth - 80, dragStartRef.current.ox + dx));
+      const ny = Math.max(0, Math.min(window.innerHeight - 50, dragStartRef.current.oy + dy));
+      setPosition({ x: nx, y: ny });
     };
 
     const handleEnd = (e: Event) => {
       if (!touchActiveRef.current) return;
       touchActiveRef.current = false;
-      if (!dragStartRef.current) return;
-      e.stopImmediatePropagation();
-      e.stopPropagation();
       dragStartRef.current = null;
     };
 
@@ -310,7 +323,7 @@ function SmartCapsuleHub({
     };
   }, [expanded, defaultX, defaultY]);
 
-  const handleToggle = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+  const handleToggle = useCallback(() => {
     if (hasMovedRef.current) return;
     const now = Date.now();
     if (now - _globalRestoreLock < RESTORE_LOCK_MS) return;
@@ -332,12 +345,8 @@ function SmartCapsuleHub({
     <div
       ref={hubRef}
       className="fixed z-[9999] select-none"
-      style={{
-        left: defaultX,
-        top: defaultY,
-      }}
+      style={{ left: defaultX, top: defaultY }}
     >
-      {/* Collapsed: Single smart capsule showing count */}
       {!expanded && (
         <div
           className="group/smart flex items-center gap-2.5 pl-3 pr-2 py-2 rounded-2xl
@@ -350,16 +359,13 @@ function SmartCapsuleHub({
             hover:shadow-[0_8px_32px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.04),inset_0_0.5px_0_rgba(255,255,255,0.7)]
             dark:hover:shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_0.5px_rgba(255,255,255,0.08)]
             transition-all duration-200 ease-out
-            hover:scale-[1.02]
-            active:scale-[0.98]
-            touch-none"
+            hover:scale-[1.02] active:scale-[0.98] touch-none"
           onClick={handleToggle}
-          title={`${minimizedBoards.length} task board${minimizedBoards.length > 1 ? "s" : ""} minimized — click to expand`}
+          title={`${minimizedBoards.length} task board${minimizedBoards.length > 1 ? "s" : ""} minimized`}
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="relative w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-md shrink-0">
               <FolderKanban className="h-3 w-3 text-white" />
-              {/* Count badge */}
               <div className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center shadow-sm border border-white/30">
                 {minimizedBoards.length}
               </div>
@@ -379,7 +385,6 @@ function SmartCapsuleHub({
         </div>
       )}
 
-      {/* Expanded: Clean list of all minimized boards */}
       {expanded && (
         <div
           className="rounded-2xl overflow-hidden
@@ -391,7 +396,6 @@ function SmartCapsuleHub({
             animate-in slide-in-from-bottom-2 fade-in duration-200"
           style={{ width: Math.max(200, Math.min(240, typeof window !== "undefined" ? window.innerWidth - 40 : 240)) }}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.03]">
             <div className="flex items-center gap-2">
               <FolderKanban className="h-3.5 w-3.5 text-blue-500" />
@@ -411,8 +415,6 @@ function SmartCapsuleHub({
               <ChevronDown className="h-3 w-3" />
             </button>
           </div>
-
-          {/* Board list — no overlap, stacked cleanly */}
           <div className="max-h-[50vh] overflow-y-auto overscroll-contain">
             {minimizedBoards.map((board) => (
               <div
@@ -421,10 +423,7 @@ function SmartCapsuleHub({
                   hover:bg-black/[0.03] dark:hover:bg-white/[0.04]
                   border-b border-black/[0.03] dark:border-white/[0.04] last:border-b-0
                   transition-colors duration-100 cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRestore(board.projectId);
-                }}
+                onClick={(e) => { e.stopPropagation(); handleRestore(board.projectId); }}
               >
                 <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-500/80 to-cyan-400/80 flex items-center justify-center shadow-sm shrink-0">
                   <FolderKanban className="h-2.5 w-2.5 text-white" />
@@ -433,10 +432,7 @@ function SmartCapsuleHub({
                   {board.projectName}
                 </span>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose(board.projectId);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); onClose(board.projectId); }}
                   className="w-5 h-5 rounded-full flex items-center justify-center
                     text-muted-foreground/40 hover:text-red-500 hover:bg-red-500/10
                     opacity-0 group-hover/item:opacity-100
@@ -476,9 +472,7 @@ function FloatingBoardWindow({
   const isMobile = useIsMobile();
   const { startDrag, startResize } = useDragResize(elRef, onPositionChange, onSizeChange, isMobile);
   const [iframeReady, setIframeReady] = useState(false);
-  // Issue 2: Use ?embed=true to hide sidebar/menu inside iframe
   const iframeSrc = `/dashboard/projects/${board.projectId}?embed=true`;
-  // Glow effect when board is focused/brought to front
   const [glowing, setGlowing] = useState(false);
   const glowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -488,7 +482,7 @@ function FloatingBoardWindow({
     glowTimerRef.current = setTimeout(() => setGlowing(false), 1200);
   }, []);
 
-  // Presence heartbeat — POST every 30s while board is open and visible
+  // Presence heartbeat
   const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -537,13 +531,11 @@ function FloatingBoardWindow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Wrap onBringToFront to also trigger glow
   const handleBringToFront = useCallback(() => {
     onBringToFront();
     triggerGlow();
   }, [onBringToFront, triggerGlow]);
 
-  // Wrap onRestoreBoard to also trigger glow
   const handleRestore = useCallback(() => {
     onRestoreBoard();
     triggerGlow();
@@ -555,7 +547,7 @@ function FloatingBoardWindow({
     <div
       ref={elRef}
       style={{
-        display: isMobile ? (windowVisible ? "flex" : "none") : (windowVisible ? "flex" : "none"),
+        display: windowVisible ? "flex" : "none",
         visibility: windowVisible ? "visible" : "hidden",
         pointerEvents: windowVisible ? "auto" : "none",
         left: board.position.x,
@@ -581,7 +573,6 @@ function FloatingBoardWindow({
       }}
     >
       {isMobile ? (
-        /* ── Mobile: full screen overlay ── */
         <>
           <div className="flex items-center justify-between px-3 py-2.5 shrink-0 select-none
             bg-white/80 dark:bg-white/[0.06]
@@ -625,7 +616,6 @@ function FloatingBoardWindow({
           </div>
         </>
       ) : (
-        /* ── Desktop: floating draggable window with liquid glass ── */
         <>
           {/* Title Bar */}
           <div
@@ -672,7 +662,7 @@ function FloatingBoardWindow({
             />
           </div>
 
-          {/* Visible Resize Handle (desktop only) */}
+          {/* Visible Resize Handle — desktop only, with proper mouse handling */}
           {!isMobile && (
             <div
               onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
@@ -682,7 +672,7 @@ function FloatingBoardWindow({
                 transition-colors duration-150"
               title="Drag to resize"
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-foreground/25 hover:text-blue-500 transition-colors">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-foreground/30 hover:text-blue-500 transition-colors">
                 <path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
@@ -733,7 +723,6 @@ export function FloatingBoardRenderer() {
         </button>
       )}
 
-      {/* Render open (non-minimized) boards as floating windows */}
       {boards
         .filter((b) => !b.minimized)
         .map((board) => (
@@ -750,7 +739,6 @@ export function FloatingBoardRenderer() {
         ))
       }
 
-      {/* Single smart capsule for ALL minimized boards */}
       {minimizedBoards.length > 0 && (
         <SmartCapsuleHub
           minimizedBoards={minimizedBoards}

@@ -139,10 +139,19 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
         projectName,
         position: isMobile
           ? { x: 0, y: 0 }
-          : {
-              x: Math.min(100 + updated.length * 28, (typeof window !== "undefined" ? window.innerWidth : 1200) - 600),
-              y: Math.min(60 + updated.length * 28, (typeof window !== "undefined" ? window.innerHeight : 800) - 450),
-            },
+          : (() => {
+              const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+              const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+              const w = Math.max(520, Math.min(840, vw - 120));
+              const h = Math.max(380, Math.min(580, vh - 100));
+              // Smart positioning: open upward when viewport is short
+              // This ensures the board fits on screen and capsules remain accessible
+              const x = Math.min(100 + updated.length * 28, vw - w - 20);
+              const y = vh < 700
+                ? Math.max(10, vh - h - 10)  // upward: align to bottom with small margin
+                : Math.min(60 + updated.length * 28, vh - h - 10);
+              return { x, y };
+            })(),
         size: isMobile
           ? { width: typeof window !== "undefined" ? window.innerWidth : 375, height: typeof window !== "undefined" ? window.innerHeight : 667 }
           : {
