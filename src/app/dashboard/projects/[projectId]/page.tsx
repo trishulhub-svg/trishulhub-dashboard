@@ -220,7 +220,7 @@ export default function ProjectDetailPage() {
     queryKey: ["project-websites", projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const res = await fetch(`/api/projects/${projectId}/websites", { credentials: "include" });
+      const res = await fetch(`/api/projects/${projectId}/websites`, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) return [];
       const raw = deepSanitize(await res.json());
