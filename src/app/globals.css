@@ -754,6 +754,29 @@ table tbody tr:hover {
     inset 0 1px 0 oklch(1 0 0 / 55%);
 }
 
+/* Session reason banner — fixed overlay, doesn't push content */
+.login-reason-banner {
+  background: oklch(0.58 0.08 240 / 0.92);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  color: oklch(0.98 0 0);
+  border-bottom: 1px solid oklch(1 0 0 / 15%);
+  box-shadow: 0 2px 12px oklch(0 0 0 / 0.08);
+  animation: login-fade-up 0.4s ease-out both;
+  animation-delay: 0.1s;
+}
+
+.dark .login-reason-banner {
+  background: oklch(0.25 0.04 240 / 0.95);
+  border-bottom-color: oklch(1 0 0 / 8%);
+  color: oklch(0.95 0 0);
+}
+
+.bluelight .login-reason-banner {
+  background: oklch(0.55 0.06 75 / 0.95);
+  color: oklch(0.3 0.02 60);
+}
+
 /* ── Inputs — glass style ── */
 .login-input-wrap {
   position: relative;
@@ -1048,5 +1071,8 @@ table tbody tr:hover {
   }
   .login-brand-text {
     margin-top: 0.25rem;
+  }
+  .login-security-badge {
+    display: none;
   }
 }
