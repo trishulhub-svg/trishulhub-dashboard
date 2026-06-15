@@ -246,7 +246,11 @@ export async function syncTaskToLark(
   userName?: string
 ): Promise<void> {
   const config = await getLarkConfig()
-  if (!config?.enabled) return
+  if (!config?.enabled) {
+    console.warn(`[lark/sync] syncTaskToLark SKIPPED for ${taskId} — Lark sync is disabled`)
+    await logSync({ direction: "TO_LARK", action: "CREATE", status: "SKIPPED", taskId, userId, error: "Lark sync is disabled in Access Hub settings" })
+    return
+  }
 
   try {
     // Get or create the per-user task list for the project

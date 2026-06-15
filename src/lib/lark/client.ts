@@ -439,7 +439,9 @@ export async function lookupUserByEmail(email: string): Promise<LarkUser | null>
   if (userList.length === 0) return null
 
   const userId = userList[0].user_id
-  const userRes = await larkFetch<{ user: LarkUser }>(`/contact/v3/users/${userId}?user_id_type=user_id`)
+  // CRITICAL: Use user_id_type=open_id so the returned user has open_id
+  // (addTaskMember requires open_id, not user_id)
+  const userRes = await larkFetch<{ user: LarkUser }>(`/contact/v3/users/${userId}?user_id_type=open_id`)
 
   return userRes.data?.user || null
 }

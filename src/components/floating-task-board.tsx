@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useCallback, useEffect, useState } from "react";
-import { X, FolderKanban, Minus } from "lucide-react";
+import { X, FolderKanban, Minus, Eye, EyeOff } from "lucide-react";
 import { useFloatingBoards, type FloatingBoard } from "./providers/floating-board-provider";
 
 // ─── Mobile detection hook ────────────────────────────────────────────
@@ -45,7 +45,7 @@ function useDragResize(
 
   const startResize = useCallback(
     (e: React.MouseEvent, origW: number, origH: number) => {
-      if (isMobile) return;
+      if (isMobile) return; // PC-only resize
       e.preventDefault();
       e.stopPropagation();
       resizeState.current = { sx: e.clientX, sy: e.clientY, ow: origW, oh: origH };
@@ -133,14 +133,11 @@ function MinimizedCapsule({
   const isMobile = useIsMobile();
   const hasMoved = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null);
-  // Prevent double-fire: ignore restore if called within 400ms
   const lastRestoreRef = useRef(0);
-  // Stable refs for callbacks — avoid effect re-running on every render
   const onRestoreRef = useRef(onRestore);
   const onPositionChangeRef = useRef(onPositionChange);
   onRestoreRef.current = onRestore;
   onPositionChangeRef.current = onPositionChange;
-  // Track if this capsule's touch is active
   const touchActiveRef = useRef(false);
 
   const bottomOffset = isMobile ? 24 + boardIndex * 48 : 16;
@@ -187,16 +184,12 @@ function MinimizedCapsule({
     };
 
     const handleEnd = (e: Event) => {
-      // Only handle if THIS capsule's touch is active
       if (!touchActiveRef.current) return;
       touchActiveRef.current = false;
       if (!dragStartPos.current || !el) return;
-      // CRITICAL: stopImmediatePropagation to prevent ALL other capsule
-      // listeners (registered on window capture) from firing
       e.stopImmediatePropagation();
       e.stopPropagation();
       if (!hasMoved.current) {
-        // Global restore lock — only one capsule can restore at a time
         const now = Date.now();
         if (now - _globalRestoreLock < RESTORE_LOCK_MS) return;
         if (now - lastRestoreRef.current < 400) return;
@@ -281,10 +274,65 @@ function MinimizedCapsule({
   );
 }
 
+// ─── Presence indicator (shows other users viewing the same board) ─────
+interface PresenceUser {
+  userId: string;
+  userName: string;
+  status: "active" | "idle";
+  lastSeen: number;
+}
+
+function PresenceIndicator({ projectId }: { projectId: string }) {
+  const [users, setUsers] = useState<PresenceUser[]>([]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    // Fetch presence every 15s
+    const fetchPresence = async () => {
+      try {
+        const res = await fetch(`/api/board-presence?projectId=${projectId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setUsers(data.users || []);
+        }
+      } catch { /* silent */ }
+    };
+
+    fetchPresence();
+    intervalRef.current = setInterval(fetchPresence, 15000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [projectId]);
+
+  if (users.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 ml-auto mr-1">
+      <div className="flex -space-x-1.5">
+        {users.slice(0, 4).map((u) => (
+          <div
+            key={u.userId}
+            className="relative"
+            title={`${u.userName} — ${u.status === "active" ? "Viewing now" : "Inactive"}`}
+          >
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-400 flex items-center justify-center text-[8px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-black/40">
+              {u.userName.charAt(0).toUpperCase()}
+            </div>
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-black/60 ${
+              u.status === "active" ? "bg-emerald-400" : "bg-amber-400"
+            }`} />
+          </div>
+        ))}
+      </div>
+      {users.length > 4 && (
+        <span className="text-[9px] text-muted-foreground/70 font-medium">+{users.length - 4}</span>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Floating Window ─────────────────────────────────────────────
-// KEY: The iframe is ALWAYS rendered (never unmounted). When minimized,
-// the window is hidden with visibility:hidden + pointer-events:none.
-// Capsule renders conditionally. This makes restore INSTANT.
 function FloatingBoardWindow({
   board,
   boardIndex,
@@ -310,11 +358,81 @@ function FloatingBoardWindow({
   const isMobile = useIsMobile();
   const { startDrag, startResize } = useDragResize(elRef, onPositionChange, onSizeChange, isMobile);
   const [iframeReady, setIframeReady] = useState(false);
-  const iframeSrc = `/dashboard/projects/${board.projectId}`;
+  // Issue 2: Use ?embed=true to hide sidebar/menu inside iframe
+  const iframeSrc = `/dashboard/projects/${board.projectId}?embed=true`;
+  // Glow effect when board is focused/brought to front
+  const [glowing, setGlowing] = useState(false);
+  const glowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Use inline display/visibility for reliable show/hide control.
-  // Mobile: display:none/flex (completely removes from layout when minimized)
-  // Desktop: visibility:hidden/visible (keeps layout alive, iframe persists)
+  const triggerGlow = useCallback(() => {
+    setGlowing(true);
+    if (glowTimerRef.current) clearTimeout(glowTimerRef.current);
+    glowTimerRef.current = setTimeout(() => setGlowing(false), 1200);
+  }, []);
+
+  // Presence heartbeat — POST every 30s while board is open and visible
+  const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (board.minimized) {
+      // Stop heartbeat when minimized (but don't DELETE — user still has board open)
+      if (presenceIntervalRef.current) {
+        clearInterval(presenceIntervalRef.current);
+        presenceIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const sendHeartbeat = async () => {
+      try {
+        await fetch("/api/board-presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ projectId: board.projectId }),
+        });
+      } catch { /* silent */ }
+    };
+
+    sendHeartbeat();
+    presenceIntervalRef.current = setInterval(sendHeartbeat, 30000);
+
+    return () => {
+      if (presenceIntervalRef.current) {
+        clearInterval(presenceIntervalRef.current);
+        presenceIntervalRef.current = null;
+      }
+    };
+  }, [board.projectId, board.minimized]);
+
+  // Remove presence when board is closed
+  useEffect(() => {
+    return () => {
+      // This runs when component unmounts (board closed)
+      try {
+        fetch("/api/board-presence", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ projectId: board.projectId }),
+        }).catch(() => {});
+      } catch { /* silent */ }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Wrap onBringToFront to also trigger glow
+  const handleBringToFront = useCallback(() => {
+    onBringToFront();
+    triggerGlow();
+  }, [onBringToFront, triggerGlow]);
+
+  // Wrap onRestoreBoard to also trigger glow
+  const handleRestore = useCallback(() => {
+    onRestoreBoard();
+    triggerGlow();
+  }, [onRestoreBoard, triggerGlow]);
+
   const windowVisible = !board.minimized;
 
   return (
@@ -323,9 +441,7 @@ function FloatingBoardWindow({
       <div
         ref={elRef}
         style={{
-          // Mobile: use display for complete removal; Desktop: always flex
           display: isMobile ? (windowVisible ? "flex" : "none") : "flex",
-          // Desktop: use visibility to hide without unmounting iframe
           visibility: isMobile ? "visible" : (windowVisible ? "visible" : "hidden"),
           pointerEvents: windowVisible ? "auto" : "none",
           left: board.position.x,
@@ -342,13 +458,12 @@ function FloatingBoardWindow({
              backdrop-blur-2xl saturate-[1.8]
              border border-white/40 dark:border-white/[0.1]
              shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
-             dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]`
+             dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]
+             ${glowing ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent transition-shadow duration-300" : ""}`
         }
-        onMouseDown={onBringToFront}
+        onMouseDown={handleBringToFront}
         onTouchStart={(e) => {
-          // Only bring to front when window is visible — never when minimized
-          // (prevents interference with capsule touch events)
-          if (!board.minimized) onBringToFront();
+          if (!board.minimized) handleBringToFront();
         }}
       >
         {isMobile ? (
@@ -379,6 +494,8 @@ function FloatingBoardWindow({
                   {board.projectName}
                 </span>
               </div>
+              {/* Presence indicator on mobile title bar */}
+              <PresenceIndicator projectId={board.projectId} />
             </div>
             <div className="flex-1 relative overflow-hidden">
               {!iframeReady && (
@@ -416,9 +533,13 @@ function FloatingBoardWindow({
                   {board.projectName}
                 </span>
               </div>
-              <span className="text-[8px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-foreground/50 dark:text-white/40 rounded px-1.5 h-4 flex items-center shrink-0">
-                Task Board
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Presence indicator on desktop title bar */}
+                <PresenceIndicator projectId={board.projectId} />
+                <span className="text-[8px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-foreground/50 dark:text-white/40 rounded px-1.5 h-4 flex items-center">
+                  Task Board
+                </span>
+              </div>
             </div>
 
             {/* Content */}
@@ -439,14 +560,16 @@ function FloatingBoardWindow({
               />
             </div>
 
-            {/* Resize Handle (desktop only) */}
-            <div
-              onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
-              className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-20"
-              style={{
-                background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.08) 55%, transparent 55%, transparent 65%, rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.08) 70%, transparent 70%)',
-              }}
-            />
+            {/* Resize Handle (desktop only — NOT rendered on mobile) */}
+            {!isMobile && (
+              <div
+                onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
+                className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-20"
+                style={{
+                  background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.08) 55%, transparent 55%, transparent 65%, rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.08) 70%, transparent 70%)',
+                }}
+              />
+            )}
           </>
         )}
       </div>
@@ -458,7 +581,7 @@ function FloatingBoardWindow({
           boardIndex={boardIndex}
           totalCapsules={totalCapsules}
           onClose={onClose}
-          onRestore={onRestoreBoard}
+          onRestore={handleRestore}
           onPositionChange={onPositionChange}
         />
       )}

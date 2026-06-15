@@ -515,6 +515,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  // Issue 2: When loaded inside a floating task board iframe (?embed=true),
+  // hide sidebar, header, and nested floating board renderer — show ONLY task content
+  // Using window.location.search instead of useSearchParams to avoid Suspense requirement
+  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "true";
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -700,6 +704,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!session) return null;
   // W3: Prevent CLIENT users from seeing any dashboard content before redirect
   if (userRole === "CLIENT") return null;
+
+  // Embed mode: render ONLY the page content with no sidebar/header/floating boards
+  if (isEmbed) {
+    return (
+      <FloatingBoardProvider>
+        <div className="h-screen w-full overflow-auto bg-background">
+          {children}
+        </div>
+      </FloatingBoardProvider>
+    );
+  }
 
   return (
     <FloatingBoardProvider>
