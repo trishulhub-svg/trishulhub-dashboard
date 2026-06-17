@@ -8,7 +8,7 @@ import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
   CheckCircle2, Circle, CalendarClock, Edit3, X, RefreshCw,
   Users, BarChart3, Timer, Target, Video, FileText, Eye,
-  MoreHorizontal, LayoutGrid, List,
+  MoreHorizontal, LayoutGrid, List, Copy, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -273,6 +273,15 @@ export default function AvailabilityPage() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [dailyCalendarOpen, setDailyCalendarOpen] = useState(false);
 
+  // ── Schedules tab state ──
+  const [schedUserId, setSchedUserId] = useState<string>("");
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copyTargetUserId, setCopyTargetUserId] = useState<string>("");
+  const [copying, setCopying] = useState(false);
+
+  // ── Week user filter ──
+  const [weekUserFilter, setWeekUserFilter] = useState<string>("all");
+
   // ── Week view mode ──
   const [weekViewMode, setWeekViewMode] = useState<"grid" | "cards">("grid");
 
@@ -344,6 +353,9 @@ export default function AvailabilityPage() {
         setTeamUsers(users);
         if (!dailyUserId && users.length > 0) {
           setDailyUserId(users[0].id);
+        }
+        if (!schedUserId && users.length > 0) {
+          setSchedUserId(users[0].id);
         }
       }
     } catch (err: unknown) {
@@ -622,6 +634,63 @@ export default function AvailabilityPage() {
     }
   };
 
+  // ── Copy Schedule Handler ──
+  const handleCopySchedule = async () => {
+    if (!schedUserId || !copyTargetUserId || schedUserId === copyTargetUserId) {
+      toast.error("Select a different target user");
+      return;
+    }
+    setCopying(true);
+    try {
+      const sourceSlots = availabilities.filter((a) => a.userId === schedUserId);
+      if (sourceSlots.length === 0) {
+        toast.error("No schedule found for the source user");
+        setCopying(false);
+        return;
+      }
+
+      // Delete target user's existing slots
+      const targetSlots = availabilities.filter((a) => a.userId === copyTargetUserId);
+      await Promise.all(
+        targetSlots.map((s) =>
+          fetch(`/api/availability/${s.id}`, { method: "DELETE", credentials: "include" })
+        )
+      );
+
+      // Create new slots for target (with small delay to avoid overlap conflicts)
+      let failCount = 0;
+      for (const s of sourceSlots) {
+        const res = await fetch("/api/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            userId: copyTargetUserId,
+            dayOfWeek: s.dayOfWeek,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            isAvailable: s.isAvailable,
+          }),
+        });
+        if (!res.ok) failCount++;
+      }
+
+      if (failCount === 0) {
+        toast.success("Schedule copied successfully");
+      } else {
+        toast.error(`${failCount}/${sourceSlots.length} slots failed to copy`);
+      }
+      setCopyDialogOpen(false);
+      setCopyTargetUserId("");
+      fetchCoreData();
+      fetchWeekSchedule();
+    } catch {
+      toast.error("Failed to copy schedule");
+    } finally {
+      setCopying(false);
+    }
+  };
+
   // ── Navigation ──
   const goToToday = () => setWeekOffset(0);
   const prevWeek = () => setWeekOffset((w) => w - 1);
@@ -780,6 +849,9 @@ export default function AvailabilityPage() {
           <TabsTrigger value="daily" className="text-xs sm:text-sm">
             <Clock className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Daily </span>Schedule
           </TabsTrigger>
+          <TabsTrigger value="schedules" className="text-xs sm:text-sm">
+            <LayoutGrid className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Manage </span>Schedules
+          </TabsTrigger>
           <TabsTrigger value="overrides" className="text-xs sm:text-sm">
             <CalendarClock className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Overrides </span>({upcomingOverrides.length})
           </TabsTrigger>
@@ -829,6 +901,19 @@ export default function AvailabilityPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {/* User filter */}
+              <Select value={weekUserFilter} onValueChange={setWeekUserFilter}>
+                <SelectTrigger className="w-[110px] sm:w-[160px] h-8 text-[10px] sm:text-xs">
+                  <Filter className="h-3 w-3 mr-1 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="All Users" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  {teamUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="hidden md:flex items-center border rounded-md">
                 <Button
                   variant={weekViewMode === "grid" ? "secondary" : "ghost"}
@@ -914,7 +999,9 @@ export default function AvailabilityPage() {
                     </div>
 
                     {/* User rows */}
-                    {weekSchedule.users.map((userSchedule) => (
+                    {weekSchedule.users
+                      .filter((u) => weekUserFilter === "all" || u.user.id === weekUserFilter)
+                      .map((userSchedule) => (
                       <div
                         key={userSchedule.user.id}
                         className="grid grid-cols-[130px_repeat(7,1fr)] border-b last:border-b-0 hover:bg-muted/20 transition-colors"
@@ -982,14 +1069,22 @@ export default function AvailabilityPage() {
                                     </div>
                                   ) : dayData.availability.length > 0 ? (
                                     <div className="flex flex-wrap gap-1">
-                                      {dayData.availability.slice(0, 3).map((slot) => (
-                                        <Badge
-                                          key={slot.id}
-                                          className="text-[9px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0"
-                                        >
-                                          {slot.startTime}-{slot.endTime}
-                                        </Badge>
-                                      ))}
+                                      {dayData.availability.slice(0, 3).map((slot) => {
+                                        const rawEntry = findAvailEntry(slot.id);
+                                        return (
+                                          <Badge
+                                            key={slot.id}
+                                            className={`text-[9px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 transition-colors ${rawEntry ? "cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50" : ""}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (rawEntry) openEditAvailability(rawEntry);
+                                            }}
+                                            title={rawEntry ? "Click to edit" : undefined}
+                                          >
+                                            {slot.startTime}-{slot.endTime}
+                                          </Badge>
+                                        );
+                                      })}
                                       {dayData.availability.length > 3 && (
                                         <span className="text-[9px] text-muted-foreground">+{dayData.availability.length - 3}</span>
                                       )}
@@ -1102,20 +1197,20 @@ export default function AvailabilityPage() {
                         {selectedDayDetail.dayData.availability.map((slot) => {
                           const rawEntry = findAvailEntry(slot.id);
                           return (
-                            <div key={slot.id} className="flex items-center gap-2 text-sm group">
+                            <div key={slot.id} className="flex items-center gap-2 text-sm">
                               <Clock className="h-3.5 w-3.5 text-green-500 shrink-0" />
                               <span className="flex-1">{slot.startTime} – {slot.endTime}</span>
                               <span className="text-muted-foreground text-xs">({slot.hours}h)</span>
                               {rawEntry && (
                                 <>
                                   <Button
-                                    variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                    variant="ghost" size="icon" className="h-6 w-6 shrink-0"
                                     onClick={() => openEditAvailability(rawEntry)}
                                   >
                                     <Edit3 className="h-3 w-3" />
                                   </Button>
                                   <Button
-                                    variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-red-400 hover:text-red-600"
+                                    variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-red-400 hover:text-red-600"
                                     onClick={() => setDeleteAvailId(slot.id)}
                                   >
                                     <Trash2 className="h-3 w-3" />
@@ -1460,7 +1555,7 @@ export default function AvailabilityPage() {
                               </div>
                             </div>
                             {/* Inline actions on hover */}
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover/slot:opacity-100 transition-opacity">
+                            <div className="flex items-center justify-end gap-1">
                               {rawEntry && (
                                 <>
                                   <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
@@ -1653,7 +1748,195 @@ export default function AvailabilityPage() {
         </TabsContent>
 
         {/* ═══════════════════════════════════════════════════════════════════════
-            TAB 3: Overrides
+            TAB 3: Manage Schedules (per-user weekly)
+        ═══════════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="schedules" className="space-y-4">
+          {/* Controls */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <Select value={schedUserId} onValueChange={setSchedUserId}>
+              <SelectTrigger className="w-[160px] sm:w-[220px] h-8 text-xs sm:text-sm">
+                <SelectValue placeholder="Select employee" />
+              </SelectTrigger>
+              <SelectContent>
+                {teamUsers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-4 w-4">
+                        <AvatarImage src={u.avatar || undefined} alt={u.name} />
+                        <AvatarFallback className="text-[7px]">{getUserInitials(u.name)}</AvatarFallback>
+                      </Avatar>
+                      {u.name}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => { setCopyTargetUserId(""); setCopyDialogOpen(true); }}
+              disabled={!schedUserId || availabilities.filter((a) => a.userId === schedUserId).length === 0}
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Schedule To...
+            </Button>
+          </div>
+
+          {schedUserId ? (
+            <div className="space-y-3">
+              {/* Weekly hours summary */}
+              {(() => {
+                const userAvails = availabilities.filter((a) => a.userId === schedUserId && a.isAvailable);
+                const totalWeeklyHours = userAvails.reduce((sum, a) => {
+                  const [sh, sm] = a.startTime.split(":").map(Number);
+                  const [eh, em] = a.endTime.split(":").map(Number);
+                  let diff = (eh * 60 + em) - (sh * 60 + sm);
+                  if (diff < 0) diff += 24 * 60;
+                  return sum + diff / 60;
+                }, 0);
+                const configuredDays = new Set(userAvails.map((a) => a.dayOfWeek)).size;
+                return (
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground px-1">
+                    <span className="flex items-center gap-1.5">
+                      <Timer className="h-3.5 w-3.5 text-emerald-500" />
+                      <span className="font-medium text-foreground">{Math.round(totalWeeklyHours * 10) / 10}h</span> total weekly
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <CalendarDays className="h-3.5 w-3.5 text-sky-500" />
+                      <span className="font-medium text-foreground">{configuredDays}</span>/7 days configured
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-amber-500" />
+                      <span className="font-medium text-foreground">{userAvails.length}</span> total slots
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* 7-day schedule cards */}
+              {DAY_NAMES.map((dayName, dayIndex) => {
+                const daySlots = availabilities.filter(
+                  (a) => a.userId === schedUserId && a.dayOfWeek === dayIndex
+                );
+                const dayHours = daySlots
+                  .filter((a) => a.isAvailable)
+                  .reduce((sum, a) => {
+                    const [sh, sm] = a.startTime.split(":").map(Number);
+                    const [eh, em] = a.endTime.split(":").map(Number);
+                    let diff = (eh * 60 + em) - (sh * 60 + sm);
+                    if (diff < 0) diff += 24 * 60;
+                    return sum + diff / 60;
+                  }, 0);
+                const isToday = dayIndex === new Date().getDay();
+
+                return (
+                  <Card key={dayIndex} className={isToday ? "border-primary/30 bg-primary/[0.02]" : ""}>
+                    <CardHeader className="py-3 px-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-2 w-2 rounded-full ${daySlots.length > 0 ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                          <CardTitle className="text-sm font-semibold">
+                            {dayName}
+                            {isToday && (
+                              <Badge className="ml-2 text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-0">Today</Badge>
+                            )}
+                          </CardTitle>
+                          {daySlots.length > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              ({Math.round(dayHours * 10) / 10}h)
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[10px]"
+                          onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Slot
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-3">
+                      {daySlots.length === 0 ? (
+                        <div className="flex items-center justify-between py-3 text-muted-foreground">
+                          <span className="text-xs">No availability configured</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px]"
+                            onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
+                          >
+                            <Plus className="h-3 w-3 mr-1" /> Add
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {daySlots
+                            .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                            .map((slot) => {
+                              const [sh, sm] = slot.startTime.split(":").map(Number);
+                              const [eh, em] = slot.endTime.split(":").map(Number);
+                              let diff = (eh * 60 + em) - (sh * 60 + sm);
+                              if (diff < 0) diff += 24 * 60;
+                              const hours = Math.round((diff / 60) * 10) / 10;
+                              return (
+                                <div
+                                  key={slot.id}
+                                  className="flex items-center gap-2 p-2 rounded-md bg-muted/30 hover:bg-muted/50 transition-colors group/slot"
+                                >
+                                  <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${slot.isAvailable ? "bg-green-500" : "bg-red-400"}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-sm font-medium">
+                                      {slot.startTime} – {slot.endTime}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground ml-2">({hours}h)</span>
+                                    {!slot.isAvailable && (
+                                      <Badge className="ml-2 text-[8px] px-1 py-0 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 border-0">
+                                        Unavailable
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0"
+                                    onClick={() => openEditAvailability(slot)}
+                                    title="Edit slot"
+                                  >
+                                    <Edit3 className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0 text-red-400 hover:text-red-600"
+                                    onClick={() => setDeleteAvailId(slot.id)}
+                                    title="Delete slot"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+                <CalendarDays className="h-12 w-12 opacity-30 mb-3" />
+                <p className="text-sm">Select a team member to manage their weekly schedule</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            TAB 4: Overrides
         ═══════════════════════════════════════════════════════════════════════ */}
         <TabsContent value="overrides" className="space-y-4">
           {/* Upcoming overrides */}
@@ -2060,7 +2343,57 @@ export default function AvailabilityPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* TODO: Extract duplicated override tables (upcoming/past) into a shared OverrideTable component */}
+      {/* Copy Schedule Dialog */}
+      <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copy Weekly Schedule</DialogTitle>
+            <DialogDescription>
+              Copy the entire weekly schedule from one team member to another. This will replace the target user&apos;s existing schedule.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Source</Label>
+              <div className="text-sm font-medium px-3 py-2 bg-muted rounded-md">
+                {teamUsers.find((u) => u.id === schedUserId)?.name || "Unknown"}
+                <span className="text-muted-foreground ml-2 text-xs">
+                  ({availabilities.filter((a) => a.userId === schedUserId).length} slots)
+                </span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Target Employee</Label>
+              <Select value={copyTargetUserId} onValueChange={setCopyTargetUserId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select target employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamUsers
+                    .filter((u) => u.id !== schedUserId)
+                    .map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                This will delete all existing availability slots for the target user and create new ones matching the source schedule.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleCopySchedule}
+              disabled={copying || !copyTargetUserId}
+            >
+              {copying ? "Copying..." : <><Copy className="h-4 w-4 mr-1.5" /> Copy Schedule</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
