@@ -1,0 +1,502 @@
+     1→  1000→                  </TooltipTrigger>
+     2→  1001→                  <TooltipContent>Copy token</TooltipContent>
+     3→  1002→                </Tooltip>
+     4→  1003→              </div>
+     5→  1004→            </div>
+     6→  1005→          </div>
+     7→  1006→        ) : (
+     8→  1007→          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+     9→  1008→            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+    10→  1009→            <span className="text-xs text-muted-foreground">No workspace token configured yet.</span>
+    11→  1010→          </div>
+    12→  1011→        )}
+    13→  1012→      </CardContent>
+    14→  1013→    </Card>
+    15→  1014→  );
+    16→  1015→
+    17→  1016→  // My Code card (read-only)
+    18→  1017→  const MyCodeCard = () => (
+    19→  1018→    <Card className="overflow-hidden border-border/60">
+    20→  1019→      <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+    21→  1020→      <CardHeader className="pb-3">
+    22→  1021→        <div className="flex items-center gap-2.5">
+    23→  1022→          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+    24→  1023→            <Fingerprint className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+    25→  1024→          </div>
+    26→  1025→          <div>
+    27→  1026→            <CardTitle className="text-sm">Your Code</CardTitle>
+    28→  1027→            <CardDescription className="text-xs">Your personal access code assigned by admin</CardDescription>
+    29→  1028→          </div>
+    30→  1029→        </div>
+    31→  1030→      </CardHeader>
+    32→  1031→      <CardContent className="pt-0 space-y-3">
+    33→  1032→        {myUserCode?.hasCode ? (
+    34→  1033→          <div className="space-y-2">
+    35→  1034→            <div className="relative">
+    36→  1035→              <Input
+    37→  1036→                type={showMyCode ? "text" : "password"}
+    38→  1037→                value={showMyCode ? (myUserCode.code || "") : (myUserCode.codeMasked || "••••••••")}
+    39→  1038→                readOnly
+    40→  1039→                className="pr-20 font-mono text-xs bg-muted/50"
+    41→  1040→              />
+    42→  1041→              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+    43→  1042→                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+    44→  1043→                  {showMyCode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+    45→  1044→                </button>
+    46→  1045→                <Tooltip>
+    47→  1046→                  <TooltipTrigger asChild>
+    48→  1047→                    <button type="button" onClick={handleCopyMyCode} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+    49→  1048→                      {copiedMyCode ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+    50→  1049→                    </button>
+    51→  1050→                  </TooltipTrigger>
+    52→  1051→                  <TooltipContent>Copy code</TooltipContent>
+    53→  1052→                </Tooltip>
+    54→  1053→              </div>
+    55→  1054→            </div>
+    56→  1055→            {myUserCode.updatedAt && (
+    57→  1056→              <p className="text-xs text-muted-foreground">Last updated: {safeDate(myUserCode.updatedAt)}</p>
+    58→  1057→            )}
+    59→  1058→          </div>
+    60→  1059→        ) : (
+    61→  1060→          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+    62→  1061→            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+    63→  1062→            <span className="text-xs text-muted-foreground">No code assigned yet. Your admin will assign one.</span>
+    64→  1063→          </div>
+    65→  1064→        )}
+    66→  1065→      </CardContent>
+    67→  1066→    </Card>
+    68→  1067→  );
+    69→  1068→
+    70→  1069→  /* ═══════════════════════════════════════════════════════════════
+    71→  1070→     MAIN RENDER
+    72→  1071→     ═══════════════════════════════════════════════════════════════ */
+    73→  1072→
+    74→  1073→  return (
+    75→  1074→    <div className="space-y-6 max-w-5xl mx-auto px-3 sm:px-4 lg:px-0">
+    76→  1075→      <PageHeader
+    77→  1076→        title="Access Hub"
+    78→  1077→        description="Credentials, protocol documents, workspace tokens, and system configuration."
+    79→  1078→      />
+    80→  1079→
+    81→  1080→      {isAdmin ? (
+    82→  1081→        <Tabs value={urlTab} className="space-y-6">
+    83→  1082→          <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto flex-nowrap">
+    84→  1083→            <TabsTrigger value="credentials" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
+    85→  1084→              <KeyRound className="h-3.5 w-3.5" />
+    86→  1085→              Credentials
+    87→  1086→            </TabsTrigger>
+    88→  1087→            <TabsTrigger value="protocol" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
+    89→  1088→              <FileText className="h-3.5 w-3.5" />
+    90→  1089→              Protocol &amp; Resources
+    91→  1090→            </TabsTrigger>
+    92→  1091→            <TabsTrigger value="lark-users" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
+    93→  1092→              <Bird className="h-3.5 w-3.5" />
+    94→  1093→              User Mapping
+    95→  1094→            </TabsTrigger>
+    96→  1095→            <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
+    97→  1096→              <Settings className="h-3.5 w-3.5" />
+    98→  1097→              System Config
+    99→  1098→            </TabsTrigger>
+   100→  1099→          </TabsList>
+   101→  1100→
+   102→  1101→          {/* ═══════════ TAB 1: CREDENTIALS ═══════════ */}
+   103→  1102→          <TabsContent value="credentials" className="space-y-5 mt-2">
+   104→  1103→            {/* Admin: User filter */}
+   105→  1104→            {isAdmin && allUsers.length > 0 && (
+   106→  1105→              <Card>
+   107→  1106→                <CardContent className="pt-4">
+   108→  1107→                  <div className="flex items-center gap-3 flex-wrap">
+   109→  1108→                    <div className="flex items-center gap-2">
+   110→  1109→                      <Shield className="h-4 w-4 text-muted-foreground" />
+   111→  1110→                      <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
+   112→  1111→                    </div>
+   113→  1112→                    <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+   114→  1113→                      <SelectTrigger className="w-full sm:w-[220px]">
+   115→  1114→                        <SelectValue placeholder="All users" />
+   116→  1115→                      </SelectTrigger>
+   117→  1116→                      <SelectContent>
+   118→  1117→                        <SelectItem value="all">All Users</SelectItem>
+   119→  1118→                        {allUsers.map((u) => (
+   120→  1119→                          <SelectItem key={u.id} value={u.id}>
+   121→  1120→                            {safeText(u.name, "Unknown")} ({safeText(u.email, "")})
+   122→  1121→                          </SelectItem>
+   123→  1122→                        ))}
+   124→  1123→                      </SelectContent>
+   125→  1124→                    </Select>
+   126→  1125→                  </div>
+   127→  1126→                </CardContent>
+   128→  1127→              </Card>
+   129→  1128→            )}
+   130→  1129→
+   131→  1130→            {/* Search */}
+   132→  1131→            <div className="relative">
+   133→  1132→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   134→  1133→              <Input
+   135→  1134→                placeholder="Search by label, username, or notes..."
+   136→  1135→                className="pl-9"
+   137→  1136→                value={searchQuery}
+   138→  1137→                onChange={(e) => setSearchQuery(e.target.value)}
+   139→  1138→              />
+   140→  1139→            </div>
+   141→  1140→
+   142→  1141→            {/* Add button */}
+   143→  1142→            {isAdmin && (
+   144→  1143→              <div className="flex items-center gap-2 w-full sm:w-auto">
+   145→  1144→                <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto">
+   146→  1145→                  <Plus className="h-4 w-4 mr-1" /> Add Credential
+   147→  1146→                </Button>
+   148→  1147→              </div>
+   149→  1148→            )}
+   150→  1149→
+   151→  1150→            {/* Error state */}
+   152→  1151→            {credsError && (
+   153→  1152→              <Card className="border-destructive/50">
+   154→  1153→                <CardContent className="pt-6 pb-6">
+   155→  1154→                  <div className="text-center">
+   156→  1155→                    <p className="text-sm text-destructive">{credsError}</p>
+   157→  1156→                    <Button variant="outline" size="sm" className="mt-3" onClick={() => { setCredsError(""); fetchCredentials(); }}>Retry</Button>
+   158→  1157→                  </div>
+   159→  1158→                </CardContent>
+   160→  1159→              </Card>
+   161→  1160→            )}
+   162→  1161→
+   163→  1162→            {/* Loading state */}
+   164→  1163→            {credsLoading && (
+   165→  1164→              <div className="grid gap-4 md:grid-cols-2">
+   166→  1165→                {[1, 2, 3].map((i) => (
+   167→  1166→                  <Card key={i}><CardContent className="p-6"><div className="space-y-3"><div className="h-4 w-24 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /></div></CardContent></Card>
+   168→  1167→                ))}
+   169→  1168→              </div>
+   170→  1169→            )}
+   171→  1170→
+   172→  1171→            {/* Empty state */}
+   173→  1172→            {!credsLoading && !hasCredentials && !credsError && (
+   174→  1173→              <Card>
+   175→  1174→                <CardContent className="pt-8 pb-8">
+   176→  1175→                  <div className="text-center">
+   177→  1176→                    <KeyRound className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+   178→  1177→                    <p className="text-sm text-muted-foreground">
+   179→  1178→                      {searchQuery
+   180→  1179→                        ? "No credentials match your search"
+   181→  1180→                        : "No credentials found. Click 'Add Credential' to create one."}
+   182→  1181→                    </p>
+   183→  1182→                  </div>
+   184→  1183→                </CardContent>
+   185→  1184→              </Card>
+   186→  1185→            )}
+   187→  1186→
+   188→  1187→            {/* Credentials Grid */}
+   189→  1188→            {!credsLoading && hasCredentials && (
+   190→  1189→              <div className="grid gap-4 md:grid-cols-2">
+   191→  1190→                {filteredCredentials.map((cred) => (
+   192→  1191→                  <Card key={cred.id} className="group">
+   193→  1192→                    <CardHeader className="pb-3">
+   194→  1193→                      <div className="flex items-center justify-between">
+   195→  1194→                        <div className="flex items-center gap-2">
+   196→  1195→                          <Badge className={cn("text-xs", labelColor(cred.label))}>
+   197→  1196→                            {safeText(cred.label, "Credential")}
+   198→  1197→                          </Badge>
+   199→  1198→                          {cred.url && (
+   200→  1199→                            <a href={safeUrl(cred.url)} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+   201→  1200→                              <Globe className="h-3.5 w-3.5" />
+   202→  1201→                            </a>
+   203→  1202→                          )}
+   204→  1203→                        </div>
+   205→  1204→                        {isAdmin && (
+   206→  1205→                          <div className="flex items-center gap-1 opacity-100 transition-opacity">
+   207→  1206→                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
+   208→  1207→                              <Edit3 className="h-3 w-3" />
+   209→  1208→                            </Button>
+   210→  1209→                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(cred.id)} aria-label="Delete credential">
+   211→  1210→                              <Trash2 className="h-3 w-3" />
+   212→  1211→                            </Button>
+   213→  1212→                          </div>
+   214→  1213→                        )}
+   215→  1214→                      </div>
+   216→  1215→                      {isAdmin && cred.user && (
+   217→  1216→                        <CardDescription className="text-xs truncate">
+   218→  1217→                          For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
+   219→  1218→                        </CardDescription>
+   220→  1219→                      )}
+   221→  1220→                    </CardHeader>
+   222→  1221→                    <CardContent className="space-y-3">
+   223→  1222→                      <div className="space-y-1">
+   224→  1223→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">ID / Username</p>
+   225→  1224→                        <div className="flex items-center gap-2">
+   226→  1225→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.username, "")}</code>
+   227→  1226→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.username, `user-${cred.id}`)} aria-label="Copy username">
+   228→  1227→                            {copiedField === `user-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+   229→  1228→                          </Button>
+   230→  1229→                        </div>
+   231→  1230→                      </div>
+   232→  1231→                      <div className="space-y-1">
+   233→  1232→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
+   234→  1233→                        <div className="flex items-center gap-2">
+   235→  1234→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
+   236→  1235→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
+   237→  1236→                            {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+   238→  1237→                          </Button>
+   239→  1238→                        </div>
+   240→  1239→                      </div>
+   241→  1240→                      {cred.notes && (
+   242→  1241→                        <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">{safeText(cred.notes, "")}</p>
+   243→  1242→                      )}
+   244→  1243→                    </CardContent>
+   245→  1244→                  </Card>
+   246→  1245→                ))}
+   247→  1246→              </div>
+   248→  1247→            )}
+   249→  1248→          </TabsContent>
+   250→  1249→
+   251→  1250→          {/* ═══════════ TAB 2: PROTOCOL & RESOURCES ═══════════ */}
+   252→  1251→          <TabsContent value="protocol" className="space-y-5 mt-2">
+   253→  1252→            {/* Protocol PDF Card */}
+   254→  1253→            <Card className="overflow-hidden border-border/60 shadow-sm">
+   255→  1254→              <div className="h-1 bg-gradient-to-r from-rose-500 to-red-600" />
+   256→  1255→              <CardHeader className="pb-3">
+   257→  1256→                <div className="flex items-center gap-2.5">
+   258→  1257→                  <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
+   259→  1258→                    <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+   260→  1259→                  </div>
+   261→  1260→                  <div className="flex-1">
+   262→  1261→                    <CardTitle className="text-sm">Protocol PDF</CardTitle>
+   263→  1262→                    <CardDescription className="text-xs">Upload, manage, and control access to the protocol document</CardDescription>
+   264→  1263→                  </div>
+   265→  1264→                </div>
+   266→  1265→              </CardHeader>
+   267→  1266→              <CardContent className="space-y-4">
+   268→  1267→                {protocol ? (
+   269→  1268→                  <div className="space-y-3">
+   270→  1269→                    <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg">
+   271→  1270→                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center flex-shrink-0">
+   272→  1271→                        <FileText className="h-4 w-4 text-white" />
+   273→  1272→                      </div>
+   274→  1273→                      <div className="min-w-0 flex-1">
+   275→  1274→                        <p className="text-sm font-medium truncate">{safeText(protocol.fileName)}</p>
+   276→  1275→                        <p className="text-xs text-muted-foreground">{formatSize(protocol.fileSize)} &middot; {safeDate(protocol.uploadedAt)}</p>
+   277→  1276→                      </div>
+   278→  1277→                      <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400 flex-shrink-0">Active</Badge>
+   279→  1278→                    </div>
+   280→  1279→                    <div className="flex items-center gap-2 flex-wrap">
+   281→  1280→                      <Button onClick={handleDownload} variant="outline" size="sm" className="flex-1 min-w-[100px]">
+   282→  1281→                        <Download className="h-3.5 w-3.5 mr-1.5" /> Download
+   283→  1282→                      </Button>
+   284→  1283→                      <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" className="flex-1 min-w-[100px]">
+   285→  1284→                        <Upload className="h-3.5 w-3.5 mr-1.5" /> Replace
+   286→  1285→                      </Button>
+   287→  1286→                      <Button onClick={handleDeleteProtocol} variant="outline" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
+   288→  1287→                        <Trash2 className="h-3.5 w-3.5" />
+   289→  1288→                      </Button>
+   290→  1289→                    </div>
+   291→  1290→                  </div>
+   292→  1291→                ) : (
+   293→  1292→                  <div className="space-y-3">
+   294→  1293→                    <p className="text-sm text-muted-foreground">No protocol uploaded yet.</p>
+   295→  1294→                    <div
+   296→  1295→                      onDragOver={onDragOver}
+   297→  1296→                      onDragLeave={onDragLeave}
+   298→  1297→                      onDrop={onDrop}
+   299→  1298→                      onClick={() => fileInputRef.current?.click()}
+   300→  1299→                      className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 cursor-pointer transition-all duration-200 ${dragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-muted-foreground/20 hover:border-primary/40 hover:bg-muted/30"}`}
+   301→  1300→                    >
+   302→  1301→                      <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-200 ${dragOver ? "bg-primary/10" : "bg-muted"}`}>
+   303→  1302→                        <FileUp className={`h-5 w-5 transition-colors duration-200 ${dragOver ? "text-primary" : "text-muted-foreground"}`} />
+   304→  1303→                      </div>
+   305→  1304→                      <p className="text-sm font-medium">{dragOver ? "Drop your PDF here" : "Click to upload or drag & drop"}</p>
+   306→  1305→                      <p className="text-xs text-muted-foreground">PDF files only, max 10MB</p>
+   307→  1306→                    </div>
+   308→  1307→                  </div>
+   309→  1308→                )}
+   310→  1309→                {protocol && (
+   311→  1310→                  <div className="pt-3 border-t border-border/50">
+   312→  1311→                    <div className="flex items-center justify-between">
+   313→  1312→                      <div className="flex items-center gap-2">
+   314→  1313→                        <Switch checked={downloadEnabled} onCheckedChange={handleToggleDownload} />
+   315→  1314→                        <span className="text-sm font-medium">Allow downloads</span>
+   316→  1315→                      </div>
+   317→  1316→                      <Badge variant={downloadEnabled ? "outline" : "secondary"} className={`text-xs ${downloadEnabled ? "text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400" : "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400"}`}>
+   318→  1317→                        {downloadEnabled ? "Enabled" : "Disabled"}
+   319→  1318→                      </Badge>
+   320→  1319→                    </div>
+   321→  1320→                    <p className="text-xs text-muted-foreground mt-1">Control whether team members can download the protocol PDF</p>
+   322→  1321→                  </div>
+   323→  1322→                )}
+   324→  1323→              </CardContent>
+   325→  1324→            </Card>
+   326→  1325→
+   327→  1326→            {/* Workspace Config Token Management (admin) */}
+   328→  1327→            <Card className="overflow-hidden border-border/60 shadow-sm">
+   329→  1328→              <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
+   330→  1329→              <CardHeader className="pb-3">
+   331→  1330→                <div className="flex items-center gap-2.5">
+   332→  1331→                  <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+   333→  1332→                    <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+   334→  1333→                  </div>
+   335→  1334→                  <div className="flex-1">
+   336→  1335→                    <CardTitle className="text-sm">Workspace Config Token</CardTitle>
+   337→  1336→                    <CardDescription className="text-xs">Set a shared workspace token visible to all team members</CardDescription>
+   338→  1337→                  </div>
+   339→  1338→                  {wsConfig?.hasToken && (
+   340→  1339→                    <Badge variant="outline" className="text-xs text-violet-600 border-violet-200 dark:border-violet-800 dark:text-violet-400 flex-shrink-0">
+   341→  1340→                      <CheckCircle2 className="h-3 w-3 mr-1" /> Active
+   342→  1341→                    </Badge>
+   343→  1342→                  )}
+   344→  1343→                </div>
+   345→  1344→              </CardHeader>
+   346→  1345→              <CardContent className="space-y-3">
+   347→  1346→                <div className="space-y-2">
+   348→  1347→                  <Label htmlFor="ws-token-label" className="text-xs">Token Label</Label>
+   349→  1348→                  <Input id="ws-token-label" placeholder="e.g. ZAI Workspace Token" value={wsLabelForm} onChange={(e) => setWsLabelForm(e.target.value)} className="text-sm" />
+   350→  1349→                </div>
+   351→  1350→                <div className="space-y-2">
+   352→  1351→                  <Label htmlFor="ws-token-value" className="text-xs">Token Value</Label>
+   353→  1352→                  <div className="relative">
+   354→  1353→                    <Input id="ws-token-value" type={showWsToken ? "text" : "password"} placeholder={wsConfig?.configTokenMasked || "Enter workspace token..."} value={wsTokenForm} onChange={(e) => setWsTokenForm(e.target.value)} className="pr-20 font-mono text-xs" />
+   355→  1354→                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+   356→  1355→                      <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+   357→  1356→                        {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+   358→  1357→                      </button>
+   359→  1358→                      {isAdmin && wsConfig?.configToken && (
+   360→  1359→                        <Tooltip>
+   361→  1360→                          <TooltipTrigger asChild>
+   362→  1361→                            <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+   363→  1362→                              {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+   364→  1363→                            </button>
+   365→  1364→                          </TooltipTrigger>
+   366→  1365→                          <TooltipContent>Copy token</TooltipContent>
+   367→  1366→                        </Tooltip>
+   368→  1367→                      )}
+   369→  1368→                    </div>
+   370→  1369→                  </div>
+   371→  1370→                  {wsConfig?.configTokenMasked && !wsTokenForm && (
+   372→  1371→                    <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
+   373→  1372→                  )}
+   374→  1373→                </div>
+   375→  1374→                <Button onClick={handleSaveWsConfig} disabled={wsSaving || (!wsTokenForm.trim() && !wsLabelForm.trim())} className="w-full" size="sm">
+   376→  1375→                  {wsSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+   377→  1376→                  Save Configuration
+   378→  1377→                </Button>
+   379→  1378→              </CardContent>
+   380→  1379→            </Card>
+   381→  1380→
+   382→  1381→            {/* User Codes Management (admin) */}
+   383→  1382→            <Card className="overflow-hidden border-border/60 shadow-sm">
+   384→  1383→              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+   385→  1384→              <CardHeader className="pb-3">
+   386→  1385→                <div className="flex items-center gap-2.5">
+   387→  1386→                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+   388→  1387→                    <UserCog className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+   389→  1388→                  </div>
+   390→  1389→                  <div className="flex-1">
+   391→  1390→                    <CardTitle className="text-sm">User Codes</CardTitle>
+   392→  1391→                    <CardDescription className="text-xs">Assign unique access codes to each team member</CardDescription>
+   393→  1392→                  </div>
+   394→  1393→                  <Badge variant="outline" className="text-xs flex-shrink-0">
+   395→  1394→                    {allUserCodes.filter((u) => u.hasCode).length}/{allUserCodes.length} assigned
+   396→  1395→                  </Badge>
+   397→  1396→                </div>
+   398→  1397→              </CardHeader>
+   399→  1398→              <CardContent className="pt-0">
+   400→  1399→                {userCodesLoading ? (
+   401→  1400→                  <div className="flex items-center justify-center py-6">
+   402→  1401→                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+   403→  1402→                  </div>
+   404→  1403→                ) : allUserCodes.length > 0 ? (
+   405→  1404→                  <ScrollArea className="max-h-72">
+   406→  1405→                    <div className="space-y-1.5">
+   407→  1406→                      {allUserCodes.map((user) => (
+   408→  1407→                        <div key={user.userId} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors group">
+   409→  1408→                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center flex-shrink-0 text-xs font-semibold text-slate-600 dark:text-slate-300">
+   410→  1409→                            {user.userName.charAt(0).toUpperCase()}
+   411→  1410→                          </div>
+   412→  1411→                          <div className="flex-1 min-w-0">
+   413→  1412→                            <p className="text-sm font-medium truncate">{safeText(user.userName)}</p>
+   414→  1413→                            <p className="text-xs text-muted-foreground truncate">{safeText(user.userEmail)}</p>
+   415→  1414→                          </div>
+   416→  1415→                          <div className="flex items-center gap-2 flex-shrink-0">
+   417→  1416→                            {user.hasCode ? (
+   418→  1417→                              <Badge variant="secondary" className="text-xs bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border-0">
+   419→  1418→                                <CheckCircle2 className="h-3 w-3 mr-1" /> Set
+   420→  1419→                              </Badge>
+   421→  1420→                            ) : (
+   422→  1421→                              <Badge variant="outline" className="text-xs text-muted-foreground">Not set</Badge>
+   423→  1422→                            )}
+   424→  1423→                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs opacity-100 transition-opacity">
+   425→  1424→                              <Settings className="h-3 w-3 mr-1" />
+   426→  1425→                              {user.hasCode ? "Edit" : "Set"}
+   427→  1426→                            </Button>
+   428→  1427→                          </div>
+   429→  1428→                        </div>
+   430→  1429→                      ))}
+   431→  1430→                    </div>
+   432→  1431→                  </ScrollArea>
+   433→  1432→                ) : (
+   434→  1433→                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+   435→  1434→                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
+   436→  1435→                    <span className="text-xs text-muted-foreground">No users found.</span>
+   437→  1436→                  </div>
+   438→  1437→                )}
+   439→  1438→              </CardContent>
+   440→  1439→            </Card>
+   441→  1440→          </TabsContent>
+   442→  1441→
+   443→  1442→          {/* ═══════════ TAB 3: USER MAPPING (Lark) ═══════════ */}
+   444→  1443→          <TabsContent value="lark-users" className="space-y-5 mt-2">
+   445→  1444→            <Card>
+   446→  1445→              <CardHeader className="pb-3">
+   447→  1446→                <div className="flex items-center justify-between flex-wrap gap-2">
+   448→  1447→                  <div>
+   449→  1448→                    <CardTitle className="text-base flex items-center gap-2">
+   450→  1449→                      <Bird className="h-4 w-4" /> Lark User Mapping
+   451→  1450→                    </CardTitle>
+   452→  1451→                    <CardDescription className="text-xs mt-1">
+   453→  1452→                      Match TrishulHub users with their Lark accounts for task sync
+   454→  1453→                    </CardDescription>
+   455→  1454→                  </div>
+   456→  1455→                  <div className="flex flex-wrap gap-2">
+   457→  1456→                    <Button
+   458→  1457→                      size="sm"
+   459→  1458→                      variant="outline"
+   460→  1459→                      onClick={async () => {
+   461→  1460→                        setLarkUsersLoading(true);
+   462→  1461→                        setLarkUsersError("");
+   463→  1462→                        try {
+   464→  1463→                          // Fetch raw Lark users
+   465→  1464→                          const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
+   466→  1465→                          const larkData = await larkRes.json();
+   467→  1466→                          if (larkData.allLarkUsers) {
+   468→  1467→                            setLarkUsers(larkData.allLarkUsers);
+   469→  1468→                            localStorage.setItem('trishulhub_lark_users', JSON.stringify(larkData.allLarkUsers));
+   470→  1469→                          }
+   471→  1470→                          if (larkData.larkError) setLarkUsersError(larkData.larkError);
+   472→  1471→                          if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
+   473→  1472→
+   474→  1473→                          // Fetch existing mappings (TrishulHub users with their lark mapping info)
+   475→  1474→                          const mapRes = await fetch("/api/lark/users", { credentials: "include" });
+   476→  1475→                          const mapData = await mapRes.json();
+   477→  1476→                          if (mapData.users) {
+   478→  1477→                            const mappings: Record<string, string> = {};
+   479→  1478→                            for (const u of mapData.users) {
+   480→  1479→                              if (u.larkOpenId && u.larkMapped) {
+   481→  1480→                                mappings[u.larkOpenId] = u.id;
+   482→  1481→                              }
+   483→  1482→                            }
+   484→  1483→                            setLarkMappings(mappings);
+   485→  1484→                            localStorage.setItem('trishulhub_lark_mappings', JSON.stringify(mappings));
+   486→  1485→                          }
+   487→  1486→                        } catch { setLarkUsersError("Failed to fetch Lark users"); }
+   488→  1487→                        finally { setLarkUsersLoading(false); }
+   489→  1488→                      }}
+   490→  1489→                      disabled={larkUsersLoading}
+   491→  1490→                      className="h-8 text-xs"
+   492→  1491→                    >
+   493→  1492→                      {larkUsersLoading ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+   494→  1493→                      Refresh Lark Users
+   495→  1494→                    </Button>
+   496→  1495→                    <Button
+   497→  1496→                      size="sm"
+   498→  1497→                      onClick={async () => {
+   499→  1498→                        setLarkMappingsSaving(true);
+   500→  1499→                        try {
+   501→
+   502→[showing lines 1000-1499 of 2288; use offset=1500 with limit to continue reading]

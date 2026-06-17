@@ -1,0 +1,489 @@
+     1→  1800→                          }}
+     2→  1801→                          title="Generate random key"
+     3→  1802→                        >
+     4→  1803→                          <RefreshCw className="h-3.5 w-3.5" />
+     5→  1804→                        </button>
+     6→  1805→                      </div>
+     7→  1806→                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8 w-full sm:w-auto">
+     8→  1807→                        {credEncKeySaving ? "Saving..." : "Save Key"}
+     9→  1808→                      </Button>
+    10→  1809→                    </div>
+    11→  1810→                  </CardContent>
+    12→  1811→                </Card>
+    13→  1812→
+    14→  1813→                {/* ━━ Lark Integration ━━ */}
+    15→  1814→                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+    16→  1815→                  <CardHeader className="pb-3">
+    17→  1816→                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+    18→  1817→                      <div className="flex items-center gap-2">
+    19→  1818→                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+    20→  1819→                          <Bird className="h-4 w-4 text-blue-500" />
+    21→  1820→                        </div>
+    22→  1821→                        <div>
+    23→  1822→                          <CardTitle className="text-sm">Lark (Feishu) Integration</CardTitle>
+    24→  1823→                          <CardDescription className="text-[11px]">2-way task sync with Lark</CardDescription>
+    25→  1824→                        </div>
+    26→  1825→                      </div>
+    27→  1826→                      <div className="flex items-center gap-2">
+    28→  1827→                        {larkConfigLoading ? (
+    29→  1828→                          <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]"><Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />Checking...</Badge>
+    30→  1829→                        ) : larkConfig?.connected ? (
+    31→  1830→                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>
+    32→  1831→                        ) : null}
+    33→  1832→                        <Switch
+    34→  1833→                          checked={larkConfig?.enabled ?? false}
+    35→  1834→                          onCheckedChange={handleLarkToggle}
+    36→  1835→                          disabled={larkToggling || larkConfigLoading || !larkConfig?.configured}
+    37→  1836→                        />
+    38→  1837→                      </div>
+    39→  1838→                    </div>
+    40→  1839→                  </CardHeader>
+    41→  1840→                  <CardContent className="space-y-3">
+    42→  1841→                    {larkConfigLoading ? null : larkConfig?.connected ? null : larkConfig?.configured ? (
+    43→  1842→                      <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
+    44→  1843→                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+    45→  1844→                        <span>Connection failed — check App ID and Secret</span>
+    46→  1845→                      </div>
+    47→  1846→                    ) : null}
+    48→  1847→
+    49→  1848→                    {/* ── Setup Guide (collapsible) ── */}
+    50→  1849→                    <div className="rounded-lg border border-blue-200/60 dark:border-blue-500/20 bg-blue-50/50 dark:bg-blue-500/5 overflow-hidden">
+    51→  1850→                      <button
+    52→  1851→                        onClick={() => setLarkSetupExpanded(!larkSetupExpanded)}
+    53→  1852→                        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-blue-100/50 dark:hover:bg-blue-500/10 transition-colors"
+    54→  1853→                      >
+    55→  1854→                        <div className="flex items-center gap-2">
+    56→  1855→                          <Lightbulb className="h-3.5 w-3.5 text-blue-500" />
+    57→  1856→                          <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Setup Guide — 4 Steps to Connect</span>
+    58→  1857→                        </div>
+    59→  1858→                        {larkSetupExpanded ? <ChevronDown className="h-3.5 w-3.5 text-blue-500" /> : <ChevronRight className="h-3.5 w-3.5 text-blue-500" />}
+    60→  1859→                      </button>
+    61→  1860→
+    62→  1861→                      {larkSetupExpanded && (
+    63→  1862→                        <div className="px-3 pb-3 space-y-2.5">
+    64→  1863→                          {/* Step 1 */}
+    65→  1864→                          <div className="flex gap-2.5">
+    66→  1865→                            <div className={cn(
+    67→  1866→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+    68→  1867→                              larkConfig?.connected ? "bg-emerald-500 text-white" : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+    69→  1868→                            )}>
+    70→  1869→                              {larkConfig?.connected ? <Check className="h-3 w-3" /> : "1"}
+    71→  1870→                            </div>
+    72→  1871→                            <div className="min-w-0">
+    73→  1872→                              <p className="text-xs font-medium">Save App ID & Secret</p>
+    74→  1873→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+    75→  1874→                                Paste your Lark App ID and App Secret below, then click <b>Save & Test</b>. This verifies the connection to Lark.
+    76→  1875→                              </p>
+    77→  1876→                              {!larkConfig?.connected && (
+    78→  1877→                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+    79→  1878→                                  Find these in: Lark Developer Console → your app → Credentials
+    80→  1879→                                </p>
+    81→  1880→                              )}
+    82→  1881→                            </div>
+    83→  1882→                          </div>
+    84→  1883→
+    85→  1884→                          {/* Step 2 */}
+    86→  1885→                          <div className="flex gap-2.5">
+    87→  1886→                            <div className={cn(
+    88→  1887→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+    89→  1888→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+    90→  1889→                            )}>
+    91→  1890→                              2
+    92→  1891→                            </div>
+    93→  1892→                            <div className="min-w-0">
+    94→  1893→                              <p className="text-xs font-medium">Configure Webhook in Lark</p>
+    95→  1894→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+    96→  1895→                                In Lark Developer Console → <b>Events & Callbacks</b>, select <b>"Send notifications to developer's server"</b> (second option).
+    97→  1896→                              </p>
+    98→  1897→                              <div className="mt-1.5 px-2 py-1.5 rounded bg-background/80 border border-border/50 text-[11px] font-mono break-all">
+    99→  1898→                                Request URL: <span className="text-blue-600 dark:text-blue-400 font-semibold">https://trishulhub.com/api/lark/webhook</span>
+   100→  1899→                              </div>
+   101→  1900→                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+   102→  1901→                                Leave <b>Encryption Strategy</b> as "No encryption" (default). Do NOT enable encrypt key unless needed.
+   103→  1902→                              </p>
+   104→  1903→                            </div>
+   105→  1904→                          </div>
+   106→  1905→
+   107→  1906→                          {/* Step 3 */}
+   108→  1907→                          <div className="flex gap-2.5">
+   109→  1908→                            <div className={cn(
+   110→  1909→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+   111→  1910→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+   112→  1911→                            )}>
+   113→  1912→                              3
+   114→  1913→                            </div>
+   115→  1914→                            <div className="min-w-0">
+   116→  1915→                              <p className="text-xs font-medium">Add the Event Subscription</p>
+   117→  1916→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+   118→  1917→                                After the URL is verified, add this event under "Event Subscription":
+   119→  1918→                              </p>
+   120→  1919→                              <div className="mt-1 flex flex-wrap gap-1">
+   121→  1920→                                <Badge variant="secondary" className="text-[10px] font-mono">task.task.updated_v1</Badge>
+   122→  1921→                              </div>
+   123→  1922→                              <p className="text-[10px] text-muted-foreground/70 mt-1">
+   124→  1923→                                Path: Event Subscription → Add Event → search "task.task.updated" → select the V1 version
+   125→  1924→                              </p>
+   126→  1925→                            </div>
+   127→  1926→                          </div>
+   128→  1927→
+   129→  1928→                          {/* Step 4 */}
+   130→  1929→                          <div className="flex gap-2.5">
+   131→  1930→                            <div className={cn(
+   132→  1931→                              "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+   133→  1932→                              larkConfig?.connected ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"
+   134→  1933→                            )}>
+   135→  1934→                              4
+   136→  1935→                            </div>
+   137→  1936→                            <div className="min-w-0">
+   138→  1937→                              <p className="text-xs font-medium">Map Users & Enable Sync</p>
+   139→  1938→                              <p className="text-[11px] text-muted-foreground mt-0.5">
+   140→  1939→                                Go to <button onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")} className="text-primary hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
+   141→  1940→                                Then toggle the switch above to <b>Enable</b> 2-way sync.
+   142→  1941→                              </p>
+   143→  1942→                            </div>
+   144→  1943→                          </div>
+   145→  1944→                        </div>
+   146→  1945→                      )}
+   147→  1946→                    </div>
+   148→  1947→
+   149→  1948→                    {/* ── Credentials Form ── */}
+   150→  1949→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+   151→  1950→                      <div className="space-y-1">
+   152→  1951→                        <Label className="text-[11px] text-muted-foreground">App ID</Label>
+   153→  1952→                        <Input
+   154→  1953→                          placeholder="cli_xxxxxxxxxxxxx"
+   155→  1954→                          value={larkForm.appId}
+   156→  1955→                          onChange={(e) => setLarkForm(f => ({ ...f, appId: e.target.value }))}
+   157→  1956→                          className="h-8 text-xs font-mono"
+   158→  1957→                        />
+   159→  1958→                      </div>
+   160→  1959→                      <div className="space-y-1">
+   161→  1960→                        <Label className="text-[11px] text-muted-foreground">App Secret</Label>
+   162→  1961→                        <Input
+   163→  1962→                          type={showLarkSecret ? "text" : "password"}
+   164→  1963→                          placeholder="••••••••••••••••"
+   165→  1964→                          value={larkForm.appSecret}
+   166→  1965→                          onChange={(e) => setLarkForm(f => ({ ...f, appSecret: e.target.value }))}
+   167→  1966→                          className="h-8 text-xs font-mono"
+   168→  1967→                        />
+   169→  1968→                      </div>
+   170→  1969→                    </div>
+   171→  1970→
+   172→  1971→                    <div className="space-y-1">
+   173→  1972→                      <Label className="text-[11px] text-muted-foreground">
+   174→  1973→                        Webhook Encrypt Key
+   175→  1974→                        <span className="ml-1 text-[10px] text-muted-foreground/60">(leave empty unless using encryption in Lark)</span>
+   176→  1975→                      </Label>
+   177→  1976→                      <Input
+   178→  1977→                        type={showLarkEncrypt ? "text" : "password"}
+   179→  1978→                        placeholder="Leave empty — use 'No encryption' in Lark"
+   180→  1979→                        value={larkForm.encryptKey}
+   181→  1980→                        onChange={(e) => setLarkForm(f => ({ ...f, encryptKey: e.target.value }))}
+   182→  1981→                        className="h-8 text-xs font-mono"
+   183→  1982→                      />
+   184→  1983→                    </div>
+   185→  1984→
+   186→  1985→                    <div className="flex flex-wrap items-center gap-2 pt-1">
+   187→  1986→                      <Button
+   188→  1987→                        size="sm"
+   189→  1988→                        onClick={handleSaveLarkConfig}
+   190→  1989→                        disabled={larkSaving || !larkForm.appId.trim() || !larkForm.appSecret.trim()}
+   191→  1990→                        className="h-8 text-xs"
+   192→  1991→                      >
+   193→  1992→                        {larkSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+   194→  1993→                        Save & Test
+   195→  1994→                      </Button>
+   196→  1995→                      {larkConfig?.configured && (
+   197→  1996→                        <Button
+   198→  1997→                          size="sm"
+   199→  1998→                          variant="outline"
+   200→  1999→                          onClick={() => setShowLarkSecret(!showLarkSecret)}
+   201→  2000→                          className="h-8 text-xs"
+   202→  2001→                        >
+   203→  2002→                          {showLarkSecret ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+   204→  2003→                          Secret
+   205→  2004→                        </Button>
+   206→  2005→                      )}
+   207→  2006→                    </div>
+   208→  2007→
+   209→  2008→                    {larkConfig?.taskLists && larkConfig.taskLists.length > 0 && (
+   210→  2009→                      <div className="space-y-1.5 pt-1">
+   211→  2010→                        <p className="text-[11px] text-muted-foreground font-medium">Lark Task Lists ({larkConfig.taskLists.length})</p>
+   212→  2011→                        <div className="flex flex-wrap gap-1.5">
+   213→  2012→                          {larkConfig.taskLists.map((tl: { id: string; name: string }) => (
+   214→  2013→                            <Badge key={tl.id} variant="secondary" className="text-[10px] font-normal">
+   215→  2014→                              {tl.name}
+   216→  2015→                            </Badge>
+   217→  2016→                          ))}
+   218→  2017→                        </div>
+   219→  2018→                      </div>
+   220→  2019→                    )}
+   221→  2020→
+   222→  2021→                    {/* Quick links */}
+   223→  2022→                    <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+   224→  2023→                      <a href="https://open.larksuite.com/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+   225→  2024→                        <Globe className="h-3 w-3" /> Lark Developer Console
+   226→  2025→                      </a>
+   227→  2026→                      <span className="text-border">|</span>
+   228→  2027→                      <button
+   229→  2028→                        onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}
+   230→  2029→                        className="flex items-center gap-1 hover:text-primary transition-colors"
+   231→  2030→                      >
+   232→  2031→                        <UserCheck className="h-3 w-3" /> User Mapping
+   233→  2032→                      </button>
+   234→  2033→                    </div>
+   235→  2034→                  </CardContent>
+   236→  2035→                </Card>
+   237→  2036→              </>
+   238→  2037→            )}
+   239→  2038→          </TabsContent>
+   240→  2039→        </Tabs>
+   241→  2040→      ) : (
+   242→  2041→        /* ═══════════ NON-ADMIN VIEW ═══════════ */
+   243→  2042→        <div className="space-y-5">
+   244→  2043→          {/* Their credentials */}
+   245→  2044→          <div className="space-y-3">
+   246→  2045→            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">My Credentials</h2>
+   247→  2046→            {!credsLoading && !hasCredentials && !credsError && (
+   248→  2047→              <Card>
+   249→  2048→                <CardContent className="pt-8 pb-8">
+   250→  2049→                  <div className="text-center">
+   251→  2050→                    <KeyRound className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+   252→  2051→                    <p className="text-sm text-muted-foreground">No credentials assigned to you yet. Contact your admin.</p>
+   253→  2052→                  </div>
+   254→  2053→                </CardContent>
+   255→  2054→              </Card>
+   256→  2055→            )}
+   257→  2056→            {!credsLoading && hasCredentials && (
+   258→  2057→              <div className="grid gap-4 md:grid-cols-2">
+   259→  2058→                {filteredCredentials.map((cred) => (
+   260→  2059→                  <Card key={cred.id}>
+   261→  2060→                    <CardHeader className="pb-3">
+   262→  2061→                      <div className="flex items-center gap-2">
+   263→  2062→                        <Badge className={cn("text-xs", labelColor(cred.label))}>
+   264→  2063→                          {safeText(cred.label, "Credential")}
+   265→  2064→                        </Badge>
+   266→  2065→                        {cred.url && (
+   267→  2066→                          <a href={safeUrl(cred.url)} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+   268→  2067→                            <Globe className="h-3.5 w-3.5" />
+   269→  2068→                          </a>
+   270→  2069→                        )}
+   271→  2070→                      </div>
+   272→  2071→                    </CardHeader>
+   273→  2072→                    <CardContent className="space-y-3">
+   274→  2073→                      <div className="space-y-1">
+   275→  2074→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">ID / Username</p>
+   276→  2075→                        <div className="flex items-center gap-2">
+   277→  2076→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.username, "")}</code>
+   278→  2077→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.username, `user-${cred.id}`)} aria-label="Copy username">
+   279→  2078→                            {copiedField === `user-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+   280→  2079→                          </Button>
+   281→  2080→                        </div>
+   282→  2081→                      </div>
+   283→  2082→                      <div className="space-y-1">
+   284→  2083→                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
+   285→  2084→                        <div className="flex items-center gap-2">
+   286→  2085→                          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
+   287→  2086→                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
+   288→  2087→                            {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+   289→  2088→                          </Button>
+   290→  2089→                        </div>
+   291→  2090→                      </div>
+   292→  2091→                      {cred.notes && (
+   293→  2092→                        <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">{safeText(cred.notes, "")}</p>
+   294→  2093→                      )}
+   295→  2094→                    </CardContent>
+   296→  2095→                  </Card>
+   297→  2096→                ))}
+   298→  2097→              </div>
+   299→  2098→            )}
+   300→  2099→          </div>
+   301→  2100→
+   302→  2101→          {/* Protocol PDF */}
+   303→  2102→          <div className="space-y-3">
+   304→  2103→            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Protocol</h2>
+   305→  2104→            <ProtocolPdfCard />
+   306→  2105→          </div>
+   307→  2106→
+   308→  2107→          {/* Workspace Token */}
+   309→  2108→          <div className="space-y-3">
+   310→  2109→            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Workspace Token</h2>
+   311→  2110→            <WorkspaceTokenCard />
+   312→  2111→          </div>
+   313→  2112→
+   314→  2113→          {/* Your Code */}
+   315→  2114→          <div className="space-y-3">
+   316→  2115→            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Your Access Code</h2>
+   317→  2116→            <MyCodeCard />
+   318→  2117→          </div>
+   319→  2118→        </div>
+   320→  2119→      )}
+   321→  2120→
+   322→  2121→      {/* Hidden file input */}
+   323→  2122→      <input
+   324→  2123→        ref={fileInputRef}
+   325→  2124→        type="file"
+   326→  2125→        accept=".pdf"
+   327→  2126→        className="hidden"
+   328→  2127→        onChange={(e) => {
+   329→  2128→          const file = e.target.files?.[0];
+   330→  2129→          if (file) handleUpload(file);
+   331→  2130→          e.target.value = "";
+   332→  2131→        }}
+   333→  2132→      />
+   334→  2133→
+   335→  2134→      {/* Upload overlay spinner */}
+   336→  2135→      {uploading && (
+   337→  2136→        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center">
+   338→  2137→          <div className="bg-background rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
+   339→  2138→            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+   340→  2139→            <p className="text-sm font-medium">Uploading protocol...</p>
+   341→  2140→          </div>
+   342→  2141→        </div>
+   343→  2142→      )}
+   344→  2143→
+   345→  2144→      {/* Set User Code Dialog */}
+   346→  2145→      <Dialog open={setCodeDialogOpen} onOpenChange={setSetCodeDialogOpen}>
+   347→  2146→        <DialogContent>
+   348→  2147→          <DialogHeader>
+   349→  2148→            <DialogTitle>
+   350→  2149→              {setCodeTarget?.hasCode ? "Edit Code" : "Set Code"} for {safeText(setCodeTarget?.userName)}
+   351→  2150→            </DialogTitle>
+   352→  2151→            <DialogDescription>
+   353→  2152→              Assign a unique access code for {safeText(setCodeTarget?.userEmail)}
+   354→  2153→            </DialogDescription>
+   355→  2154→          </DialogHeader>
+   356→  2155→          <div className="space-y-3 py-2">
+   357→  2156→            <div className="space-y-1.5">
+   358→  2157→              <Label htmlFor="user-code-input">Access Code</Label>
+   359→  2158→              <Input
+   360→  2159→                id="user-code-input"
+   361→  2160→                placeholder="Enter access code..."
+   362→  2161→                value={setCodeValue}
+   363→  2162→                onChange={(e) => setSetCodeValue(e.target.value)}
+   364→  2163→                className="font-mono text-sm"
+   365→  2164→                onKeyDown={(e) => {
+   366→  2165→                  if (e.key === "Enter" && !setCodeSaving && setCodeValue.trim()) handleSaveUserCode();
+   367→  2166→                }}
+   368→  2167→              />
+   369→  2168→            </div>
+   370→  2169→          </div>
+   371→  2170→          <DialogFooter>
+   372→  2171→            <Button variant="outline" onClick={() => setSetCodeDialogOpen(false)} disabled={setCodeSaving}>Cancel</Button>
+   373→  2172→            <Button onClick={handleSaveUserCode} disabled={setCodeSaving || !setCodeValue.trim()}>
+   374→  2173→              {setCodeSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+   375→  2174→              {setCodeTarget?.hasCode ? "Update Code" : "Set Code"}
+   376→  2175→            </Button>
+   377→  2176→          </DialogFooter>
+   378→  2177→        </DialogContent>
+   379→  2178→      </Dialog>
+   380→  2179→
+   381→  2180→      {/* Add/Edit Credential Dialog */}
+   382→  2181→      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+   383→  2182→        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+   384→  2183→          <DialogHeader>
+   385→  2184→            <DialogTitle>
+   386→  2185→              {editingCredential ? "Edit Credential" : "Add New Credential"}
+   387→  2186→            </DialogTitle>
+   388→  2187→            <DialogDescription>
+   389→  2188→              {editingCredential
+   390→  2189→                ? "Update the credential details below."
+   391→  2190→                : "Create a new ID & Password credential for a team member."}
+   392→  2191→            </DialogDescription>
+   393→  2192→          </DialogHeader>
+   394→  2193→          <div className="space-y-4">
+   395→  2194→            {isAdmin && (
+   396→  2195→              <div className="space-y-2">
+   397→  2196→                <Label>Assign to User</Label>
+   398→  2197→                <Select value={formTargetUserId} onValueChange={setFormTargetUserId}>
+   399→  2198→                  <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+   400→  2199→                  <SelectContent>
+   401→  2200→                    {allUsers.map((u) => (
+   402→  2201→                      <SelectItem key={u.id} value={u.id}>
+   403→  2202→                        {safeText(u.name, "")} ({safeText(u.email, "")})
+   404→  2203→                      </SelectItem>
+   405→  2204→                    ))}
+   406→  2205→                  </SelectContent>
+   407→  2206→                </Select>
+   408→  2207→              </div>
+   409→  2208→            )}
+   410→  2209→            <div className="space-y-2">
+   411→  2210→              <Label>Label</Label>
+   412→  2211→              <Select value={formLabel} onValueChange={setFormLabel}>
+   413→  2212→                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+   414→  2213→                <SelectContent>
+   415→  2214→                  <SelectItem value="Workspace">Workspace</SelectItem>
+   416→  2215→                  <SelectItem value="Email">Email</SelectItem>
+   417→  2216→                  <SelectItem value="Portal">Portal</SelectItem>
+   418→  2217→                  <SelectItem value="Hosting">Hosting</SelectItem>
+   419→  2218→                  <SelectItem value="API">API</SelectItem>
+   420→  2219→                  <SelectItem value="Database">Database</SelectItem>
+   421→  2220→                </SelectContent>
+   422→  2221→              </Select>
+   423→  2222→            </div>
+   424→  2223→            <div className="space-y-2">
+   425→  2224→              <Label>ID / Username</Label>
+   426→  2225→              <Input placeholder="e.g., john@company.com" value={formUsername} onChange={(e) => setFormUsername(e.target.value)} />
+   427→  2226→            </div>
+   428→  2227→            <div className="space-y-2">
+   429→  2228→              <Label>Password</Label>
+   430→  2229→              <Input type="password" placeholder={editingCredential ? "Leave blank to keep current password" : "Enter the password"} value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
+   431→  2230→            </div>
+   432→  2231→            <div className="space-y-2">
+   433→  2232→              <Label>Login URL (optional)</Label>
+   434→  2233→              <Input placeholder="https://example.com/login" value={formUrl} onChange={(e) => setFormUrl(e.target.value)} />
+   435→  2234→            </div>
+   436→  2235→            <div className="space-y-2">
+   437→  2236→              <Label>Notes (optional)</Label>
+   438→  2237→              <Textarea placeholder="Any additional instructions..." value={formNotes} onChange={(e) => setFormNotes(e.target.value)} rows={2} />
+   439→  2238→            </div>
+   440→  2239→          </div>
+   441→  2240→          <DialogFooter className="gap-2">
+   442→  2241→            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+   443→  2242→            <Button onClick={handleSaveCred} disabled={!formLabel || !formUsername || (!formPassword && !editingCredential) || saving}>
+   444→  2243→              {saving ? "Saving..." : (
+   445→  2244→                <><Save className="h-4 w-4 mr-1" />{editingCredential ? "Update" : "Create"}</>
+   446→  2245→              )}
+   447→  2246→            </Button>
+   448→  2247→          </DialogFooter>
+   449→  2248→        </DialogContent>
+   450→  2249→      </Dialog>
+   451→  2250→
+   452→  2251→      {/* Delete Credential Dialog */}
+   453→  2252→      {/* ── Delete Protocol Confirmation Dialog ── */}
+   454→  2253→      <AlertDialog open={deleteProtocolDialogOpen} onOpenChange={setDeleteProtocolDialogOpen}>
+   455→  2254→        <AlertDialogContent>
+   456→  2255→          <AlertDialogHeader>
+   457→  2256→            <AlertDialogTitle>Delete Protocol PDF</AlertDialogTitle>
+   458→  2257→            <AlertDialogDescription>
+   459→  2258→              Are you sure you want to delete this protocol PDF? This action cannot be undone.
+   460→  2259→            </AlertDialogDescription>
+   461→  2260→          </AlertDialogHeader>
+   462→  2261→          <AlertDialogFooter>
+   463→  2262→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   464→  2263→            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmDeleteProtocol}>
+   465→  2264→              Delete
+   466→  2265→            </AlertDialogAction>
+   467→  2266→          </AlertDialogFooter>
+   468→  2267→        </AlertDialogContent>
+   469→  2268→      </AlertDialog>
+   470→  2269→
+   471→  2270→      {/* ── Delete Credential Confirmation Dialog ── */}
+   472→  2271→      <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+   473→  2272→        <AlertDialogContent>
+   474→  2273→          <AlertDialogHeader>
+   475→  2274→            <AlertDialogTitle>Delete Credential</AlertDialogTitle>
+   476→  2275→            <AlertDialogDescription>Are you sure you want to delete this credential? This action cannot be undone.</AlertDialogDescription>
+   477→  2276→          </AlertDialogHeader>
+   478→  2277→          <AlertDialogFooter>
+   479→  2278→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   480→  2279→            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteId && handleDeleteCred(deleteId)}>
+   481→  2280→              Delete
+   482→  2281→            </AlertDialogAction>
+   483→  2282→          </AlertDialogFooter>
+   484→  2283→        </AlertDialogContent>
+   485→  2284→      </AlertDialog>
+   486→  2285→    </div>
+   487→  2286→  );
+   488→  2287→}
+   489→  2288→

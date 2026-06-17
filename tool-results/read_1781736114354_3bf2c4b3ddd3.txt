@@ -1,0 +1,502 @@
+  1001→                                      </Badge>
+  1002→                                    )}
+  1003→                                  </div>
+  1004→                                  <div className="flex items-center gap-1 shrink-0">
+  1005→                                    <Button
+  1006→                                      variant="outline"
+  1007→                                      size="sm"
+  1008→                                      className="h-8 px-2.5 text-xs"
+  1009→                                      onClick={() => openEditAvailability(slot)}
+  1010→                                    >
+  1011→                                      <Edit3 className="h-3 w-3 mr-1" />Edit
+  1012→                                    </Button>
+  1013→                                    <Button
+  1014→                                      variant="outline"
+  1015→                                      size="sm"
+  1016→                                      className="h-8 px-2.5 text-xs text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+  1017→                                      onClick={() => setDeleteAvailId(slot.id)}
+  1018→                                    >
+  1019→                                      <Trash2 className="h-3 w-3 mr-1" />Delete
+  1020→                                    </Button>
+  1021→                                  </div>
+  1022→                                </div>
+  1023→                              );
+  1024→                            })}
+  1025→                        </div>
+  1026→                      )}
+  1027→                    </CardContent>
+  1028→                  </Card>
+  1029→                );
+  1030→              })}
+  1031→            </div>
+  1032→          ) : (
+  1033→            <Card>
+  1034→              <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+  1035→                <CalendarDays className="h-12 w-12 opacity-30 mb-3" />
+  1036→                <p className="text-sm">Select a team member to manage their weekly schedule</p>
+  1037→              </CardContent>
+  1038→            </Card>
+  1039→          )}
+  1040→        </TabsContent>
+  1041→
+  1042→        {/* ═══════════════════════════════════════════════════════════════════════
+  1043→            TAB 2: Team View (weekly grid – mobile cards, desktop grid)
+  1044→        ═══════════════════════════════════════════════════════════════════════ */}
+  1045→        <TabsContent value="team" className="space-y-4">
+  1046→          {/* Week Navigation */}
+  1047→          <div className="flex items-center justify-between flex-wrap gap-2">
+  1048→            <div className="flex items-center gap-1.5">
+  1049→              <Button variant="outline" size="sm" onClick={prevWeek} aria-label="Previous week" className="h-9 w-9 p-0">
+  1050→                <ChevronLeft className="h-4 w-4" />
+  1051→              </Button>
+  1052→              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+  1053→                <PopoverTrigger asChild>
+  1054→                  <Button variant="outline" size="sm" className="min-w-[150px] sm:min-w-[220px] justify-start text-left font-normal h-9 text-xs sm:text-sm">
+  1055→                    <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+  1056→                    <span className="hidden sm:inline">
+  1057→                      {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+  1058→                      {" — "}
+  1059→                      {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+  1060→                    </span>
+  1061→                    <span className="sm:hidden">
+  1062→                      {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+  1063→                      {" – "}
+  1064→                      {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+  1065→                    </span>
+  1066→                  </Button>
+  1067→                </PopoverTrigger>
+  1068→                <PopoverContent className="w-auto p-0" align="start">
+  1069→                  <Calendar
+  1070→                    mode="single"
+  1071→                    selected={currentWeekStart}
+  1072→                    onSelect={handleCalendarSelect}
+  1073→                  />
+  1074→                </PopoverContent>
+  1075→              </Popover>
+  1076→              <Button variant="outline" size="sm" onClick={nextWeek} aria-label="Next week" className="h-9 w-9 p-0">
+  1077→                <ChevronRight className="h-4 w-4" />
+  1078→              </Button>
+  1079→              {weekOffset !== 0 && (
+  1080→                <Button variant="ghost" size="sm" onClick={goToToday} className="h-9 text-xs">
+  1081→                  Today
+  1082→                </Button>
+  1083→              )}
+  1084→            </div>
+  1085→            <div className="flex items-center gap-2">
+  1086→              <Select value={weekUserFilter} onValueChange={setWeekUserFilter}>
+  1087→                <SelectTrigger className="w-[110px] sm:w-[160px] h-9 text-xs">
+  1088→                  <Filter className="h-3 w-3 mr-1 shrink-0 text-muted-foreground" />
+  1089→                  <SelectValue placeholder="All Users" />
+  1090→                </SelectTrigger>
+  1091→                <SelectContent>
+  1092→                  <SelectItem value="all">All Users</SelectItem>
+  1093→                  {teamUsers.map((u) => (
+  1094→                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  1095→                  ))}
+  1096→                </SelectContent>
+  1097→              </Select>
+  1098→            </div>
+  1099→          </div>
+  1100→
+  1101→          {/* Legend */}
+  1102→          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+  1103→            <span className="flex items-center gap-1">
+  1104→              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+  1105→              <span className="text-[10px]">Available</span>
+  1106→            </span>
+  1107→            <span className="flex items-center gap-1">
+  1108→              <span className="h-2.5 w-2.5 rounded-full bg-gray-300 dark:bg-gray-600" />
+  1109→              <span className="text-[10px]">Not Set</span>
+  1110→            </span>
+  1111→            <span className="flex items-center gap-1">
+  1112→              <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+  1113→              <span className="text-[10px]">On Leave</span>
+  1114→            </span>
+  1115→            <span className="flex items-center gap-1">
+  1116→              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+  1117→              <span className="text-[10px]">Override</span>
+  1118→            </span>
+  1119→          </div>
+  1120→
+  1121→          {weekLoading ? (
+  1122→            <div className="space-y-3">
+  1123→              {[1, 2, 3, 4].map((i) => (
+  1124→                <Skeleton key={i} className="h-24 w-full rounded-lg" />
+  1125→              ))}
+  1126→            </div>
+  1127→          ) : !weekSchedule || weekSchedule.users.length === 0 ? (
+  1128→            <Card>
+  1129→              <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+  1130→                <Users className="h-12 w-12 opacity-30 mb-3" />
+  1131→                <p className="text-sm">No team members found for this week</p>
+  1132→              </CardContent>
+  1133→            </Card>
+  1134→          ) : (
+  1135→            <>
+  1136→              {/* ── Mobile Cards (<md) ── */}
+  1137→              <div className="space-y-3 md:hidden">
+  1138→                {weekSchedule.users
+  1139→                  .filter((u) => weekUserFilter === "all" || u.user.id === weekUserFilter)
+  1140→                  .map((userSchedule) => {
+  1141→                    const totalHours = weekDates.reduce((sum, d) => {
+  1142→                      const ds = formatDateOnly(d);
+  1143→                      const dd = userSchedule.days[ds];
+  1144→                      return sum + (dd ? dd.totalHours : 0);
+  1145→                    }, 0);
+  1146→                    const configuredDays = weekDates.filter((d) => {
+  1147→                      const ds = formatDateOnly(d);
+  1148→                      const dd = userSchedule.days[ds];
+  1149→                      return dd && (dd.isOnLeave || dd.availability.length > 0);
+  1150→                    }).length;
+  1151→
+  1152→                    return (
+  1153→                      <Card key={userSchedule.user.id} className="overflow-hidden">
+  1154→                        <CardContent className="p-0">
+  1155→                          {/* User header */}
+  1156→                          <div className="flex items-center gap-3 p-3 border-b">
+  1157→                            <Avatar className="h-9 w-9">
+  1158→                              <AvatarImage src={userSchedule.user.avatar || undefined} alt={userSchedule.user.name} />
+  1159→                              <AvatarFallback className="text-xs">
+  1160→                                {getUserInitials(userSchedule.user.name)}
+  1161→                              </AvatarFallback>
+  1162→                            </Avatar>
+  1163→                            <div className="flex-1 min-w-0">
+  1164→                              <div className="text-sm font-semibold truncate">{userSchedule.user.name}</div>
+  1165→                              <div className="text-[10px] text-muted-foreground">
+  1166→                                {Math.round(totalHours * 10) / 10}h/week · {configuredDays} days configured
+  1167→                              </div>
+  1168→                            </div>
+  1169→                            <Badge className="text-[9px] px-1.5 py-0 bg-muted border-0 shrink-0">
+  1170→                              {safeText(userSchedule.user.role, "Member").toUpperCase()}
+  1171→                            </Badge>
+  1172→                          </div>
+  1173→
+  1174→                          {/* 7-day dot strip */}
+  1175→                          <div className="flex">
+  1176→                            {weekDates.map((date, i) => {
+  1177→                              const ds = formatDateOnly(date);
+  1178→                              const dd = userSchedule.days[ds];
+  1179→                              const isToday = ds === todayStr;
+  1180→                              let dotColor = "bg-gray-300 dark:bg-gray-600"; // not set
+  1181→                              if (dd) {
+  1182→                                if (dd.isOnLeave) dotColor = "bg-sky-500";
+  1183→                                else if (dd.override && !dd.isOnLeave) dotColor = "bg-amber-500";
+  1184→                                else if (dd.availability.length > 0) dotColor = "bg-green-500";
+  1185→                              }
+  1186→                              return (
+  1187→                                <button
+  1188→                                  key={ds}
+  1189→                                  className={`flex-1 flex flex-col items-center gap-1 py-2.5 border-r last:border-r-0 transition-colors ${isToday ? "bg-primary/5" : "hover:bg-muted/30"}`}
+  1190→                                  onClick={() => dd && setSelectedDayDetail({
+  1191→                                    userId: userSchedule.user.id,
+  1192→                                    userName: userSchedule.user.name,
+  1193→                                    date: ds,
+  1194→                                    dayData: dd,
+  1195→                                  })}
+  1196→                                >
+  1197→                                  <span className={`text-[9px] font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+  1198→                                    {DAY_NAMES_SHORT[i]}
+  1199→                                  </span>
+  1200→                                  <span className={`h-3 w-3 rounded-full ${dotColor}`} />
+  1201→                                  <span className={`text-[9px] ${isToday ? "text-primary font-bold" : "text-muted-foreground"}`}>
+  1202→                                    {date.getDate()}
+  1203→                                  </span>
+  1204→                                </button>
+  1205→                              );
+  1206→                            })}
+  1207→                          </div>
+  1208→
+  1209→                          {/* Expandable day detail */}
+  1210→                          {selectedDayDetail && selectedDayDetail.userId === userSchedule.user.id && (
+  1211→                            <div className="border-t p-3 space-y-2 bg-muted/20">
+  1212→                              <div className="flex items-center justify-between">
+  1213→                                <span className="text-xs font-semibold">
+  1214→                                  {selectedDayDetail.dayData.dayName}, {selectedDayDetail.date}
+  1215→                                </span>
+  1216→                                <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => setSelectedDayDetail(null)}>
+  1217→                                  <X className="h-3 w-3 mr-0.5" /> Close
+  1218→                                </Button>
+  1219→                              </div>
+  1220→
+  1221→                              {selectedDayDetail.dayData.isOnLeave ? (
+  1222→                                <div className="flex items-center gap-2 text-xs text-sky-600">
+  1223→                                  <CalendarDays className="h-3.5 w-3.5" /> On Leave
+  1224→                                </div>
+  1225→                              ) : selectedDayDetail.dayData.availability.length > 0 ? (
+  1226→                                <div className="space-y-1.5">
+  1227→                                  {selectedDayDetail.dayData.availability.map((slot) => {
+  1228→                                    const rawEntry = findAvailEntry(slot.id);
+  1229→                                    return (
+  1230→                                      <div key={slot.id} className="flex items-center gap-2 p-2 rounded-lg bg-background">
+  1231→                                        <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+  1232→                                        <div className="flex-1 min-w-0">
+  1233→                                          <span className="text-xs font-medium">{slot.startTime} – {slot.endTime}</span>
+  1234→                                          <span className="text-[10px] text-muted-foreground ml-1">({slot.hours}h)</span>
+  1235→                                        </div>
+  1236→                                        {rawEntry && (
+  1237→                                          <div className="flex items-center gap-1 shrink-0">
+  1238→                                            <Button variant="outline" size="sm" className="h-8 px-2 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
+  1239→                                              Edit
+  1240→                                            </Button>
+  1241→                                            <Button variant="outline" size="sm" className="h-8 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => setDeleteAvailId(slot.id)}>
+  1242→                                              Delete
+  1243→                                            </Button>
+  1244→                                          </div>
+  1245→                                        )}
+  1246→                                      </div>
+  1247→                                    );
+  1248→                                  })}
+  1249→                                </div>
+  1250→                              ) : (
+  1251→                                <span className="text-xs text-muted-foreground">No availability set</span>
+  1252→                              )}
+  1253→
+  1254→                              <div className="flex gap-1.5 pt-1">
+  1255→                                <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}>
+  1256→                                  <Plus className="h-3 w-3 mr-1" /> Add Slot
+  1257→                                </Button>
+  1258→                                <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date)}>
+  1259→                                  <CalendarClock className="h-3 w-3 mr-1" /> Override
+  1260→                                </Button>
+  1261→                              </div>
+  1262→                            </div>
+  1263→                          )}
+  1264→
+  1265→                          {/* Manage button */}
+  1266→                          {!selectedDayDetail?.userId && (
+  1267→                            <div className="border-t p-2.5">
+  1268→                              <Button
+  1269→                                variant="ghost"
+  1270→                                size="sm"
+  1271→                                className="w-full h-9 text-xs justify-center"
+  1272→                                onClick={() => {
+  1273→                                  setSchedUserId(userSchedule.user.id);
+  1274→                                }}
+  1275→                              >
+  1276→                                <LayoutGrid className="h-3.5 w-3.5 mr-1.5" /> Manage Schedule →
+  1277→                              </Button>
+  1278→                            </div>
+  1279→                          )}
+  1280→                        </CardContent>
+  1281→                      </Card>
+  1282→                    );
+  1283→                  })}
+  1284→              </div>
+  1285→
+  1286→              {/* ── Desktop Grid (md+) ── */}
+  1287→              <Card className="hidden md:block">
+  1288→                <CardContent className="p-0">
+  1289→                  <div className="w-full overflow-x-auto">
+  1290→                    <div className="min-w-[700px] lg:min-w-[900px]">
+  1291→                      {/* Header row */}
+  1292→                      <div className="grid grid-cols-[130px_repeat(7,1fr)] border-b bg-muted/50 sticky top-0 z-10">
+  1293→                        <div className="p-2 sm:p-3 text-[10px] sm:text-xs font-semibold text-muted-foreground border-r flex items-center">
+  1294→                          Team Member
+  1295→                        </div>
+  1296→                        {weekDates.map((date, i) => {
+  1297→                          const dayStr = formatDateOnly(date);
+  1298→                          const isToday = dayStr === todayStr;
+  1299→                          return (
+  1300→                            <div
+  1301→                              key={dayStr}
+  1302→                              className={`p-1.5 sm:p-3 text-center border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
+  1303→                            >
+  1304→                              <div className={`text-[9px] sm:text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+  1305→                                {DAY_NAMES_SHORT[i]}
+  1306→                              </div>
+  1307→                              <div className={`text-sm sm:text-lg font-bold ${isToday ? "text-primary" : ""}`}>
+  1308→                                {date.getDate()}
+  1309→                              </div>
+  1310→                              <div className={`text-[8px] sm:text-[10px] ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+  1311→                                {date.toLocaleDateString("en-US", { month: "short" })}
+  1312→                              </div>
+  1313→                            </div>
+  1314→                          );
+  1315→                        })}
+  1316→                      </div>
+  1317→
+  1318→                      {/* User rows */}
+  1319→                      {weekSchedule.users
+  1320→                        .filter((u) => weekUserFilter === "all" || u.user.id === weekUserFilter)
+  1321→                        .map((userSchedule) => (
+  1322→                        <div
+  1323→                          key={userSchedule.user.id}
+  1324→                          className="grid grid-cols-[130px_repeat(7,1fr)] border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+  1325→                        >
+  1326→                          {/* User info */}
+  1327→                          <div className="p-2 sm:p-3 border-r flex items-center gap-1.5 sm:gap-2">
+  1328→                            <Avatar className="h-5 w-5 sm:h-7 sm:w-7">
+  1329→                              <AvatarImage src={userSchedule.user.avatar || undefined} alt={userSchedule.user.name} />
+  1330→                              <AvatarFallback className="text-[8px] sm:text-[10px]">
+  1331→                                {getUserInitials(userSchedule.user.name)}
+  1332→                              </AvatarFallback>
+  1333→                            </Avatar>
+  1334→                            <div className="min-w-0">
+  1335→                              <div className="text-[10px] sm:text-sm font-medium truncate">{userSchedule.user.name}</div>
+  1336→                              <div className="text-[8px] sm:text-[10px] text-muted-foreground truncate">
+  1337→                                {safeText(userSchedule.user.role, "")}
+  1338→                              </div>
+  1339→                            </div>
+  1340→                          </div>
+  1341→
+  1342→                          {/* Day cells */}
+  1343→                          {weekDates.map((date) => {
+  1344→                            const dayStr = formatDateOnly(date);
+  1345→                            const dayData = userSchedule.days[dayStr];
+  1346→                            const isToday = dayStr === todayStr;
+  1347→
+  1348→                            if (!dayData) {
+  1349→                              return (
+  1350→                                <div key={dayStr} className="p-2 border-r last:border-r-0 flex items-center justify-center">
+  1351→                                  <span className="text-[10px] text-muted-foreground">—</span>
+  1352→                                </div>
+  1353→                              );
+  1354→                            }
+  1355→
+  1356→                            return (
+  1357→                              <Tooltip key={dayStr}>
+  1358→                                <TooltipTrigger asChild>
+  1359→                                  <div
+  1360→                                    className={`p-2 border-r last:border-r-0 cursor-pointer transition-colors hover:bg-muted/40 min-h-[80px] flex flex-col gap-1 ${isToday ? "bg-primary/[0.03]" : ""}`}
+  1361→                                    onClick={() => setSelectedDayDetail({
+  1362→                                      userId: userSchedule.user.id,
+  1363→                                      userName: userSchedule.user.name,
+  1364→                                      date: dayStr,
+  1365→                                      dayData,
+  1366→                                    })}
+  1367→                                  >
+  1368→                                    <div className="flex flex-wrap gap-1">
+  1369→                                      {dayData.isOnLeave && (
+  1370→                                        <Badge className="text-[9px] px-1.5 py-0 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 border-0">
+  1371→                                          LEAVE
+  1372→                                        </Badge>
+  1373→                                      )}
+  1374→                                      {dayData.override && !dayData.isOnLeave && (
+  1375→                                        <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0">
+  1376→                                          OVERRIDE
+  1377→                                        </Badge>
+  1378→                                      )}
+  1379→                                    </div>
+  1380→                                    {dayData.isOnLeave ? (
+  1381→                                      <div className="flex-1 flex items-center justify-center">
+  1382→                                        <span className="text-[10px] text-sky-500 font-medium">Off</span>
+  1383→                                      </div>
+  1384→                                    ) : dayData.availability.length > 0 ? (
+  1385→                                      <div className="flex flex-wrap gap-1">
+  1386→                                        {dayData.availability.slice(0, 3).map((slot) => {
+  1387→                                          const rawEntry = findAvailEntry(slot.id);
+  1388→                                          return (
+  1389→                                            <Badge
+  1390→                                              key={slot.id}
+  1391→                                              className={`text-[9px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 transition-colors ${rawEntry ? "cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50" : ""}`}
+  1392→                                              onClick={(e) => {
+  1393→                                                e.stopPropagation();
+  1394→                                                if (rawEntry) openEditAvailability(rawEntry);
+  1395→                                              }}
+  1396→                                              title={rawEntry ? "Click to edit" : undefined}
+  1397→                                            >
+  1398→                                              {slot.startTime}-{slot.endTime}
+  1399→                                            </Badge>
+  1400→                                          );
+  1401→                                        })}
+  1402→                                        {dayData.availability.length > 3 && (
+  1403→                                          <span className="text-[9px] text-muted-foreground">+{dayData.availability.length - 3}</span>
+  1404→                                        )}
+  1405→                                      </div>
+  1406→                                    ) : (
+  1407→                                      <div className="flex-1 flex items-center justify-center">
+  1408→                                        <span className="text-[10px] text-muted-foreground">Not Set</span>
+  1409→                                      </div>
+  1410→                                    )}
+  1411→                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-auto pt-1 border-t border-border/50">
+  1412→                                      {(dayData.taskCount > 0 || dayData.doneTaskCount > 0) && (
+  1413→                                        <span className="flex items-center gap-0.5">
+  1414→                                          <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
+  1415→                                          {dayData.doneTaskCount}/{dayData.taskCount}
+  1416→                                        </span>
+  1417→                                      )}
+  1418→                                      {dayData.meetingCount > 0 && (
+  1419→                                        <span className="flex items-center gap-0.5">
+  1420→                                          <Video className="h-2.5 w-2.5 text-sky-500" />
+  1421→                                          {dayData.meetingCount}
+  1422→                                        </span>
+  1423→                                      )}
+  1424→                                    </div>
+  1425→                                  </div>
+  1426→                                </TooltipTrigger>
+  1427→                                <TooltipContent side="bottom" className="max-w-[260px]">
+  1428→                                  <div className="space-y-1.5 text-left">
+  1429→                                    <div className="font-semibold text-xs">{userSchedule.user.name} — {dayData.dayName}, {dayStr}</div>
+  1430→                                    <Separator />
+  1431→                                    {dayData.isOnLeave ? (
+  1432→                                      <div className="text-[11px] text-sky-600 font-medium">On Leave</div>
+  1433→                                    ) : dayData.availability.length > 0 ? (
+  1434→                                      <div className="space-y-0.5">
+  1435→                                        <div className="text-[11px] font-medium">Availability:</div>
+  1436→                                        {dayData.availability.map((s) => (
+  1437→                                          <div key={s.id} className="text-[10px] text-muted-foreground">
+  1438→                                            {s.startTime} – {s.endTime} ({s.hours}h)
+  1439→                                          </div>
+  1440→                                        ))}
+  1441→                                        <div className="text-[10px] text-muted-foreground">
+  1442→                                          Total: {dayData.totalHours}h scheduled
+  1443→                                        </div>
+  1444→                                      </div>
+  1445→                                    ) : (
+  1446→                                      <div className="text-[11px] text-muted-foreground">No availability set</div>
+  1447→                                    )}
+  1448→                                    {dayData.override && (
+  1449→                                      <div className="text-[10px]">
+  1450→                                        <span className="font-medium text-amber-600">Override: </span>
+  1451→                                        {dayData.override.isAvailable ? "Available" : "Unavailable"}
+  1452→                                        {dayData.override.reason && ` — ${dayData.override.reason}`}
+  1453→                                      </div>
+  1454→                                    )}
+  1455→                                    <div className="text-[10px] text-muted-foreground">
+  1456→                                      Tasks: {dayData.doneTaskCount}/{dayData.taskCount} done
+  1457→                                      {dayData.meetingCount > 0 && ` | Meetings: ${dayData.meetingCount}`}
+  1458→                                    </div>
+  1459→                                  </div>
+  1460→                                </TooltipContent>
+  1461→                              </Tooltip>
+  1462→                            );
+  1463→                          })}
+  1464→                        </div>
+  1465→                      ))}
+  1466→                    </div>
+  1467→                  </div>
+  1468→                </CardContent>
+  1469→              </Card>
+  1470→
+  1471→              {/* Day Detail Panel (desktop) */}
+  1472→              {selectedDayDetail && (
+  1473→                <Card>
+  1474→                  <CardHeader className="pb-3">
+  1475→                    <div className="flex items-center justify-between">
+  1476→                      <div>
+  1477→                        <CardTitle className="text-base">
+  1478→                          {selectedDayDetail.userName} — {selectedDayDetail.dayData.dayName}
+  1479→                        </CardTitle>
+  1480→                        <CardDescription>
+  1481→                          {selectedDayDetail.date}
+  1482→                        </CardDescription>
+  1483→                      </div>
+  1484→                      <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedDayDetail(null)}>
+  1485→                        <X className="h-3.5 w-3.5 mr-1" /> Close
+  1486→                      </Button>
+  1487→                    </div>
+  1488→                  </CardHeader>
+  1489→                  <CardContent>
+  1490→                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  1491→                      {/* Availability */}
+  1492→                      <div className="space-y-2">
+  1493→                        <div className="flex items-center justify-between">
+  1494→                          <h4 className="text-sm font-semibold text-muted-foreground">Availability</h4>
+  1495→                          <Button
+  1496→                            variant="ghost" size="sm" className="h-8 text-xs"
+  1497→                            onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
+  1498→                          >
+  1499→                            <Plus className="h-3 w-3 mr-0.5" /> Add
+  1500→                          </Button>
+
+[showing lines 1001-1500 of 2541; use offset=1501 with limit to continue reading]

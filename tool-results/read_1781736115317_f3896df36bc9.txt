@@ -1,0 +1,502 @@
+  2001→                                        : entry.status === "PENDING"
+  2002→                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+  2003→                                          : "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400"
+  2004→                                    }`}
+  2005→                                  >
+  2006→                                    {safeText(entry.status)}
+  2007→                                  </Badge>
+  2008→                                </TableCell>
+  2009→                              </TableRow>
+  2010→                            ))}
+  2011→                            <TableRow className="bg-muted/50 font-semibold">
+  2012→                              <TableCell colSpan={4} className="text-xs">Total</TableCell>
+  2013→                              <TableCell className="text-xs text-right">{dailySchedule.totalWorkedHours}h</TableCell>
+  2014→                              <TableCell />
+  2015→                            </TableRow>
+  2016→                          </TableBody>
+  2017→                        </Table>
+  2018→                      </div>
+  2019→                    </div>
+  2020→                  </CardContent>
+  2021→                </Card>
+  2022→              )}
+  2023→            </div>
+  2024→          ) : (
+  2025→            <Card>
+  2026→              <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+  2027→                <Clock className="h-12 w-12 opacity-30 mb-3" />
+  2028→                <p className="text-sm">Select a date and team member to view the daily schedule</p>
+  2029→              </CardContent>
+  2030→            </Card>
+  2031→          )}
+  2032→        </TabsContent>
+  2033→
+  2034→        {/* ═══════════════════════════════════════════════════════════════════════
+  2035→            TAB 4: Overrides
+  2036→        ═══════════════════════════════════════════════════════════════════════ */}
+  2037→        <TabsContent value="overrides" className="space-y-4">
+  2038→          {/* Upcoming overrides */}
+  2039→          <Card>
+  2040→            <CardHeader>
+  2041→              <div className="flex items-center justify-between flex-wrap gap-2">
+  2042→                <div>
+  2043→                  <CardTitle>Upcoming Overrides</CardTitle>
+  2044→                  <CardDescription>Active and future availability overrides</CardDescription>
+  2045→                </div>
+  2046→                <Button size="sm" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+  2047→                  <Plus className="h-4 w-4 mr-1.5" /> Add Override
+  2048→                </Button>
+  2049→              </div>
+  2050→            </CardHeader>
+  2051→            <CardContent>
+  2052→              {upcomingOverrides.length === 0 ? (
+  2053→                <div className="flex flex-col items-center py-10 text-muted-foreground">
+  2054→                  <CalendarClock className="h-12 w-12 opacity-30 mb-3" />
+  2055→                  <p className="text-sm">No upcoming overrides</p>
+  2056→                  <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+  2057→                    <Plus className="h-3 w-3 mr-1" /> Create Override
+  2058→                  </Button>
+  2059→                </div>
+  2060→              ) : (
+  2061→                <>
+  2062→                  {/* Mobile card layout */}
+  2063→                  <div className="space-y-2 md:hidden">
+  2064→                    {upcomingOverrides.map((override) => (
+  2065→                      <div key={override.id} className="p-3 rounded-lg border bg-muted/20">
+  2066→                        <div className="flex items-start gap-2.5">
+  2067→                          <Avatar className="h-9 w-9 shrink-0">
+  2068→                            <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  2069→                            <AvatarFallback className="text-xs">
+  2070→                              {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  2071→                            </AvatarFallback>
+  2072→                          </Avatar>
+  2073→                          <div className="flex-1 min-w-0">
+  2074→                            <div className="text-sm font-medium">{override.user?.name || "Unknown"}</div>
+  2075→                            <div className="text-xs text-muted-foreground mt-0.5">
+  2076→                              {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
+  2077→                                weekday: "short", month: "short", day: "numeric",
+  2078→                              })}
+  2079→                            </div>
+  2080→                            <div className="text-xs text-muted-foreground">
+  2081→                              {override.startTime && override.endTime
+  2082→                                ? `${override.startTime} – ${override.endTime}`
+  2083→                                : "All Day"}
+  2084→                            </div>
+  2085→                            <div className="flex items-center gap-2 mt-1.5">
+  2086→                              <Badge
+  2087→                                className={`text-[10px] px-2 py-0.5 border-0 ${
+  2088→                                  override.isAvailable
+  2089→                                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  2090→                                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+  2091→                                }`}
+  2092→                              >
+  2093→                                {override.isAvailable ? "Available" : "Unavailable"}
+  2094→                              </Badge>
+  2095→                            </div>
+  2096→                            {override.reason && (
+  2097→                              <div className="text-xs text-muted-foreground mt-1">{safeText(override.reason)}</div>
+  2098→                            )}
+  2099→                            <div className="flex items-center gap-2 mt-2">
+  2100→                              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => openEditOverride(override)}>
+  2101→                                <Edit3 className="h-3 w-3 mr-1" /> Edit
+  2102→                              </Button>
+  2103→                              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteOverrideId(override.id)}>
+  2104→                                <Trash2 className="h-3 w-3 mr-1" /> Delete
+  2105→                              </Button>
+  2106→                            </div>
+  2107→                          </div>
+  2108→                        </div>
+  2109→                      </div>
+  2110→                    ))}
+  2111→                  </div>
+  2112→
+  2113→                  {/* Desktop table layout */}
+  2114→                  <div className="hidden md:block rounded-md border overflow-hidden">
+  2115→                    <Table>
+  2116→                      <TableHeader>
+  2117→                        <TableRow>
+  2118→                          <TableHead className="text-xs">Employee</TableHead>
+  2119→                          <TableHead className="text-xs">Date</TableHead>
+  2120→                          <TableHead className="text-xs">Time</TableHead>
+  2121→                          <TableHead className="text-xs">Status</TableHead>
+  2122→                          <TableHead className="text-xs">Reason</TableHead>
+  2123→                          <TableHead className="text-xs text-right">Actions</TableHead>
+  2124→                        </TableRow>
+  2125→                      </TableHeader>
+  2126→                      <TableBody>
+  2127→                        {upcomingOverrides.map((override) => (
+  2128→                          <TableRow key={override.id}>
+  2129→                            <TableCell>
+  2130→                              <div className="flex items-center gap-2">
+  2131→                                <Avatar className="h-6 w-6">
+  2132→                                  <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  2133→                                  <AvatarFallback className="text-[8px]">
+  2134→                                    {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  2135→                                  </AvatarFallback>
+  2136→                                </Avatar>
+  2137→                                <span className="text-sm font-medium">{override.user?.name || "Unknown"}</span>
+  2138→                              </div>
+  2139→                            </TableCell>
+  2140→                            <TableCell className="text-xs">
+  2141→                              {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
+  2142→                                weekday: "short", month: "short", day: "numeric",
+  2143→                              })}
+  2144→                            </TableCell>
+  2145→                            <TableCell className="text-xs text-muted-foreground">
+  2146→                              {override.startTime && override.endTime
+  2147→                                ? `${override.startTime} – ${override.endTime}`
+  2148→                                : "All Day"}
+  2149→                            </TableCell>
+  2150→                            <TableCell>
+  2151→                              <Badge
+  2152→                                className={`text-[10px] px-2 py-0.5 border-0 ${
+  2153→                                  override.isAvailable
+  2154→                                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  2155→                                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+  2156→                                }`}
+  2157→                              >
+  2158→                                {override.isAvailable ? "Available" : "Unavailable"}
+  2159→                              </Badge>
+  2160→                            </TableCell>
+  2161→                            <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+  2162→                              {override.reason ? safeText(override.reason) : "—"}
+  2163→                            </TableCell>
+  2164→                            <TableCell>
+  2165→                              <div className="flex items-center justify-end gap-1">
+  2166→                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditOverride(override)}>
+  2167→                                  Edit
+  2168→                                </Button>
+  2169→                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteOverrideId(override.id)}>
+  2170→                                  Delete
+  2171→                                </Button>
+  2172→                              </div>
+  2173→                            </TableCell>
+  2174→                          </TableRow>
+  2175→                        ))}
+  2176→                      </TableBody>
+  2177→                    </Table>
+  2178→                  </div>
+  2179→                </>
+  2180→              )}
+  2181→            </CardContent>
+  2182→          </Card>
+  2183→
+  2184→          {/* Past overrides */}
+  2185→          {pastOverrides.length > 0 && (
+  2186→            <Card>
+  2187→              <CardHeader>
+  2188→                <CardTitle className="text-sm text-muted-foreground">Past Overrides</CardTitle>
+  2189→                <CardDescription>Historical override records</CardDescription>
+  2190→              </CardHeader>
+  2191→              <CardContent>
+  2192→                <div className="hidden md:block rounded-md border overflow-hidden">
+  2193→                  <Table>
+  2194→                    <TableHeader>
+  2195→                      <TableRow>
+  2196→                        <TableHead className="text-xs">Employee</TableHead>
+  2197→                        <TableHead className="text-xs">Date</TableHead>
+  2198→                        <TableHead className="text-xs">Time</TableHead>
+  2199→                        <TableHead className="text-xs">Status</TableHead>
+  2200→                        <TableHead className="text-xs">Reason</TableHead>
+  2201→                        <TableHead className="text-xs text-right">Actions</TableHead>
+  2202→                      </TableRow>
+  2203→                    </TableHeader>
+  2204→                    <TableBody>
+  2205→                      {pastOverrides.map((override) => (
+  2206→                        <TableRow key={override.id} className="opacity-60">
+  2207→                          <TableCell>
+  2208→                            <div className="flex items-center gap-2">
+  2209→                              <Avatar className="h-6 w-6">
+  2210→                                <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  2211→                                <AvatarFallback className="text-[8px]">
+  2212→                                  {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  2213→                                </AvatarFallback>
+  2214→                              </Avatar>
+  2215→                              <span className="text-sm font-medium">{override.user?.name || "Unknown"}</span>
+  2216→                            </div>
+  2217→                          </TableCell>
+  2218→                          <TableCell className="text-xs">
+  2219→                            {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
+  2220→                              month: "short", day: "numeric",
+  2221→                            })}
+  2222→                          </TableCell>
+  2223→                          <TableCell className="text-xs text-muted-foreground">
+  2224→                            {override.startTime && override.endTime
+  2225→                              ? `${override.startTime} – ${override.endTime}`
+  2226→                              : "All Day"}
+  2227→                          </TableCell>
+  2228→                          <TableCell>
+  2229→                            <Badge
+  2230→                              className={`text-[10px] px-2 py-0.5 border-0 ${
+  2231→                                override.isAvailable
+  2232→                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  2233→                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+  2234→                              }`}
+  2235→                            >
+  2236→                              {override.isAvailable ? "Available" : "Unavailable"}
+  2237→                            </Badge>
+  2238→                          </TableCell>
+  2239→                          <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+  2240→                            {override.reason ? safeText(override.reason) : "—"}
+  2241→                          </TableCell>
+  2242→                          <TableCell>
+  2243→                            <div className="flex items-center justify-end gap-1">
+  2244→                              <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditOverride(override)}>
+  2245→                                Edit
+  2246→                              </Button>
+  2247→                              <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteOverrideId(override.id)}>
+  2248→                                Delete
+  2249→                              </Button>
+  2250→                            </div>
+  2251→                          </TableCell>
+  2252→                        </TableRow>
+  2253→                      ))}
+  2254→                    </TableBody>
+  2255→                  </Table>
+  2256→                </div>
+  2257→                {/* Mobile past overrides */}
+  2258→                <div className="md:hidden space-y-2">
+  2259→                  {pastOverrides.map((override) => (
+  2260→                    <div key={override.id} className="p-3 rounded-lg border bg-muted/20 opacity-60">
+  2261→                      <div className="flex items-start gap-2.5">
+  2262→                        <Avatar className="h-8 w-8 shrink-0">
+  2263→                          <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  2264→                          <AvatarFallback className="text-[8px]">
+  2265→                            {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  2266→                          </AvatarFallback>
+  2267→                        </Avatar>
+  2268→                        <div className="flex-1 min-w-0">
+  2269→                          <div className="text-sm font-medium">{override.user?.name || "Unknown"}</div>
+  2270→                          <div className="text-xs text-muted-foreground">
+  2271→                            {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+  2272→                          </div>
+  2273→                          <div className="flex items-center gap-2 mt-1.5">
+  2274→                            <Badge className={`text-[10px] px-2 py-0.5 border-0 ${override.isAvailable ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}`}>
+  2275→                              {override.isAvailable ? "Available" : "Unavailable"}
+  2276→                            </Badge>
+  2277→                            <span className="text-[10px] text-muted-foreground">
+  2278→                              {override.startTime && override.endTime ? `${override.startTime}–${override.endTime}` : "All Day"}
+  2279→                            </span>
+  2280→                          </div>
+  2281→                          {override.reason && (
+  2282→                            <div className="text-xs text-muted-foreground mt-1">{safeText(override.reason)}</div>
+  2283→                          )}
+  2284→                          <div className="flex items-center gap-1 mt-2">
+  2285→                            <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditOverride(override)}>Edit</Button>
+  2286→                            <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => setDeleteOverrideId(override.id)}>Delete</Button>
+  2287→                          </div>
+  2288→                        </div>
+  2289→                      </div>
+  2290→                    </div>
+  2291→                  ))}
+  2292→                </div>
+  2293→              </CardContent>
+  2294→            </Card>
+  2295→          )}
+  2296→        </TabsContent>
+  2297→      </Tabs>
+  2298→
+  2299→      {/* ═══════════════════════════════════════════════════════════════════════
+  2300→          DIALOGS
+  2301→      ═══════════════════════════════════════════════════════════════════════ */}
+  2302→
+  2303→      {/* Add/Edit Availability Dialog */}
+  2304→      <Dialog open={availDialogOpen} onOpenChange={setAvailDialogOpen}>
+  2305→        <DialogContent>
+  2306→          <DialogHeader>
+  2307→            <DialogTitle>{editingAvailability ? "Edit Availability" : "Add Availability"}</DialogTitle>
+  2308→          </DialogHeader>
+  2309→          <div className="space-y-4">
+  2310→            {!editingAvailability && (
+  2311→              <div className="space-y-2">
+  2312→                <Label>Employee</Label>
+  2313→                <Select value={formUserId} onValueChange={setFormUserId}>
+  2314→                  <SelectTrigger className="w-full">
+  2315→                    <SelectValue placeholder="Select employee" />
+  2316→                  </SelectTrigger>
+  2317→                  <SelectContent>
+  2318→                    {teamUsers.map((u) => (
+  2319→                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  2320→                    ))}
+  2321→                  </SelectContent>
+  2322→                </Select>
+  2323→              </div>
+  2324→            )}
+  2325→            <div className="space-y-2">
+  2326→              <Label>Day of Week</Label>
+  2327→              <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
+  2328→                <SelectTrigger className="w-full">
+  2329→                  <SelectValue />
+  2330→                </SelectTrigger>
+  2331→                <SelectContent>
+  2332→                  {DAY_NAMES.map((name, i) => (
+  2333→                    <SelectItem key={i} value={i.toString()}>{name}</SelectItem>
+  2334→                  ))}
+  2335→                </SelectContent>
+  2336→              </Select>
+  2337→            </div>
+  2338→            <div className="grid grid-cols-2 gap-3">
+  2339→              <div className="space-y-2">
+  2340→                <Label>Start Time</Label>
+  2341→                <Input type="time" value={formStartTime} onChange={(e) => setFormStartTime(e.target.value)} />
+  2342→              </div>
+  2343→              <div className="space-y-2">
+  2344→                <Label>End Time</Label>
+  2345→                <Input type="time" value={formEndTime} onChange={(e) => setFormEndTime(e.target.value)} />
+  2346→              </div>
+  2347→            </div>
+  2348→            <div className="flex items-center justify-between">
+  2349→              <div>
+  2350→                <Label>Available</Label>
+  2351→                <p className="text-xs text-muted-foreground">Toggle on if available, off if unavailable</p>
+  2352→              </div>
+  2353→              <Switch checked={formIsAvailable} onCheckedChange={setFormIsAvailable} />
+  2354→            </div>
+  2355→          </div>
+  2356→          <DialogFooter>
+  2357→            <Button variant="outline" onClick={() => setAvailDialogOpen(false)}>Cancel</Button>
+  2358→            <Button onClick={handleSaveAvailability} disabled={submitting}>
+  2359→              {submitting ? "Saving..." : editingAvailability ? "Update" : "Add"}
+  2360→            </Button>
+  2361→          </DialogFooter>
+  2362→        </DialogContent>
+  2363→      </Dialog>
+  2364→
+  2365→      {/* Add/Edit Override Dialog */}
+  2366→      <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
+  2367→        <DialogContent>
+  2368→          <DialogHeader>
+  2369→            <DialogTitle>{editingOverride ? "Edit Override" : "Add Availability Override"}</DialogTitle>
+  2370→          </DialogHeader>
+  2371→          <div className="space-y-4">
+  2372→            {!editingOverride && (
+  2373→              <div className="space-y-2">
+  2374→                <Label>Employee</Label>
+  2375→                <Select value={formOverrideUserId} onValueChange={setFormOverrideUserId}>
+  2376→                  <SelectTrigger className="w-full">
+  2377→                    <SelectValue placeholder="Select employee" />
+  2378→                  </SelectTrigger>
+  2379→                  <SelectContent>
+  2380→                    {teamUsers.map((u) => (
+  2381→                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  2382→                    ))}
+  2383→                  </SelectContent>
+  2384→                </Select>
+  2385→              </div>
+  2386→            )}
+  2387→            <div className="space-y-2">
+  2388→              <Label>Date</Label>
+  2389→              <Popover>
+  2390→                <PopoverTrigger asChild>
+  2391→                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+  2392→                    <CalendarDays className="mr-2 h-4 w-4" />
+  2393→                    {formOverrideDate
+  2394→                      ? new Date(formOverrideDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+  2395→                      : "Pick a date"}
+  2396→                  </Button>
+  2397→                </PopoverTrigger>
+  2398→                <PopoverContent className="w-auto p-0" align="start">
+  2399→                  <Calendar
+  2400→                    mode="single"
+  2401→                    selected={formOverrideDate ? new Date(formOverrideDate + "T00:00:00") : undefined}
+  2402→                    onSelect={(d) => { if (d) setFormOverrideDate(formatDateOnly(d)); }}
+  2403→                  />
+  2404→                </PopoverContent>
+  2405→              </Popover>
+  2406→            </div>
+  2407→            <div className="grid grid-cols-2 gap-3">
+  2408→              <div className="space-y-2">
+  2409→                <Label>Start Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  2410→                <Input
+  2411→                  type="time"
+  2412→                  value={formOverrideStartTime}
+  2413→                  onChange={(e) => setFormOverrideStartTime(e.target.value)}
+  2414→                />
+  2415→              </div>
+  2416→              <div className="space-y-2">
+  2417→                <Label>End Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  2418→                <Input
+  2419→                  type="time"
+  2420→                  value={formOverrideEndTime}
+  2421→                  onChange={(e) => setFormOverrideEndTime(e.target.value)}
+  2422→                />
+  2423→              </div>
+  2424→            </div>
+  2425→            <div className="flex items-center justify-between">
+  2426→              <div>
+  2427→                <Label>Available</Label>
+  2428→                <p className="text-xs text-muted-foreground">Toggle on if available, off if unavailable</p>
+  2429→              </div>
+  2430→              <Switch checked={formOverrideIsAvailable} onCheckedChange={setFormOverrideIsAvailable} />
+  2431→            </div>
+  2432→            <div className="space-y-2">
+  2433→              <Label>Reason <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  2434→              <Textarea
+  2435→                value={formOverrideReason}
+  2436→                onChange={(e) => setFormOverrideReason(e.target.value)}
+  2437→                placeholder="Reason for the override..."
+  2438→                rows={2}
+  2439→              />
+  2440→            </div>
+  2441→          </div>
+  2442→          <DialogFooter>
+  2443→            <Button variant="outline" onClick={() => setOverrideDialogOpen(false)}>Cancel</Button>
+  2444→            <Button onClick={handleSaveOverride} disabled={submitting}>
+  2445→              {submitting ? "Saving..." : editingOverride ? "Update Override" : "Add Override"}
+  2446→            </Button>
+  2447→          </DialogFooter>
+  2448→        </DialogContent>
+  2449→      </Dialog>
+  2450→
+  2451→      {/* Delete Availability Confirmation Dialog */}
+  2452→      <AlertDialog open={!!deleteAvailId} onOpenChange={() => setDeleteAvailId(null)}>
+  2453→        <AlertDialogContent>
+  2454→          <AlertDialogHeader>
+  2455→            <AlertDialogTitle>Delete Availability</AlertDialogTitle>
+  2456→            <AlertDialogDescription>
+  2457→              Are you sure you want to delete this availability slot? This action cannot be undone.
+  2458→            </AlertDialogDescription>
+  2459→          </AlertDialogHeader>
+  2460→          <AlertDialogFooter>
+  2461→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  2462→            <AlertDialogAction onClick={() => deleteAvailId && handleDeleteAvailability(deleteAvailId)} className="bg-red-600 hover:bg-red-700">
+  2463→              Delete
+  2464→            </AlertDialogAction>
+  2465→          </AlertDialogFooter>
+  2466→        </AlertDialogContent>
+  2467→      </AlertDialog>
+  2468→
+  2469→      {/* Delete Override Confirmation Dialog */}
+  2470→      <AlertDialog open={!!deleteOverrideId} onOpenChange={() => setDeleteOverrideId(null)}>
+  2471→        <AlertDialogContent>
+  2472→          <AlertDialogHeader>
+  2473→            <AlertDialogTitle>Delete Override</AlertDialogTitle>
+  2474→            <AlertDialogDescription>
+  2475→              Are you sure you want to delete this availability override? This action cannot be undone.
+  2476→            </AlertDialogDescription>
+  2477→          </AlertDialogHeader>
+  2478→          <AlertDialogFooter>
+  2479→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  2480→            <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700">
+  2481→              Delete
+  2482→            </AlertDialogAction>
+  2483→          </AlertDialogFooter>
+  2484→        </AlertDialogContent>
+  2485→      </AlertDialog>
+  2486→
+  2487→      {/* Copy Schedule Dialog */}
+  2488→      <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+  2489→        <DialogContent>
+  2490→          <DialogHeader>
+  2491→            <DialogTitle>Copy Weekly Schedule</DialogTitle>
+  2492→            <DialogDescription>
+  2493→              Copy the entire weekly schedule from one team member to another. This will replace the target user&apos;s existing schedule.
+  2494→            </DialogDescription>
+  2495→          </DialogHeader>
+  2496→          <div className="space-y-4">
+  2497→            <div className="space-y-2">
+  2498→              <Label>Source</Label>
+  2499→              <div className="text-sm font-medium px-3 py-2 bg-muted rounded-md">
+  2500→                {teamUsers.find((u) => u.id === schedUserId)?.name || "Unknown"}
+
+[showing lines 2001-2500 of 2541; use offset=2501 with limit to continue reading]

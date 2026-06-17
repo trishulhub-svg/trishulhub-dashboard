@@ -1,0 +1,794 @@
+     1→"use client";
+     2→
+     3→import React, { useRef, useCallback, useEffect, useState } from "react";
+     4→import { X, FolderKanban, Minus, ChevronUp, ChevronDown } from "lucide-react";
+     5→import { useFloatingBoards, type FloatingBoard } from "./providers/floating-board-provider";
+     6→
+     7→// ─── Mobile detection hook ────────────────────────────────────────────
+     8→function useIsMobile() {
+     9→  const [isMobile, setIsMobile] = useState(false);
+    10→  useEffect(() => {
+    11→    const check = () => setIsMobile(window.innerWidth < 768);
+    12→    check();
+    13→    window.addEventListener("resize", check);
+    14→    return () => window.removeEventListener("resize", check);
+    15→  }, []);
+    16→  return isMobile;
+    17→}
+    18→
+    19→// ─── Imperative drag/resize (outside React lifecycle — no stale closures) ─
+    20→function useDragResize(
+    21→  elRef: React.RefObject<HTMLDivElement | null>,
+    22→  onPositionChange: (pos: { x: number; y: number }) => void,
+    23→  onSizeChange: (size: { width: number; height: number }) => void,
+    24→  isMobile: boolean,
+    25→) {
+    26→  const onPosRef = useRef(onPositionChange);
+    27→  const onSzRef = useRef(onSizeChange);
+    28→  onPosRef.current = onPositionChange;
+    29→  onSzRef.current = onSizeChange;
+    30→
+    31→  const startDrag = useCallback(
+    32→    (e: React.MouseEvent | React.TouchEvent, origX: number, origY: number) => {
+    33→      if ((e.target as HTMLElement).closest("button")) return;
+    34→      const isMouse = "clientX" in e;
+    35→      if (!isMouse) (e as React.TouchEvent).preventDefault();
+    36→
+    37→      const el = elRef.current;
+    38→      if (!el) return;
+    39→
+    40→      const startX = isMouse ? (e as React.MouseEvent).clientX : e.touches[0].clientX;
+    41→      const startY = isMouse ? (e as React.MouseEvent).clientY : e.touches[0].clientY;
+    42→      let hasMoved = false;
+    43→      let lastX = origX;
+    44→      let lastY = origY;
+    45→
+    46→      const iframe = el.querySelector("iframe") as HTMLIFrameElement | null;
+    47→      if (iframe) iframe.style.pointerEvents = "none";
+    48→
+    49→      const onMove = (ev: MouseEvent | TouchEvent) => {
+    50→        const cx = "clientX" in ev
+    51→          ? (ev as MouseEvent).clientX
+    52→          : (ev as TouchEvent).touches[0].clientX;
+    53→        const cy = "clientY" in ev
+    54→          ? (ev as MouseEvent).clientY
+    55→          : (ev as TouchEvent).touches[0].clientY;
+    56→        const dx = cx - startX;
+    57→        const dy = cy - startY;
+    58→
+    59→        if (!hasMoved) {
+    60→          if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+    61→          hasMoved = true;
+    62→          if (isMouse) (ev as MouseEvent).preventDefault();
+    63→        }
+    64→
+    65→        const nx = Math.max(0, Math.min(window.innerWidth - 60, origX + dx));
+    66→        const ny = Math.max(0, Math.min(window.innerHeight - 50, origY + dy));
+    67→        el.style.left = nx + "px";
+    68→        el.style.top = ny + "px";
+    69→        lastX = nx;
+    70→        lastY = ny;
+    71→      };
+    72→
+    73→      const onUp = () => {
+    74→        if (iframe) iframe.style.pointerEvents = "";
+    75→        window.removeEventListener("mousemove", onMove);
+    76→        window.removeEventListener("mouseup", onUp);
+    77→        window.removeEventListener("touchmove", onMove);
+    78→        window.removeEventListener("touchend", onUp);
+    79→        window.removeEventListener("touchcancel", onUp);
+    80→        if (hasMoved) {
+    81→          onPosRef.current({ x: lastX, y: lastY });
+    82→        }
+    83→      };
+    84→
+    85→      window.addEventListener("mousemove", onMove);
+    86→      window.addEventListener("mouseup", onUp);
+    87→      window.addEventListener("touchmove", onMove, { passive: false });
+    88→      window.addEventListener("touchend", onUp);
+    89→      window.addEventListener("touchcancel", onUp);
+    90→    },
+    91→    [elRef]
+    92→  );
+    93→
+    94→  const startResize = useCallback(
+    95→    (e: React.MouseEvent, origW: number, origH: number) => {
+    96→      if (isMobile) return;
+    97→      e.preventDefault();
+    98→      e.stopPropagation();
+    99→
+   100→      const el = elRef.current;
+   101→      if (!el) return;
+   102→
+   103→      const startX = e.clientX;
+   104→      const startY = e.clientY;
+   105→      let lastW = origW;
+   106→      let lastH = origH;
+   107→
+   108→      const iframe = el.querySelector("iframe") as HTMLIFrameElement | null;
+   109→      if (iframe) iframe.style.pointerEvents = "none";
+   110→
+   111→      const onMove = (ev: MouseEvent) => {
+   112→        const nw = Math.max(420, origW + (ev.clientX - startX));
+   113→        const nh = Math.max(260, origH + (ev.clientY - startY));
+   114→        el.style.width = nw + "px";
+   115→        el.style.height = nh + "px";
+   116→        lastW = nw;
+   117→        lastH = nh;
+   118→      };
+   119→
+   120→      const onUp = () => {
+   121→        if (iframe) iframe.style.pointerEvents = "";
+   122→        document.removeEventListener("mousemove", onMove);
+   123→        document.removeEventListener("mouseup", onUp);
+   124→        onSzRef.current({ width: lastW, height: lastH });
+   125→      };
+   126→
+   127→      document.addEventListener("mousemove", onMove);
+   128→      document.addEventListener("mouseup", onUp, true);
+   129→    },
+   130→    [elRef, isMobile]
+   131→  );
+   132→
+   133→  return { startDrag, startResize };
+   134→}
+   135→
+   136→// ─── Global restore lock — prevents concurrent capsule restores ─────────
+   137→let _globalRestoreLock = 0;
+   138→const RESTORE_LOCK_MS = 350;
+   139→
+   140→// ─── Presence indicator ────────────────────────────────────────────────
+   141→interface PresenceUser {
+   142→  userId: string;
+   143→  userName: string;
+   144→  status: "active" | "idle";
+   145→  lastSeen: number;
+   146→}
+   147→
+   148→function PresenceIndicator({ projectId }: { projectId: string }) {
+   149→  const [users, setUsers] = useState<PresenceUser[]>([]);
+   150→  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+   151→
+   152→  useEffect(() => {
+   153→    const fetchPresence = async () => {
+   154→      try {
+   155→        const res = await fetch(`/api/board-presence?projectId=${projectId}`);
+   156→        if (res.ok) {
+   157→          const data = await res.json();
+   158→          setUsers(data.users || []);
+   159→        }
+   160→      } catch { /* silent */ }
+   161→    };
+   162→
+   163→    fetchPresence();
+   164→    intervalRef.current = setInterval(fetchPresence, 15000);
+   165→    return () => {
+   166→      if (intervalRef.current) clearInterval(intervalRef.current);
+   167→    };
+   168→  }, [projectId]);
+   169→
+   170→  if (users.length === 0) return null;
+   171→
+   172→  return (
+   173→    <div className="flex items-center gap-1.5 ml-auto mr-1">
+   174→      <div className="flex -space-x-1.5">
+   175→        {users.slice(0, 4).map((u) => (
+   176→          <div
+   177→            key={u.userId}
+   178→            className="relative"
+   179→            title={`${u.userName} — ${u.status === "active" ? "Viewing now" : "Inactive"}`}
+   180→          >
+   181→            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-400 flex items-center justify-center text-[8px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-black/40">
+   182→              {u.userName.charAt(0).toUpperCase()}
+   183→            </div>
+   184→            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-black/60 ${
+   185→              u.status === "active" ? "bg-emerald-400" : "bg-amber-400"
+   186→            }`} />
+   187→          </div>
+   188→        ))}
+   189→      </div>
+   190→      {users.length > 4 && (
+   191→        <span className="text-[9px] text-muted-foreground/70 font-medium">+{users.length - 4}</span>
+   192→      )}
+   193→    </div>
+   194→  );
+   195→}
+   196→
+   197→// ─── Smart Capsule Hub — freely draggable, user can place anywhere ──────
+   198→function SmartCapsuleHub({
+   199→  minimizedBoards,
+   200→  onRestore,
+   201→  onClose,
+   202→  capsulePosition,
+   203→  onCapsulePositionChange,
+   204→}: {
+   205→  minimizedBoards: FloatingBoard[];
+   206→  onRestore: (projectId: string) => void;
+   207→  onClose: (projectId: string) => void;
+   208→  capsulePosition: { x: number; y: number };
+   209→  onCapsulePositionChange: (pos: { x: number; y: number }) => void;
+   210→}) {
+   211→  const [expanded, setExpanded] = useState(false);
+   212→  const isMobile = useIsMobile();
+   213→  const hubRef = useRef<HTMLDivElement>(null);
+   214→  const dragStateRef = useRef<{
+   215→    active: boolean;
+   216→    startX: number;
+   217→    startY: number;
+   218→    origPosX: number;
+   219→    origPosY: number;
+   220→    hasMoved: boolean;
+   221→    elWidth: number;
+   222→    elHeight: number;
+   223→  } | null>(null);
+   224→  const currentPosRef = useRef(capsulePosition);
+   225→  currentPosRef.current = capsulePosition;
+   226→
+   227→  // Re-clamp capsule into viewport on window resize (orientation change, browser resize).
+   228→  // Without this, a capsule restored from server/localStorage could land off-screen
+   229→  // after a viewport change.
+   230→  useEffect(() => {
+   231→    const handleResize = () => {
+   232→      const el = hubRef.current;
+   233→      if (!el) return;
+   234→      const w = el.offsetWidth || 80;
+   235→      const h = el.offsetHeight || 44;
+   236→      const cur = currentPosRef.current;
+   237→      const clampedX = Math.max(0, Math.min(window.innerWidth - w, cur.x));
+   238→      const clampedY = Math.max(0, Math.min(window.innerHeight - h, cur.y));
+   239→      if (clampedX !== cur.x || clampedY !== cur.y) {
+   240→        el.style.left = clampedX + "px";
+   241→        el.style.top = clampedY + "px";
+   242→        onCapsulePositionChange({ x: clampedX, y: clampedY });
+   243→      }
+   244→    };
+   245→    // Run once on mount to clamp a restored position
+   246→    handleResize();
+   247→    window.addEventListener("resize", handleResize);
+   248→    window.addEventListener("orientationchange", handleResize);
+   249→    return () => {
+   250→      window.removeEventListener("resize", handleResize);
+   251→      window.removeEventListener("orientationchange", handleResize);
+   252→    };
+   253→  }, [onCapsulePositionChange]);
+   254→
+   255→  // Close expanded panel when clicking outside
+   256→  useEffect(() => {
+   257→    if (!expanded) return;
+   258→    const handleClickOutside = (e: Event) => {
+   259→      if (hubRef.current && !hubRef.current.contains(e.target as Node)) {
+   260→        setExpanded(false);
+   261→      }
+   262→    };
+   263→    const timer = setTimeout(() => {
+   264→      document.addEventListener("mousedown", handleClickOutside);
+   265→      document.addEventListener("touchstart", handleClickOutside);
+   266→    }, 100);
+   267→    return () => {
+   268→      clearTimeout(timer);
+   269→      document.removeEventListener("mousedown", handleClickOutside);
+   270→      document.removeEventListener("touchstart", handleClickOutside);
+   271→    };
+   272→  }, [expanded]);
+   273→
+   274→  // Drag handlers — attached once, use refs for state
+   275→  useEffect(() => {
+   276→    const el = hubRef.current;
+   277→    if (!el) return;
+   278→
+   279→    const onMouseDown = (e: MouseEvent) => {
+   280→      if (expanded) return;
+   281→      if ((e.target as HTMLElement).closest("button")) return;
+   282→      dragStateRef.current = {
+   283→        active: true,
+   284→        startX: e.clientX,
+   285→        startY: e.clientY,
+   286→        origPosX: currentPosRef.current.x,
+   287→        origPosY: currentPosRef.current.y,
+   288→        hasMoved: false,
+   289→        elWidth: el.offsetWidth || 80,
+   290→        elHeight: el.offsetHeight || 44,
+   291→      };
+   292→    };
+   293→
+   294→    const onTouchStart = (e: TouchEvent) => {
+   295→      if (expanded) return;
+   296→      if ((e.target as HTMLElement).closest("button")) return;
+   297→      dragStateRef.current = {
+   298→        active: true,
+   299→        startX: e.touches[0].clientX,
+   300→        startY: e.touches[0].clientY,
+   301→        origPosX: currentPosRef.current.x,
+   302→        origPosY: currentPosRef.current.y,
+   303→        hasMoved: false,
+   304→        elWidth: el.offsetWidth || 80,
+   305→        elHeight: el.offsetHeight || 44,
+   306→      };
+   307→    };
+   308→
+   309→    const handleMove = (cx: number, cy: number, preventDefault: () => void) => {
+   310→      const ds = dragStateRef.current;
+   311→      if (!ds || !ds.active) return;
+   312→      const dx = cx - ds.startX;
+   313→      const dy = cy - ds.startY;
+   314→
+   315→      if (!ds.hasMoved) {
+   316→        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+   317→        ds.hasMoved = true;
+   318→      }
+   319→      preventDefault();
+   320→
+   321→      // Clamp using actual element dimensions captured at drag start,
+   322→      // so the entire capsule stays inside the viewport.
+   323→      const nx = Math.max(0, Math.min(window.innerWidth - ds.elWidth, ds.origPosX + dx));
+   324→      const ny = Math.max(0, Math.min(window.innerHeight - ds.elHeight, ds.origPosY + dy));
+   325→
+   326→      if (el) {
+   327→        el.style.left = nx + "px";
+   328→        el.style.top = ny + "px";
+   329→      }
+   330→    };
+   331→
+   332→    const handleDragEnd = () => {
+   333→      const ds = dragStateRef.current;
+   334→      if (!ds) return;
+   335→
+   336→      if (ds.hasMoved && el) {
+   337→        const finalX = parseInt(el.style.left) || ds.origPosX;
+   338→        const finalY = parseInt(el.style.top) || ds.origPosY;
+   339→        onCapsulePositionChange({ x: finalX, y: finalY });
+   340→      }
+   341→      dragStateRef.current = null;
+   342→    };
+   343→
+   344→    const onMouseMove = (e: MouseEvent) => handleMove(e.clientX, e.clientY, () => {});
+   345→    const onTouchMove = (e: TouchEvent) => handleMove(e.touches[0].clientX, e.touches[0].clientY, () => e.preventDefault());
+   346→
+   347→    el.addEventListener("mousedown", onMouseDown);
+   348→    el.addEventListener("touchstart", onTouchStart, { passive: true });
+   349→    window.addEventListener("mousemove", onMouseMove);
+   350→    window.addEventListener("touchmove", onTouchMove, { passive: false });
+   351→    window.addEventListener("mouseup", handleDragEnd);
+   352→    window.addEventListener("touchend", handleDragEnd);
+   353→    window.addEventListener("touchcancel", handleDragEnd);
+   354→
+   355→    return () => {
+   356→      el.removeEventListener("mousedown", onMouseDown);
+   357→      el.removeEventListener("touchstart", onTouchStart);
+   358→      window.removeEventListener("mousemove", onMouseMove);
+   359→      window.removeEventListener("touchmove", onTouchMove);
+   360→      window.removeEventListener("mouseup", handleDragEnd);
+   361→      window.removeEventListener("touchend", handleDragEnd);
+   362→      window.removeEventListener("touchcancel", handleDragEnd);
+   363→    };
+   364→  }, [expanded, onCapsulePositionChange]);
+   365→
+   366→  const handleToggle = useCallback(() => {
+   367→    if (dragStateRef.current?.hasMoved) return;
+   368→    const now = Date.now();
+   369→    if (now - _globalRestoreLock < RESTORE_LOCK_MS) return;
+   370→    _globalRestoreLock = now;
+   371→    setExpanded((prev) => !prev);
+   372→  }, []);
+   373→
+   374→  const handleRestore = useCallback((projectId: string) => {
+   375→    const now = Date.now();
+   376→    if (now - _globalRestoreLock < RESTORE_LOCK_MS) return;
+   377→    _globalRestoreLock = now;
+   378→    setExpanded(false);
+   379→    onRestore(projectId);
+   380→  }, [onRestore]);
+   381→
+   382→  if (minimizedBoards.length === 0) return null;
+   383→
+   384→  return (
+   385→    <div
+   386→      ref={hubRef}
+   387→      className="fixed z-[9999] select-none"
+   388→      style={{ left: capsulePosition.x, top: capsulePosition.y }}
+   389→    >
+   390→      {!expanded && (
+   391→        <div
+   392→          className="group/smart flex items-center gap-2.5 pl-3 pr-2 py-2 rounded-2xl
+   393→            bg-white/90 dark:bg-white/[0.1]
+   394→            backdrop-blur-2xl saturate-[1.8]
+   395→            border border-white/40 dark:border-white/[0.12]
+   396→            shadow-[0_4px_24px_rgba(0,0,0,0.1),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_0.5px_0_rgba(255,255,255,0.6),inset_0_1px_0_rgba(255,255,255,0.4)]
+   397→            dark:shadow-[0_4px_24px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.06),inset_0_0.5px_0_rgba(255,255,255,0.08)]
+   398→            cursor-grab active:cursor-grabbing
+   399→            hover:shadow-[0_8px_32px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.04),inset_0_0.5px_0_rgba(255,255,255,0.7)]
+   400→            dark:hover:shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_0.5px_rgba(255,255,255,0.08)]
+   401→            transition-shadow duration-200 ease-out
+   402→            hover:scale-[1.02] active:scale-[0.98] touch-none"
+   403→          onClick={handleToggle}
+   404→          title={`${minimizedBoards.length} task board${minimizedBoards.length > 1 ? "s" : ""} minimized — drag to reposition`}
+   405→        >
+   406→          <div className="flex items-center gap-2 min-w-0">
+   407→            <div className="relative w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-md shrink-0">
+   408→              <FolderKanban className="h-3 w-3 text-white" />
+   409→              <div className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center shadow-sm border border-white/30">
+   410→                {minimizedBoards.length}
+   411→              </div>
+   412→            </div>
+   413→            <div className="flex flex-col min-w-0">
+   414→              <span className="text-[11px] font-semibold text-foreground/90 dark:text-white/80 leading-tight">
+   415→                Task Boards
+   416→              </span>
+   417→              <span className="text-[9px] text-muted-foreground/70 dark:text-white/50 leading-tight truncate max-w-[120px]">
+   418→                {minimizedBoards.length === 1
+   419→                  ? minimizedBoards[0].projectName
+   420→                  : `${minimizedBoards.length} boards minimized`}
+   421→              </span>
+   422→            </div>
+   423→          </div>
+   424→          <ChevronUp className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 group-hover/smart:text-muted-foreground/80 transition-colors" />
+   425→        </div>
+   426→      )}
+   427→
+   428→      {expanded && (
+   429→        <div
+   430→          className="rounded-2xl overflow-hidden
+   431→            bg-white/95 dark:bg-black/60
+   432→            backdrop-blur-2xl saturate-[1.8]
+   433→            border border-white/40 dark:border-white/[0.1]
+   434→            shadow-[0_8px_40px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_0.5px_0_rgba(255,255,255,0.6)]
+   435→            dark:shadow-[0_8px_40px_rgba(0,0,0,0.4),0_0_0_0.5px_rgba(255,255,255,0.06),inset_0_0.5px_0_rgba(255,255,255,0.08)]
+   436→            animate-in slide-in-from-bottom-2 fade-in duration-200"
+   437→          style={{ width: Math.max(200, Math.min(240, typeof window !== "undefined" ? window.innerWidth - 40 : 240)) }}
+   438→        >
+   439→          <div className="flex items-center justify-between px-3 py-2 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.03]">
+   440→            <div className="flex items-center gap-2">
+   441→              <FolderKanban className="h-3.5 w-3.5 text-blue-500" />
+   442→              <span className="text-[11px] font-semibold text-foreground/80 dark:text-white/70">
+   443→                Minimized Boards
+   444→              </span>
+   445→              <span className="text-[9px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full px-1.5 py-0.5 leading-none">
+   446→                {minimizedBoards.length}
+   447→              </span>
+   448→            </div>
+   449→            <button
+   450→              onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
+   451→              className="w-5 h-5 rounded-full flex items-center justify-center
+   452→                text-muted-foreground/50 hover:text-foreground/80 hover:bg-black/[0.06] dark:hover:bg-white/[0.08]
+   453→                transition-all duration-150"
+   454→            >
+   455→              <ChevronDown className="h-3 w-3" />
+   456→            </button>
+   457→          </div>
+   458→          <div className="max-h-[50vh] overflow-y-auto overscroll-contain">
+   459→            {minimizedBoards.map((board) => (
+   460→              <div
+   461→                key={board.projectId}
+   462→                className="group/item flex items-center gap-2.5 px-3 py-2
+   463→                  hover:bg-black/[0.03] dark:hover:bg-white/[0.04]
+   464→                  border-b border-black/[0.03] dark:border-white/[0.04] last:border-b-0
+   465→                  transition-colors duration-100 cursor-pointer"
+   466→                onClick={(e) => { e.stopPropagation(); handleRestore(board.projectId); }}
+   467→              >
+   468→                <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-500/80 to-cyan-400/80 flex items-center justify-center shadow-sm shrink-0">
+   469→                  <FolderKanban className="h-2.5 w-2.5 text-white" />
+   470→                </div>
+   471→                <span className="text-[11px] font-medium text-foreground/80 dark:text-white/70 truncate flex-1 min-w-0">
+   472→                  {board.projectName}
+   473→                </span>
+   474→                <button
+   475→                  onClick={(e) => { e.stopPropagation(); onClose(board.projectId); }}
+   476→                  className="w-5 h-5 rounded-full flex items-center justify-center
+   477→                    text-muted-foreground/40 hover:text-red-500 hover:bg-red-500/10
+   478→                    opacity-0 group-hover/item:opacity-100
+   479→                    transition-all duration-150 shrink-0"
+   480→                  title="Close board"
+   481→                >
+   482→                  <X className="h-3 w-3" />
+   483→                </button>
+   484→              </div>
+   485→            ))}
+   486→          </div>
+   487→        </div>
+   488→      )}
+   489→    </div>
+   490→  );
+   491→}
+   492→
+   493→// ─── Main Floating Window ─────────────────────────────────────────────
+   494→function FloatingBoardWindow({
+   495→  board,
+   496→  onClose,
+   497→  onMinimize,
+   498→  onBringToFront,
+   499→  onRestoreBoard,
+   500→  onPositionChange,
+   501→  onSizeChange,
+   502→}: {
+   503→  board: FloatingBoard;
+   504→  onClose: () => void;
+   505→  onMinimize: () => void;
+   506→  onBringToFront: () => void;
+   507→  onRestoreBoard: () => void;
+   508→  onPositionChange: (pos: { x: number; y: number }) => void;
+   509→  onSizeChange: (size: { width: number; height: number }) => void;
+   510→}) {
+   511→  const elRef = useRef<HTMLDivElement>(null);
+   512→  const isMobile = useIsMobile();
+   513→  const { startDrag, startResize } = useDragResize(elRef, onPositionChange, onSizeChange, isMobile);
+   514→  const [iframeReady, setIframeReady] = useState(false);
+   515→  const iframeSrc = `/dashboard/projects/${board.projectId}?embed=true`;
+   516→  const [glowing, setGlowing] = useState(false);
+   517→  const glowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   518→
+   519→  const triggerGlow = useCallback(() => {
+   520→    setGlowing(true);
+   521→    if (glowTimerRef.current) clearTimeout(glowTimerRef.current);
+   522→    glowTimerRef.current = setTimeout(() => setGlowing(false), 1200);
+   523→  }, []);
+   524→
+   525→  const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+   526→
+   527→  useEffect(() => {
+   528→    if (board.minimized) {
+   529→      if (presenceIntervalRef.current) {
+   530→        clearInterval(presenceIntervalRef.current);
+   531→        presenceIntervalRef.current = null;
+   532→      }
+   533→      return;
+   534→    }
+   535→
+   536→    const sendHeartbeat = async () => {
+   537→      try {
+   538→        await fetch("/api/board-presence", {
+   539→          method: "POST",
+   540→          headers: { "Content-Type": "application/json" },
+   541→          credentials: "include",
+   542→          body: JSON.stringify({ projectId: board.projectId }),
+   543→        });
+   544→      } catch { /* silent */ }
+   545→    };
+   546→
+   547→    sendHeartbeat();
+   548→    presenceIntervalRef.current = setInterval(sendHeartbeat, 30000);
+   549→
+   550→    return () => {
+   551→      if (presenceIntervalRef.current) {
+   552→        clearInterval(presenceIntervalRef.current);
+   553→        presenceIntervalRef.current = null;
+   554→      }
+   555→    };
+   556→  }, [board.projectId, board.minimized]);
+   557→
+   558→  useEffect(() => {
+   559→    return () => {
+   560→      try {
+   561→        fetch("/api/board-presence", {
+   562→          method: "DELETE",
+   563→          headers: { "Content-Type": "application/json" },
+   564→          credentials: "include",
+   565→          body: JSON.stringify({ projectId: board.projectId }),
+   566→        }).catch(() => {});
+   567→      } catch { /* silent */ }
+   568→    };
+   569→    // eslint-disable-next-line react-hooks/exhaustive-deps
+   570→  }, []);
+   571→
+   572→  const handleBringToFront = useCallback(() => {
+   573→    onBringToFront();
+   574→    triggerGlow();
+   575→  }, [onBringToFront, triggerGlow]);
+   576→
+   577→  const handleRestore = useCallback(() => {
+   578→    onRestoreBoard();
+   579→    triggerGlow();
+   580→  }, [onRestoreBoard, triggerGlow]);
+   581→
+   582→  const windowVisible = !board.minimized;
+   583→
+   584→  return (
+   585→    <div
+   586→      ref={elRef}
+   587→      style={{
+   588→        display: windowVisible ? "flex" : "none",
+   589→        visibility: windowVisible ? "visible" : "hidden",
+   590→        pointerEvents: windowVisible ? "auto" : "none",
+   591→        left: board.position.x,
+   592→        top: board.position.y,
+   593→        width: board.size.width,
+   594→        height: board.size.height,
+   595→        zIndex: board.zIndex,
+   596→      }}
+   597→      className={isMobile
+   598→        ? `fixed inset-0 z-[10000] flex-col bg-white dark:bg-[#0a0a0a]`
+   599→        : `fixed flex-col overflow-hidden
+   600→           rounded-2xl
+   601→           bg-white/75 dark:bg-black/40
+   602→           backdrop-blur-2xl saturate-[1.8]
+   603→           border border-white/40 dark:border-white/[0.1]
+   604→           shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
+   605→           dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]
+   606→           ${glowing ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent transition-shadow duration-300" : ""}`
+   607→      }
+   608→      onMouseDown={handleBringToFront}
+   609→      onTouchStart={(e) => {
+   610→        if (!board.minimized) handleBringToFront();
+   611→      }}
+   612→    >
+   613→      {isMobile ? (
+   614→        <>
+   615→          <div className="flex items-center justify-between px-3 py-2.5 shrink-0 select-none
+   616→            bg-white/80 dark:bg-white/[0.06]
+   617→            border-b border-black/[0.06] dark:border-white/[0.08]
+   618→            backdrop-blur-xl">
+   619→            <div className="flex items-center gap-2 min-w-0">
+   620→              <div className="flex items-center gap-2 shrink-0">
+   621→                <button
+   622→                  onClick={(e) => { e.stopPropagation(); onMinimize(); }}
+   623→                  className="w-8 h-8 rounded-full bg-yellow-400/20 active:bg-yellow-400/40 flex items-center justify-center transition-colors"
+   624→                  title="Minimize"
+   625→                >
+   626→                  <Minus className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
+   627→                </button>
+   628→                <button
+   629→                  onClick={(e) => { e.stopPropagation(); onClose(); }}
+   630→                  className="w-8 h-8 rounded-full bg-red-400/20 active:bg-red-400/40 flex items-center justify-center transition-colors"
+   631→                  title="Close"
+   632→                >
+   633→                  <X className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+   634→                </button>
+   635→              </div>
+   636→              <span className="text-[12px] font-semibold text-foreground/80 dark:text-white/70 truncate ml-1">
+   637→                {board.projectName}
+   638→              </span>
+   639→            </div>
+   640→            <PresenceIndicator projectId={board.projectId} />
+   641→          </div>
+   642→          <div className="flex-1 relative overflow-hidden">
+   643→            {!iframeReady && (
+   644→              <div className="absolute inset-0 flex items-center justify-center bg-white/90 dark:bg-black/70 z-10">
+   645→                <div className="w-5 h-5 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+   646→              </div>
+   647→            )}
+   648→            <iframe
+   649→              src={iframeSrc}
+   650→              className="absolute inset-0 w-full h-full border-0"
+   651→              title={board.projectName}
+   652→              onLoad={() => setIframeReady(true)}
+   653→            />
+   654→          </div>
+   655→        </>
+   656→      ) : (
+   657→        <>
+   658→          <div
+   659→            className="flex items-center justify-between px-3 py-2 shrink-0 select-none cursor-move
+   660→              bg-white/50 dark:bg-white/[0.04]
+   661→              border-b border-black/[0.04] dark:border-white/[0.06]
+   662→              touch-none"
+   663→            onMouseDown={(e) => startDrag(e, board.position.x, board.position.y)}
+   664→            onTouchStart={(e) => startDrag(e, board.position.x, board.position.y)}
+   665→          >
+   666→            <div className="flex items-center gap-2 min-w-0">
+   667→              <div className="flex items-center gap-1.5 shrink-0">
+   668→                <button onClick={onClose} className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(255,95,87,0.4)]" title="Close" />
+   669→                <button onClick={onMinimize} className="w-[11px] h-[11px] rounded-full bg-[#febc2e] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(254,188,46,0.4)]" title="Minimize" />
+   670→                <div className="w-[11px] h-[11px] rounded-full bg-[#28c840]/40" />
+   671→              </div>
+   672→              <span className="text-[11px] font-semibold text-foreground/80 dark:text-white/70 truncate select-none">
+   673→                {board.projectName}
+   674→              </span>
+   675→            </div>
+   676→            <div className="flex items-center gap-1.5 shrink-0">
+   677→              <PresenceIndicator projectId={board.projectId} />
+   678→              <span className="text-[8px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-foreground/50 dark:text-white/40 rounded px-1.5 h-4 flex items-center">
+   679→                Task Board
+   680→              </span>
+   681→            </div>
+   682→          </div>
+   683→
+   684→          <div className="flex-1 relative bg-white dark:bg-[#0a0a0a] rounded-b-2xl overflow-hidden">
+   685→            {!iframeReady && (
+   686→              <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-black/60 backdrop-blur-sm z-10">
+   687→                <div className="flex flex-col items-center gap-2">
+   688→                  <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+   689→                  <span className="text-[10px] text-muted-foreground">Loading board...</span>
+   690→                </div>
+   691→              </div>
+   692→            )}
+   693→            <iframe
+   694→              src={iframeSrc}
+   695→              className="absolute inset-0 w-full h-full border-0"
+   696→              title={`${board.projectName} — Task Board`}
+   697→              onLoad={() => setIframeReady(true)}
+   698→            />
+   699→          </div>
+   700→
+   701→          {!isMobile && (
+   702→            <div
+   703→              onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
+   704→              className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize z-20
+   705→                flex items-center justify-center
+   706→                hover:bg-blue-500/10 rounded-tl-lg
+   707→                transition-colors duration-150"
+   708→              title="Drag to resize"
+   709→            >
+   710→              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-foreground/30 hover:text-blue-500 transition-colors">
+   711→                <path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+   712→              </svg>
+   713→            </div>
+   714→          )}
+   715→        </>
+   716→      )}
+   717→    </div>
+   718→  );
+   719→}
+   720→
+   721→// ─── Floating Board Renderer ──────────────────────────────────────────
+   722→export function FloatingBoardRenderer() {
+   723→  const {
+   724→    boards,
+   725→    capsulePosition,
+   726→    closeBoard,
+   727→    minimizeBoard,
+   728→    bringToFront,
+   729→    restoreBoard,
+   730→    updatePosition,
+   731→    updateSize,
+   732→    updateCapsulePosition,
+   733→    closeAll,
+   734→    isAdmin,
+   735→  } = useFloatingBoards();
+   736→
+   737→  if (!isAdmin || boards.length === 0) return null;
+   738→
+   739→  const hasOpenBoard = boards.some((b) => !b.minimized);
+   740→  const minimizedBoards = boards.filter((b) => b.minimized);
+   741→
+   742→  return (
+   743→    <>
+   744→      {hasOpenBoard && (
+   745→        <button
+   746→          onClick={closeAll}
+   747→          className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+   748→            bg-red-500/80 hover:bg-red-500 text-white text-[11px] font-medium
+   749→            backdrop-blur-2xl saturate-[1.8]
+   750→            border border-white/20
+   751→            shadow-[0_2px_12px_rgba(239,68,68,0.25),inset_0_0.5px_0_rgba(255,255,255,0.3)]
+   752→            hover:shadow-[0_4px_20px_rgba(239,68,68,0.35),inset_0_0.5px_0_rgba(255,255,255,0.4)]
+   753→            transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
+   754→            md:top-4 md:right-4"
+   755→          style={{ zIndex: 10001 }}
+   756→          title="Close all floating task boards"
+   757→        >
+   758→          <X className="h-3 w-3" />
+   759→          <span className="hidden sm:inline">Close All</span>
+   760→        </button>
+   761→      )}
+   762→
+   763→      {boards
+   764→        .filter((b) => !b.minimized)
+   765→        .map((board) => (
+   766→          <FloatingBoardWindow
+   767→            key={board.projectId}
+   768→            board={board}
+   769→            onClose={() => closeBoard(board.projectId)}
+   770→            onMinimize={() => minimizeBoard(board.projectId)}
+   771→            onBringToFront={() => bringToFront(board.projectId)}
+   772→            onRestoreBoard={() => restoreBoard(board.projectId)}
+   773→            onPositionChange={(pos) => updatePosition(board.projectId, pos)}
+   774→            onSizeChange={(size) => updateSize(board.projectId, size)}
+   775→          />
+   776→        ))
+   777→      }
+   778→
+   779→      {minimizedBoards.length > 0 && (
+   780→        <SmartCapsuleHub
+   781→          minimizedBoards={minimizedBoards}
+   782→          onRestore={(projectId) => restoreBoard(projectId)}
+   783→          onClose={(projectId) => closeBoard(projectId)}
+   784→          capsulePosition={capsulePosition}
+   785→          onCapsulePositionChange={updateCapsulePosition}
+   786→        />
+   787→      )}
+   788→    </>
+   789→  );
+   790→}
+   791→
+   792→// Re-export for backward compatibility
+   793→export { useFloatingBoards } from "./providers/floating-board-provider";
+   794→export type { FloatingBoard } from "./providers/floating-board-provider";
