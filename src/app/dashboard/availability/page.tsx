@@ -8,6 +8,7 @@ import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
   CheckCircle2, Circle, CalendarClock, Edit3, X, RefreshCw,
   Users, BarChart3, Timer, Target, Video, FileText, Eye,
+  MoreHorizontal, LayoutGrid, List,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,13 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -264,6 +272,46 @@ export default function AvailabilityPage() {
   // ── Calendar popover state ──
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [dailyCalendarOpen, setDailyCalendarOpen] = useState(false);
+
+  // ── Week view mode ──
+  const [weekViewMode, setWeekViewMode] = useState<"grid" | "cards">("grid");
+
+  // ── Helper: find raw availability entry by id ──
+  const findAvailEntry = useCallback((id: string) => {
+    return availabilities.find((a) => a.id === id);
+  }, [availabilities]);
+
+  // ── Helper: navigate to daily tab ──
+  const navigateToDaily = useCallback((userId: string, date: string) => {
+    setDailyUserId(userId);
+    setDailyDate(new Date(date + "T00:00:00"));
+    setSelectedDayDetail(null);
+    const dailyTab = document.querySelector('[data-state][value="daily"]') as HTMLElement;
+    if (dailyTab) dailyTab.click();
+  }, []);
+
+  // ── Helper: open quick-add availability with pre-filled user/day ──
+  const openQuickAddSlot = useCallback((userId: string, dayOfWeek: number) => {
+    setEditingAvailability(null);
+    setFormUserId(userId);
+    setFormDayOfWeek(dayOfWeek.toString());
+    setFormStartTime("09:00");
+    setFormEndTime("17:00");
+    setFormIsAvailable(true);
+    setAvailDialogOpen(true);
+  }, []);
+
+  // ── Helper: open quick-add override with pre-filled user/date ──
+  const openQuickAddOverride = useCallback((userId: string, date: string) => {
+    setEditingOverride(null);
+    setFormOverrideUserId(userId);
+    setFormOverrideDate(date);
+    setFormOverrideStartTime("");
+    setFormOverrideEndTime("");
+    setFormOverrideIsAvailable(false);
+    setFormOverrideReason("");
+    setOverrideDialogOpen(true);
+  }, []);
 
   // ── Computed values ──
   const currentWeekStart = useMemo(() => {
@@ -654,26 +702,86 @@ export default function AvailabilityPage() {
   const todayStr = formatDateOnly(new Date());
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <PageHeader title="Availability Management" description="Manage team schedules, daily views, and availability overrides">
-        <Button variant="outline" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+        <Button variant="outline" size="sm" className="md:hidden" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+          <CalendarDays className="h-4 w-4" />
+        </Button>
+        <Button size="sm" className="md:hidden" onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
+          <Plus className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" className="hidden md:inline-flex" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
           <CalendarDays className="h-4 w-4 mr-2" /> Add Override
         </Button>
-        <Button onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
+        <Button className="hidden md:inline-flex" onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" /> Add Availability
         </Button>
       </PageHeader>
 
+      {/* ── Summary Stats ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="py-3 px-3 sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+              <Users className="h-4 w-4 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <div className="text-lg font-bold">{teamUsers.length}</div>
+              <div className="text-[10px] md:text-xs text-muted-foreground">Team Members</div>
+            </div>
+          </div>
+        </Card>
+        <Card className="py-3 px-3 sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+              <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <div className="text-lg font-bold">{availabilities.length}</div>
+              <div className="text-[10px] md:text-xs text-muted-foreground">Schedule Slots</div>
+            </div>
+          </div>
+        </Card>
+        <Card className="py-3 px-3 sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+              <CalendarClock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <div className="text-lg font-bold">{upcomingOverrides.length}</div>
+              <div className="text-[10px] md:text-xs text-muted-foreground">Active Overrides</div>
+            </div>
+          </div>
+        </Card>
+        <Card className="py-3 px-3 sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center shrink-0">
+              <Timer className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+            </div>
+            <div>
+              <div className="text-lg font-bold">
+                {weekSchedule ? weekSchedule.users.reduce((acc, u) => {
+                  const d = u.days[todayStr];
+                  if (d && d.totalHours > 0) acc++;
+                  return acc;
+                }, 0) : 0}
+              </div>
+              <div className="text-[10px] md:text-xs text-muted-foreground">Available Today</div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
       <Tabs defaultValue="weekly" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="weekly">
-            <CalendarDays className="h-4 w-4 mr-1.5" /> Weekly Overview
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="weekly" className="text-xs sm:text-sm">
+            <CalendarDays className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Weekly </span>Overview
           </TabsTrigger>
-          <TabsTrigger value="daily">
-            <Clock className="h-4 w-4 mr-1.5" /> Daily Schedule
+          <TabsTrigger value="daily" className="text-xs sm:text-sm">
+            <Clock className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Daily </span>Schedule
           </TabsTrigger>
-          <TabsTrigger value="overrides">
-            <CalendarClock className="h-4 w-4 mr-1.5" /> Overrides
+          <TabsTrigger value="overrides" className="text-xs sm:text-sm">
+            <CalendarClock className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Overrides </span>({upcomingOverrides.length})
           </TabsTrigger>
         </TabsList>
 
@@ -682,18 +790,25 @@ export default function AvailabilityPage() {
         ═══════════════════════════════════════════════════════════════════════ */}
         <TabsContent value="weekly" className="space-y-4">
           {/* Week Navigation */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={prevWeek} aria-label="Previous week">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-1.5">
+              <Button variant="outline" size="sm" onClick={prevWeek} aria-label="Previous week" className="h-8 w-8 p-0">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="min-w-[220px] justify-start text-left font-normal">
-                    <CalendarDays className="mr-2 h-4 w-4" />
-                    {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    {" — "}
-                    {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  <Button variant="outline" size="sm" className="min-w-[150px] sm:min-w-[220px] justify-start text-left font-normal h-8 text-xs sm:text-sm">
+                    <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">
+                      {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {" — "}
+                      {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                    <span className="sm:hidden">
+                      {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {" – "}
+                      {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -704,37 +819,57 @@ export default function AvailabilityPage() {
                   />
                 </PopoverContent>
               </Popover>
-              <Button variant="outline" size="sm" onClick={nextWeek} aria-label="Next week">
+              <Button variant="outline" size="sm" onClick={nextWeek} aria-label="Next week" className="h-8 w-8 p-0">
                 <ChevronRight className="h-4 w-4" />
               </Button>
               {weekOffset !== 0 && (
-                <Button variant="ghost" size="sm" onClick={goToToday}>
+                <Button variant="ghost" size="sm" onClick={goToToday} className="h-8 text-xs">
                   Today
                 </Button>
               )}
             </div>
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-                <span className="text-xs text-muted-foreground">Available</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                <span className="text-xs text-muted-foreground">Unavailable</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-                <span className="text-xs text-muted-foreground">On Leave</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-muted-foreground">Override</span>
-              </span>
+            <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center border rounded-md">
+                <Button
+                  variant={weekViewMode === "grid" ? "secondary" : "ghost"}
+                  size="sm" className="h-7 w-7 p-0 rounded-r-none"
+                  onClick={() => setWeekViewMode("grid")}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant={weekViewMode === "cards" ? "secondary" : "ghost"}
+                  size="sm" className="h-7 w-7 p-0 rounded-l-none"
+                  onClick={() => setWeekViewMode("cards")}
+                  title="Card view"
+                >
+                  <List className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="hidden sm:flex items-center gap-2.5 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
+                  <span className="text-[10px]">Available</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-red-500" />
+                  <span className="text-[10px]">Unavailable</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" />
+                  <span className="text-[10px]">On Leave</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span className="text-[10px]">Override</span>
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Weekly Grid */}
-          <Card>
+          <Card className={weekViewMode === "cards" ? "hidden md:block" : ""}>
             <CardContent className="p-0">
               {weekLoading ? (
                 <div className="p-6 space-y-4">
@@ -749,11 +884,11 @@ export default function AvailabilityPage() {
                   <p className="text-sm">No team members found for this week</p>
                 </div>
               ) : (
-                <div className="w-full overflow-x-auto -mx-6">
-                  <div className="min-w-[900px] px-6">
+                <div className="w-full overflow-x-auto -mx-4 px-4 md:-mx-6 md:px-6">
+                  <div className="min-w-[700px] lg:min-w-[900px]">
                     {/* Header row */}
-                    <div className="grid grid-cols-[180px_repeat(7,1fr)] border-b bg-muted/50 sticky top-0 z-10">
-                      <div className="p-3 text-xs font-semibold text-muted-foreground border-r flex items-center">
+                    <div className="grid grid-cols-[130px_repeat(7,1fr)] border-b bg-muted/50 sticky top-0 z-10">
+                      <div className="p-2 sm:p-3 text-[10px] sm:text-xs font-semibold text-muted-foreground border-r flex items-center">
                         Team Member
                       </div>
                       {weekDates.map((date, i) => {
@@ -762,15 +897,15 @@ export default function AvailabilityPage() {
                         return (
                           <div
                             key={dayStr}
-                            className={`p-3 text-center border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
+                            className={`p-1.5 sm:p-3 text-center border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
                           >
-                            <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                            <div className={`text-[9px] sm:text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                               {DAY_NAMES_SHORT[i]}
                             </div>
-                            <div className={`text-lg font-bold ${isToday ? "text-primary" : ""}`}>
+                            <div className={`text-sm sm:text-lg font-bold ${isToday ? "text-primary" : ""}`}>
                               {date.getDate()}
                             </div>
-                            <div className={`text-[10px] ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                            <div className={`text-[8px] sm:text-[10px] ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                               {date.toLocaleDateString("en-US", { month: "short" })}
                             </div>
                           </div>
@@ -782,19 +917,19 @@ export default function AvailabilityPage() {
                     {weekSchedule.users.map((userSchedule) => (
                       <div
                         key={userSchedule.user.id}
-                        className="grid grid-cols-[180px_repeat(7,1fr)] border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+                        className="grid grid-cols-[130px_repeat(7,1fr)] border-b last:border-b-0 hover:bg-muted/20 transition-colors"
                       >
                         {/* User info */}
-                        <div className="p-3 border-r flex items-center gap-2">
-                          <Avatar className="h-7 w-7">
+                        <div className="p-2 sm:p-3 border-r flex items-center gap-1.5 sm:gap-2">
+                          <Avatar className="h-5 w-5 sm:h-7 sm:w-7">
                             <AvatarImage src={userSchedule.user.avatar || undefined} alt={userSchedule.user.name} />
-                            <AvatarFallback className="text-[10px]">
+                            <AvatarFallback className="text-[8px] sm:text-[10px]">
                               {getUserInitials(userSchedule.user.name)}
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{userSchedule.user.name}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">
+                            <div className="text-[10px] sm:text-sm font-medium truncate">{userSchedule.user.name}</div>
+                            <div className="text-[8px] sm:text-[10px] text-muted-foreground truncate">
                               {safeText(userSchedule.user.role, "")}
                             </div>
                           </div>
@@ -946,29 +1081,64 @@ export default function AvailabilityPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Availability */}
                   <div className="space-y-2">
-                    <h4 className="text-sm font-semibold text-muted-foreground">Availability</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-muted-foreground">Availability</h4>
+                      <Button
+                        variant="ghost" size="sm" className="h-6 text-[10px]"
+                        onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
+                      >
+                        <Plus className="h-3 w-3 mr-0.5" /> Add
+                      </Button>
+                    </div>
                     {selectedDayDetail.dayData.isOnLeave ? (
                       <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 border-0">
                         On Leave
                       </Badge>
                     ) : selectedDayDetail.dayData.availability.length > 0 ? (
                       <div className="space-y-1">
-                        {selectedDayDetail.dayData.availability.map((slot) => (
-                          <div key={slot.id} className="flex items-center gap-2 text-sm">
-                            <Clock className="h-3.5 w-3.5 text-green-500" />
-                            <span>{slot.startTime} – {slot.endTime}</span>
-                            <span className="text-muted-foreground text-xs">({slot.hours}h)</span>
-                          </div>
-                        ))}
+                        {selectedDayDetail.dayData.availability.map((slot) => {
+                          const rawEntry = findAvailEntry(slot.id);
+                          return (
+                            <div key={slot.id} className="flex items-center gap-2 text-sm group">
+                              <Clock className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                              <span className="flex-1">{slot.startTime} – {slot.endTime}</span>
+                              <span className="text-muted-foreground text-xs">({slot.hours}h)</span>
+                              {rawEntry && (
+                                <>
+                                  <Button
+                                    variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                    onClick={() => openEditAvailability(rawEntry)}
+                                  >
+                                    <Edit3 className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-red-400 hover:text-red-600"
+                                    onClick={() => setDeleteAvailId(slot.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
                         <div className="text-xs text-muted-foreground pt-1">
                           Total scheduled: {selectedDayDetail.dayData.totalHours}h
                         </div>
                       </div>
                     ) : (
-                      <span className="text-sm text-muted-foreground">Not configured</span>
+                      <div className="space-y-2">
+                        <span className="text-sm text-muted-foreground">Not configured</span>
+                        <Button
+                          variant="outline" size="sm" className="h-7 text-xs w-full"
+                          onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Availability
+                        </Button>
+                      </div>
                     )}
                     {selectedDayDetail.dayData.override && (
                       <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
@@ -986,6 +1156,27 @@ export default function AvailabilityPage() {
                         )}
                       </div>
                     )}
+                    {/* Quick actions row */}
+                    <div className="flex gap-1.5 pt-1">
+                      <Button
+                        variant="outline" size="sm" className="h-7 text-[10px] flex-1"
+                        onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Slot
+                      </Button>
+                      <Button
+                        variant="outline" size="sm" className="h-7 text-[10px] flex-1"
+                        onClick={() => openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date)}
+                      >
+                        <CalendarClock className="h-3 w-3 mr-1" /> Override
+                      </Button>
+                      <Button
+                        variant="outline" size="sm" className="h-7 text-[10px]"
+                        onClick={() => navigateToDaily(selectedDayDetail.userId, selectedDayDetail.date)}
+                      >
+                        <Eye className="h-3 w-3 mr-1" /> Detail
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Tasks */}
@@ -1020,15 +1211,8 @@ export default function AvailabilityPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        setSelectedDayDetail(null);
-                        setDailyDate(new Date(selectedDayDetail.date + "T00:00:00"));
-                        setDailyUserId(selectedDayDetail.userId);
-                        // Switch to daily tab programmatically via DOM
-                        const dailyTab = document.querySelector('[data-state][value="daily"]') as HTMLElement;
-                        if (dailyTab) dailyTab.click();
-                      }}
+                      className="w-full justify-start text-xs"
+                      onClick={() => navigateToDaily(selectedDayDetail.userId, selectedDayDetail.date)}
                     >
                       <Eye className="h-3.5 w-3.5 mr-1.5" /> View Daily Detail
                     </Button>
@@ -1044,13 +1228,13 @@ export default function AvailabilityPage() {
         ═══════════════════════════════════════════════════════════════════════ */}
         <TabsContent value="daily" className="space-y-4">
           {/* Controls */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {/* Date picker */}
             <Popover open={dailyCalendarOpen} onOpenChange={setDailyCalendarOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" className="min-w-[180px] justify-start text-left font-normal">
-                  <CalendarDays className="mr-2 h-4 w-4" />
-                  {dailyDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                <Button variant="outline" className="h-8 min-w-[140px] sm:min-w-[180px] justify-start text-left font-normal text-xs sm:text-sm">
+                  <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                  {dailyDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -1064,16 +1248,16 @@ export default function AvailabilityPage() {
 
             {/* User selector */}
             <Select value={dailyUserId} onValueChange={setDailyUserId}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Select team member" />
+              <SelectTrigger className="w-[120px] sm:w-[200px] h-8 text-xs sm:text-sm">
+                <SelectValue placeholder="Select member" />
               </SelectTrigger>
               <SelectContent>
                 {teamUsers.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
+                      <Avatar className="h-4 w-4">
                         <AvatarImage src={u.avatar || undefined} alt={u.name} />
-                        <AvatarFallback className="text-[8px]">{getUserInitials(u.name)}</AvatarFallback>
+                        <AvatarFallback className="text-[7px]">{getUserInitials(u.name)}</AvatarFallback>
                       </Avatar>
                       {u.name}
                     </div>
@@ -1083,21 +1267,21 @@ export default function AvailabilityPage() {
             </Select>
 
             {/* Quick nav buttons */}
-            <Button variant="ghost" size="sm" onClick={() => setDailyDate(new Date())}>
+            <Button variant="ghost" size="sm" onClick={() => setDailyDate(new Date())} className="h-8 text-xs">
               Today
             </Button>
             <Button variant="outline" size="sm" onClick={() => {
               const d = new Date(dailyDate);
               d.setDate(d.getDate() - 1);
               setDailyDate(d);
-            }}>
+            }} className="h-8 w-8 p-0">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" onClick={() => {
               const d = new Date(dailyDate);
               d.setDate(d.getDate() + 1);
               setDailyDate(d);
-            }}>
+            }} className="h-8 w-8 p-0">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -1141,60 +1325,52 @@ export default function AvailabilityPage() {
               )}
 
               {/* Stats cards */}
-              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                        <Timer className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold">{dailySchedule.totalScheduledHours}h</div>
-                        <div className="text-xs text-muted-foreground">Scheduled</div>
-                      </div>
+              <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                <Card className="py-3 px-3 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                      <Timer className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     </div>
-                  </CardContent>
+                    <div>
+                      <div className="text-xl sm:text-2xl font-bold">{dailySchedule.totalScheduledHours}h</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground">Scheduled</div>
+                    </div>
+                  </div>
                 </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center">
-                        <BarChart3 className="h-5 w-5 text-sky-600 dark:text-sky-400" />
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold">{dailySchedule.totalWorkedHours}h</div>
-                        <div className="text-xs text-muted-foreground">Worked</div>
-                      </div>
+                <Card className="py-3 px-3 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center shrink-0">
+                      <BarChart3 className="h-4 w-4 text-sky-600 dark:text-sky-400" />
                     </div>
-                  </CardContent>
+                    <div>
+                      <div className="text-xl sm:text-2xl font-bold">{dailySchedule.totalWorkedHours}h</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground">Worked</div>
+                    </div>
+                  </div>
                 </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-                        <Target className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold">
-                          {dailySchedule.taskSummary.done}/{dailySchedule.taskSummary.total}
-                        </div>
-                        <div className="text-xs text-muted-foreground">Tasks Done</div>
-                      </div>
+                <Card className="py-3 px-3 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
+                      <Target className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                     </div>
-                  </CardContent>
+                    <div>
+                      <div className="text-xl sm:text-2xl font-bold">
+                        {dailySchedule.taskSummary.done}/{dailySchedule.taskSummary.total}
+                      </div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground">Tasks Done</div>
+                    </div>
+                  </div>
                 </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
-                        <Video className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold">{dailySchedule.meetings.length}</div>
-                        <div className="text-xs text-muted-foreground">Meetings</div>
-                      </div>
+                <Card className="py-3 px-3 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center shrink-0">
+                      <Video className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                     </div>
-                  </CardContent>
+                    <div>
+                      <div className="text-xl sm:text-2xl font-bold">{dailySchedule.meetings.length}</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground">Meetings</div>
+                    </div>
+                  </div>
                 </Card>
               </div>
 
@@ -1233,12 +1409,26 @@ export default function AvailabilityPage() {
                       <Timer className="h-4 w-4 text-emerald-500" />
                       Availability Schedule
                     </CardTitle>
+                    <Button
+                      variant="ghost" size="sm" className="h-6 text-[10px] ml-auto"
+                      onClick={() => openQuickAddSlot(dailyUserId, dailySchedule.dayOfWeek)}
+                    >
+                      <Plus className="h-3 w-3 mr-0.5" /> Add
+                    </Button>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {dailySchedule.availability.length === 0 && !dailySchedule.isOnLeave ? (
                       <div className="text-center py-6 text-muted-foreground text-sm">
                         <Clock className="h-8 w-8 mx-auto opacity-30 mb-2" />
                         No availability configured for {dailySchedule.dayName}
+                        <div className="mt-3">
+                          <Button
+                            variant="outline" size="sm"
+                            onClick={() => openQuickAddSlot(dailyUserId, dailySchedule.dayOfWeek)}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Availability
+                          </Button>
+                        </div>
                       </div>
                     ) : dailySchedule.availability.length > 0 ? (
                       dailySchedule.availability.map((slot) => {
@@ -1250,9 +1440,10 @@ export default function AvailabilityPage() {
                         const totalRange = dayEnd - dayStart;
                         const leftPct = Math.max(0, ((startMin - dayStart) / totalRange) * 100);
                         const widthPct = Math.max(2, (duration / totalRange) * 100);
+                        const rawEntry = findAvailEntry(slot.id);
 
                         return (
-                          <div key={slot.id} className="space-y-1">
+                          <div key={slot.id} className="space-y-1 group/slot">
                             <div className="relative h-10 bg-muted/50 rounded-md overflow-hidden">
                               {/* Time markers */}
                               <div className="absolute inset-0 flex justify-between px-1 text-[8px] text-muted-foreground/50">
@@ -1267,6 +1458,19 @@ export default function AvailabilityPage() {
                                   {slot.startTime}-{slot.endTime}
                                 </span>
                               </div>
+                            </div>
+                            {/* Inline actions on hover */}
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover/slot:opacity-100 transition-opacity">
+                              {rawEntry && (
+                                <>
+                                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
+                                    <Edit3 className="h-3 w-3 mr-0.5" /> Edit
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-red-500" onClick={() => setDeleteAvailId(slot.id)}>
+                                    <Trash2 className="h-3 w-3 mr-0.5" /> Delete
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         );
