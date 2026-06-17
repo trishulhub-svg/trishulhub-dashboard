@@ -218,9 +218,39 @@ function SmartCapsuleHub({
     origPosX: number;
     origPosY: number;
     hasMoved: boolean;
+    elWidth: number;
+    elHeight: number;
   } | null>(null);
   const currentPosRef = useRef(capsulePosition);
   currentPosRef.current = capsulePosition;
+
+  // Re-clamp capsule into viewport on window resize (orientation change, browser resize).
+  // Without this, a capsule restored from server/localStorage could land off-screen
+  // after a viewport change.
+  useEffect(() => {
+    const handleResize = () => {
+      const el = hubRef.current;
+      if (!el) return;
+      const w = el.offsetWidth || 80;
+      const h = el.offsetHeight || 44;
+      const cur = currentPosRef.current;
+      const clampedX = Math.max(0, Math.min(window.innerWidth - w, cur.x));
+      const clampedY = Math.max(0, Math.min(window.innerHeight - h, cur.y));
+      if (clampedX !== cur.x || clampedY !== cur.y) {
+        el.style.left = clampedX + "px";
+        el.style.top = clampedY + "px";
+        onCapsulePositionChange({ x: clampedX, y: clampedY });
+      }
+    };
+    // Run once on mount to clamp a restored position
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+    };
+  }, [onCapsulePositionChange]);
 
   // Close expanded panel when clicking outside
   useEffect(() => {
@@ -256,6 +286,8 @@ function SmartCapsuleHub({
         origPosX: currentPosRef.current.x,
         origPosY: currentPosRef.current.y,
         hasMoved: false,
+        elWidth: el.offsetWidth || 80,
+        elHeight: el.offsetHeight || 44,
       };
     };
 
@@ -269,6 +301,8 @@ function SmartCapsuleHub({
         origPosX: currentPosRef.current.x,
         origPosY: currentPosRef.current.y,
         hasMoved: false,
+        elWidth: el.offsetWidth || 80,
+        elHeight: el.offsetHeight || 44,
       };
     };
 
@@ -284,8 +318,10 @@ function SmartCapsuleHub({
       }
       preventDefault();
 
-      const nx = Math.max(0, Math.min(window.innerWidth - 80, ds.origPosX + dx));
-      const ny = Math.max(0, Math.min(window.innerHeight - 44, ds.origPosY + dy));
+      // Clamp using actual element dimensions captured at drag start,
+      // so the entire capsule stays inside the viewport.
+      const nx = Math.max(0, Math.min(window.innerWidth - ds.elWidth, ds.origPosX + dx));
+      const ny = Math.max(0, Math.min(window.innerHeight - ds.elHeight, ds.origPosY + dy));
 
       if (el) {
         el.style.left = nx + "px";
