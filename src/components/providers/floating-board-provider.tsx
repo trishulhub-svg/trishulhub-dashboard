@@ -19,6 +19,7 @@ export interface FloatingBoard {
   position: { x: number; y: number };
   size: { width: number; height: number };
   minimized: boolean;
+  fullscreen: boolean;
   zIndex: number;
 }
 
@@ -30,6 +31,7 @@ interface FloatingBoardContextValue {
   closeAll: () => void;
   minimizeBoard: (projectId: string) => void;
   restoreBoard: (projectId: string) => void;
+  toggleFullscreen: (projectId: string) => void;
   bringToFront: (projectId: string) => void;
   updatePosition: (projectId: string, position: { x: number; y: number }) => void;
   updateSize: (projectId: string, size: { width: number; height: number }) => void;
@@ -61,7 +63,7 @@ function loadFromStorage(): FloatingBoard[] {
     return parsed.filter(
       (b: FloatingBoard) =>
         b.projectId && b.projectName && typeof b.minimized === "boolean"
-    );
+    ).map((b: FloatingBoard) => ({ ...b, fullscreen: false }));
   } catch {
     return [];
   }
@@ -241,14 +243,14 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
       const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
       let updated = isMobile
-        ? prev.map(b => ({ ...b, minimized: true }))
+        ? prev.map(b => ({ ...b, minimized: true, fullscreen: false }))
         : prev;
 
       const existing = updated.find(b => b.projectId === projectId);
       if (existing) {
         return updated.map(b =>
           b.projectId === projectId
-            ? { ...b, minimized: false, zIndex: Date.now() }
+            ? { ...b, minimized: false, fullscreen: false, zIndex: Date.now() }
             : b
         );
       }
@@ -275,6 +277,7 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
               height: Math.max(380, Math.min(580, (typeof window !== "undefined" ? window.innerHeight : 800) - 100)),
             },
         minimized: false,
+        fullscreen: false,
         zIndex: Date.now(),
       };
       return [...updated, newBoard];
@@ -292,7 +295,7 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
 
   const minimizeBoard = useCallback((projectId: string) => {
     setBoards(prev =>
-      prev.map(b => b.projectId === projectId ? { ...b, minimized: true } : b)
+      prev.map(b => b.projectId === projectId ? { ...b, minimized: true, fullscreen: false } : b)
     );
   }, []);
 
@@ -319,6 +322,16 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
           : b
       );
     });
+  }, []);
+
+  const toggleFullscreen = useCallback((projectId: string) => {
+    setBoards(prev =>
+      prev.map(b =>
+        b.projectId === projectId
+          ? { ...b, fullscreen: !b.fullscreen, minimized: false, zIndex: Date.now() }
+          : b
+      )
+    );
   }, []);
 
   const bringToFront = useCallback((projectId: string) => {
@@ -379,6 +392,7 @@ export function FloatingBoardProvider({ children }: { children: ReactNode }) {
         closeAll,
         minimizeBoard,
         restoreBoard,
+        toggleFullscreen,
         bringToFront,
         updatePosition,
         updateSize,

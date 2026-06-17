@@ -283,19 +283,46 @@ export default function AvailabilityPage() {
   // ── Week user filter ──
   const [weekUserFilter, setWeekUserFilter] = useState<string>("all");
 
-  // ── Week view mode ──
-  const [weekViewMode, setWeekViewMode] = useState<"grid" | "cards">("grid");
+  // ── Team view day status filter ──
+  const [dayStatusFilter, setDayStatusFilter] = useState<string>("all");
+
+  // ── Day detail popup state ──
+  const [dayDetailDialogOpen, setDayDetailDialogOpen] = useState(false);
+
+  // ── Team view filter ──
+  const [teamViewFilter, setTeamViewFilter] = useState<string>("all");
 
   // ── Helper: find raw availability entry by id ──
   const findAvailEntry = useCallback((id: string) => {
     return availabilities.find((a) => a.id === id);
   }, [availabilities]);
 
+  // ── Helper: construct AvailabilityEntry from schedule slot data ──
+  const makeEntryFromSlot = useCallback((
+    slot: { id: string; startTime: string; endTime: string; isAvailable: boolean },
+    userId: string,
+    dayOfWeek: number,
+  ): AvailabilityEntry => ({
+    id: slot.id,
+    userId,
+    dayOfWeek,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    isAvailable: slot.isAvailable,
+  }), []);
+
+  // ── Helper: open day detail popup ──
+  const openDayDetail = useCallback((userId: string, userName: string, date: string, dayData: WeekDayData) => {
+    setSelectedDayDetail({ userId, userName, date, dayData });
+    setDayDetailDialogOpen(true);
+  }, []);
+
   // ── Helper: navigate to daily tab ──
   const navigateToDaily = useCallback((userId: string, date: string) => {
     setDailyUserId(userId);
     setDailyDate(new Date(date + "T00:00:00"));
     setSelectedDayDetail(null);
+    setDayDetailDialogOpen(false);
     const dailyTab = document.querySelector('[data-state][value="daily"]') as HTMLElement;
     if (dailyTab) dailyTab.click();
   }, []);
@@ -1098,24 +1125,28 @@ export default function AvailabilityPage() {
             </div>
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-              <span className="text-[10px]">Available</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-gray-300 dark:bg-gray-600" />
-              <span className="text-[10px]">Not Set</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-              <span className="text-[10px]">On Leave</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-              <span className="text-[10px]">Override</span>
-            </span>
+          {/* Filter buttons */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {[
+              { value: "all", label: "All", dot: "bg-gray-400" },
+              { value: "available", label: "Available", dot: "bg-green-500" },
+              { value: "unavailable", label: "Not Set", dot: "bg-gray-300 dark:bg-gray-600" },
+              { value: "leave", label: "On Leave", dot: "bg-sky-500" },
+              { value: "override", label: "Override", dot: "bg-amber-500" },
+            ].map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setDayStatusFilter(f.value)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-all shrink-0 ${
+                  dayStatusFilter === f.value
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "bg-background border-border text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${f.dot}`} />
+                {f.label}
+              </button>
+            ))}
           </div>
 
           {weekLoading ? (
@@ -1187,12 +1218,7 @@ export default function AvailabilityPage() {
                                 <button
                                   key={ds}
                                   className={`flex-1 flex flex-col items-center gap-1 py-2.5 border-r last:border-r-0 transition-colors ${isToday ? "bg-primary/5" : "hover:bg-muted/30"}`}
-                                  onClick={() => dd && setSelectedDayDetail({
-                                    userId: userSchedule.user.id,
-                                    userName: userSchedule.user.name,
-                                    date: ds,
-                                    dayData: dd,
-                                  })}
+                                  onClick={() => dd && openDayDetail(userSchedule.user.id, userSchedule.user.name, ds, dd)}
                                 >
                                   <span className={`text-[9px] font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                                     {DAY_NAMES_SHORT[i]}
@@ -1206,77 +1232,19 @@ export default function AvailabilityPage() {
                             })}
                           </div>
 
-                          {/* Expandable day detail */}
-                          {selectedDayDetail && selectedDayDetail.userId === userSchedule.user.id && (
-                            <div className="border-t p-3 space-y-2 bg-muted/20">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold">
-                                  {selectedDayDetail.dayData.dayName}, {selectedDayDetail.date}
-                                </span>
-                                <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => setSelectedDayDetail(null)}>
-                                  <X className="h-3 w-3 mr-0.5" /> Close
-                                </Button>
-                              </div>
-
-                              {selectedDayDetail.dayData.isOnLeave ? (
-                                <div className="flex items-center gap-2 text-xs text-sky-600">
-                                  <CalendarDays className="h-3.5 w-3.5" /> On Leave
-                                </div>
-                              ) : selectedDayDetail.dayData.availability.length > 0 ? (
-                                <div className="space-y-1.5">
-                                  {selectedDayDetail.dayData.availability.map((slot) => {
-                                    const rawEntry = findAvailEntry(slot.id);
-                                    return (
-                                      <div key={slot.id} className="flex items-center gap-2 p-2 rounded-lg bg-background">
-                                        <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                          <span className="text-xs font-medium">{slot.startTime} – {slot.endTime}</span>
-                                          <span className="text-[10px] text-muted-foreground ml-1">({slot.hours}h)</span>
-                                        </div>
-                                        {rawEntry && (
-                                          <div className="flex items-center gap-1 shrink-0">
-                                            <Button variant="outline" size="sm" className="h-8 px-2 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
-                                              Edit
-                                            </Button>
-                                            <Button variant="outline" size="sm" className="h-8 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => setDeleteAvailId(slot.id)}>
-                                              Delete
-                                            </Button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">No availability set</span>
-                              )}
-
-                              <div className="flex gap-1.5 pt-1">
-                                <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}>
-                                  <Plus className="h-3 w-3 mr-1" /> Add Slot
-                                </Button>
-                                <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date)}>
-                                  <CalendarClock className="h-3 w-3 mr-1" /> Override
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-
                           {/* Manage button */}
-                          {!selectedDayDetail?.userId && (
-                            <div className="border-t p-2.5">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="w-full h-9 text-xs justify-center"
-                                onClick={() => {
-                                  setSchedUserId(userSchedule.user.id);
-                                }}
-                              >
-                                <LayoutGrid className="h-3.5 w-3.5 mr-1.5" /> Manage Schedule →
-                              </Button>
-                            </div>
-                          )}
+                          <div className="border-t p-2.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-full h-9 text-xs justify-center"
+                              onClick={() => {
+                                setSchedUserId(userSchedule.user.id);
+                              }}
+                            >
+                              <LayoutGrid className="h-3.5 w-3.5 mr-1.5" /> Manage Schedule →
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     );
@@ -1358,12 +1326,7 @@ export default function AvailabilityPage() {
                                 <TooltipTrigger asChild>
                                   <div
                                     className={`p-2 border-r last:border-r-0 cursor-pointer transition-colors hover:bg-muted/40 min-h-[80px] flex flex-col gap-1 ${isToday ? "bg-primary/[0.03]" : ""}`}
-                                    onClick={() => setSelectedDayDetail({
-                                      userId: userSchedule.user.id,
-                                      userName: userSchedule.user.name,
-                                      date: dayStr,
-                                      dayData,
-                                    })}
+                                    onClick={() => openDayDetail(userSchedule.user.id, userSchedule.user.name, dayStr, dayData)}
                                   >
                                     <div className="flex flex-wrap gap-1">
                                       {dayData.isOnLeave && (
@@ -1467,147 +1430,6 @@ export default function AvailabilityPage() {
                   </div>
                 </CardContent>
               </Card>
-
-              {/* Day Detail Panel (desktop) */}
-              {selectedDayDetail && (
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-base">
-                          {selectedDayDetail.userName} — {selectedDayDetail.dayData.dayName}
-                        </CardTitle>
-                        <CardDescription>
-                          {selectedDayDetail.date}
-                        </CardDescription>
-                      </div>
-                      <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedDayDetail(null)}>
-                        <X className="h-3.5 w-3.5 mr-1" /> Close
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {/* Availability */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-muted-foreground">Availability</h4>
-                          <Button
-                            variant="ghost" size="sm" className="h-8 text-xs"
-                            onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
-                          >
-                            <Plus className="h-3 w-3 mr-0.5" /> Add
-                          </Button>
-                        </div>
-                        {selectedDayDetail.dayData.isOnLeave ? (
-                          <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 border-0">
-                            On Leave
-                          </Badge>
-                        ) : selectedDayDetail.dayData.availability.length > 0 ? (
-                          <div className="space-y-1">
-                            {selectedDayDetail.dayData.availability.map((slot) => {
-                              const rawEntry = findAvailEntry(slot.id);
-                              return (
-                                <div key={slot.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/30">
-                                  <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-xs font-medium">{slot.startTime} – {slot.endTime}</span>
-                                    <span className="text-[10px] text-muted-foreground ml-1">({slot.hours}h)</span>
-                                  </div>
-                                  {rawEntry && (
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
-                                        Edit
-                                      </Button>
-                                      <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => setDeleteAvailId(slot.id)}>
-                                        Delete
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            <div className="text-xs text-muted-foreground pt-1">
-                              Total scheduled: {selectedDayDetail.dayData.totalHours}h
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <span className="text-sm text-muted-foreground">Not configured</span>
-                            <Button
-                              variant="outline" size="sm" className="h-8 text-xs w-full"
-                              onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}
-                            >
-                              <Plus className="h-3 w-3 mr-1" /> Add Availability
-                            </Button>
-                          </div>
-                        )}
-                        {selectedDayDetail.dayData.override && (
-                          <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
-                            <div className="text-xs font-medium text-amber-700 dark:text-amber-400">Override Active</div>
-                            <div className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
-                              {selectedDayDetail.dayData.override.isAvailable ? "Available" : "Unavailable"}
-                              {selectedDayDetail.dayData.override.startTime && selectedDayDetail.dayData.override.endTime
-                                ? ` (${selectedDayDetail.dayData.override.startTime}–${selectedDayDetail.dayData.override.endTime})`
-                                : " (All Day)"}
-                            </div>
-                            {selectedDayDetail.dayData.override.reason && (
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {safeText(selectedDayDetail.dayData.override.reason)}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div className="flex gap-1.5 pt-1">
-                          <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek)}>
-                            <Plus className="h-3 w-3 mr-1" /> Slot
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1" onClick={() => openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date)}>
-                            <CalendarClock className="h-3 w-3 mr-1" /> Override
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-8 text-[10px]" onClick={() => navigateToDaily(selectedDayDetail.userId, selectedDayDetail.date)}>
-                            <Eye className="h-3 w-3 mr-1" /> Detail
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Tasks */}
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-muted-foreground">Tasks</h4>
-                        <div className="flex items-center gap-2 text-2xl font-bold">
-                          <span>{selectedDayDetail.dayData.doneTaskCount}</span>
-                          <span className="text-muted-foreground text-base font-normal">/ {selectedDayDetail.dayData.taskCount}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">done / total</div>
-                        {selectedDayDetail.dayData.taskCount > 0 && (
-                          <Progress
-                            value={(selectedDayDetail.dayData.doneTaskCount / selectedDayDetail.dayData.taskCount) * 100}
-                            className="h-1.5"
-                          />
-                        )}
-                      </div>
-
-                      {/* Meetings */}
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-muted-foreground">Meetings</h4>
-                        <div className="flex items-center gap-2">
-                          <Video className="h-5 w-5 text-sky-500" />
-                          <span className="text-2xl font-bold">{selectedDayDetail.dayData.meetingCount}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">scheduled</div>
-                      </div>
-
-                      {/* Quick Actions */}
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-muted-foreground">Quick Actions</h4>
-                        <Button variant="outline" size="sm" className="w-full justify-start text-xs h-9" onClick={() => navigateToDaily(selectedDayDetail.userId, selectedDayDetail.date)}>
-                          <Eye className="h-3.5 w-3.5 mr-1.5" /> View Daily Detail
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </>
           )}
         </TabsContent>
@@ -1822,11 +1644,14 @@ export default function AvailabilityPage() {
                         const totalRange = dayEnd - dayStart;
                         const leftPct = Math.max(0, ((startMin - dayStart) / totalRange) * 100);
                         const widthPct = Math.max(2, (duration / totalRange) * 100);
-                        const rawEntry = findAvailEntry(slot.id);
+                        const slotEntry = findAvailEntry(slot.id) || makeEntryFromSlot(slot, dailyUserId, dailySchedule.dayOfWeek);
 
                         return (
                           <div key={slot.id} className="space-y-1.5">
-                            <div className="relative h-10 bg-muted/50 rounded-md overflow-hidden">
+                            <div
+                              className="relative h-10 bg-muted/50 rounded-md overflow-hidden cursor-pointer hover:ring-2 hover:ring-emerald-500/30 transition-all"
+                              onClick={() => openEditAvailability(slotEntry)}
+                            >
                               <div className="absolute inset-0 flex justify-between px-1 text-[8px] text-muted-foreground/50">
                                 <span>8am</span><span>10am</span><span>12pm</span><span>2pm</span><span>4pm</span><span>6pm</span><span>8pm</span>
                               </div>
@@ -1841,16 +1666,14 @@ export default function AvailabilityPage() {
                             </div>
                             <div className="flex items-center justify-between gap-1">
                               <span className="text-xs text-muted-foreground">{slot.hours}h scheduled</span>
-                              {rawEntry && (
-                                <div className="flex items-center gap-1">
-                                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditAvailability(rawEntry)}>
-                                    Edit
-                                  </Button>
-                                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteAvailId(slot.id)}>
-                                    Delete
-                                  </Button>
-                                </div>
-                              )}
+                              <div className="flex items-center gap-1">
+                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditAvailability(slotEntry)}>
+                                  Edit
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteAvailId(slot.id)}>
+                                  Delete
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -2295,6 +2118,134 @@ export default function AvailabilityPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Day Detail Popup Dialog */}
+      <Dialog open={dayDetailDialogOpen} onOpenChange={(open) => { setDayDetailDialogOpen(open); if (!open) setSelectedDayDetail(null); }}>
+        <DialogContent className="max-w-lg w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {selectedDayDetail && (
+                <>
+                  <span>{selectedDayDetail.userName}</span>
+                  <span className="text-muted-foreground font-normal">—</span>
+                  <span>{selectedDayDetail.dayData.dayName}, {selectedDayDetail.date}</span>
+                </>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedDayDetail && (
+            <div className="space-y-4">
+              {/* Leave status */}
+              {selectedDayDetail.dayData.isOnLeave && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800">
+                  <CalendarDays className="h-4 w-4 text-sky-500 shrink-0" />
+                  <span className="text-sm font-medium text-sky-700 dark:text-sky-300">On Leave</span>
+                </div>
+              )}
+
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-2.5 rounded-lg bg-muted/30">
+                  <div className="text-lg font-bold">{selectedDayDetail.dayData.doneTaskCount}<span className="text-muted-foreground font-normal">/{selectedDayDetail.dayData.taskCount}</span></div>
+                  <div className="text-[10px] text-muted-foreground">Tasks</div>
+                  {selectedDayDetail.dayData.taskCount > 0 && (
+                    <Progress value={(selectedDayDetail.dayData.doneTaskCount / selectedDayDetail.dayData.taskCount) * 100} className="h-1 mt-1" />
+                  )}
+                </div>
+                <div className="text-center p-2.5 rounded-lg bg-muted/30">
+                  <div className="text-lg font-bold">{selectedDayDetail.dayData.totalHours}h</div>
+                  <div className="text-[10px] text-muted-foreground">Scheduled</div>
+                </div>
+                <div className="text-center p-2.5 rounded-lg bg-muted/30">
+                  <div className="text-lg font-bold">{selectedDayDetail.dayData.meetingCount}</div>
+                  <div className="text-[10px] text-muted-foreground">Meetings</div>
+                </div>
+              </div>
+
+              {/* Availability slots */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Availability Slots</h4>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek); }}>
+                    <Plus className="h-3 w-3 mr-0.5" /> Add
+                  </Button>
+                </div>
+                {selectedDayDetail.dayData.availability.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {selectedDayDetail.dayData.availability.map((slot) => {
+                      const entry = findAvailEntry(slot.id) || makeEntryFromSlot(slot, selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek);
+                      return (
+                        <div key={slot.id} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+                          <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${slot.isAvailable ? "bg-green-500" : "bg-red-400"}`} />
+                          <button
+                            className="flex-1 min-w-0 text-left"
+                            onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}
+                          >
+                            <span className="text-sm font-medium">{slot.startTime} – {slot.endTime}</span>
+                            <span className="text-xs text-muted-foreground ml-1.5">({slot.hours}h)</span>
+                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}>
+                              <Edit3 className="h-3 w-3" />
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => { setDeleteAvailId(slot.id); setDayDetailDialogOpen(false); }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="text-xs text-muted-foreground pt-0.5">
+                      Total: {selectedDayDetail.dayData.totalHours}h scheduled
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    No availability configured
+                  </div>
+                )}
+              </div>
+
+              {/* Override info */}
+              {selectedDayDetail.dayData.override && (
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override Active</span>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-600" onClick={() => {
+                      const ovr = overrides.find(o => o.id === selectedDayDetail.dayData.override!.id);
+                      if (ovr) { setDayDetailDialogOpen(false); openEditOverride(ovr); }
+                    }}>
+                      <Edit3 className="h-3 w-3 mr-1" /> Edit
+                    </Button>
+                  </div>
+                  <div className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                    {selectedDayDetail.dayData.override.isAvailable ? "Available" : "Unavailable"}
+                    {selectedDayDetail.dayData.override.startTime && selectedDayDetail.dayData.override.endTime
+                      ? ` (${selectedDayDetail.dayData.override.startTime}–${selectedDayDetail.dayData.override.endTime})`
+                      : " (All Day)"}
+                  </div>
+                  {selectedDayDetail.dayData.override.reason && (
+                    <div className="text-xs text-muted-foreground mt-0.5">{safeText(selectedDayDetail.dayData.override.reason)}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek); }}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Slot
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date); }}>
+                  <CalendarClock className="h-3.5 w-3.5 mr-1" /> Add Override
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); navigateToDaily(selectedDayDetail.userId, selectedDayDetail.date); }}>
+                  <Eye className="h-3.5 w-3.5 mr-1" /> View Daily
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ═══════════════════════════════════════════════════════════════════════
           DIALOGS

@@ -143,7 +143,11 @@ function AccessHubContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const urlTab = searchParams.get("tab") || "credentials";
+  const effectiveTab = (() => {
+    const raw = searchParams.get("tab") || "credentials";
+    const superAdmin = session?.user?.role === "SUPER_ADMIN";
+    return (!superAdmin && raw === "system") ? "credentials" : raw;
+  })();
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1078,7 +1082,7 @@ function AccessHubContent() {
       />
 
       {isAdmin ? (
-        <Tabs value={urlTab} className="space-y-6">
+        <Tabs value={effectiveTab} className="space-y-6">
           <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto flex-nowrap">
             <TabsTrigger value="credentials" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
               <KeyRound className="h-3.5 w-3.5" />
@@ -1092,10 +1096,12 @@ function AccessHubContent() {
               <Bird className="h-3.5 w-3.5" />
               User Mapping
             </TabsTrigger>
-            <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
-              <Settings className="h-3.5 w-3.5" />
-              System Config
-            </TabsTrigger>
+            {isSuperAdmin && (
+              <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
+                <Settings className="h-3.5 w-3.5" />
+                System Config
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ═══════════ TAB 1: CREDENTIALS ═══════════ */}
