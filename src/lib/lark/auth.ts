@@ -13,12 +13,29 @@ let cachedExpiry = 0
  * Get Lark config from AppSetting table (stored as JSON).
  * Returns null if not configured.
  */
+// In-memory cache for Lark config (avoids DB query on every API call)
+let _cachedConfig: LarkConfig | null | undefined = undefined
+let _cachedConfigTime = 0
+const CONFIG_CACHE_MS = 30_000 // Refresh every 30 seconds
+
 export async function getLarkConfig(): Promise<LarkConfig | null> {
+  // Return cached config if fresh
+  if (_cachedConfig !== undefined && Date.now() - _cachedConfigTime < CONFIG_CACHE_MS) {
+    return _cachedConfig
+  }
   try {
     const raw = await getAppSetting("lark_config")
-    if (!raw) return null
-    return JSON.parse(raw) as LarkConfig
+    if (!raw) {
+      _cachedConfig = null
+      _cachedConfigTime = Date.now()
+      return null
+    }
+    _cachedConfig = JSON.parse(raw) as LarkConfig
+    _cachedConfigTime = Date.now()
+    return _cachedConfig
   } catch {
+    _cachedConfig = null
+    _cachedConfigTime = Date.now()
     return null
   }
 }
@@ -28,9 +45,11 @@ export async function getLarkConfig(): Promise<LarkConfig | null> {
  */
 export async function saveLarkConfig(config: LarkConfig): Promise<void> {
   await setAppSetting("lark_config", JSON.stringify(config))
-  // Clear cached token when config changes
+  // Clear cached token and config when config changes
   cachedToken = null
   cachedExpiry = 0
+  _cachedConfig = undefined
+  _cachedConfigTime = 0
 }
 
 /**
@@ -65,7 +84,7 @@ export async function getLarkToken(): Promise<string | null> {
   }
 
   try {
-    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    const res = await fetch("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -104,7 +123,7 @@ export async function getLarkToken(): Promise<string | null> {
  */
 export async function validateLarkConfig(config: LarkConfig): Promise<{ valid: boolean; error?: string }> {
   try {
-    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    const res = await fetch("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

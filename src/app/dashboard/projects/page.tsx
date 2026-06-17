@@ -38,6 +38,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+import { useFloatingBoards } from "@/components/floating-task-board";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -828,6 +829,8 @@ export default function ProjectsPage() {
       return deepSanitize(raw) as unknown[];
     },
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -841,6 +844,8 @@ export default function ProjectsPage() {
       return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
     },
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -855,6 +860,8 @@ export default function ProjectsPage() {
       return data as Record<string, number>;
     },
     staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -863,6 +870,11 @@ export default function ProjectsPage() {
   const pendingTaskCounts = taskCountsData || {};
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+
+  // ━━ Floating Task Board Windows (from context — rendered in layout) ━━
+  const {
+    openBoard: openFloatingBoard,
+  } = useFloatingBoards();
 
   // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
@@ -1646,8 +1658,12 @@ export default function ProjectsPage() {
                   projects={col.projects}
                   isAdminUser={isAdminUser}
                   onCardClick={(project) => {
-                    const pId = safeText(project.id, "");
-                    router.push(`/dashboard/projects/${pId}`);
+                    if (isAdminUser) {
+                      openFloatingBoard(safeText(project.id, ""), safeText(project.name, "Project"));
+                    } else {
+                      const pId = safeText(project.id, "");
+                      router.push(`/dashboard/projects/${pId}`);
+                    }
                   }}
                   onEdit={openEditDialog}
                   onDelete={openDeleteDialog}
@@ -1692,21 +1708,31 @@ export default function ProjectsPage() {
                 project={project}
                 isAdminUser={isAdminUser}
                 onView={() => {
-                  handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  if (isAdminUser) {
+                    openFloatingBoard(pId, safeText(project.name, "Project"));
+                  } else {
+                    handlePrefetchProject(pId);
+                    router.push(`/dashboard/projects/${pId}`);
+                  }
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
                 pendingCount={pendingTaskCounts[pId]}
                 onPendingClick={() => {
-                  handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  if (isAdminUser) {
+                    openFloatingBoard(pId, safeText(project.name, "Project"));
+                  } else {
+                    handlePrefetchProject(pId);
+                    router.push(`/dashboard/projects/${pId}`);
+                  }
                 }}
               />
             );
           })}
         </div>
       )}
+
+      {/* ━━━━ Floating Task Boards are now rendered in DashboardLayout ━━━━ */}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
@@ -1765,13 +1791,13 @@ export default function ProjectsPage() {
                         <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
-                        <Input name="budget" type="number" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL}) <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+                        <Input name="budget" type="number" step="any" min="0" placeholder="0.00" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Live URL</Label>
+                        <Label className="text-xs">Live URL <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input
                           name="liveUrl"
                           type="url"
@@ -1784,9 +1810,9 @@ export default function ProjectsPage() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">Start Date</Label>
+                        <Label className="text-xs">Start Date <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input name="startDate" type="date" defaultValue={editProject.startDate ? String(editProject.startDate).slice(0, 10) : ''} id="edit-start-date" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const deadlineInput = document.getElementById("edit-deadline") as HTMLInputElement | null;
                           const sd = e.target.value;
@@ -1798,7 +1824,7 @@ export default function ProjectsPage() {
                         }} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Deadline</Label>
+                        <Label className="text-xs">Deadline <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
                         <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} id="edit-deadline" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const startInput = document.getElementById("edit-start-date") as HTMLInputElement | null;
                           const sd = startInput?.value || "";

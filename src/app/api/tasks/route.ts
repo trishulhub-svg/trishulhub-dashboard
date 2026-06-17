@@ -10,6 +10,8 @@ import { syncTasksToGit } from "@/lib/git-sync"
 import { syncTaskToLark } from "@/lib/lark/sync"
 import { syncTaskUpdateToLark } from "@/lib/lark/sync"
 import { syncTaskDeleteToLark } from "@/lib/lark/sync"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
+import { getLarkConfig } from "@/lib/lark/auth"
 
 const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
 const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
@@ -40,10 +42,10 @@ function serializeTask(t: any) {
 async function getLarkTaskIds(taskIds: string[]): Promise<Record<string, string>> {
   if (taskIds.length === 0) return {}
   try {
-    const rows = await db.$queryRawUnsafe<Array<{ taskId: string; larkTaskId: string }>>(
-      'SELECT "taskId", "larkTaskId" FROM "LarkTaskMapping" WHERE "taskId" IN (?)',
-      taskIds
-    )
+    const rows = await db.larkTaskMapping.findMany({
+      where: { taskId: { in: taskIds } },
+      select: { taskId: true, larkTaskId: true },
+    })
     const map: Record<string, string> = {}
     for (const r of rows) map[r.taskId] = r.larkTaskId
     return map
@@ -136,24 +138,22 @@ export async function GET(req: NextRequest) {
       db.task.count({ where }),
     ])
 
-    // Resolve userIds to names for assignee, approver, and creator
+    // Resolve userIds to names + fetch Lark IDs in parallel (fast)
     const userIds = new Set<string>()
     for (const t of tasks) {
       if (t.assignedTo) userIds.add(t.assignedTo)
       if (t.approvedBy) userIds.add(t.approvedBy)
       if (t.createdBy) userIds.add(t.createdBy)
     }
-    let userMap: Record<string, string> = {}
-    if (userIds.size > 0) {
-      const users = await db.user.findMany({
-        where: { id: { in: Array.from(userIds) } },
-        select: { id: true, name: true }
-      })
-      for (const u of users) userMap[u.id] = u.name
-    }
-
-    // Fetch Lark task IDs for all returned tasks
-    const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+    const [users, larkIds] = await Promise.all([
+      userIds.size > 0
+        ? db.user.findMany({ where: { id: { in: Array.from(userIds) } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      // Only fetch Lark IDs if Lark is enabled (avoids unnecessary DB query)
+      getLarkConfig().then(cfg => cfg?.enabled ? getLarkTaskIds(tasks.map(t => t.id)) : Promise.resolve({})),
+    ])
+    const userMap: Record<string, string> = {}
+    for (const u of users) userMap[u.id] = u.name
 
     const enriched = tasks.map(t => ({
       ...serializeTask(t),
@@ -162,6 +162,12 @@ export async function GET(req: NextRequest) {
       createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
       larkTaskId: larkIds[t.id] || null,
     }))
+    void logAudit({
+      userId, userName: session.user.name || "unknown", userRole,
+      department: "TEAM_WORK", page: "tasks", action: "READ",
+      description: buildDescription("READ", "tasks"),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   }
 
@@ -202,15 +208,11 @@ export async function GET(req: NextRequest) {
   }
 
   // C20: Visibility filter in Prisma where clause
-  // Non-admin can only see tasks assigned to them, created by them,
-  // or in projects they're a member of
+  // Non-admin can only see tasks assigned to them or created by them
   const visibilityOr: Prisma.TaskWhereInput[] = [
     { assignedTo: userId },
     { createdBy: userId },
   ]
-  if (assignedProjectIds && assignedProjectIds.length > 0) {
-    visibilityOr.push({ projectId: { in: assignedProjectIds } })
-  }
 
   const where: Prisma.TaskWhereInput = {
     AND: [
@@ -229,24 +231,21 @@ export async function GET(req: NextRequest) {
     db.task.count({ where }),
   ])
 
-  // Resolve userIds to names for assignee, approver, and creator
+  // Resolve userIds to names + fetch Lark IDs in parallel (fast)
   const userIds = new Set<string>()
   for (const t of tasks) {
     if (t.assignedTo) userIds.add(t.assignedTo)
     if (t.approvedBy) userIds.add(t.approvedBy)
     if (t.createdBy) userIds.add(t.createdBy)
   }
-  let userMap: Record<string, string> = {}
-  if (userIds.size > 0) {
-    const users = await db.user.findMany({
-      where: { id: { in: Array.from(userIds) } },
-      select: { id: true, name: true }
-    })
-    for (const u of users) userMap[u.id] = u.name
-  }
-
-  // Fetch Lark task IDs for all returned tasks
-  const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+  const [users, larkIds] = await Promise.all([
+    userIds.size > 0
+      ? db.user.findMany({ where: { id: { in: Array.from(userIds) } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    getLarkConfig().then(cfg => cfg?.enabled ? getLarkTaskIds(tasks.map(t => t.id)) : Promise.resolve({})),
+  ])
+  const userMap: Record<string, string> = {}
+  for (const u of users) userMap[u.id] = u.name
 
   const enriched = tasks.map(t => ({
     ...serializeTask(t),
@@ -255,6 +254,12 @@ export async function GET(req: NextRequest) {
     createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
     larkTaskId: larkIds[t.id] || null,
   }))
+  void logAudit({
+    userId, userName: session.user.name || "unknown", userRole,
+    department: "TEAM_WORK", page: "tasks", action: "READ",
+    description: buildDescription("READ", "tasks"),
+    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+  })
   return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
   } catch (error: unknown) {
     console.error("[tasks] GET error:", error instanceof Error ? error.message : String(error))
@@ -406,8 +411,15 @@ export async function POST(req: NextRequest) {
     assignedTo: task.assignedTo || undefined,
     projectId: task.projectId || undefined,
     deadline: task.deadline || undefined,
-  }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
+  }, userId, session.user.name || undefined).catch((err) => console.error("[tasks] Lark sync error:", err))
   // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
+  void logAudit({
+    userId, userName: session.user.name || "unknown", userRole,
+    department: "TEAM_WORK", page: "tasks", action: "CREATE",
+    entityType: "task", entityId: task.id,
+    description: buildDescription("CREATE", "task", task.title),
+    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+  })
   return NextResponse.json(serializeTask(task), { status: 201 })
   } catch (error: unknown) {
     console.error("[tasks] POST error:", error instanceof Error ? error.message : String(error))

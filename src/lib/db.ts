@@ -294,6 +294,16 @@ export async function setAppSetting(key: string, value: string): Promise<void> {
   )
 }
 
+/** Delete a setting from the AppSetting table. No-op if key doesn't exist. */
+export async function delAppSetting(key: string): Promise<void> {
+  await ensureAppSettingTable()
+  try {
+    await db.$executeRawUnsafe('DELETE FROM "AppSetting" WHERE "key" = ?', key)
+  } catch (err) {
+    console.error('[db] Failed to delete AppSetting:', err)
+  }
+}
+
 // Graceful shutdown — only in long-running processes, not serverless/Vercel
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
   process.on('beforeExit', async () => {

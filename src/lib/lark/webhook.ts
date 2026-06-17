@@ -3,7 +3,7 @@
 import type { LarkWebhookPayload } from "./types"
 import { handleLarkWebhookEvent } from "./sync"
 import { getLarkConfig } from "./auth"
-import { createHmac, createHash } from "crypto"
+import { createHmac } from "crypto"
 
 /**
  * Verify Lark webhook signature.
@@ -31,6 +31,7 @@ export async function processWebhook(payload: LarkWebhookPayload): Promise<{ cod
   }
 
   const eventType = payload.header?.event_type
+  const eventId = payload.header?.event_id
   const eventData = payload.event
 
   if (!eventType || !eventData?.task_id) {
@@ -38,13 +39,24 @@ export async function processWebhook(payload: LarkWebhookPayload): Promise<{ cod
     return { code: 1, msg: "Invalid payload" }
   }
 
-  console.log(`[lark/webhook] Processing event: ${eventType} for task: ${eventData.task_id}`)
+  console.log(`[lark/webhook] Processing event: ${eventType} (id: ${eventId}) for task: ${eventData.task_id}`)
+  // Log full event for debugging (truncate if too long)
+  const eventStr = JSON.stringify(payload.event)
+  if (eventStr.length < 2000) {
+    console.log(`[lark/webhook] Event body: ${eventStr}`)
+  } else {
+    console.log(`[lark/webhook] Event body (truncated): ${eventStr.substring(0, 2000)}...`)
+  }
 
-  const result = await handleLarkWebhookEvent(eventType, {
-    task_id: eventData.task_id,
-    tasklist_id: eventData.tasklist_id,
-    operator: eventData.operator as { open_id: string } | undefined,
-  })
+  const result = await handleLarkWebhookEvent(
+    eventId || `unknown_${Date.now()}`,
+    eventType,
+    {
+      task_id: eventData.task_id,
+      tasklist_id: eventData.tasklist_id,
+      operator: eventData.operator as { open_id: string } | undefined,
+    }
+  )
 
   if (result.success) {
     return { code: 0 }

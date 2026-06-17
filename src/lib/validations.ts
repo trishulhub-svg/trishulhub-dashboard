@@ -50,7 +50,7 @@ export const createProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   deadline: z.string().optional(),
-  budget: z.number().min(0).optional(),
+  budget: z.number().min(0).optional().nullable(),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),
     label: z.string().max(100).nullable().optional(),
@@ -65,7 +65,7 @@ export const updateProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   deadline: z.string().optional(),
-  budget: z.number().min(0).optional(),
+  budget: z.number().min(0).optional().nullable(),
 })
 
 // ━━ Clients ━━
@@ -303,6 +303,7 @@ export const createMeetingSchema = z.object({
     .or(z.literal("")),
   projectId: z.string().optional(),
   attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
+  externalAttendeeEmails: z.array(z.string().email("Invalid email address")).max(20, "Maximum 20 external attendees").optional(),
   notes: z.string().max(2000).optional(),
 }).refine(
   (data) => {

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { safeParseDate } from "@/lib/utils";
+import { safeParseDate, cn } from "@/lib/utils";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
   ChevronLeft, ChevronRight, Trash2, Ban, AlertCircle,
@@ -422,14 +422,15 @@ export default function LeaveManagementPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Leave Management" description="Manage team leaves and availability blocking">
+      <PageHeader title={isUserAdmin ? "Leave Management" : "My Leaves"} description={isUserAdmin ? "Manage team leaves and availability blocking" : "View your leave requests and holidays"}>
         <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Add Leave
+          <Plus className="h-4 w-4 mr-2" /> Request Leave
         </Button>
       </PageHeader>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className={cn("grid gap-4", isUserAdmin ? "md:grid-cols-4" : "md:grid-cols-3")}>
+        {isUserAdmin && (
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Pending Requests</CardDescription>
@@ -441,6 +442,7 @@ export default function LeaveManagementPage() {
             </div>
           </CardContent>
         </Card>
+        )}
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>My Leaves</CardDescription>
@@ -463,6 +465,7 @@ export default function LeaveManagementPage() {
             </div>
           </CardContent>
         </Card>
+        {isUserAdmin && (
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Team On Leave Today</CardDescription>
@@ -476,6 +479,7 @@ export default function LeaveManagementPage() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Calendar View */}
@@ -593,7 +597,7 @@ export default function LeaveManagementPage() {
       {/* Leave List with Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>All Leave Records</CardTitle>
+          <CardTitle>{isUserAdmin ? "All Leave Records" : "My Leave History"}</CardTitle>
           <div className="flex gap-2 flex-wrap mt-2">
             {isUserAdmin && (
               <Select value={filterEmployee} onValueChange={setFilterEmployee}>

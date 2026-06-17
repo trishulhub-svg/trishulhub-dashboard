@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   FileText, Upload, Download, Trash2, Loader2,
@@ -132,8 +132,18 @@ const LABEL_COLORS: Record<string, string> = {
    ═══════════════════════════════════════════════════════════════ */
 
 export default function AccessHubPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+      <AccessHubContent />
+    </Suspense>
+  );
+}
+
+function AccessHubContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab") || "credentials";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +187,7 @@ export default function AccessHubPage() {
   const [showLarkSecret, setShowLarkSecret] = useState(false);
   const [showLarkEncrypt, setShowLarkEncrypt] = useState(false);
   const [larkSetupExpanded, setLarkSetupExpanded] = useState(true);
+  const [larkConfigLoading, setLarkConfigLoading] = useState(true);
 
   // ── Workspace Config Token state ──
   const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
@@ -222,6 +233,26 @@ export default function AccessHubPage() {
   const [formNotes, setFormNotes] = useState("");
   const [formTargetUserId, setFormTargetUserId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Lark User Mapping state ──
+  const [larkUsers, setLarkUsers] = useState<Array<{ open_id: string; name: string; email?: string }>>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = localStorage.getItem('trishulhub_lark_users');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [larkUsersLoading, setLarkUsersLoading] = useState(false);
+  const [larkUsersError, setLarkUsersError] = useState("");
+  const [larkMappings, setLarkMappings] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const cached = localStorage.getItem('trishulhub_lark_mappings');
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
+  const [larkMappingsLoading, setLarkMappingsLoading] = useState(false);
+  const [larkMappingsSaving, setLarkMappingsSaving] = useState(false);
 
   /* ═══════════════════════════════════════════════════════════════
      DATA FETCHING
@@ -538,6 +569,7 @@ export default function AccessHubPage() {
 
   // ── Lark Integration handlers ──
   const fetchLarkConfig = async () => {
+    setLarkConfigLoading(true);
     try {
       const res = await fetch("/api/lark/settings", { credentials: "include" });
       if (res.ok) {
@@ -545,6 +577,7 @@ export default function AccessHubPage() {
         setLarkConfig(data);
       }
     } catch { /* silent */ }
+    finally { setLarkConfigLoading(false); }
   };
 
   const handleSaveLarkConfig = async () => {
@@ -675,6 +708,25 @@ export default function AccessHubPage() {
       setCopiedField(fieldId);
       setTimeout(() => setCopiedField(null), 2000);
     } catch { /* fallback */ }
+  };
+
+  const handleCopyPassword = async (credId: string, fieldId: string) => {
+    try {
+      const res = await fetch(`/api/credentials/${credId}/reveal`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const realPassword = data.password;
+        if (realPassword) {
+          await copyToClipboard(realPassword, fieldId);
+        } else {
+          toast.error("Password not found");
+        }
+      } else {
+        toast.error("Failed to fetch password");
+      }
+    } catch {
+      toast.error("Failed to copy password");
+    }
   };
 
   const resetCredForm = () => {
@@ -1019,24 +1071,28 @@ export default function AccessHubPage() {
      ═══════════════════════════════════════════════════════════════ */
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto px-1 sm:px-0">
+    <div className="space-y-6 max-w-5xl mx-auto px-3 sm:px-4 lg:px-0">
       <PageHeader
         title="Access Hub"
         description="Credentials, protocol documents, workspace tokens, and system configuration."
       />
 
       {isAdmin ? (
-        <Tabs defaultValue="credentials" className="space-y-6">
-          <TabsList className="bg-muted/50 w-full sm:w-auto">
-            <TabsTrigger value="credentials" className="gap-1.5">
+        <Tabs value={urlTab} className="space-y-6">
+          <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto flex-nowrap">
+            <TabsTrigger value="credentials" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
               <KeyRound className="h-3.5 w-3.5" />
               Credentials
             </TabsTrigger>
-            <TabsTrigger value="protocol" className="gap-1.5">
+            <TabsTrigger value="protocol" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
               <FileText className="h-3.5 w-3.5" />
               Protocol &amp; Resources
             </TabsTrigger>
-            <TabsTrigger value="system" className="gap-1.5">
+            <TabsTrigger value="lark-users" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}>
+              <Bird className="h-3.5 w-3.5" />
+              User Mapping
+            </TabsTrigger>
+            <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
               <Settings className="h-3.5 w-3.5" />
               System Config
             </TabsTrigger>
@@ -1054,7 +1110,7 @@ export default function AccessHubPage() {
                       <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
                     </div>
                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                      <SelectTrigger className="w-[220px]">
+                      <SelectTrigger className="w-full sm:w-[220px]">
                         <SelectValue placeholder="All users" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1084,8 +1140,8 @@ export default function AccessHubPage() {
 
             {/* Add button */}
             {isAdmin && (
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={openAddCredDialog}>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 mr-1" /> Add Credential
                 </Button>
               </div>
@@ -1146,7 +1202,7 @@ export default function AccessHubPage() {
                           )}
                         </div>
                         {isAdmin && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1 opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
                               <Edit3 className="h-3 w-3" />
                             </Button>
@@ -1157,7 +1213,7 @@ export default function AccessHubPage() {
                         )}
                       </div>
                       {isAdmin && cred.user && (
-                        <CardDescription className="text-xs">
+                        <CardDescription className="text-xs truncate">
                           For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
                         </CardDescription>
                       )}
@@ -1176,7 +1232,7 @@ export default function AccessHubPage() {
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
                           <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
@@ -1364,7 +1420,7 @@ export default function AccessHubPage() {
                             ) : (
                               <Badge variant="outline" className="text-xs text-muted-foreground">Not set</Badge>
                             )}
-                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs opacity-100 transition-opacity">
                               <Settings className="h-3 w-3 mr-1" />
                               {user.hasCode ? "Edit" : "Set"}
                             </Button>
@@ -1383,7 +1439,158 @@ export default function AccessHubPage() {
             </Card>
           </TabsContent>
 
-          {/* ═══════════ TAB 3: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
+          {/* ═══════════ TAB 3: USER MAPPING (Lark) ═══════════ */}
+          <TabsContent value="lark-users" className="space-y-5 mt-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Bird className="h-4 w-4" /> Lark User Mapping
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      Match TrishulHub users with their Lark accounts for task sync
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        setLarkUsersLoading(true);
+                        setLarkUsersError("");
+                        try {
+                          // Fetch raw Lark users
+                          const larkRes = await fetch("/api/lark/users?allLarkUsers=true", { credentials: "include" });
+                          const larkData = await larkRes.json();
+                          if (larkData.allLarkUsers) {
+                            setLarkUsers(larkData.allLarkUsers);
+                            localStorage.setItem('trishulhub_lark_users', JSON.stringify(larkData.allLarkUsers));
+                          }
+                          if (larkData.larkError) setLarkUsersError(larkData.larkError);
+                          if (larkData.larkWarning) setLarkUsersError(larkData.larkWarning);
+
+                          // Fetch existing mappings (TrishulHub users with their lark mapping info)
+                          const mapRes = await fetch("/api/lark/users", { credentials: "include" });
+                          const mapData = await mapRes.json();
+                          if (mapData.users) {
+                            const mappings: Record<string, string> = {};
+                            for (const u of mapData.users) {
+                              if (u.larkOpenId && u.larkMapped) {
+                                mappings[u.larkOpenId] = u.id;
+                              }
+                            }
+                            setLarkMappings(mappings);
+                            localStorage.setItem('trishulhub_lark_mappings', JSON.stringify(mappings));
+                          }
+                        } catch { setLarkUsersError("Failed to fetch Lark users"); }
+                        finally { setLarkUsersLoading(false); }
+                      }}
+                      disabled={larkUsersLoading}
+                      className="h-8 text-xs"
+                    >
+                      {larkUsersLoading ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+                      Refresh Lark Users
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        setLarkMappingsSaving(true);
+                        try {
+                          const entries = Object.entries(larkMappings).filter(([_, val]) => val && val !== "__none__");
+                          let success = 0;
+                          for (const [larkOpenId, userId] of entries) {
+                            const larkUser = larkUsers.find(u => u.open_id === larkOpenId);
+                            const res = await fetch("/api/lark/users", {
+                              method: "POST",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                userId,
+                                larkOpenId,
+                                larkName: larkUser?.name || "",
+                                larkEmail: larkUser?.email || "",
+                                matchedBy: "manual",
+                              }),
+                            });
+                            const data = await res.json();
+                            if (data.success) success++;
+                          }
+                          // Invalidate server-side cache so next load is fresh
+                          await fetch("/api/lark/users?action=invalidate", { method: "DELETE", credentials: "include" });
+                          localStorage.setItem('trishulhub_lark_mappings', JSON.stringify(larkMappings));
+                          toast.success(`${success} mapping${success !== 1 ? 's' : ''} saved successfully`);
+                        } catch { toast.error("Failed to save mappings"); }
+                        finally { setLarkMappingsSaving(false); }
+                      }}
+                      disabled={larkMappingsSaving}
+                      className="h-8 text-xs"
+                    >
+                      {larkMappingsSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+                      Save Mappings
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {larkUsersError && (
+                  <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/10 dark:border-yellow-800/30">
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300">{larkUsersError}</p>
+                  </div>
+                )}
+                {larkUsers.length === 0 && !larkUsersLoading && !larkUsersError && (
+                  <div className="text-center py-8">
+                    <Bird className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="text-sm text-muted-foreground">No Lark users loaded yet.</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Click "Refresh Lark Users" to fetch from Lark API.</p>
+                  </div>
+                )}
+                {larkUsers.length > 0 && allUsers.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+                      Lark Users ({larkUsers.length}) — map each to a TrishulHub user
+                    </p>
+                    <div className="grid gap-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+                      {larkUsers.map((lu) => (
+                        <div key={lu.open_id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-lg border bg-card">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-primary">{lu.name?.[0] || "?"}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{lu.name}</p>
+                            {lu.email && <p className="text-[11px] text-muted-foreground truncate">{lu.email}</p>}
+                          </div>
+                          <Select
+                            value={larkMappings[lu.open_id] || ""}
+                            onValueChange={(val) => setLarkMappings(m => ({ ...m, [lu.open_id]: val }))}
+                          >
+                            <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
+                              <SelectValue placeholder="Not mapped" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">Not mapped</SelectItem>
+                              {allUsers.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {larkUsersLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span className="ml-2 text-sm text-muted-foreground">Fetching Lark users...</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
           <TabsContent value="system" className="space-y-5 mt-2">
             {!isSuperAdmin ? (
               <Card>
@@ -1548,7 +1755,7 @@ export default function AccessHubPage() {
                 {/* Credential Encryption Key — for project credentials (separate from SMTP/Git) */}
                 <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-primary" />
                         <CardTitle className="text-sm">Credential Encryption Key</CardTitle>
@@ -1566,14 +1773,14 @@ export default function AccessHubPage() {
                         <span className="text-[10px]">(stored in database)</span>
                       </div>
                     )}
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <div className="relative flex-1">
                         <Input
                           type={showCredEncKey ? "text" : "password"}
                           placeholder="Paste 64-char hex key or generate below"
                           value={credEncKeyForm}
                           onChange={(e) => setCredEncKeyForm(e.target.value)}
-                          className="h-8 text-xs font-mono pr-16"
+                          className="h-8 text-xs font-mono pr-16 w-full"
                         />
                         <button
                           type="button"
@@ -1596,7 +1803,7 @@ export default function AccessHubPage() {
                           <RefreshCw className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8">
+                      <Button size="sm" onClick={handleSaveCredEncKey} disabled={credEncKeySaving || !credEncKeyForm.trim()} className="h-8 w-full sm:w-auto">
                         {credEncKeySaving ? "Saving..." : "Save Key"}
                       </Button>
                     </div>
@@ -1606,7 +1813,7 @@ export default function AccessHubPage() {
                 {/* ━━ Lark Integration ━━ */}
                 <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
                           <Bird className="h-4 w-4 text-blue-500" />
@@ -1617,17 +1824,21 @@ export default function AccessHubPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {larkConfig?.connected && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>}
+                        {larkConfigLoading ? (
+                          <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]"><Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />Checking...</Badge>
+                        ) : larkConfig?.connected ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"><CircleDot className="h-2.5 w-2.5 mr-1" />Connected</Badge>
+                        ) : null}
                         <Switch
                           checked={larkConfig?.enabled ?? false}
                           onCheckedChange={handleLarkToggle}
-                          disabled={larkToggling || !larkConfig?.configured}
+                          disabled={larkToggling || larkConfigLoading || !larkConfig?.configured}
                         />
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {larkConfig?.connected ? null : larkConfig?.configured ? (
+                    {larkConfigLoading ? null : larkConfig?.connected ? null : larkConfig?.configured ? (
                       <div className="flex items-center gap-2 p-2.5 rounded-md bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
                         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                         <span>Connection failed — check App ID and Secret</span>
@@ -1701,17 +1912,15 @@ export default function AccessHubPage() {
                               3
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-medium">Add the 4 Event Subscriptions</p>
+                              <p className="text-xs font-medium">Add the Event Subscription</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                After the URL is verified, add these 4 events in the same page under "Event Subscription":
+                                After the URL is verified, add this event under "Event Subscription":
                               </p>
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {["task.task.created", "task.task.updated", "task.task.deleted", "task.task.completed"].map((evt) => (
-                                  <Badge key={evt} variant="secondary" className="text-[10px] font-mono">{evt}</Badge>
-                                ))}
+                                <Badge variant="secondary" className="text-[10px] font-mono">task.task.updated_v1</Badge>
                               </div>
                               <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                Path: Event Subscription → Add Event → search "task" → select each of the 4 above
+                                Path: Event Subscription → Add Event → search "task.task.updated" → select the V1 version
                               </p>
                             </div>
                           </div>
@@ -1727,7 +1936,7 @@ export default function AccessHubPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium">Map Users & Enable Sync</p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Go to <button onClick={() => router.push("/dashboard/lark/users")} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">User Mapping</button> to match TrishulHub users with their Lark accounts.
+                                Go to <button onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")} className="text-primary hover:underline font-medium">User Mapping</button> tab to match TrishulHub users with their Lark accounts.
                                 Then toggle the switch above to <b>Enable</b> 2-way sync.
                               </p>
                             </div>
@@ -1773,7 +1982,7 @@ export default function AccessHubPage() {
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <Button
                         size="sm"
                         onClick={handleSaveLarkConfig}
@@ -1811,12 +2020,12 @@ export default function AccessHubPage() {
 
                     {/* Quick links */}
                     <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
-                      <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
+                      <a href="https://open.larksuite.com/app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary transition-colors">
                         <Globe className="h-3 w-3" /> Lark Developer Console
                       </a>
                       <span className="text-border">|</span>
                       <button
-                        onClick={() => router.push("/dashboard/lark/users")}
+                        onClick={() => router.replace("/dashboard/access-hub?tab=lark-users")}
                         className="flex items-center gap-1 hover:text-primary transition-colors"
                       >
                         <UserCheck className="h-3 w-3" /> User Mapping
@@ -1874,7 +2083,7 @@ export default function AccessHubPage() {
                         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
                         <div className="flex items-center gap-2">
                           <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.password, `pass-${cred.id}`)} aria-label="Copy password">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
                             {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
@@ -1970,7 +2179,7 @@ export default function AccessHubPage() {
 
       {/* Add/Edit Credential Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingCredential ? "Edit Credential" : "Add New Credential"}

@@ -6,8 +6,8 @@ import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
-  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
-  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
+  CheckCircle2, ShieldCheck, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
+  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -108,6 +108,9 @@ export default function ProjectDetailPage() {
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
+  // Detect if loaded inside floating board iframe — hide back button & reduce padding
+  const isInIframe = typeof window !== "undefined" && window.self !== window.top;
+
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
       window.location.href = "/login";
@@ -118,6 +121,7 @@ export default function ProjectDetailPage() {
 
   // ── State: UI-only state (dialogs, selections) ──
   const [addOpen, setAddOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
@@ -134,8 +138,11 @@ export default function ProjectDetailPage() {
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressTrackRef = useRef<HTMLDivElement>(null);
+  const dragValueRef = useRef<number>(0);
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
 
-  // ── React Query: Project data with caching ──
+  // ── React Query: Project data with aggressive caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => {
@@ -152,7 +159,9 @@ export default function ProjectDetailPage() {
       return null;
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -167,7 +176,9 @@ export default function ProjectDetailPage() {
       return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
+    staleTime: 15 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -182,7 +193,9 @@ export default function ProjectDetailPage() {
       return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
     },
     enabled: !!projectId,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -195,12 +208,14 @@ export default function ProjectDetailPage() {
       const ud = deepSanitize(await res.json());
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
-    enabled: isAdminUser,
-    staleTime: 30 * 1000,
+    enabled: !isInIframe && isAdminUser,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
-  // ── React Query: Websites with caching ──
+  // ── React Query: Websites — SKIP in iframe (not needed for task board)
   const { data: websitesData = [] } = useQuery({
     queryKey: ["project-websites", projectId],
     queryFn: async () => {
@@ -211,8 +226,10 @@ export default function ProjectDetailPage() {
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
-    enabled: !!projectId && isAdminUser,
-    staleTime: 30 * 1000,
+    enabled: !isInIframe && !!projectId && isAdminUser,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 
@@ -287,6 +304,8 @@ export default function ProjectDetailPage() {
 
   const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     const form = new FormData(e.currentTarget);
     const data = {
       title: String(form.get("title") || ""),
@@ -301,6 +320,7 @@ export default function ProjectDetailPage() {
       if (res.ok) { toast.success("Task created"); setAddOpen(false); invalidateAll(); }
       else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
     } catch { toast.error("Failed to create task"); }
+    finally { setCreating(false); }
   };
 
   const handleMoveTask = async (taskId: string, newStatus: string) => {
@@ -371,11 +391,15 @@ export default function ProjectDetailPage() {
     return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
   }, [teamUsers, memberUserIds]);
 
-  // Fix: Include tasksLoading and membersLoading to prevent layout shift
-  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+  // CRITICAL FIX: Only gate on session + project loading.
+  // Do NOT block on tasksLoading/membersLoading — show the board immediately
+  // with tasks/members populating in as they arrive. This fixes:
+  // 1. "No data visible" in floating task board iframes (was blocked by slow teamUsers query)
+  // 2. Slow perceived loading (page was blank until ALL 4 queries finished)
+  const isInitialLoading = sessionStatus === "loading" || projectLoading;
 
-  // ── Loading state ──
-  if (isLoading) {
+  // ── Loading state — only for session/project (not tasks/members) ──
+  if (isInitialLoading) {
     return (
       <div className="space-y-5">
         <div className="flex items-center gap-3">
@@ -385,12 +409,6 @@ export default function ProjectDetailPage() {
             <Skeleton className="h-3.5 w-72" />
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-9 w-28 rounded-full" />
-          ))}
-        </div>
-        <Skeleton className="h-5 w-40" />
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-72 rounded-xl" />)}
         </div>
@@ -429,9 +447,10 @@ export default function ProjectDetailPage() {
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
   return (
-    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both" }}>
+    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both", padding: isInIframe ? "8px" : undefined }}>
       {/* ═══════ Compact Header ═══════ */}
       <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
+        {!isInIframe && (
         <Button
           variant="ghost"
           size="icon"
@@ -441,6 +460,7 @@ export default function ProjectDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>
@@ -469,34 +489,71 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Progress pill */}
+        {/* Progress pill — draggable for admins */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
           <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
-          <Progress value={safeNumber(projectProgress)} className={cn("h-1.5 w-16 rounded-full", getProgressColor(projectProgress))} />
-          {isAdminUser ? (
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={safeNumber(projectProgress)}
-              onChange={(e) => {
-                const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-                progressTimerRef.current = setTimeout(() => {
-                  handleUpdateProject({ progress: val });
-                }, 500);
-              }}
-              className="h-5 w-11 text-[10px] text-center font-bold p-0 border-0 shadow-none focus-visible:ring-0"
-            />
-          ) : (
-            <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
-          )}
+          {(() => {
+            const displayProgress = dragProgress !== null ? dragProgress : safeNumber(projectProgress);
+            const fillColor = displayProgress < 30 ? "bg-red-500" : displayProgress < 70 ? "bg-amber-500" : "bg-emerald-500";
+            const handleShadow = displayProgress < 30 ? "shadow-red-500/30" : displayProgress < 70 ? "shadow-amber-500/30" : "shadow-emerald-500/30";
+            const cursorClass = isAdminUser ? "cursor-pointer" : "cursor-default";
+            return (
+              <div className="flex items-center gap-1.5">
+                <div
+                  ref={progressTrackRef}
+                  className={cn("relative h-2 w-24 rounded-full bg-black/10 dark:bg-white/10 select-none", cursorClass)}
+                  onMouseDown={isAdminUser ? (e) => {
+                    e.preventDefault();
+                    const getVal = (ev: MouseEvent | React.MouseEvent) => {
+                      if (!progressTrackRef.current) return 0;
+                      const rect = progressTrackRef.current.getBoundingClientRect();
+                      const x = Math.max(0, Math.min(ev.clientX - rect.left, rect.width));
+                      return Math.round((x / rect.width) * 100);
+                    };
+                    const val = getVal(e);
+                    dragValueRef.current = val;
+                    setDragProgress(val);
+                    const handleMove = (ev: MouseEvent) => {
+                      const v = getVal(ev);
+                      dragValueRef.current = v;
+                      setDragProgress(v);
+                    };
+                    const handleUp = () => {
+                      document.removeEventListener("mousemove", handleMove);
+                      document.removeEventListener("mouseup", handleUp);
+                      const finalVal = dragValueRef.current;
+                      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+                      progressTimerRef.current = setTimeout(() => {
+                        handleUpdateProject({ progress: finalVal });
+                      }, 500);
+                      setDragProgress(null);
+                    };
+                    document.addEventListener("mousemove", handleMove);
+                    document.addEventListener("mouseup", handleUp);
+                  } : undefined}
+                >
+                  <div className={cn("absolute inset-y-0 left-0 rounded-full transition-[width] duration-75", fillColor, handleShadow)} style={{ width: `${displayProgress}%` }} />
+                  {isAdminUser && (
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 shadow-md transition-[left] duration-75 pointer-events-none"
+                      style={{ left: `calc(${displayProgress}% - 6px)`, backgroundColor: displayProgress < 30 ? "#ef4444" : displayProgress < 70 ? "#f59e0b" : "#10b981" }}
+                    />
+                  )}
+                </div>
+                {isAdminUser ? (
+                  <span className={cn("text-[11px] font-bold tabular-nums w-7 text-right", progressColorClass)}>{displayProgress}%</span>
+                ) : (
+                  <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{displayProgress}%</span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Budget pill (admin only) */}
         {isAdminUser && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
-            <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">₹</span>
             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
               {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
             </span>
@@ -786,7 +843,9 @@ export default function ProjectDetailPage() {
                     })}
                   </select>
                 </div>
-                <Button type="submit" className="w-full h-8 text-xs">Create Task</Button>
+                <Button type="submit" className="w-full h-8 text-xs" disabled={creating}>
+                  {creating ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Creating...</> : "Create Task"}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>

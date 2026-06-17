@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/rbac"
 import { getAppSetting, setAppSetting } from "@/lib/db"
 import { getCredentialKey } from "@/lib/encryption"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 const SETTING_KEY = "credentialEncryptionKey"
 
@@ -78,6 +79,13 @@ export async function PATCH(req: NextRequest) {
 
     await setAppSetting(SETTING_KEY, newKey)
 
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+      entityType: "credential-encryption-key",
+      description: buildDescription("CONFIG_CHANGE", "credential encryption key"),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ success: true, message: "Credential encryption key saved" })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)

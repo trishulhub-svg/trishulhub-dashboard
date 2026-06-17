@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createMeetingSchema, validateRequest } from "@/lib/validations"
 import { meetingRateLimit } from "@/lib/rate-limit"
+import { sendEmailWithFailover, isValidEmail, isDisposableEmail } from "@/lib/email"
 
 // GET /api/meetings - List meetings with filters
 export async function GET(req: NextRequest) {
@@ -189,7 +190,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { title, description, date, startTime, endTime, meetingType, meetingLink, projectId, attendeeIds, notes } = validation.data
+    const { title, description, date, startTime, endTime, meetingType, meetingLink, projectId, attendeeIds, notes, externalAttendeeEmails } = validation.data
 
     // Validate attendee IDs exist
     if (attendeeIds && attendeeIds.length > 0) {
@@ -254,6 +255,52 @@ export async function POST(req: NextRequest) {
           console.warn("[meetings] Failed to create notification:", err)
         }
       })
+    )
+
+    // Send branded email invitations to all attendees (internal + external)
+    const internalUsers = attendeeIds && attendeeIds.length > 0
+      ? await db.user.findMany({ where: { id: { in: attendeeIds } }, select: { email: true } })
+      : []
+    const allEmails = [...new Set([
+      ...internalUsers.map(u => u.email).filter(Boolean),
+      ...(externalAttendeeEmails || []),
+    ])].filter(e => isValidEmail(e) && !isDisposableEmail(e))
+
+    const meetingDateStr = new Date(date).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+    const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#f5f5f5;font-family:system-ui,-apple-system,sans-serif;">
+<div style="max-width:600px;margin:20px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+  <div style="background:linear-gradient(135deg,#1889CC,#5ACB38);padding:24px 32px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px">TrishulHub</h1>
+  </div>
+  <div style="padding:32px">
+    <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:18px">Meeting Invitation</h2>
+    <p style="margin:0 0 20px;color:#666;font-size:14px">You have been invited to a meeting.</p>
+    <div style="background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:20px">
+      <h3 style="margin:0 0 12px;color:#1a1a1a;font-size:16px">${title}</h3>
+      <p style="margin:6px 0;color:#444;font-size:14px"><strong>Date:</strong> ${meetingDateStr}</p>
+      <p style="margin:6px 0;color:#444;font-size:14px"><strong>Time:</strong> ${startTime}${endTime ? ` - ${endTime}` : ""}</p>
+      <p style="margin:6px 0;color:#444;font-size:14px"><strong>Type:</strong> ${meetingType || "Virtual"}</p>
+      ${description ? `<p style="margin:12px 0 0;color:#555;font-size:13px;line-height:1.5">${description}</p>` : ""}
+    </div>
+    ${meetingLink ? `<div style="text-align:center"><a href="${meetingLink}" style="display:inline-block;background:#1889CC;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Join Meeting</a></div>` : ""}
+    ${notes ? `<p style="margin:20px 0 0;color:#888;font-size:13px;padding:12px;background:#f9fafb;border-radius:8px"><strong>Notes:</strong> ${notes}</p>` : ""}
+  </div>
+  <div style="padding:16px 32px;border-top:1px solid #eee;text-align:center">
+    <p style="margin:0;color:#aaa;font-size:11px">This meeting was scheduled via TrishulHub</p>
+  </div>
+</div></body></html>`
+
+    await Promise.allSettled(
+      allEmails.map(email =>
+        sendEmailWithFailover({
+          to: email,
+          subject: `Meeting: ${title} - TrishulHub`,
+          html: emailHtml,
+          text: `Meeting Invitation: ${title}\nDate: ${meetingDateStr}\nTime: ${startTime}${endTime ? " - " + endTime : ""}\n${meetingLink ? "Join: " + meetingLink : ""}`,
+          type: "MEETING_INVITATION",
+          triggeredBy: userId,
+        }).catch(err => console.warn("[meetings] Email failed:", err))
+      )
     )
 
     return NextResponse.json(meeting, { status: 201 })

@@ -111,6 +111,7 @@ export default function GlobalTaskBoardPage() {
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [projectFilter, setProjectFilter] = useState("ALL");
   const [addOpen, setAddOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -143,10 +144,8 @@ export default function GlobalTaskBoardPage() {
       params.set("page", "1");
       params.set("limit", "100");
 
-      // Non-admin only sees their own tasks
-      if (!isAdminUser) {
-        params.set("assignedTo", "current");
-      }
+      // Developers only see their own assigned/created tasks (enforced server-side by RBAC)
+      // No forced assignedTo filter needed — the API restricts visibility automatically
 
       // Apply filters
       if (statusFilter !== "ALL") params.set("status", statusFilter);
@@ -212,8 +211,9 @@ export default function GlobalTaskBoardPage() {
   useEffect(() => {
     if (sessionStatus === "loading") return;
     fetchTasks();
+    // All users need project list for filtering; only admins need user list
+    fetchProjects();
     if (isAdminUser) {
-      fetchProjects();
       fetchUsers();
     }
   }, [sessionStatus, fetchTasks, fetchProjects, fetchUsers, isAdminUser]);
@@ -253,6 +253,8 @@ export default function GlobalTaskBoardPage() {
   // ── Create task handler ──
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     const form = new FormData(e.currentTarget);
     const data: Record<string, unknown> = {
       title: String(form.get("title") || ""),
@@ -263,7 +265,7 @@ export default function GlobalTaskBoardPage() {
       assignedTo: String(form.get("assignedTo") || "") || undefined,
       deadline: String(form.get("deadline") || "") || undefined,
     };
-    if (!data.title) { toast.error("Title is required"); return; }
+    if (!data.title) { toast.error("Title is required"); setCreating(false); return; }
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -282,7 +284,7 @@ export default function GlobalTaskBoardPage() {
       }
     } catch {
       toast.error("Failed to create task");
-    }
+    } finally { setCreating(false); }
   };
 
   // ── Edit task handlers ──
@@ -502,7 +504,9 @@ export default function GlobalTaskBoardPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => setAddOpen(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm">Create</Button>
+                  <Button type="submit" size="sm" disabled={creating}>
+                    {creating ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Creating...</> : "Create"}
+                  </Button>
                 </div>
               </form>
             </DialogContent>
@@ -516,7 +520,7 @@ export default function GlobalTaskBoardPage() {
         style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "120ms" }}
       >
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
+        <div className="relative flex-1 min-w-[150px] sm:min-w-[200px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
           <Input
             placeholder="Search tasks..."
@@ -685,16 +689,18 @@ export default function GlobalTaskBoardPage() {
                           </div>
                         )}
 
-                        {/* Assignee + Deadline row */}
+                        {/* Assignee + Deadline row (assignee hidden for non-admin: they only see their own tasks) */}
                         <div className="flex items-center justify-between gap-1">
-                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
-                            {tAssigneeType === "AI" ? (
-                              <Bot className="h-2.5 w-2.5 shrink-0" />
-                            ) : (
-                              <User className="h-2.5 w-2.5 shrink-0" />
-                            )}
-                            <span className="truncate max-w-[72px]">{safeText(tAssignedName)}</span>
-                          </div>
+                          {isAdminUser && (
+                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+                              {tAssigneeType === "AI" ? (
+                                <Bot className="h-2.5 w-2.5 shrink-0" />
+                              ) : (
+                                <User className="h-2.5 w-2.5 shrink-0" />
+                              )}
+                              <span className="truncate max-w-[72px]">{safeText(tAssignedName)}</span>
+                            </div>
+                          )}
                           {tDeadline && (
                             <span className="text-[9px] text-muted-foreground/70 flex items-center gap-0.5 shrink-0">
                               <Calendar className="h-2.5 w-2.5" />
@@ -786,7 +792,7 @@ export default function GlobalTaskBoardPage() {
       <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground/70">
         <span>
           {String(filteredTasks.length)} tasks across {String(TASK_COLUMNS.length)} columns
-          {!isAdminUser && " (your tasks only)"}
+          {!isAdminUser && " (your tasks)"}
         </span>
         {filteredTasks.length > 0 && (
           <div className="flex items-center gap-2">
@@ -843,7 +849,7 @@ export default function GlobalTaskBoardPage() {
             </div>
           </DialogHeader>
           {selectedTask && (
-            <ScrollArea className="max-h-[60vh]">
+            <ScrollArea className="max-h-[50vh] sm:max-h-[60vh]">
               <div className="space-y-4 pr-2">
                 {/* Description */}
                 {extractStr(selectedTask, "description", "") && (
@@ -869,23 +875,25 @@ export default function GlobalTaskBoardPage() {
                       {extractStr(selectedTask, "priority", "MEDIUM")}
                     </Badge>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium">Assignee</p>
-                    <div className="flex items-center gap-1.5">
-                      {extractStr(selectedTask, "assigneeType", "HUMAN") === "AI" ? (
-                        <Bot className="h-3.5 w-3.5 text-violet-500" />
-                      ) : (
-                        <Avatar className="h-5 w-5">
-                          <AvatarFallback className="text-[8px] bg-gradient-to-br from-slate-500 to-slate-600 text-white">
-                            {getInitials(extractStr(selectedTask, "assignedToName", "Un"))}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                      <span className="text-xs font-medium">
-                        {safeText(extractStr(selectedTask, "assignedToName", "") || "Unassigned")}
-                      </span>
+                  {isAdminUser && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground font-medium">Assignee</p>
+                      <div className="flex items-center gap-1.5">
+                        {extractStr(selectedTask, "assigneeType", "HUMAN") === "AI" ? (
+                          <Bot className="h-3.5 w-3.5 text-violet-500" />
+                        ) : (
+                          <Avatar className="h-5 w-5">
+                            <AvatarFallback className="text-[8px] bg-gradient-to-br from-slate-500 to-slate-600 text-white">
+                              {getInitials(extractStr(selectedTask, "assignedToName", "Un"))}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
+                        <span className="text-xs font-medium">
+                          {safeText(extractStr(selectedTask, "assignedToName", "") || "Unassigned")}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground font-medium">Deadline</p>
                     <span className="text-xs flex items-center gap-1">

@@ -8,7 +8,7 @@ import {
   generateSessionToken,
   setSessionToken,
   validateSessionToken,
-  removeSession,
+  removeSessionToken,
 } from "@/lib/session-manager"
 
 const isDev = process.env.NODE_ENV === "development"
@@ -150,9 +150,8 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role
         token.id = user.id
 
-        // Generate and store session token for single-device enforcement.
-        // This overwrites any existing session token in the DB,
-        // which invalidates any previous device's session.
+        // Generate and store session token for multi-device enforcement (max 2).
+        // If 2 sessions already exist, the oldest is removed (FIFO — 1st device kicked).
         const sessionToken = generateSessionToken()
 
         try {
@@ -161,10 +160,7 @@ export const authOptions: NextAuthOptions = {
           log("[auth] Session token stored for user:", user.id)
         } catch (err) {
           logError("[auth] Failed to store session token for user", user.id, "— single-device enforcement DEGRADED:", err)
-          // Don't set token.sessionToken — single-device enforcement disabled gracefully.
-          // The userId && currentToken guard in the JWT callback will skip validation,
-          // so the user can still log in but won't have single-device enforcement.
-          console.warn(`[auth] Single-device enforcement is DEGRADED for user ${user.id}. Monitor DB health.`)
+          // Don't set token.sessionToken — multi-device enforcement disabled gracefully.
         }
 
         return token
@@ -198,9 +194,9 @@ export const authOptions: NextAuthOptions = {
 
       // ── On Session Access (read/refresh) ──
       // Validate the session token against the database to enforce
-      // single-device login. If the token doesn't match, it means
-      // the user logged in from another device, changed their email,
-      // or had their session invalidated by an admin.
+      // multi-device login (max 2 devices). If the token doesn't match,
+      // it means this device was kicked (3rd device logged in, oldest evicted),
+      // email was changed, or session was invalidated by an admin.
 
       const userId = token.id
       const currentToken = token.sessionToken
@@ -253,15 +249,16 @@ export const authOptions: NextAuthOptions = {
     },
   },
   events: {
-    // Clean up session record on explicit sign-out
+    // Remove only this device's session token on sign-out (other devices stay logged in)
     async signOut({ token }) {
       const userId = token?.id
-      if (userId) {
+      const sessionToken = token?.sessionToken
+      if (userId && sessionToken) {
         try {
-          await removeSession(userId)
-          log("[auth] Session record removed on signout for user:", userId)
+          await removeSessionToken(userId, sessionToken)
+          log("[auth] Session token removed on signout for user:", userId)
         } catch (err) {
-          logError("[auth] Failed to remove session on signout:", err)
+          logError("[auth] Failed to remove session token on signout:", err)
         }
       }
     },

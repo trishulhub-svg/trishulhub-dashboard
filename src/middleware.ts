@@ -4,7 +4,7 @@ import { getToken } from "next-auth/jwt"
 
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
 // /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol"]
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol", "/api/lark/webhook"]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Check for session errors set by the JWT callback
-  // SessionKicked = another device logged in, email changed, or session invalidated
+  // SessionKicked = another device logged in (max 2 exceeded, oldest kicked), email changed, or session invalidated
   if (token?.error === "SessionKicked") {
     // For pages: redirect to login with kicked reason
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/portal")) {
@@ -77,18 +77,19 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
-    // Admin-only routes
+    // Admin-only routes — developers can access: workspace, timetable, meetings,
+    // my-training, leaves (for their own data). Everything else here requires admin.
     const adminOnlyRoutes = [
       "/dashboard/api-keys",
       "/dashboard/finance",
       "/dashboard/crm",
       "/dashboard/clients",
+      "/dashboard/projects",
       "/dashboard/availability",
       "/dashboard/team",
       "/dashboard/training",
-      "/dashboard/leaves",
-      "/dashboard/my-training",
       "/dashboard/approvals",
+      "/dashboard/audit-trail",
       "/dashboard/settings",
       "/dashboard/credentials",
       "/dashboard/lark",
@@ -129,8 +130,8 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     return response
   }
 
-  // Prevent framing (clickjacking protection)
-  response.headers.set("X-Frame-Options", "DENY")
+  // Prevent framing (clickjacking protection) — allow same-origin for floating task boards
+  response.headers.set("X-Frame-Options", "SAMEORIGIN")
   // Prevent MIME type sniffing
   response.headers.set("X-Content-Type-Options", "nosniff")
   // Enforce HTTPS for all subdomains for 1 year
@@ -150,7 +151,7 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     "img-src 'self' data: blob:; " +
     "font-src 'self' data:; " +
     "connect-src 'self' https://api.openai.com https://*.turso.tech; " +
-    "frame-ancestors 'none'"
+    "frame-ancestors 'self'"
   )
   return response
 }

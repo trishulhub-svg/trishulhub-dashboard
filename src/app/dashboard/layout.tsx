@@ -2,6 +2,9 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import { FloatingBoardProvider } from "@/components/providers/floating-board-provider";
+import { FloatingBoardRenderer } from "@/components/floating-task-board";
+import { useFloatingBoards } from "@/components/providers/floating-board-provider";
 import {
   LayoutDashboard,
   Bot,
@@ -42,6 +45,8 @@ import {
   ScrollText,
   Kanban,
   Bird,
+  FileText,
+  ChevronRight,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -81,6 +86,7 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: UserRole[];
+  children?: NavItem[];
 }
 
 interface NavGroup {
@@ -102,7 +108,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
@@ -125,7 +131,7 @@ const navGroups: NavGroup[] = [
   {
     label: "HR & People",
     items: [
-      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
@@ -134,7 +140,7 @@ const navGroups: NavGroup[] = [
     label: "Learning",
     items: [
       { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {
@@ -142,14 +148,27 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
-      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      {
+        title: "Access Hub",
+        href: "/dashboard/access-hub",
+        icon: KeyRound,
+        roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"],
+        children: [
+          { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+          { title: "Protocol", href: "/dashboard/access-hub?tab=protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "User Mapping", href: "/dashboard/access-hub?tab=lark-users", icon: Bird, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
+        ],
+      },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
 ];
 
-// Flat list for header title lookup (order-independent)
-const allNavItems = navGroups.flatMap((g) => g.items);
+// Flat list for header title lookup (order-independent, includes children)
+const allNavItems = navGroups.flatMap((g) =>
+  g.items.flatMap((item) => [item, ...(item.children || [])])
+);
 
 interface PendingCounts {
   approvals: number;
@@ -214,11 +233,47 @@ const SidebarContent = React.memo(function SidebarContent({
   onNavigate: (href: string) => void;
   badgeCounts: Record<string, number>;
 }) {
+  // Helper: check if a nav item (or any of its children) is active
+  const isItemActive = (item: NavItem): boolean => {
+    if (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))) return true;
+    // Check with query params: /dashboard/access-hub?tab=credentials should match /dashboard/access-hub
+    if (item.children) {
+      // If pathname starts with item.href, any child tab is active
+      if (pathname === item.href || pathname.startsWith(item.href)) return true;
+      return item.children.some((child) => isItemActive(child));
+    }
+    return false;
+  };
+
+  // Helper: check if a href is the exact active page (for child items with query params)
+  const isChildActive = (child: NavItem): boolean => {
+    // For child items with query params (e.g., ?tab=credentials), compare full href
+    if (child.href.includes("?")) {
+      if (typeof window === "undefined") return false;
+      return pathname + window.location.search === child.href;
+    }
+    return pathname === child.href;
+  };
+
   // Filter groups: only show groups that have at least one visible item for this role
+  // Parent items are visible if their role matches OR any child's role matches
+  // Children within parent items are filtered by role
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => item.roles.includes(userRole)),
+      items: group.items
+        .map((item) => {
+          if (item.children) {
+            const visibleChildren = item.children.filter((c) => c.roles.includes(userRole));
+            // Show parent if parent role matches or any visible child exists
+            if (item.roles.includes(userRole) || visibleChildren.length > 0) {
+              return { ...item, children: visibleChildren };
+            }
+            return null;
+          }
+          return item.roles.includes(userRole) ? item : null;
+        })
+        .filter((item): item is NavItem => item !== null),
     }))
     .filter((group) => group.items.length > 0);
 
@@ -229,18 +284,32 @@ const SidebarContent = React.memo(function SidebarContent({
       if (g.label === "Overview") {
         initial[g.label] = true;
       } else {
-        // Only expand if this group contains the currently active page
-        const isActive = g.items.some(
-          (item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))
-        );
+        const isActive = g.items.some((item) => isItemActive(item));
         initial[g.label] = isActive;
       }
     });
     return initial;
   });
 
+  // Item-level expand/collapse state (for items with children)
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    navGroups.forEach((g) => {
+      g.items.forEach((item) => {
+        if (item.children) {
+          initial[item.href] = isItemActive(item);
+        }
+      });
+    });
+    return initial;
+  });
+
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  };
+
+  const toggleItem = (href: string) => {
+    setExpandedItems((prev) => ({ ...prev, [href]: !prev[href] }));
   };
 
   return (
@@ -276,7 +345,7 @@ const SidebarContent = React.memo(function SidebarContent({
         <nav className="space-y-2 px-3">
           {visibleGroups.map((group, groupIdx) => {
             const isOverview = group.label === "Overview";
-            const hasActive = group.items.some((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")));
+            const hasActive = group.items.some((item) => isItemActive(item));
             // When sidebar is collapsed, show all expanded. Otherwise, expand if explicitly toggled OR if group contains active page
             const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? false) || hasActive;
             // Count badges for the group (for collapsed header indicator)
@@ -330,32 +399,84 @@ const SidebarContent = React.memo(function SidebarContent({
                 >
                   <div className="space-y-0.5">
                     {group.items.map((item) => {
-                      const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"));
+                      const isActive = isItemActive(item);
+                      const hasChildren = !!item.children && item.children.length > 0;
+                      const isItemExpanded = hasChildren ? (collapsed ? true : (expandedItems[item.href] ?? false) || isActive) : false;
+
                       return (
-                        <button
-                          key={item.href}
-                          onClick={() => onNavigate(item.href)}
-                          role="link"
-                          aria-label={item.title}
-                          className={cn(
-                            "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
-                            isActive
-                              ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        <div key={item.href}>
+                          <button
+                            onClick={() => {
+                              if (hasChildren) {
+                                // Only toggle expand/collapse — don't navigate to parent
+                                toggleItem(item.href);
+                              } else {
+                                onNavigate(item.href);
+                              }
+                            }}
+                            role="link"
+                            aria-label={item.title}
+                            className={cn(
+                              "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
+                              isActive
+                                ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                                : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            )}
+                            type="button"
+                          >
+                            <item.icon className={cn("h-[18px] w-[18px] shrink-0", collapsed && "mx-auto")} />
+                            {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
+                            {!collapsed && hasChildren && (
+                              <ChevronRight
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
+                                  isItemExpanded && "rotate-90"
+                                )}
+                              />
+                            )}
+                            {!collapsed && !hasChildren && badgeCounts[item.href] > 0 && (
+                              <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
+                                {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
+                              </Badge>
+                            )}
+                            {collapsed && badgeCounts[item.href] > 0 && (
+                              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                            )}
+                          </button>
+                          {/* Sub-items for items with children */}
+                          {!collapsed && hasChildren && (
+                            <div
+                              className={cn(
+                                "overflow-hidden transition-all duration-200 ease-in-out",
+                                isItemExpanded ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0"
+                              )}
+                            >
+                              <div className="ml-4 pl-3 border-l border-sidebar-border/30 space-y-0.5 mt-0.5 mb-1">
+                                {item.children!.map((child) => {
+                                  const childActive = isChildActive(child);
+                                  return (
+                                    <button
+                                      key={child.href}
+                                      onClick={() => onNavigate(child.href)}
+                                      role="link"
+                                      aria-label={child.title}
+                                      className={cn(
+                                        "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 w-full text-left",
+                                        childActive
+                                          ? "bg-sidebar-primary/10 text-sidebar-primary font-semibold"
+                                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                                      )}
+                                      type="button"
+                                    >
+                                      <child.icon className="h-3.5 w-3.5 shrink-0" />
+                                      <span className="flex-1 text-left truncate">{child.title}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           )}
-                          type="button"
-                        >
-                          <item.icon className={cn("h-[18px] w-[18px] shrink-0", collapsed && "mx-auto")} />
-                          {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
-                          {!collapsed && badgeCounts[item.href] > 0 && (
-                            <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
-                              {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
-                            </Badge>
-                          )}
-                          {collapsed && badgeCounts[item.href] > 0 && (
-                            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-                          )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -394,6 +515,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  // Issue 2: When loaded inside a floating task board iframe (?embed=true),
+  // hide sidebar, header, and nested floating board renderer — show ONLY task content
+  // Using window.location.search instead of useSearchParams to avoid Suspense requirement
+  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "true";
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -580,12 +705,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // W3: Prevent CLIENT users from seeing any dashboard content before redirect
   if (userRole === "CLIENT") return null;
 
+  // Embed mode: render ONLY the page content with no sidebar/header/floating boards
+  if (isEmbed) {
+    return (
+      <FloatingBoardProvider>
+        <div className="h-screen w-full overflow-auto bg-background">
+          {children}
+        </div>
+      </FloatingBoardProvider>
+    );
+  }
+
   return (
+    <FloatingBoardProvider>
+    <LogoutBridge />
     <div className="min-h-screen flex bg-background">
       {/* Desktop Sidebar - wider and more spacious */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40",
+          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40 liquid-glass-sidebar",
           collapsed ? "w-[72px]" : "w-[280px]"
         )}
       >
@@ -636,7 +774,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 border-b border-border bg-card flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
+        <header className="h-14 sm:h-16 glass-topbar flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
@@ -804,7 +942,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Settings className="mr-2 h-4 w-4" /> Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
+                <DropdownMenuItem onClick={async () => {
+                  // Auto-minimize all floating boards before logout
+                  window.dispatchEvent(new CustomEvent("trishulhub:logout"));
+                  await signOut({ redirect: false });
+                  router.push("/login");
+                }}>
                   <LogOut className="mr-2 h-4 w-4" /> Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -818,6 +961,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Agentation — visual feedback tool (all users) */}
       <Agentation />
+
+      {/* Floating Task Boards — accessible from all dashboard pages */}
+      <FloatingBoardRenderer />
     </div>
+    </FloatingBoardProvider>
   );
+}
+
+// ─── Bridge: Listens for logout event to auto-minimize floating boards ──
+function LogoutBridge() {
+  const { signalLogout } = useFloatingBoards();
+  useEffect(() => {
+    const handler = () => signalLogout();
+    window.addEventListener("trishulhub:logout", handler);
+    return () => window.removeEventListener("trishulhub:logout", handler);
+  }, [signalLogout]);
+  return null;
 }

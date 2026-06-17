@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, Eye, EyeOff, LogOut, Mail, Shield } from "lucide-react";
+import { Clock, Eye, EyeOff, LogOut, Mail, Shield, X } from "lucide-react";
 import { toast } from "sonner";
 import LoadingScreen from "@/components/ui/loading-screen";
 
@@ -16,12 +16,12 @@ import LoadingScreen from "@/components/ui/loading-screen";
 const sessionReasonMessages: Record<string, { title: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
   timeout: {
     title: "Session Expired",
-    description: "Your session has expired due to 15 minutes of inactivity. Please sign in again.",
+    description: "Your session has expired. Please sign in again.",
     icon: Clock,
   },
   kicked: {
     title: "Signed Out",
-    description: "You have been signed out because your account was logged in from another device. Only one device can be active at a time.",
+    description: "You have been signed out because your account was logged in on another device. You can be logged in on up to 2 devices at a time — the oldest session is removed when a 3rd device connects.",
     icon: LogOut,
   },
   email_changed: {
@@ -50,6 +50,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [showReasonBanner, setShowReasonBanner] = useState(true);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
   const [setupLogs, setSetupLogs] = useState<string[]>([]);
   const router = useRouter();
@@ -65,7 +66,6 @@ function LoginForm() {
 
   function getRedirectUrl(role: string | undefined, callbackUrl: string) {
     if (role === "CLIENT") {
-      // CLIENT users must always go to /portal, regardless of callbackUrl (P11-AUTH-03)
       return "/portal";
     }
     return callbackUrl || "/dashboard";
@@ -74,7 +74,6 @@ function LoginForm() {
   // If already logged in, redirect
   useEffect(() => {
     if (status !== "authenticated" || !session) return;
-
     const role = session.user?.role;
     router.replace(getRedirectUrl(role, callbackUrl));
   }, [status, session, router, callbackUrl]);
@@ -91,15 +90,26 @@ function LoginForm() {
               ? true
               : data.status === "needs_setup"
                 ? false
-                : true // Unknown status — allow login attempt
+                : true
           );
         }
       })
-      .catch(() => { if (!controller.signal.aborted) setDbReady(null); }); // Network error — show checking state
+      .catch(() => { if (!controller.signal.aborted) setDbReady(null); });
     return () => controller.abort();
   }, []);
 
-  // While session is loading or authenticated+redirecting, show shared loading screen
+  // Show toast for session reason on mount
+  useEffect(() => {
+    if (sessionReason && sessionReasonMessages[sessionReason]) {
+      const msg = sessionReasonMessages[sessionReason];
+      const IconComp = msg.icon;
+      toast(`${msg.title}: ${msg.description}`, {
+        duration: 8000,
+        icon: <IconComp className="h-4 w-4" />,
+      });
+    }
+  }, [sessionReason]);
+
   if (status === "loading") {
     return <LoadingScreen />;
   }
@@ -152,7 +162,6 @@ function LoginForm() {
       } else {
         toast.success("Login successful!");
         setLoading(false);
-        // Fetch session to determine role-based redirect (P11-AUTH-03)
         try {
           const sessionRes = await fetch("/api/auth/session");
           const sessionData = await sessionRes.json();
@@ -183,6 +192,26 @@ function LoginForm() {
       {/* Bottom gradient fade */}
       <div className="login-bottom-fade" aria-hidden="true" />
 
+      {/* Session reason overlay banner — fixed position, does NOT push content */}
+      {showReasonBanner && sessionReason && sessionReasonMessages[sessionReason] && (
+        <div className="fixed top-0 left-0 right-0 z-50 login-reason-banner">
+          <div className="flex items-center justify-center gap-2 py-2.5 px-4 text-xs max-w-3xl mx-auto">
+            {(() => {
+              const IconComp = sessionReasonMessages[sessionReason].icon;
+              return <IconComp className="h-3.5 w-3.5 shrink-0" />;
+            })()}
+            <span className="font-medium">{sessionReasonMessages[sessionReason].title}:</span>
+            <span className="opacity-80 line-clamp-2">{sessionReasonMessages[sessionReason].description}</span>
+            <button
+              onClick={() => setShowReasonBanner(false)}
+              className="ml-2 shrink-0 opacity-60 hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-white/10"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="login-content">
         <div className="login-card-area">
           {/* Brand Header */}
@@ -205,6 +234,10 @@ function LoginForm() {
             <p className="login-tagline animate-login-fade-up" style={{ animationDelay: '150ms' }}>
               Sign in to manage your projects, team, and workflow
             </p>
+            <div className="login-security-badge animate-login-fade-up" style={{ animationDelay: '200ms' }}>
+              <Shield className="h-2.5 w-2.5" />
+              <span>Secured with end-to-end encryption</span>
+            </div>
           </div>
 
           {/* Show setup button if database is not ready */}
@@ -234,28 +267,6 @@ function LoginForm() {
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Session expiry notification */}
-          {sessionReason && sessionReasonMessages[sessionReason] && (
-            <Card className="login-session-card animate-login-scale-in" style={{ animationDelay: '250ms' }}>
-              <CardContent className="pt-3 pb-3 px-4">
-                <div className="flex items-start gap-2.5">
-                  {(() => {
-                    const IconComp = sessionReasonMessages[sessionReason].icon;
-                    return <IconComp className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />;
-                  })()}
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-                      {sessionReasonMessages[sessionReason].title}
-                    </p>
-                    <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-0.5 leading-relaxed">
-                      {sessionReasonMessages[sessionReason].description}
-                    </p>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           )}

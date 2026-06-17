@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log";
 
 // ── Zod Schemas ──
 const createCredentialSchema = z.object({
@@ -180,6 +181,13 @@ export async function POST(req: NextRequest) {
     if (process.env.NODE_ENV !== "production") {
       console.log("[credentials] CREATE by userId:", session.user.id, "credentialId:", credential.id);
     }
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "SYSTEM", page: "credentials", action: "CREATE",
+      entityType: "credential", entityId: credential.id,
+      description: buildDescription("CREATE", "credential", credential.label),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     const { password: _pwd, ...safe } = credential;
     return NextResponse.json(safe, { status: 201 });
   } catch (error: unknown) {
@@ -240,6 +248,13 @@ export async function PUT(req: NextRequest) {
     if (process.env.NODE_ENV !== "production") {
       console.log("[credentials] UPDATE by userId:", session.user.id, "credentialId:", credential.id);
     }
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "SYSTEM", page: "credentials", action: "UPDATE",
+      entityType: "credential", entityId: credential.id,
+      description: buildDescription("UPDATE", "credential", credential.label),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     const { password: _pwd, ...safe } = credential;
     return NextResponse.json(safe);
   } catch (error: unknown) {
@@ -285,6 +300,13 @@ export async function DELETE(req: NextRequest) {
       if (process.env.NODE_ENV !== "production") {
         console.log("[credentials] DELETE by userId:", session.user.id, "credentialId:", id);
       }
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "SYSTEM", page: "credentials", action: "DELETE",
+        entityType: "credential", entityId: id,
+        description: buildDescription("DELETE", "credential", id),
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       await tx.userCredential.delete({ where: { id } });
     });
     return NextResponse.json({ success: true });

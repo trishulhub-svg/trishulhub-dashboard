@@ -8,6 +8,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { syncTasksToGit } from "@/lib/git-sync"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
@@ -119,12 +120,13 @@ export async function GET(req: NextRequest) {
       skip: offset,
     })
 
-    // Fetch all project-method assignments in one query
+    // Fetch project-method assignments — filter by projectId when specified
     let methodsMap: Record<string, Array<{ id: string; name: string }>> = {}
     try {
-      const assignments = await db.$queryRawUnsafe(
-        `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id"`
-      ) as unknown as Array<{ projectId: string; id: string; name: string }>
+      const methodsSql = projectId
+        ? `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = '${projectId.replace(/'/g, "''")}'`
+        : `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id"`
+      const assignments = await db.$queryRawUnsafe(methodsSql) as unknown as Array<{ projectId: string; id: string; name: string }>
       for (const a of assignments) {
         if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
         methodsMap[a.projectId].push({ id: a.id, name: a.name })
@@ -224,6 +226,13 @@ export async function POST(req: NextRequest) {
     // Background: sync project data to Git (fire-and-forget)
     syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
     // I1: Targeted Date serialization
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "BUSINESS", page: "projects", action: "CREATE",
+      entityType: "project", entityId: project.id,
+      description: buildDescription("CREATE", "project", project.name),
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(serializeProjectDates(project), { status: 201 })
   } catch (error: unknown) {
     console.error("[projects] POST error:", error instanceof Error ? error.message : String(error))
